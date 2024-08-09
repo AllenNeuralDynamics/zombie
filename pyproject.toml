@@ -3,8 +3,8 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "observatory-test"
-description = "Generated from aind-library-template"
+name = "zombie"
+description = "Zoomable observatory for mult-scale brain investigation and exploration"
 license = {text = "MIT"}
 requires-python = ">=3.7"
 authors = [
@@ -17,6 +17,10 @@ readme = "README.md"
 dynamic = ["version"]
 
 dependencies = [
+    'pydantic',
+    'aind-data-access-api[docdb]',
+    'panel',
+    'altair'
 ]
 
 [project.optional-dependencies]
@@ -27,14 +31,15 @@ dev = [
     'interrogate',
     'isort',
     'Sphinx',
-    'furo'
+    'furo',
+    'watchfiles'
 ]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.dynamic]
-version = {attr = "observatory_test.__version__"}
+version = {attr = "zombie.__version__"}
 
 [tool.black]
 line-length = 79
@@ -58,8 +63,8 @@ exclude = '''
 '''
 
 [tool.coverage.run]
-omit = ["*__init__*"]
-source = ["observatory_test", "tests"]
+omit = ["*__init__*", "src/zombie/server_test.py"]
+source = ["zombie", "tests"]
 
 [tool.coverage.report]
 exclude_lines = [
