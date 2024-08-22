@@ -13,6 +13,23 @@ docdb_api_client = MetadataDbClient(
 )
 
 
+TIMEOUT_24H = 60*60*24
+
+
+@pn.cache(ttl=TIMEOUT_24H)  # twenty-four hour cache
+def get_all():
+    filter = {}
+    limit = 50
+    paginate_batch_size = 500
+    response = docdb_api_client.retrieve_docdb_records(
+        filter_query=filter,
+        limit=limit,
+        paginate_batch_size=paginate_batch_size
+    )
+
+    return response
+
+
 @pn.cache
 def get_subjects():
     filter = {
