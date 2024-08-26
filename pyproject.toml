@@ -20,7 +20,11 @@ dependencies = [
     'pydantic',
     'aind-data-access-api[docdb]',
     'panel',
-    'altair'
+    'altair',
+    'zarr',
+    'matplotlib',
+    'boto3',
+    's3fs'
 ]
 
 [project.optional-dependencies]
