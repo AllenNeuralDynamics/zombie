@@ -36,7 +36,8 @@ dev = [
     'isort',
     'Sphinx',
     'furo',
-    'watchfiles'
+    'watchfiles',
+    'aind-data-schema'
 ]
 
 [tool.setuptools.packages.find]

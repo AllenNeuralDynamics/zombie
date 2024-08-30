@@ -2,16 +2,14 @@
 
 import altair as alt
 import panel as pn
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 
+from zombie.search import search_bar
 from zombie.s3 import SpikeSorting
 from zombie.plots import raster_aggregated
-from zombie.utils import bincount2D
 
 alt.data_transformers.disable_max_rows()
-pn.extension('vega', template='fast')
+pn.extension("vega", template="fast")
 pn.state.template.title = "AIND Quality Control"
 
 
@@ -33,4 +31,13 @@ dmap = raster_aggregated(sx, sy)
 left_col = pn.Column(dmap)
 right_col = pn.Column("TODO")
 
-pn.Row(left_col, right_col).servable()
+metric_row = pn.Row(left_col, right_col, width=800)
+
+search_bar().servable()
+
+accordion = pn.Accordion(
+    ("Metric _no_name_", metric_row), active=[0], width=1000
+)
+
+
+accordion.servable()

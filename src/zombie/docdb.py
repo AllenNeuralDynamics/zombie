@@ -7,13 +7,13 @@ DATABASE = "metadata_index"
 COLLECTION = "data_assets"
 
 docdb_api_client = MetadataDbClient(
-   host=API_GATEWAY_HOST,
-   database=DATABASE,
-   collection=COLLECTION,
+    host=API_GATEWAY_HOST,
+    database=DATABASE,
+    collection=COLLECTION,
 )
 
 
-TIMEOUT_24H = 60*60*24
+TIMEOUT_24H = 60 * 60 * 24
 
 
 @pn.cache(ttl=TIMEOUT_24H)  # twenty-four hour cache
@@ -24,7 +24,7 @@ def get_all():
     response = docdb_api_client.retrieve_docdb_records(
         filter_query=filter,
         limit=limit,
-        paginate_batch_size=paginate_batch_size
+        paginate_batch_size=paginate_batch_size,
     )
 
     return response
@@ -33,22 +33,22 @@ def get_all():
 @pn.cache
 def get_subjects():
     filter = {
-            'subject.subject_id': {'$exists': True},
-            'session': {'$ne': None}
-            }
+        "subject.subject_id": {"$exists": True},
+        "session": {"$ne": None},
+    }
     limit = 1000
     paginate_batch_size = 100
     response = docdb_api_client.retrieve_docdb_records(
         filter_query=filter,
-        projection={'_id': 0, 'subject.subject_id': 1},
+        projection={"_id": 0, "subject.subject_id": 1},
         limit=limit,
-        paginate_batch_size=paginate_batch_size
+        paginate_batch_size=paginate_batch_size,
     )
 
     # turn this into a list instead of a nested list
     subjects = []
     for data in response:
-        subjects.append(np.int32(data['subject']['subject_id']))
+        subjects.append(np.int32(data["subject"]["subject_id"]))
 
     return np.unique(subjects).tolist()
 
@@ -67,15 +67,16 @@ def get_sessions(subject_id):
     _type_
         _description_
     """
-    filter = {"subject.subject_id": str(subject_id),
-              "session": {"$ne": "null"}}
+    filter = {
+        "subject.subject_id": str(subject_id),
+        "session": {"$ne": "null"},
+    }
     response = docdb_api_client.retrieve_docdb_records(
-        filter_query=filter,
-        projection={'_id': 0, 'session': 1}
+        filter_query=filter, projection={"_id": 0, "session": 1}
     )
 
     sessions = []
     for data in response:
-        sessions.append(data['session'])
+        sessions.append(data["session"])
 
     return sessions

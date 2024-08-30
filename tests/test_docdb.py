@@ -2,7 +2,7 @@
 
 import unittest
 
-from zombie.docdb import get_sessions, get_subjects
+from zombie.core.docdb import get_sessions, get_subjects
 
 
 class DocDBTest(unittest.TestCase):
