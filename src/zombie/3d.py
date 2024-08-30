@@ -1,9 +1,7 @@
 # Draft of 3D utilities
 import panel as pn
 
-pn.config.static_dirs = {
-    'mesh': './mesh'
-}
+pn.config.static_dirs = {"mesh": "./mesh"}
 
 # Three.js HTML and JavaScript code
 three_js_code = """
@@ -85,7 +83,9 @@ three_js_code = """
 """
 
 # Create the Panel app
-three_js_pane = pn.pane.HTML(three_js_code, height=600, width=800, sizing_mode="stretch_both")
+three_js_pane = pn.pane.HTML(
+    three_js_code, height=600, width=800, sizing_mode="stretch_both"
+)
 
 # Serve the Panel app
 pn.Column("## 3D Visualization with Three.js", three_js_pane).servable()
