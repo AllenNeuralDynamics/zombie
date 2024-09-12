@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "zombie"
 description = "Zoomable observatory for mult-scale brain investigation and exploration"
 license = {text = "MIT"}
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 authors = [
     {name = "Allen Institute for Neural Dynamics"}
 ]
@@ -24,7 +24,8 @@ dependencies = [
     'zarr',
     'matplotlib',
     'boto3',
-    's3fs'
+    's3fs',
+    'aind-data-schema'
 ]
 
 [project.optional-dependencies]

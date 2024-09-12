@@ -6,21 +6,18 @@ import s3fs
 import boto3
 from pathlib import Path
 
-uri = "s3://aind-scratch-data/postprocessed_test_zarr/postprocessed_experiment1_Record Node 104#Neuropix-PXI-100.zarr/"
+URI = "s3://aind-scratch-data/ecephys_718481_2024-06-04_10-33-39_sorted_2024-08-27_11-28-34/"
 
 
 def _load_zarr(fpath):
+    print(fpath)
     return zarr.open(fpath, mode="r")
 
 
 class SpikeSorting:
 
-    def __init__(
-        self,
-        uri="s3://aind-scratch-data/postprocessed_test_zarr/postprocessed_experiment1_Record Node 104#Neuropix-PXI-100.zarr/",
-        backend="local",
-    ):
-        """_summary_
+    def __init__(self, uri=URI, backend="local", path="./files/data/"):
+        """Initialize AWS SpikeSorting object
 
         Parameters
         ----------
@@ -29,6 +26,7 @@ class SpikeSorting:
         """
         self.uri = uri
         self.backend = backend
+        self.path = Path(path)
 
         if self.backend == "s3":
             self.store = s3fs.S3Map(
@@ -44,7 +42,7 @@ class SpikeSorting:
             _description_
         """
         if self.backend == "local":
-            fpath = Path("./files/data/") / relative_filepath
+            fpath = self.path / relative_filepath
             za = _load_zarr(fpath)[:]
             return za
         elif self.backend == "s3":
