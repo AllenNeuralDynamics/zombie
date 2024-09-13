@@ -5,6 +5,9 @@ import panel as pn
 API_GATEWAY_HOST = "api.allenneuraldynamics.org"
 DATABASE = "metadata_index"
 COLLECTION = "data_assets"
+TIMEOUT_1M = 60
+TIMEOUT_1H = 60 * 60
+TIMEOUT_24H = 60 * 60 * 24
 
 docdb_api_client = MetadataDbClient(
     host=API_GATEWAY_HOST,
@@ -13,7 +16,48 @@ docdb_api_client = MetadataDbClient(
 )
 
 
-TIMEOUT_24H = 60 * 60 * 24
+class DocDB():
+
+    def __init__(self):
+        self.client = MetadataDbClient(
+            host=API_GATEWAY_HOST,
+            database=DATABASE,
+            collection=COLLECTION,
+        )
+
+    def create_query(self, *args):
+        pass
+
+    def create_aggregation(self, fields: list[str]):
+        pass
+
+    @pn.cache(ttl=TIMEOUT_1M)
+    def get_id_name(self):
+        self.client.aggregate(pipeline=[
+            {
+                "$project": {
+                    "_id": 1,
+                    "name": 1
+                }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "data": {
+                        "$push": {
+                            "_id": "$_id",
+                            "name": "$name"
+                        }
+                    }
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "data": 1
+                }
+            }
+        ])
 
 
 @pn.cache(ttl=TIMEOUT_24H)  # twenty-four hour cache

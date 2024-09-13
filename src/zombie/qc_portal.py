@@ -4,7 +4,7 @@
 import panel as pn
 import pandas as pd
 
-from zombie.docdb.docdb import get_all
+from zombie.database import get_all
 
 
 class Record:
