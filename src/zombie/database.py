@@ -50,6 +50,7 @@ def get_meta():
             }
         }
     ])
+    print(len(response))
     return response[0]["data"]
 
 

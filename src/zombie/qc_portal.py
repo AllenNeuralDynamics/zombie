@@ -28,8 +28,8 @@ class SearchOptions:
         meta_list = get_meta()
 
         for record in meta_list:
-
-                record_split = record["name"].split("_")
+            record_split = record["name"].split("_")
+            if len(record_split) == 3:
 
                 if record["qc_exists"]:
                     status = record["qc_exists"]
@@ -46,8 +46,6 @@ class SearchOptions:
                 }
                 data.append(r)
             
-            except:
-                print(record)
 
         self.df = pd.DataFrame(
             data,
