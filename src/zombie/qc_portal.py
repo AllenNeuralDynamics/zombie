@@ -4,7 +4,7 @@
 import panel as pn
 import pandas as pd
 
-from zombie.database import get_all
+from zombie.database import get_meta
 
 
 class Record:
@@ -25,23 +25,29 @@ class SearchOptions:
         """Initialize a search options object"""
 
         data = []
-        for record in get_all():
-            record_split = record["name"].split("_")
+        meta_list = get_meta()
 
-            if "quality_control" in record:
-                status = record["quality_control"]["overall_status"]
-            else:
-                status = "No QC"
+        for record in meta_list:
 
-            r = {
-                "name": record["name"],
-                "modality": record_split[0],
-                "subject_id": record_split[1],
-                "date": record_split[2],
-                "status": status,
-                "view": f'<a href="{link}" target="_blank">link</a>',
-            }
-            data.append(r)
+                record_split = record["name"].split("_")
+
+                if record["qc_exists"]:
+                    status = record["qc_exists"]
+                else:
+                    status = "No QC"
+
+                r = {
+                    "name": record["name"],
+                    "modality": record_split[0],
+                    "subject_id": record_split[1],
+                    "date": record_split[2],
+                    "status": status,
+                    "view": f'<a href="{link}" target="_blank">link</a>',
+                }
+                data.append(r)
+            
+            except:
+                print(record)
 
         self.df = pd.DataFrame(
             data,

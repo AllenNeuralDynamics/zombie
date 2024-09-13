@@ -9,55 +9,48 @@ TIMEOUT_1M = 60
 TIMEOUT_1H = 60 * 60
 TIMEOUT_24H = 60 * 60 * 24
 
-docdb_api_client = MetadataDbClient(
+client = MetadataDbClient(
     host=API_GATEWAY_HOST,
     database=DATABASE,
     collection=COLLECTION,
 )
 
 
-class DocDB():
-
-    def __init__(self):
-        self.client = MetadataDbClient(
-            host=API_GATEWAY_HOST,
-            database=DATABASE,
-            collection=COLLECTION,
-        )
-
-    def create_query(self, *args):
-        pass
-
-    def create_aggregation(self, fields: list[str]):
-        pass
-
-    @pn.cache(ttl=TIMEOUT_1M)
-    def get_id_name(self):
-        self.client.aggregate(pipeline=[
-            {
-                "$project": {
-                    "_id": 1,
-                    "name": 1
-                }
-            },
-            {
-                "$group": {
-                    "_id": None,
-                    "data": {
-                        "$push": {
-                            "_id": "$_id",
-                            "name": "$name"
-                        }
+def get_meta():
+    response = client.aggregate_docdb_records(pipeline=[
+        {
+            "$project": {
+                "_id": 1,
+                "name": 1,
+                "qc_exists": {
+                    "$cond": {
+                        "if": { "$gt": [{ "$type": "$quality_control" }, "missing"] },
+                        "then": "$quality_control.overall_status",
+                        "else": None
                     }
                 }
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "data": 1
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "data": {
+                    "$push": {
+                        "_id": "$_id",
+                        "name": "$name",
+                        "qc_exists": "$qc_exists"
+                    }
                 }
             }
-        ])
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "data": 1
+            }
+        }
+    ])
+    return response[0]["data"]
 
 
 @pn.cache(ttl=TIMEOUT_24H)  # twenty-four hour cache
@@ -65,7 +58,7 @@ def get_all():
     filter = {}
     limit = 50
     paginate_batch_size = 500
-    response = docdb_api_client.retrieve_docdb_records(
+    response = client.retrieve_docdb_records(
         filter_query=filter,
         limit=limit,
         paginate_batch_size=paginate_batch_size,
@@ -75,14 +68,14 @@ def get_all():
 
 
 @pn.cache
-def get_subjects():
+def get_subjects(slf):
     filter = {
         "subject.subject_id": {"$exists": True},
         "session": {"$ne": None},
     }
     limit = 1000
     paginate_batch_size = 100
-    response = docdb_api_client.retrieve_docdb_records(
+    response = client.retrieve_docdb_records(
         filter_query=filter,
         projection={"_id": 0, "subject.subject_id": 1},
         limit=limit,
@@ -115,7 +108,7 @@ def get_sessions(subject_id):
         "subject.subject_id": str(subject_id),
         "session": {"$ne": "null"},
     }
-    response = docdb_api_client.retrieve_docdb_records(
+    response = client.retrieve_docdb_records(
         filter_query=filter, projection={"_id": 0, "session": 1}
     )
 
