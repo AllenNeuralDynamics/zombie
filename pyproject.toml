@@ -24,7 +24,13 @@ dependencies = [
     'zarr',
     'matplotlib',
     'boto3',
+<<<<<<< Updated upstream
     's3fs'
+=======
+    's3fs',
+    'aind-data-schema',
+    'metadata-chatbot'
+>>>>>>> Stashed changes
 ]
 
 [project.optional-dependencies]
