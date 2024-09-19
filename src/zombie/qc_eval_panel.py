@@ -58,6 +58,20 @@ class QualityControl:
         for evaluation_data in self.raw_data["evaluations"]:
             self.evaluations.append(Evaluation(evaluation_data))
 
+        self.submit_button = pn.widgets.Button(name="Submit changes", button_type="success")
+        self.submit_button.disabled = True
+        pn.bind(self.submit_changes, self.submit_button, watch=True)
+
+        self.dirty = False
+
+    def set_dirty(self, *event):
+        self.dirty = True
+        self.submit_button.disabled = False
+
+    def submit_changes(self, *event):
+        print('Submitted')
+        pass
+
     def panel(self):
         """Build a Panel object representing this QC action"""
         objects = []
@@ -66,23 +80,37 @@ class QualityControl:
 
         # build the header
         md = f"""
-# {self.name}
-<span style="font-size:16pt">Status: {self.overall_status_html} on **{self.overall_status_date}**</span>
+# Quality control for {self.name}
 """
         header = pn.pane.Markdown(md)
-        
+
+        # build the display box: this shows the current state in DocDB of this asset
+        state_md = f"""
+<span style="font-size:16pt">Current state:</span>
+<span style="font-size:12pt">Status: {self.overall_status_html} on **{self.overall_status_date}**</span>
+<span style="font-size:12pt">Notes: {self.notes}</span>
+<span style="font-size:12pt">{len(self.evaluations)} evaluations.</span>
+"""
+
+        state_pane = pn.pane.Markdown(state_md, width=500, height=120)
+
         # build the widget box
         status = pn.widgets.Select(value=self.overall_status)
         status.options = ["Fail", "Pending", "Pass"]
         notes = pn.widgets.TextAreaInput(value=self.notes, placeholder="No notes provided")
-        box = pn.WidgetBox(pn.Row(status, notes), name="Settings:")
 
-        left_col = pn.Column(header, box)
+        status.param.watch(self.set_dirty, 'value')
+        notes.param.watch(self.set_dirty, 'value')
+
+        box = pn.WidgetBox(pn.Column(status, notes, width=480, height=120), name="Settings:", width=500, height=140)
+
+        # combine and then put in a column, with header
+        qc_row = pn.Row(state_pane, box)
+
+        quality_control_pane = pn.Column(header, qc_row)
 
         # button
-        submit_button = pn.widgets.Button(name="Submit changes", button_type="success")
-        submit_button.disabled = True
-        header_row = pn.Row(left_col, pn.HSpacer(), submit_button)
+        header_row = pn.Row(quality_control_pane, pn.HSpacer(), self.submit_button)
 
         tabs = pn.Tabs()
         tabs.objects = objects
