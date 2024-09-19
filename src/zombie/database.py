@@ -6,7 +6,7 @@ import panel as pn
 # DATABASE = "metadata_index"
 # COLLECTION = "data_assets"
 
-API_GATEWAY_HOST = "api.allenneuraldynamics.org"
+API_GATEWAY_HOST = "api.allenneuraldynamics-test.org"
 DATABASE = "test"
 COLLECTION = "data_assets"
 

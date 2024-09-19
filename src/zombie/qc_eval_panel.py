@@ -4,6 +4,7 @@ import json
 from zombie.metric import Metric
 from zombie.database import qc_from_id
 
+
 class Evaluation:
 
     def __init__(self, evaluation_data: dict):
@@ -48,10 +49,16 @@ class QualityControl:
 
     def __init__(self, id):
         """_summary_"""
-        json_data = qc_from_id(id)
-        print(json_data)
-        # with open("files/metadata.nd.json", "r") as file:
-        #     json_data = json.load(file)
+        self.id = id
+
+        self.submit_button = pn.widgets.Button(name="Submit changes", button_type="success")
+        self.submit_button.disabled = True
+        pn.bind(self.submit_changes, self.submit_button, watch=True)
+
+        self.get_data()
+
+    def get_data(self):
+        json_data = qc_from_id(self.id)
 
         self.name = json_data["name"]
         self.raw_data = json_data["quality_control"]
@@ -60,11 +67,8 @@ class QualityControl:
         for evaluation_data in self.raw_data["evaluations"]:
             self.evaluations.append(Evaluation(evaluation_data))
 
-        self.submit_button = pn.widgets.Button(name="Submit changes", button_type="success")
-        self.submit_button.disabled = True
-        pn.bind(self.submit_changes, self.submit_button, watch=True)
-
         self.dirty = False
+
 
     def set_dirty(self, *event):
         self.dirty = True
