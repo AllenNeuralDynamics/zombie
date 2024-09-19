@@ -2,9 +2,14 @@ from aind_data_access_api.document_db import MetadataDbClient
 import numpy as np
 import panel as pn
 
+# API_GATEWAY_HOST = "api.allenneuraldynamics.org"
+# DATABASE = "metadata_index"
+# COLLECTION = "data_assets"
+
 API_GATEWAY_HOST = "api.allenneuraldynamics.org"
-DATABASE = "metadata_index"
+DATABASE = "test"
 COLLECTION = "data_assets"
+
 TIMEOUT_1M = 60
 TIMEOUT_1H = 60 * 60
 TIMEOUT_24H = 60 * 60 * 24
@@ -16,6 +21,14 @@ client = MetadataDbClient(
 )
 
 
+def qc_from_id(id: str):
+    response = client.retrieve_docdb_records(filter_query={
+        "_id": id
+    }, limit=1)
+    return response[0]
+
+
+@pn.cache()
 def get_name_from_id(id: str):
     response = client.aggregate_docdb_records(pipeline=[
         {"$match": {"_id": id}},
@@ -24,6 +37,7 @@ def get_name_from_id(id: str):
     return response[0]["name"]
 
 
+@pn.cache()
 def _raw_name_from_derived(s):
     """Returns just the raw asset name from an asset that is derived, i.e. has >= 4 underscores
 
@@ -43,6 +57,7 @@ def _raw_name_from_derived(s):
     return s
 
 
+@pn.cache(ttl=TIMEOUT_1H)
 def get_assets_by_name(asset_name: str):
     raw_name = _raw_name_from_derived(asset_name)
     print(raw_name)
@@ -106,7 +121,7 @@ def get_all():
 
 
 @pn.cache
-def get_subjects(slf):
+def get_subjects():
     filter = {
         "subject.subject_id": {"$exists": True},
         "session": {"$ne": None},
