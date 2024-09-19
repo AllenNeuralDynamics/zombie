@@ -2,62 +2,49 @@ import param
 import panel as pn
 import pandas as pd
 
-class MyApp(param.Parameterized):
-    modality_filter = param.String(default=None)
-    subject_filter = param.String(default=None)
-    date_filter = param.String(default=None)
+from zombie.database import get_name_from_id, get_assets_by_name
 
-    # Sample dataframe for demonstration
-    df = pd.DataFrame({
-        'Subject': ['A', 'B', 'C'],
-        'Date': ['2021-01-01', '2021-02-01', '2021-03-01'],
-        'Modality': ['MRI', 'CT', 'X-ray']
-    })
 
-    # Create a reactive method to filter the dataframe
-    @param.depends('modality_filter', 'subject_filter', 'date_filter', watch=True)
-    def active(self):
-        df_filtered = self.df.copy()
-        
-        # Filter based on modality
-        if self.modality_filter:
-            df_filtered = df_filtered[df_filtered['Modality'] == self.modality_filter]
-        
-        # Filter based on subject
-        if self.subject_filter:
-            df_filtered = df_filtered[df_filtered['Subject'] == self.subject_filter]
-        
-        # Filter based on date
-        if self.date_filter:
-            df_filtered = df_filtered[df_filtered['Date'] == self.date_filter]
-        
-        return df_filtered
+class AssetHistory(param.Parameterized):
+    id = param.String(default="")
 
-# Instantiate the app
-app = MyApp()
+    def __init__(self, **params):
+        super().__init__(**params)
 
-# Define selectors
-select_subject = pn.widgets.Select(name="Subject ID", options=['A', 'B', 'C'], width=100, value=None)
-select_modality = pn.widgets.Select(name="Modality", options=['MRI', 'CT', 'X-ray'], width=100, value=None)
-select_date = pn.widgets.Select(name="Date", options=['2021-01-01', '2021-02-01', '2021-03-01'], width=100, value=None)
+    @pn.depends('id', watch=True)
+    def update(self):
+        self.asset_name = get_name_from_id(self.id)
 
-# Sync the widgets with the app's parameters
-select_modality.link(app, value='modality_filter')
-select_subject.link(app, value='subject_filter')
-select_date.link(app, value='date_filter')
+        self.records = get_assets_by_name(self.asset_name)
 
-# Create the data table pane
-data_table = pn.pane.DataFrame(app.active(), escape=False, sizing_mode="stretch_both", max_height=1200, index=False)
 
-# Update the data table whenever filters change
-@pn.depends(app.param.modality_filter, app.param.subject_filter, app.param.date_filter, watch=True)
-def update_data_table(*events):
-    data_table.object = app.active()
+asset_history = AssetHistory()
+pn.state.location.sync(asset_history, {
+    'id': 'id',
+})
 
-# Create the layout
-layout = pn.Column(
-    pn.Row(select_subject, select_modality, select_date),  # Filters
-    data_table  # Data table
+if asset_history.id == "":
+    error_string = "\nAn ID must be provided as a query string. Please go back to the portal and choose an asset from the list."
+else:
+    error_string = ""
+
+md = f"""
+# QC Portal - Asset View
+This view shows the history of a single asset record back to its original raw dataset along with any derived assets. Select a single asset to view the quality control object associated with that asset.
+{error_string}
+"""
+
+header = pn.pane.Markdown(md)
+
+json = pn.pane.JSON(asset_history.records)
+
+col = pn.Column(
+    header,
+    json,
+    min_width=660
 )
 
-layout.servable()
+# Create the layout
+display = pn.Row(pn.HSpacer(), col, pn.HSpacer())
+
+display.servable()

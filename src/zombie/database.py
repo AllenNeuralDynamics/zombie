@@ -16,6 +16,23 @@ client = MetadataDbClient(
 )
 
 
+def get_name_from_id(id: str):
+    response = client.aggregate_docdb_records(pipeline=[
+        {"$match": {"_id": id}},
+        {"$project": {"name": 1, "_id": 0}}
+    ])
+    return response[0]["name"]
+
+
+def get_assets_by_name(name: str):
+    response = client.retrieve_docdb_records(filter_query={
+        "name": {"$regex": name, "$options": "i"}
+    },
+    limit=0)
+    return response
+
+
+@pn.cache(ttl=TIMEOUT_1H)
 def get_meta():
     response = client.aggregate_docdb_records(pipeline=[
         {
@@ -50,7 +67,6 @@ def get_meta():
             }
         }
     ])
-    print(len(response))
     return response[0]["data"]
 
 
