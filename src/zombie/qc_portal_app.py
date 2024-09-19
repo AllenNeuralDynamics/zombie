@@ -7,7 +7,7 @@ import param
 from datetime import datetime
 
 from zombie.database import get_meta
-from zombie.utils import ASSET_LINK_PREFIX, QC_LINK_PREFIX
+from zombie.utils import ASSET_LINK_PREFIX, QC_LINK_PREFIX, qc_color
 
 
 class SearchOptions(param.Parameterized):
@@ -134,32 +134,10 @@ class SearchView(param.Parameterized):
     def __init__(self, **params):
         super().__init__(**params)
 
-    def _qc_color(self, v):
-        """Re-color the QC field background
-
-        Parameters
-        ----------
-        v : str
-            QC status value
-
-        Returns
-        -------
-        str
-            CSS style string
-        """
-        if v == "No QC":
-            return "background-color: yellow"
-        elif v == "Pass":
-            return "background-color: green"
-        elif v == "Fail":
-            return "background-color: red"
-        elif v == "Pending":
-            return "background-color: blue"
-
     def df_filtered(self):
         """Filter the options dataframe"""
         df_filtered = options.active(self.modality_filter, self.subject_filter, self.date_filter)
-        return df_filtered.style.map(self._qc_color, subset=["Status"])
+        return df_filtered.style.map(qc_color, subset=["Status"])
 
     def df_textinput(self):
         return options.df[options.df["name"]==text_input.value]
