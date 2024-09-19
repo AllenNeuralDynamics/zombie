@@ -27,7 +27,7 @@ class SearchOptions(param.Parameterized):
             record_split = record["name"].split("_")
             if len(record_split) >= 4:  # drop names that are junk
 
-                if "qc_exists" in record:
+                if "qc_exists" in record and record["qc_exists"]:
                     status = record["qc_exists"]
                 else:
                     status = "No QC"
@@ -137,19 +137,34 @@ class SearchView(param.Parameterized):
     def __init__(self, **params):
         super().__init__(**params)
 
+    def _qc_color(self, v):
+        """Re-color the QC field background
+
+        Parameters
+        ----------
+        v : str
+            QC status value
+
+        Returns
+        -------
+        str
+            CSS style string
+        """
+        if v == "No QC":
+            return "background-color: yellow"
+        elif v == "Pass":
+            return "background-color: green"
+        elif v == "Fail":
+            return "background-color: red"
+        elif v == "Pending":
+            return "background-color: blue"
+
     @param.depends('modality_filter', 'subject_filter', 'date_filter', watch=True)
     def df_filtered(self):
         """Filter the options dataframe"""
         df_filtered = options.active(self.modality_filter, self.subject_filter, self.date_filter)
 
-        # add colors
-        def color(v):
-            if v == "No QC":
-                return "background-color: yellow"
-            else:
-                return "background-color: green"
-
-        return df_filtered.style.map(color, subset=["Status"])
+        return df_filtered.style.map(self._qc_color, subset=["Status"])
 
 
 searchview = SearchView()
