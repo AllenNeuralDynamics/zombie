@@ -140,3 +140,5 @@ dmypy.json
 
 
 files/*
+src/zombie/3dtest/files/*
+.venv*/*
