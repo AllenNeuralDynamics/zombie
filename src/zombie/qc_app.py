@@ -14,12 +14,16 @@ pn.extension("vega", "ace", "jsoneditor")
 
 # State sync
 class Settings(param.Parameterized):
-    name = param.String(default="ecephys_718481_2024-06-04_10-33-39")
+    id = param.String(default="33e427dd-1dd8-4062-abb4-0a82d5fc5def")
 
 
 settings = Settings()
-pn.state.location.sync(settings, {"name": "session_name"})
+pn.state.location.sync(settings, {"id": "id"})
 
-qc_panel = QualityControl(name=settings.name)
+
+# def set_submit
+
+
+qc_panel = QualityControl(id=settings.id)
 
 qc_panel.panel().servable(title="AIND QC - View")

@@ -2,7 +2,7 @@
 import panel as pn
 import json
 from zombie.metric import Metric
-
+from zombie.database import qc_from_id
 
 class Evaluation:
 
@@ -46,12 +46,14 @@ Evaluated by **{self.evaluator}** on **{self.date}**
 
 class QualityControl:
 
-    def __init__(self, name):
+    def __init__(self, id):
         """_summary_"""
-        with open("files/metadata.nd.json", "r") as file:
-            json_data = json.load(file)
+        json_data = qc_from_id(id)
+        print(json_data)
+        # with open("files/metadata.nd.json", "r") as file:
+        #     json_data = json.load(file)
 
-        self.name = name
+        self.name = json_data["name"]
         self.raw_data = json_data["quality_control"]
 
         self.evaluations = []
@@ -110,13 +112,15 @@ class QualityControl:
         quality_control_pane = pn.Column(header, qc_row)
 
         # button
-        header_row = pn.Row(quality_control_pane, pn.HSpacer(), self.submit_button)
+        header_row = pn.Row(quality_control_pane, pn.HSpacer(), self.submit_button, width=1000)
 
         tabs = pn.Tabs()
         tabs.objects = objects
 
-        col = pn.Column(header_row, pn.layout.Divider(), tabs)
-        return col
+        col = pn.Column(header_row, pn.layout.Divider(), tabs, min_width=1000)
+
+        body = pn.Row(pn.HSpacer(), col, pn.HSpacer())
+        return body
 
     def dump(self):
         """Return this quality_control.json object back to it's JSON format"""
