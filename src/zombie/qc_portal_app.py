@@ -7,10 +7,7 @@ import param
 from datetime import datetime
 
 from zombie.database import get_meta
-
-
-asset_link_prefix = "http://localhost:5007/qc_asset_app?id="
-qc_link_prefix = "http://localhost:5007/qc_app?id="
+from zombie.utils import ASSET_LINK_PREFIX, QC_LINK_PREFIX
 
 
 class SearchOptions(param.Parameterized):
@@ -46,8 +43,8 @@ class SearchOptions(param.Parameterized):
                     "subject_id": record_split[1],
                     "date": record_split[2],
                     "status": status,
-                    "asset_view": f'<a href="{asset_link_prefix}{record["_id"]}" target="_blank">link</a>',
-                    "qc_view": f'<a href="{qc_link_prefix}{record["_id"]}" target="_blank">link</a>',
+                    "asset_view": f'<a href="{ASSET_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>',
+                    "qc_view": f'<a href="{QC_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>',
                 }
                 data.append(r)
             else:
@@ -102,7 +99,7 @@ class SearchOptions(param.Parameterized):
             df = df[df["date"] == date_filter]
 
         # Keep a copy with the name field
-        self.active_df = df.copy()
+        self._active_names = list(set(df["name"].values))
 
         df = df.drop(["name"], axis=1)
 
@@ -120,7 +117,7 @@ class SearchOptions(param.Parameterized):
         return df
     
     def active_names(self):
-        return list(set(self.active_df["name"].values))
+        return self._active_names
 
     def all_names(self):
         return list(set(self.df["name"].values))
@@ -159,20 +156,21 @@ class SearchView(param.Parameterized):
         elif v == "Pending":
             return "background-color: blue"
 
-    @param.depends('modality_filter', 'subject_filter', 'date_filter', watch=True)
     def df_filtered(self):
         """Filter the options dataframe"""
         df_filtered = options.active(self.modality_filter, self.subject_filter, self.date_filter)
-
         return df_filtered.style.map(self._qc_color, subset=["Status"])
+
+    def df_textinput(self):
+        return options.df[options.df["name"]==text_input.value]
 
 
 searchview = SearchView()
-pn.state.location.sync(searchview, {
-    'modality_filter': 'modality',
-    'subject_filter': 'subject',
-    'date_filter': 'date'
-})
+# pn.state.location.sync(searchview, {
+#     'modality_filter': 'modality',
+#     'subject_filter': 'subject',
+#     'date_filter': 'date'
+# })
 
 text_input = pn.widgets.AutocompleteInput(
     name="Search:",
@@ -203,7 +201,13 @@ dataframe_pane = pn.pane.DataFrame(searchview.df_filtered(),
 def update_dataframe(*events):
     text_input.options = options.active_names()
     dataframe_pane.object = searchview.df_filtered()
-    dataframe_pane.index = False
+
+
+def thing_to_run():
+    print('here')
+
+
+pn.bind(thing_to_run, text_input)
 
 
 md = """
