@@ -52,6 +52,8 @@ class QualityControl:
             json_data = json.load(file) #JSON OF METADATA
             self.id = json_data["_id"]
 
+        print(self.id)
+
         self.name = name
         self.raw_data = json_data["quality_control"]
 
@@ -66,7 +68,7 @@ class QualityControl:
             objects.append(evaluation.panel())
 
         # build the header
-        summary = requests.get(f"http://127.0.0.1:8000/summary/{self.id}").json()
+        summary = requests.get(f"http://10.128.141.92:8000/summary/{self.id}").text
         md = f"""
 # {self.name}
 <span style="font-size:16pt">Status: {self.overall_status_html} on **{self.overall_status_date}**</span>
