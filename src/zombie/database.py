@@ -24,9 +24,30 @@ def get_name_from_id(id: str):
     return response[0]["name"]
 
 
-def get_assets_by_name(name: str):
+def _raw_name_from_derived(s):
+    """Returns just the raw asset name from an asset that is derived, i.e. has >= 4 underscores
+
+    Parameters
+    ----------
+    s : str
+        Raw or derived asset name
+
+    Returns
+    -------
+    str
+        Raw asset name, split off from full name
+    """
+    if s.count('_') >= 4:
+        parts = s.split('_', 4)
+        return '_'.join(parts[:4])
+    return s
+
+
+def get_assets_by_name(asset_name: str):
+    raw_name = _raw_name_from_derived(asset_name)
+    print(raw_name)
     response = client.retrieve_docdb_records(filter_query={
-        "name": {"$regex": name, "$options": "i"}
+        "name": {"$regex": raw_name, "$options": "i"}
     },
     limit=0)
     return response
