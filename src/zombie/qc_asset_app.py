@@ -10,11 +10,7 @@ from zombie.utils import QC_LINK_PREFIX, qc_color
 alt.data_transformers.disable_max_rows()
 pn.extension("vega", "ace", "jsoneditor")
 
-type_colors = {
-    "raw": "yellow",
-    "sorted-ks25": "blue",
-    "nwb": "green"
-}
+type_colors = {"raw": "yellow", "sorted-ks25": "blue", "nwb": "green"}
 
 
 class AssetHistory(param.Parameterized):
@@ -24,7 +20,7 @@ class AssetHistory(param.Parameterized):
         super().__init__(**params)
         self.has_id = False
 
-    @pn.depends('id', watch=True)
+    @pn.depends("id", watch=True)
     def update(self):
         self.has_id = True
 
@@ -53,7 +49,7 @@ class AssetHistory(param.Parameterized):
 
         # [TODO] this is designed as-is because the current metadata records are all missing the input_data_name field, unfortunately
         for record in self._records:
-            name_split = record["name"].split('_')
+            name_split = record["name"].split("_")
 
             if len(name_split) == 4:
                 # raw asset
@@ -77,30 +73,51 @@ class AssetHistory(param.Parameterized):
 
             raw_date = datetime.strptime(f"{date}_{time}", "%Y-%m-%d_%H-%M-%S")
 
-            qc_link = f"<a href=\"{QC_LINK_PREFIX}{record["_id"]}\" target=\"_blank\">link</a>"
+            qc_link = f'<a href="{QC_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>'
 
-            data.append({'name': record["name"], "modality": modality, "subject_id": subject_id,
-                            "timestamp": pd.to_datetime(raw_date), "type": type_label,
-                            "status": status, "qc_view": qc_link, "id": record["_id"]
-                            })
+            data.append(
+                {
+                    "name": record["name"],
+                    "modality": modality,
+                    "subject_id": subject_id,
+                    "timestamp": pd.to_datetime(raw_date),
+                    "type": type_label,
+                    "status": status,
+                    "qc_view": qc_link,
+                    "id": record["_id"],
+                }
+            )
 
-        self.df = pd.DataFrame(data, columns=["name", "modality", "subject_id", "timestamp", "type", "status", "qc_view", "id"])
+        self.df = pd.DataFrame(
+            data,
+            columns=[
+                "name",
+                "modality",
+                "subject_id",
+                "timestamp",
+                "type",
+                "status",
+                "qc_view",
+                "id",
+            ],
+        )
         self.df = self.df.sort_values(by="timestamp", ascending=False)
 
     def asset_history_panel(self):
         """Create a plot showing the history of this asset, showing how assets were derived from each other"""
         if not self.has_id:
             return "No ID is set"
-        
-        chart = alt.Chart(self.df).mark_bar().encode(
-            x=alt.X('timestamp:T', title='Time'),
-            y=alt.Y('count():Q', title='Count'),
-            tooltip=['name', 'modality', 'subject_id', 'timestamp'],
-            color=alt.Color('type:N')
-        ).properties(
-            width=600,
-            height=300,
-            title='Asset history'
+
+        chart = (
+            alt.Chart(self.df)
+            .mark_bar()
+            .encode(
+                x=alt.X("timestamp:T", title="Time"),
+                y=alt.Y("count():Q", title="Count"),
+                tooltip=["name", "modality", "subject_id", "timestamp"],
+                color=alt.Color("type:N"),
+            )
+            .properties(width=600, height=300, title="Asset history")
         )
 
         return pn.pane.Vega(chart)
@@ -109,7 +126,7 @@ class AssetHistory(param.Parameterized):
         """Todo"""
         if not self.has_id:
             return pd.DataFrame()
-        
+
         df = self.df.copy()
 
         df = df.drop(["name", "id"], axis=1)
@@ -129,9 +146,12 @@ class AssetHistory(param.Parameterized):
 
 
 asset_history = AssetHistory()
-pn.state.location.sync(asset_history, {
-    'id': 'id',
-})
+pn.state.location.sync(
+    asset_history,
+    {
+        "id": "id",
+    },
+)
 
 if asset_history.id == "":
     error_string = "\n## An ID must be provided as a query string. Please go back to the portal and choose an asset from the list."
@@ -149,7 +169,9 @@ header = pn.pane.Markdown(md, max_width=660)
 asset_history.parse_records()
 
 chart = asset_history.asset_history_panel()
-dataframe = pn.pane.DataFrame(asset_history.asset_history_df(), index=False, escape=False)
+dataframe = pn.pane.DataFrame(
+    asset_history.asset_history_df(), index=False, escape=False
+)
 json_pane = pn.pane.JSON(asset_history.records)
 
 col = pn.Column(

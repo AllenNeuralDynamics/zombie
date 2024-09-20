@@ -3,6 +3,7 @@
 import altair as alt
 import panel as pn
 import param
+
 alt.data_transformers.disable_max_rows()
 # from zombie.search import search_bar
 from zombie.qc_eval_panel import QualityControl

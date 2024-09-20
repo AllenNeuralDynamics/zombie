@@ -115,7 +115,7 @@ class SearchOptions(param.Parameterized):
         )
 
         return df
-    
+
     def active_names(self):
         return self._active_names
 
@@ -127,8 +127,12 @@ options = SearchOptions()
 
 
 class SearchView(param.Parameterized):
-    modality_filter = param.ObjectSelector(default="", objects=options.modalities)
-    subject_filter = param.ObjectSelector(default="", objects=options.subject_ids)
+    modality_filter = param.ObjectSelector(
+        default="", objects=options.modalities
+    )
+    subject_filter = param.ObjectSelector(
+        default="", objects=options.subject_ids
+    )
     date_filter = param.ObjectSelector(default="", objects=options.dates)
 
     def __init__(self, **params):
@@ -136,11 +140,13 @@ class SearchView(param.Parameterized):
 
     def df_filtered(self):
         """Filter the options dataframe"""
-        df_filtered = options.active(self.modality_filter, self.subject_filter, self.date_filter)
+        df_filtered = options.active(
+            self.modality_filter, self.subject_filter, self.date_filter
+        )
         return df_filtered.style.map(qc_color, subset=["Status"])
 
     def df_textinput(self):
-        return options.df[options.df["name"]==text_input.value]
+        return options.df[options.df["name"] == text_input.value]
 
 
 searchview = SearchView()
@@ -165,24 +171,38 @@ def new_class(cls, **kwargs):
     return type(type(cls).__name__, (cls,), kwargs)
 
 
-search_dropdowns = pn.Param(searchview, name="Filters", show_name=False,
-                            default_layout=new_class(pn.GridBox, ncols=2),)
+search_dropdowns = pn.Param(
+    searchview,
+    name="Filters",
+    show_name=False,
+    default_layout=new_class(pn.GridBox, ncols=2),
+)
 
 left_col = pn.Column(text_input, search_dropdowns)
 
-dataframe_pane = pn.pane.DataFrame(searchview.df_filtered(),
-                                   escape=False, sizing_mode="stretch_both", min_height=800, max_height=1200,
-                                   index=False)
+dataframe_pane = pn.pane.DataFrame(
+    searchview.df_filtered(),
+    escape=False,
+    sizing_mode="stretch_both",
+    min_height=800,
+    max_height=1200,
+    index=False,
+)
 
 
-@pn.depends(searchview.param.modality_filter, searchview.param.subject_filter, searchview.param.date_filter, watch=True)
+@pn.depends(
+    searchview.param.modality_filter,
+    searchview.param.subject_filter,
+    searchview.param.date_filter,
+    watch=True,
+)
 def update_dataframe(*events):
     text_input.options = options.active_names()
     dataframe_pane.object = searchview.df_filtered()
 
 
 def thing_to_run():
-    print('here')
+    print("here")
 
 
 pn.bind(thing_to_run, text_input)

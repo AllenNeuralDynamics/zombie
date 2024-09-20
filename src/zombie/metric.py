@@ -24,7 +24,13 @@ drift_map = pn.pane.Vega(dmap)
 class Metric:
 
     def __init__(self, metric_data: dict):
-        """_summary_"""
+        """Build a Metric object, should only be called by Evaluation()
+
+        Parameters
+        ----------
+        evaluation_data : dict
+            See aind_data_schema.core.quality_control Evaluation
+        """
         self.raw_data = metric_data
         self.reference_img = None
 
@@ -57,7 +63,9 @@ class Metric:
                 if ref == "ecephys-drift-map":
                     self.reference_img = ""
                 else:
-                    self.reference_img = f"Unable to parse {self.reference_img}"
+                    self.reference_img = (
+                        f"Unable to parse {self.reference_img}"
+                    )
         else:
             self.reference_img = "No references included"
 

@@ -7,6 +7,7 @@ from zombie.core.docdb import get_sessions, get_subjects
 
 class DocDBTest(unittest.TestCase):
     """Test the DocDB calls"""
+
     # def setUp(self):
 
     def test_get_subjects(self):

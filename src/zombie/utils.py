@@ -4,6 +4,10 @@ ASSET_LINK_PREFIX = "http://localhost:5007/qc_asset_app?id="
 QC_LINK_PREFIX = "http://localhost:5007/qc_app?id="
 
 
+def md_style(font_size: int = 12, inner_str: str = ""):
+    return f"<span style=\"font-size:{font_size}pt\">{inner_str}</span>"
+
+
 def qc_color(v):
     """Re-color the QC field background
 
@@ -25,6 +29,7 @@ def qc_color(v):
         return "background-color: red"
     elif v == "Pending":
         return "background-color: blue"
+
 
 def bincount2D(x, y, xbin=0, ybin=0, xlim=None, ylim=None, weights=None):
     """

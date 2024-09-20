@@ -22,18 +22,22 @@ client = MetadataDbClient(
 
 
 def qc_from_id(id: str):
-    response = client.retrieve_docdb_records(filter_query={
-        "_id": id
-    }, limit=1)
+    response = client.retrieve_docdb_records(filter_query={"_id": id}, limit=1)
     return response[0]
+
+
+def qc_update_to_id(id: str, qc_json: str):
+    response = client.upsert_one_docdb_record(
+        record={"_id": id, "quality_control": qc_json}
+    )
+    print(response)
 
 
 @pn.cache()
 def get_name_from_id(id: str):
-    response = client.aggregate_docdb_records(pipeline=[
-        {"$match": {"_id": id}},
-        {"$project": {"name": 1, "_id": 0}}
-    ])
+    response = client.aggregate_docdb_records(
+        pipeline=[{"$match": {"_id": id}}, {"$project": {"name": 1, "_id": 0}}]
+    )
     return response[0]["name"]
 
 
@@ -51,9 +55,9 @@ def _raw_name_from_derived(s):
     str
         Raw asset name, split off from full name
     """
-    if s.count('_') >= 4:
-        parts = s.split('_', 4)
-        return '_'.join(parts[:4])
+    if s.count("_") >= 4:
+        parts = s.split("_", 4)
+        return "_".join(parts[:4])
     return s
 
 
@@ -61,48 +65,49 @@ def _raw_name_from_derived(s):
 def get_assets_by_name(asset_name: str):
     raw_name = _raw_name_from_derived(asset_name)
     print(raw_name)
-    response = client.retrieve_docdb_records(filter_query={
-        "name": {"$regex": raw_name, "$options": "i"}
-    },
-    limit=0)
+    response = client.retrieve_docdb_records(
+        filter_query={"name": {"$regex": raw_name, "$options": "i"}}, limit=0
+    )
     return response
 
 
 @pn.cache(ttl=TIMEOUT_1H)
 def get_meta():
-    response = client.aggregate_docdb_records(pipeline=[
-        {
-            "$project": {
-                "_id": 1,
-                "name": 1,
-                "qc_exists": {
-                    "$cond": {
-                        "if": { "$gt": [{ "$type": "$quality_control" }, "missing"] },
-                        "then": "$quality_control.overall_status",
-                        "else": None
-                    }
+    response = client.aggregate_docdb_records(
+        pipeline=[
+            {
+                "$project": {
+                    "_id": 1,
+                    "name": 1,
+                    "qc_exists": {
+                        "$cond": {
+                            "if": {
+                                "$gt": [
+                                    {"$type": "$quality_control"},
+                                    "missing",
+                                ]
+                            },
+                            "then": "$quality_control.overall_status",
+                            "else": None,
+                        }
+                    },
                 }
-            }
-        },
-        {
-            "$group": {
-                "_id": None,
-                "data": {
-                    "$push": {
-                        "_id": "$_id",
-                        "name": "$name",
-                        "qc_exists": "$qc_exists"
-                    }
+            },
+            {
+                "$group": {
+                    "_id": None,
+                    "data": {
+                        "$push": {
+                            "_id": "$_id",
+                            "name": "$name",
+                            "qc_exists": "$qc_exists",
+                        }
+                    },
                 }
-            }
-        },
-        {
-            "$project": {
-                "_id": 0,
-                "data": 1
-            }
-        }
-    ])
+            },
+            {"$project": {"_id": 0, "data": 1}},
+        ]
+    )
     return response[0]["data"]
 
 
