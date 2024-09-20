@@ -43,6 +43,14 @@ def get_name_from_id(id: str):
 
 
 @pn.cache()
+def get_subj_from_id(id: str):
+    response = client.aggregate_docdb_records(
+        pipeline=[{"$match": {"_id": id}}, {"$project": {"subject": 1, "_id": 0}}]
+    )
+    return response[0]["subject"]["subject_id"]
+
+
+@pn.cache()
 def _raw_name_from_derived(s):
     """Returns just the raw asset name from an asset that is derived, i.e. has >= 4 underscores
 
@@ -65,9 +73,15 @@ def _raw_name_from_derived(s):
 @pn.cache(ttl=TIMEOUT_1H)
 def get_assets_by_name(asset_name: str):
     raw_name = _raw_name_from_derived(asset_name)
-    print(raw_name)
     response = client.retrieve_docdb_records(
         filter_query={"name": {"$regex": raw_name, "$options": "i"}}, limit=0
+    )
+    return response
+
+
+def get_assets_by_subj(subj: str):
+    response = client.retrieve_docdb_records(
+        filter_query={"subject.subject_id": subj}, limit=0
     )
     return response
 

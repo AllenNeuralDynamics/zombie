@@ -4,7 +4,7 @@ from datetime import datetime
 import pandas as pd
 import altair as alt
 
-from zombie.database import get_name_from_id, get_assets_by_name
+from zombie.database import get_subj_from_id, get_assets_by_subj, _raw_name_from_derived
 from zombie.utils import QC_LINK_PREFIX, qc_color
 
 alt.data_transformers.disable_max_rows()
@@ -24,9 +24,9 @@ class AssetHistory(param.Parameterized):
     def update(self):
         self.has_id = True
 
-        self.asset_name = get_name_from_id(self.id)
+        self.asset_name = get_subj_from_id(self.id)
 
-        self._records = get_assets_by_name(self.asset_name)
+        self._records = get_assets_by_subj(self.asset_name)
 
         self.parse_records()
 
@@ -46,10 +46,17 @@ class AssetHistory(param.Parameterized):
             return
 
         data = []
+        groups = {}
 
         # [TODO] this is designed as-is because the current metadata records are all missing the input_data_name field, unfortunately
         for record in self._records:
             name_split = record["name"].split("_")
+
+            raw_name = _raw_name_from_derived(record["name"])
+
+            # keep track of groups
+            if not raw_name in groups:
+                groups[raw_name] = len(groups)
 
             if len(name_split) == 4:
                 # raw asset
@@ -66,8 +73,8 @@ class AssetHistory(param.Parameterized):
                 time = name_split[6]
                 type_label = name_split[4]
 
-            if "qc_exists" in record and record["qc_exists"]:
-                status = record["qc_exists"]
+            if "quality_control" in record and record["quality_control"]:
+                status = record["quality_control"]["overall_status"]
             else:
                 status = "No QC"
 
@@ -85,6 +92,7 @@ class AssetHistory(param.Parameterized):
                     "status": status,
                     "qc_view": qc_link,
                     "id": record["_id"],
+                    "group": groups[raw_name]
                 }
             )
 
@@ -99,6 +107,7 @@ class AssetHistory(param.Parameterized):
                 "status",
                 "qc_view",
                 "id",
+                "group"
             ],
         )
         self.df = self.df.sort_values(by="timestamp", ascending=False)
@@ -113,23 +122,23 @@ class AssetHistory(param.Parameterized):
             .mark_bar()
             .encode(
                 x=alt.X("timestamp:T", title="Time"),
-                y=alt.Y("count():Q", title="Count"),
-                tooltip=["name", "modality", "subject_id", "timestamp"],
+                y=alt.Y("group:N", title="Raw asset"),
+                tooltip=["name", "modality", "subject_id", "timestamp", "status"],
                 color=alt.Color("type:N"),
             )
             .properties(width=600, height=300, title="Asset history")
         )
 
         return pn.pane.Vega(chart)
-
-    def asset_history_df(self):
+            
+    def asset_history_df(self, group: int = 0):
         """Todo"""
         if not self.has_id:
             return pd.DataFrame()
 
         df = self.df.copy()
-
-        df = df.drop(["name", "id"], axis=1)
+        df = df[df["group"] == group]
+        df = df.drop(["name", "id", "group"], axis=1)
 
         df = df.rename(
             columns={
@@ -142,7 +151,15 @@ class AssetHistory(param.Parameterized):
                 "qc_view": "QC View",
             }
         )
+
         return df.style.map(qc_color, subset=["Status"])
+    
+    def panel(self):
+        panes = []
+        for group in set(self.df["group"]):
+            panes.append(pn.pane.DataFrame(self.asset_history_df(group), index=False, escape=False))
+
+        return pn.Column(*panes)
 
 
 asset_history = AssetHistory()
@@ -159,8 +176,8 @@ else:
     error_string = ""
 
 md = f"""
-# QC Portal - Asset View
-This view shows the history of a single asset record, back to its original raw dataset along with any derived assets. Select a single asset to view the quality control object associated with that asset.
+# QC Portal - Subject View
+This view shows the history of a single subject's asset records, back to their original raw dataset along with any derived assets. Select a single asset to view its quality control data.
 {error_string}
 """
 
@@ -169,15 +186,13 @@ header = pn.pane.Markdown(md, max_width=660)
 asset_history.parse_records()
 
 chart = asset_history.asset_history_panel()
-dataframe = pn.pane.DataFrame(
-    asset_history.asset_history_df(), index=False, escape=False
-)
+
 json_pane = pn.pane.JSON(asset_history.records)
 
 col = pn.Column(
     header,
     chart,
-    dataframe,
+    asset_history.panel(),
     json_pane,
     min_width=660,
 )
@@ -185,4 +200,4 @@ col = pn.Column(
 # Create the layout
 display = pn.Row(pn.HSpacer(), col, pn.HSpacer())
 
-display.servable(title="AIND QC - Asset")
+display.servable(title="AIND QC - Subject")

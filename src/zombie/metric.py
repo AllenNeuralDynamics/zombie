@@ -1,5 +1,6 @@
 from zombie.s3 import SpikeSorting
 from zombie.plotting.ecephys import raster_aggregated
+from zombie.utils import md_style
 
 import panel as pn
 import numpy as np
@@ -64,16 +65,20 @@ class Metric:
             self.reference_img = "No references included"
 
         row = pn.Row(
-            drift_map,
             self.metric_panel(),
+            drift_map,
             name=self.name,
         )
         return row
 
     def metric_panel(self):
+        # Markdown header to display current state
         md = f"""
-{self.description if self.description else "*no description provided*"}
+{md_style(10, "Current state:")}
+{md_style(8, self.description if self.description else "*no description provided*")}
+{md_style(8, f"Value: {self.value}")}
 """
+
         if isinstance(self.value, bool):
             value_widget = pn.widgets.Checkbox(name=self.name)
         elif isinstance(self.value, str):
@@ -90,5 +95,8 @@ class Metric:
         value_widget.value = self.value
         value_widget.param.watch(self.set_value, 'value')
 
-        col = pn.WidgetBox(pn.pane.Markdown(md), value_widget)
+        header = pn.pane.Markdown(md)
+
+        col = pn.Column(header, pn.WidgetBox("Update value:", value_widget))
+
         return col

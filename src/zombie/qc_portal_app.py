@@ -43,7 +43,7 @@ class SearchOptions(param.Parameterized):
                     "subject_id": record_split[1],
                     "date": record_split[2],
                     "status": status,
-                    "asset_view": f'<a href="{ASSET_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>',
+                    "subject_view": f'<a href="{ASSET_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>',
                     "qc_view": f'<a href="{QC_LINK_PREFIX}{record["_id"]}" target="_blank">link</a>',
                 }
                 data.append(r)
@@ -58,7 +58,7 @@ class SearchOptions(param.Parameterized):
                 "subject_id",
                 "date",
                 "status",
-                "asset_view",
+                "subject_view",
                 "qc_view",
             ],
         )
@@ -109,7 +109,7 @@ class SearchOptions(param.Parameterized):
                 "subject_id": "Subject ID",
                 "date": "Date",
                 "status": "Status",
-                "asset_view": "Asset View",
+                "subject_view": "Subject View",
                 "qc_view": "QC View",
             }
         )
@@ -145,8 +145,8 @@ class SearchView(param.Parameterized):
         )
         return df_filtered.style.map(qc_color, subset=["Status"])
 
-    def df_textinput(self):
-        return options.df[options.df["name"] == text_input.value]
+    def df_textinput(self, value):
+        return options.df[options.df["name"] == value]
 
 
 searchview = SearchView()
@@ -201,16 +201,17 @@ def update_dataframe(*events):
     dataframe_pane.object = searchview.df_filtered()
 
 
-def thing_to_run():
-    print("here")
+def textinput_update(event):
+    searchview.df_textinput(event.new)
+    update_dataframe()
 
 
-pn.bind(thing_to_run, text_input)
+text_input.param.watch(textinput_update, 'value')
 
 
 md = """
 # Allen Institute for Neural Dynamics - QC Portal
-This portal allows you to search all existing metadata and explore the **quality control** file. Open the asset view to see the raw and derived assets related to a single record. Open the QC view to explore the quality control object for that record.
+This portal allows you to search all existing metadata and explore the **quality control** file. Open the subject view to see the raw and derived assets related to a single record. Open the QC view to explore the quality control object for that record.
 """
 header = pn.pane.Markdown(md)
 
