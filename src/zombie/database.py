@@ -30,7 +30,8 @@ def qc_update_to_id(id: str, qc_json: str):
     response = client.upsert_one_docdb_record(
         record={"_id": id, "quality_control": qc_json}
     )
-    print(response)
+    if response.status_code != 200:
+        print(response.json())
 
 
 @pn.cache()

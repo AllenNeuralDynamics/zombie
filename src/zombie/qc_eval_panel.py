@@ -34,7 +34,7 @@ class Evaluation:
 
         self.metrics = []
         for metric_data in self.raw_data["qc_metrics"]:
-            self.metrics.append(Metric(metric_data))
+            self.metrics.append(Metric(self.parent, metric_data))
 
     def set_status(self, event):
         self.raw_data["stage_status"] = event.new
@@ -77,7 +77,7 @@ class Evaluation:
 
         header_row = pn.Row(header, pn.HSpacer(width=50), controls)
 
-        accordion = pn.Accordion()
+        accordion = pn.Accordion(width=1080)
         accordion.objects = objects
         accordion.active = [0]
 

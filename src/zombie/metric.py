@@ -18,12 +18,12 @@ for uclu in np.unique(clu):
     sy[index] = locs[uclu, 1]
 
 dmap = raster_aggregated(sx, sy)
-drift_map = pn.pane.Vega(dmap)
+drift_map = pn.pane.Vega(dmap, width=600)
 
 
 class Metric:
 
-    def __init__(self, metric_data: dict):
+    def __init__(self, parent, metric_data: dict):
         """Build a Metric object, should only be called by Evaluation()
 
         Parameters
@@ -32,23 +32,17 @@ class Metric:
             See aind_data_schema.core.quality_control Evaluation
         """
         self.raw_data = metric_data
+        self.parent = parent
         self.reference_img = None
 
-    @property
-    def name(self):
-        return self.raw_data["name"]
-
-    @property
-    def value(self):
-        return self.raw_data["value"]
-
-    @property
-    def description(self):
-        return self.raw_data["description"]
-
-    @property
-    def references(self):
-        return self.raw_data["references"]
+        self.name = self.raw_data["name"]
+        self.value = self.raw_data["value"]
+        self.description = self.raw_data["description"]
+        self.references = self.raw_data["references"]
+    
+    def set_value(self, event):
+        self.raw_data["value"] = event.new
+        self.parent.set_dirty()
 
     def panel(self):
         """Build a Panel object representing this metric object
@@ -94,6 +88,7 @@ class Metric:
             print(f"Error can't deal with type {type(self.value)}")
 
         value_widget.value = self.value
-        pn.bind(self.value, value_widget)
+        value_widget.param.watch(self.set_value, 'value')
+
         col = pn.WidgetBox(pn.pane.Markdown(md), value_widget)
         return col
