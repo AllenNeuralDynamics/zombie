@@ -6,7 +6,7 @@ import param
 
 alt.data_transformers.disable_max_rows()
 # from zombie.search import search_bar
-from zombie.qc_eval_panel import QualityControl
+from zombie.qc_eval_panel import QCPanel
 
 alt.data_transformers.disable_max_rows()
 pn.extension("vega", "ace", "jsoneditor")
@@ -25,6 +25,6 @@ pn.state.location.sync(settings, {"id": "id"})
 # def set_submit
 
 
-qc_panel = QualityControl(id=settings.id)
+qc_panel = QCPanel(id=settings.id)
 
 qc_panel.panel().servable(title="AIND QC - View")

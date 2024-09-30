@@ -15,8 +15,8 @@ def df_timestamp_range(df, column="timestamp"):
 
     Returns
     -------
-    (min, max, time_unit)
-        Minimum of range, maximum of range, and timestep unit
+    (min, max, time_unit, time_format)
+        Minimum of range, maximum of range, and timestep unit and format
     """
     # Calculate min and max dates in the timestamp column
     min_date = df[column].min()
@@ -36,20 +36,24 @@ def df_timestamp_range(df, column="timestamp"):
         min_range = min_date - (one_week - time_range) / 2
         max_range = max_date + (one_week - time_range) / 2
         unit = "day"
+        format = "%b %d, %Y"
     elif time_range < one_month:
         min_range = min_date - (one_month - time_range) / 2
         max_range = max_date + (one_month - time_range) / 2
         unit = "week"
+        format = "%b %d, %Y"
     elif time_range < three_months:
         min_range = min_date - (three_months - time_range) / 2
         max_range = max_date + (three_months - time_range) / 2
         unit = "week"
+        format = "%b, %Y"
     else:
         min_range = min_date - (one_year - time_range) / 2
         max_range = max_date + (one_year - time_range) / 2
         unit = "month"
+        format = "%b, %Y"
 
-    return (min_range, max_range, unit)
+    return (min_range, max_range, unit, format)
 
 
 def md_style(font_size: int = 12, inner_str: str = ""):

@@ -116,10 +116,9 @@ class AssetHistory(param.Parameterized):
         """Create a plot showing the history of this asset, showing how assets were derived from each other"""
         if not self.has_id:
             return "No ID is set"
-        
+
         # Calculate the time range to show on the x axis
-        (min_range, max_range, range_unit) = df_timestamp_range(self.df)
-        print((min_range, max_range))
+        (min_range, max_range, range_unit, format) = df_timestamp_range(self.df)
 
         chart = (
             alt.Chart(self.df)
@@ -127,7 +126,7 @@ class AssetHistory(param.Parameterized):
             .encode(
                 x=alt.X("timestamp:T", title="Time",
                         scale=alt.Scale(domain=[min_range, max_range]),
-                        axis=alt.Axis(format="%Y-%m-%d", tickCount=range_unit)),
+                        axis=alt.Axis(format=format, tickCount=range_unit)),
                 y=alt.Y("group:N", title="Raw asset"),
                 tooltip=["name", "modality", "subject_id", "timestamp", "status"],
                 color=alt.Color("type:N"),
@@ -163,7 +162,7 @@ class AssetHistory(param.Parameterized):
     def panel(self):
         panes = []
         for group in set(self.df["group"]):
-            panes.append(pn.pane.DataFrame(self.asset_history_df(group), index=False, escape=False))
+            panes.append(pn.pane.DataFrame(self.asset_history_df(group), index=False, escape=False, width=660))
 
         return pn.Column(*panes)
 

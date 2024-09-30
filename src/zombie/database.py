@@ -1,3 +1,4 @@
+from aind_data_schema.core.quality_control import QualityControl
 from aind_data_access_api.document_db import MetadataDbClient
 import numpy as np
 import panel as pn
@@ -26,9 +27,10 @@ def qc_from_id(id: str):
     return response[0]
 
 
-def qc_update_to_id(id: str, qc_json: str):
+def qc_update_to_id(id: str, qc: QualityControl):
+    # qc.evaluate_status()
     response = client.upsert_one_docdb_record(
-        record={"_id": id, "quality_control": qc_json}
+        record={"_id": id, "quality_control": qc.model_dump_json()}
     )
     if response.status_code != 200:
         print(response.json())

@@ -1,11 +1,14 @@
 # Build a single QCEvaluation panel
 import panel as pn
-from zombie.metric import Metric
+import param
+import json
+from zombie.metric import QCMetricPanel
 from zombie.database import qc_from_id, qc_update_to_id
 from zombie.utils import md_style
+from aind_data_schema.core.quality_control import QualityControl, QCEvaluation
 
 
-class Evaluation:
+class QCEvalPanel:
 
     def __init__(self, parent, evaluation_data: dict):
         """Build an Evaluation object, should only be called by QualityControl()
@@ -18,30 +21,15 @@ class Evaluation:
         self.parent = parent
         self.update(evaluation_data)
 
-    def update(self, evaluation_data: dict):
-        self.raw_data = evaluation_data
-
-        self.name = self.raw_data["evaluation_name"]
-        self.description = (
-            self.raw_data["evaluation_description"]
-            if self.raw_data["evaluation_description"]
-            else None
-        )
-        self.evaluator = self.raw_data["evaluator"]
-        self.date = self.raw_data["evaluation_date"]
-        self.status = self.raw_data["stage_status"]
-        self.notes = self.raw_data["notes"] if "notes" in self.raw_data else None
+    def update(self, evaluation_data: QCEvaluation):
+        self.data = evaluation_data
 
         self.metrics = []
-        for metric_data in self.raw_data["qc_metrics"]:
-            self.metrics.append(Metric(self.parent, metric_data))
-
-    def set_status(self, event):
-        self.raw_data["stage_status"] = event.new
-        self.parent.set_dirty()
+        for qc_metric in self.data.qc_metrics:
+            self.metrics.append(QCMetricPanel(self.parent, qc_metric))
 
     def set_notes(self, event):
-        self.raw_data["notes"] = event.new
+        self.data["notes"] = event.new
         self.parent.set_dirty()
 
     def panel(self):
@@ -51,42 +39,35 @@ class Evaluation:
             objects.append(metric.panel())
 
         md = f"""
-{md_style(12, self.description if self.description else "*no description provided*")}
+{md_style(12, self.data.evaluation_description if self.data.evaluation_description else "*no description provided*")}
 {md_style(8, "Current state:")}
-{md_style(8, f"Status **{self.status}** set by **{self.evaluator}** on **{self.date}**")}
-{md_style(8, f"Evaluation for **{self.raw_data["evaluation_modality"]["name"]}** **{self.raw_data["evaluation_stage"]}** stage")}
-{md_style(8, f"Notes: {self.notes if self.notes else "*no notes provided*"}")}
-{md_style(8, f"Contains **{len(self.raw_data["qc_metrics"])}** metrics.")}
+{md_style(8, f"Status **{self.data.evaluation_status.status}** set by **{self.data.evaluation_status.evaluator}** on **{self.data.evaluation_status.timestamp}**")}
+{md_style(8, f"Contains **{len(self.data.qc_metrics)}** metrics.")}
 """
         
         header = pn.pane.Markdown(md)
 
-        # Set up the widgetbox and set param watches
-        status_selector = pn.widgets.Select(
-            name="Status", options=["Fail", "Pending", "Pass"]
-        )
-        status_selector.value = self.status
         notes = pn.widgets.TextAreaInput(
-            value=self.notes, placeholder="no notes provided"
+            name="Notes:",
+            value=self.data.notes, placeholder="no notes provided"
         )
 
-        status_selector.param.watch(self.set_status, "value")
         notes.param.watch(self.set_notes, "value")
 
-        controls = pn.WidgetBox(status_selector, notes)
-
-        header_row = pn.Row(header, pn.HSpacer(width=50), controls)
+        header_row = pn.Row(header, pn.HSpacer(width=50), notes)
 
         accordion = pn.Accordion(width=1080)
         accordion.objects = objects
         accordion.active = [0]
 
-        col = pn.Column(header_row, accordion, name=self.name)
+        col = pn.Column(header_row, accordion, name=self.data.evaluation_name)
 
         return col
 
 
-class QualityControl:
+class QCPanel:
+    modality_filter = param.String(default="All")
+    stage_filter = param.String(default="All")
 
     def __init__(self, id):
         """_summary_"""
@@ -105,25 +86,26 @@ class QualityControl:
 
         self.name = json_data["name"]
         self.raw_data = json_data["quality_control"]
+        try:
+            self.data = QualityControl.model_validate_json(json.dumps(self.raw_data))
+        except Exception as e:
+            self.data = None
+            print(f"QC object failed to validate: {e}")
 
         self.evaluations = []
-        for evaluation_data in self.raw_data["evaluations"]:
+        for evaluations in self.data.evaluations:
             self.evaluations.append(
-                Evaluation(parent=self, evaluation_data=evaluation_data)
+                QCEvalPanel(parent=self, evaluation_data=evaluations)
             )
 
         self.dirty = False
 
-    def set_dirty(self):
+    def set_dirty(self, *event):
         self.dirty = True
         self.submit_button.disabled = False
 
-    def set_status(self, event):
-        self.raw_data["overall_status"] = event.new
-        self.set_dirty()
-
     def submit_changes(self, *event):
-        qc_update_to_id(self.id, self.raw_data)
+        # qc_update_to_id(self.id, self.data)
         print("Submitted")
 
     def panel(self):
@@ -139,34 +121,23 @@ class QualityControl:
         header = pn.pane.Markdown(md)
 
         # build the display box: this shows the current state in DocDB of this asset
+        # if any evaluations are failing, we'll show a warning
+        failing_eval_str = ""
+
         state_md = f"""
 <span style="font-size:14pt">Current state:</span>
-<span style="font-size:12pt">Status: {self.overall_status_html} on **{self.overall_status_date}**</span>
-<span style="font-size:12pt">Notes: {self.notes if self.notes else "*no notes provided*"}</span>
-<span style="font-size:12pt">Contains {len(self.evaluations)} evaluations.</span>
+<span style="font-size:12pt">Status: {self.overall_status_html} on **{self.data.overall_status.timestamp}**</span>
+<span style="font-size:12pt">Contains {len(self.evaluations)} evaluations. {failing_eval_str}</span>
 """
 
         state_pane = pn.pane.Markdown(state_md, width=500, height=120)
 
-        # build the widget box
-        status = pn.widgets.Select(value=self.overall_status)
-        status.options = ["Fail", "Pending", "Pass"]
-        notes = pn.widgets.TextAreaInput(
-            value=self.notes, placeholder="no notes provided"
-        )
+        notes_box = pn.widgets.TextAreaInput(name='Notes:', value=self.data.notes, placeholder="no notes provided")
+        notes_box.param.watch(self.set_dirty, "value")
 
-        status.param.watch(self.set_status, "value")
-        notes.param.watch(self.set_dirty, "value")
-
-        box = pn.WidgetBox(
-            pn.Column(status, notes, width=480, height=120),
-            name="Settings:",
-        )
-
-        # combine and then put in a column, with header
-        qc_row = pn.Row(state_pane, box)
-
-        quality_control_pane = pn.Column(header, qc_row)
+        # state row
+        state_row = pn.Row(state_pane, notes_box)
+        quality_control_pane = pn.Column(header, state_row)
 
         # button
         header_row = pn.Row(
@@ -185,12 +156,8 @@ class QualityControl:
         """Return this quality_control.json object back to it's JSON format"""
 
     @property
-    def overall_status(self):
-        return self.raw_data["overall_status"]
-
-    @property
     def overall_status_html(self):
-        status = self.raw_data["overall_status"]
+        status = str(self.data.overall_status.status)
         if status == "Pass":
             color = "green"
         elif status == "Pending":
@@ -199,11 +166,3 @@ class QualityControl:
             color = "yellow"
 
         return f'<span style="color:{color};">{status}</span>'
-
-    @property
-    def overall_status_date(self):
-        return self.raw_data["overall_status_date"]
-
-    @property
-    def notes(self):
-        return self.raw_data["notes"]

@@ -1,6 +1,7 @@
 from zombie.s3 import SpikeSorting
 from zombie.plotting.ecephys import raster_aggregated
 from zombie.utils import md_style
+from aind_data_schema.core.quality_control import QCMetric
 
 import panel as pn
 import numpy as np
@@ -22,7 +23,7 @@ dmap = raster_aggregated(sx, sy)
 drift_map = pn.pane.Vega(dmap, width=600)
 
 
-class Metric:
+class QCMetricPanel:
 
     def __init__(self, parent, metric_data: dict):
         """Build a Metric object, should only be called by Evaluation()
@@ -32,17 +33,12 @@ class Metric:
         evaluation_data : dict
             See aind_data_schema.core.quality_control Evaluation
         """
-        self.raw_data = metric_data
+        self.data = metric_data
         self.parent = parent
         self.reference_img = None
-
-        self.name = self.raw_data["name"]
-        self.value = self.raw_data["value"]
-        self.description = self.raw_data["description"]
-        self.references = self.raw_data["references"]
     
     def set_value(self, event):
-        self.raw_data["value"] = event.new
+        self.data.value = event.new
         self.parent.set_dirty()
 
     def panel(self):
@@ -53,21 +49,20 @@ class Metric:
         _type_
             _description_
         """
-        if not self.reference_img and self.references:
-            for ref in self.references:
-                if ref == "ecephys-drift-map":
-                    self.reference_img = ""
-                else:
-                    self.reference_img = (
-                        f"Unable to parse {self.reference_img}"
-                    )
+        if self.data.reference:
+            if self.data.reference == "ecephys-drift-map":
+                self.reference_img = ""
+            else:
+                self.reference_img = (
+                    f"Unable to parse {self.reference_img}"
+                )
         else:
             self.reference_img = "No references included"
 
         row = pn.Row(
             self.metric_panel(),
             drift_map,
-            name=self.name,
+            name=self.data.name,
         )
         return row
 
@@ -75,24 +70,26 @@ class Metric:
         # Markdown header to display current state
         md = f"""
 {md_style(10, "Current state:")}
-{md_style(8, self.description if self.description else "*no description provided*")}
-{md_style(8, f"Value: {self.value}")}
+{md_style(8, self.data.description if self.data.description else "*no description provided*")}
+{md_style(8, f"Value: {self.data.value}")}
 """
+        name = self.data.name
+        value = self.data.value
 
-        if isinstance(self.value, bool):
-            value_widget = pn.widgets.Checkbox(name=self.name)
-        elif isinstance(self.value, str):
-            value_widget = pn.widgets.TextInput(name=self.name)
-        elif isinstance(self.value, float):
-            value_widget = pn.widgets.FloatInput(name=self.name)
-        elif isinstance(self.value, int):
-            value_widget = pn.widgets.IntInput(name=self.name)
-        elif isinstance(self.value, dict):
-            value_widget = pn.widgets.JSONEditor(name=self.name)
+        if isinstance(value, bool):
+            value_widget = pn.widgets.Checkbox(name=name)
+        elif isinstance(value, str):
+            value_widget = pn.widgets.TextInput(name=name)
+        elif isinstance(value, float):
+            value_widget = pn.widgets.FloatInput(name=name)
+        elif isinstance(value, int):
+            value_widget = pn.widgets.IntInput(name=name)
+        elif isinstance(value, dict):
+            value_widget = pn.widgets.JSONEditor(name=name)
         else:
-            print(f"Error can't deal with type {type(self.value)}")
+            print(f"Error can't deal with type {type(value)}")
 
-        value_widget.value = self.value
+        value_widget.value = value
         value_widget.param.watch(self.set_value, 'value')
 
         header = pn.pane.Markdown(md)
