@@ -1,7 +1,55 @@
 import numpy as np
+from datetime import timedelta
 
 ASSET_LINK_PREFIX = "http://localhost:5007/qc_asset_app?id="
 QC_LINK_PREFIX = "http://localhost:5007/qc_app?id="
+
+
+def df_timestamp_range(df, column="timestamp"):
+    """Compute the min/max range of a timestamp column in a DataFrame
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must include a "timestamp" column
+
+    Returns
+    -------
+    (min, max, time_unit)
+        Minimum of range, maximum of range, and timestep unit
+    """
+    # Calculate min and max dates in the timestamp column
+    min_date = df[column].min()
+    max_date = df[column].max()
+
+    # Compute the time difference
+    time_range = max_date - min_date
+
+    # Define minimum ranges based on your criteria
+    one_week = timedelta(weeks=1)
+    one_month = timedelta(days=30)
+    three_months = timedelta(days=90)
+    one_year = timedelta(days=365)
+
+    # Determine the minimum range
+    if time_range < one_week:
+        min_range = min_date - (one_week - time_range) / 2
+        max_range = max_date + (one_week - time_range) / 2
+        unit = "day"
+    elif time_range < one_month:
+        min_range = min_date - (one_month - time_range) / 2
+        max_range = max_date + (one_month - time_range) / 2
+        unit = "week"
+    elif time_range < three_months:
+        min_range = min_date - (three_months - time_range) / 2
+        max_range = max_date + (three_months - time_range) / 2
+        unit = "week"
+    else:
+        min_range = min_date - (one_year - time_range) / 2
+        max_range = max_date + (one_year - time_range) / 2
+        unit = "month"
+
+    return (min_range, max_range, unit)
 
 
 def md_style(font_size: int = 12, inner_str: str = ""):

@@ -5,7 +5,7 @@ import pandas as pd
 import altair as alt
 
 from zombie.database import get_subj_from_id, get_assets_by_subj, _raw_name_from_derived
-from zombie.utils import QC_LINK_PREFIX, qc_color
+from zombie.utils import QC_LINK_PREFIX, qc_color, df_timestamp_range
 
 alt.data_transformers.disable_max_rows()
 pn.extension("vega", "ace", "jsoneditor")
@@ -14,17 +14,17 @@ type_colors = {"raw": "yellow", "sorted-ks25": "blue", "nwb": "green"}
 
 
 class AssetHistory(param.Parameterized):
-    id = param.String(default="")
+    id = param.String(default="33e427dd-1dd8-4062-abb4-0a82d5fc5def")
 
     def __init__(self, **params):
         super().__init__(**params)
-        self.has_id = False
+        self.update()
 
     @pn.depends("id", watch=True)
     def update(self):
         self.has_id = True
 
-        self.asset_name = get_subj_from_id(self.id)
+        self.asset_name = get_subj_from_id(str(self.id))
 
         self._records = get_assets_by_subj(self.asset_name)
 
@@ -55,7 +55,7 @@ class AssetHistory(param.Parameterized):
             raw_name = _raw_name_from_derived(record["name"])
 
             # keep track of groups
-            if not raw_name in groups:
+            if raw_name not in groups:
                 groups[raw_name] = len(groups)
 
             if len(name_split) == 4:
@@ -116,12 +116,18 @@ class AssetHistory(param.Parameterized):
         """Create a plot showing the history of this asset, showing how assets were derived from each other"""
         if not self.has_id:
             return "No ID is set"
+        
+        # Calculate the time range to show on the x axis
+        (min_range, max_range, range_unit) = df_timestamp_range(self.df)
+        print((min_range, max_range))
 
         chart = (
             alt.Chart(self.df)
             .mark_bar()
             .encode(
-                x=alt.X("timestamp:T", title="Time"),
+                x=alt.X("timestamp:T", title="Time",
+                        scale=alt.Scale(domain=[min_range, max_range]),
+                        axis=alt.Axis(format="%Y-%m-%d", tickCount=range_unit)),
                 y=alt.Y("group:N", title="Raw asset"),
                 tooltip=["name", "modality", "subject_id", "timestamp", "status"],
                 color=alt.Color("type:N"),
@@ -130,7 +136,7 @@ class AssetHistory(param.Parameterized):
         )
 
         return pn.pane.Vega(chart)
-            
+
     def asset_history_df(self, group: int = 0):
         """Todo"""
         if not self.has_id:
@@ -182,8 +188,6 @@ This view shows the history of a single subject's asset records, back to their o
 """
 
 header = pn.pane.Markdown(md, max_width=660)
-
-asset_history.parse_records()
 
 chart = asset_history.asset_history_panel()
 
