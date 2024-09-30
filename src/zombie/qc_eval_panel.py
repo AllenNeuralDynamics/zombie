@@ -2,7 +2,7 @@
 import panel as pn
 import param
 import json
-from zombie.metric import QCMetricPanel
+from zombie.qc.metric import QCMetricPanel
 from zombie.database import qc_from_id, qc_update_to_id
 from zombie.utils import md_style
 from aind_data_schema.core.quality_control import QualityControl, QCEvaluation
@@ -29,7 +29,7 @@ class QCEvalPanel:
             self.metrics.append(QCMetricPanel(self.parent, qc_metric))
 
     def set_notes(self, event):
-        self.data["notes"] = event.new
+        self.data.notes = event.new
         self.parent.set_dirty()
 
     def panel(self):
@@ -38,11 +38,12 @@ class QCEvalPanel:
         for metric in self.metrics:
             objects.append(metric.panel())
 
+        allow_failing_str = "Metrics are allowed to fail in this evaluation." if self.data.allow_failed_metrics else ""
+
         md = f"""
 {md_style(12, self.data.evaluation_description if self.data.evaluation_description else "*no description provided*")}
-{md_style(8, "Current state:")}
-{md_style(8, f"Status **{self.data.evaluation_status.status}** set by **{self.data.evaluation_status.evaluator}** on **{self.data.evaluation_status.timestamp}**")}
-{md_style(8, f"Contains **{len(self.data.qc_metrics)}** metrics.")}
+{md_style(8, f"Current state: **{self.data.evaluation_status.status.value}** set by **{self.data.evaluation_status.evaluator}** on **{self.data.evaluation_status.timestamp}**")}
+{md_style(8, f"Contains **{len(self.data.qc_metrics)}** metrics. {allow_failing_str}")}
 """
         
         header = pn.pane.Markdown(md)
@@ -54,10 +55,9 @@ class QCEvalPanel:
 
         notes.param.watch(self.set_notes, "value")
 
-        header_row = pn.Row(header, pn.HSpacer(width=50), notes)
+        header_row = pn.Row(header, notes)
 
-        accordion = pn.Accordion(width=1080)
-        accordion.objects = objects
+        accordion = pn.Accordion(*objects, sizing_mode='stretch_width')
         accordion.active = [0]
 
         col = pn.Column(header_row, accordion, name=self.data.evaluation_name)
@@ -85,9 +85,8 @@ class QCPanel:
         json_data = qc_from_id(self.id)
 
         self.name = json_data["name"]
-        self.raw_data = json_data["quality_control"]
         try:
-            self.data = QualityControl.model_validate_json(json.dumps(self.raw_data))
+            self.data = QualityControl.model_validate_json(json.dumps(json_data["quality_control"]))
         except Exception as e:
             self.data = None
             print(f"QC object failed to validate: {e}")
@@ -105,7 +104,7 @@ class QCPanel:
         self.submit_button.disabled = False
 
     def submit_changes(self, *event):
-        # qc_update_to_id(self.id, self.data)
+        qc_update_to_id(self.id, self.data)
         print("Submitted")
 
     def panel(self):
@@ -130,7 +129,7 @@ class QCPanel:
 <span style="font-size:12pt">Contains {len(self.evaluations)} evaluations. {failing_eval_str}</span>
 """
 
-        state_pane = pn.pane.Markdown(state_md, width=500, height=120)
+        state_pane = pn.pane.Markdown(state_md)
 
         notes_box = pn.widgets.TextAreaInput(name='Notes:', value=self.data.notes, placeholder="no notes provided")
         notes_box.param.watch(self.set_dirty, "value")
@@ -141,15 +140,15 @@ class QCPanel:
 
         # button
         header_row = pn.Row(
-            quality_control_pane, pn.HSpacer(), self.submit_button, width=1000
+            quality_control_pane, pn.HSpacer(), self.submit_button
         )
 
-        tabs = pn.Tabs()
+        tabs = pn.Tabs(sizing_mode='stretch_width')
         tabs.objects = objects
 
-        col = pn.Column(header_row, pn.layout.Divider(), tabs, min_width=1000)
+        col = pn.Column(header_row, pn.layout.Divider(), tabs)
 
-        body = pn.Row(pn.HSpacer(), col, pn.HSpacer())
+        body = col
         return body
 
     def dump(self):
@@ -157,12 +156,14 @@ class QCPanel:
 
     @property
     def overall_status_html(self):
-        status = str(self.data.overall_status.status)
+        status = self.data.overall_status.status.value
         if status == "Pass":
             color = "green"
         elif status == "Pending":
             color = "blue"
+        elif status == "Fail":
+            color = "red"
         else:
-            color = "yellow"
+            color = "#F5BB00"
 
         return f'<span style="color:{color};">{status}</span>'

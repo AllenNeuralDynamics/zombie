@@ -28,9 +28,9 @@ def qc_from_id(id: str):
 
 
 def qc_update_to_id(id: str, qc: QualityControl):
-    # qc.evaluate_status()
+    qc.evaluate_status()
     response = client.upsert_one_docdb_record(
-        record={"_id": id, "quality_control": qc.model_dump_json()}
+        record={"_id": id, "quality_control": qc.dict()}
     )
     if response.status_code != 200:
         print(response.json())

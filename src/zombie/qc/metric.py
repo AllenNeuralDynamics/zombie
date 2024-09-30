@@ -1,7 +1,7 @@
 from zombie.s3 import SpikeSorting
 from zombie.plotting.ecephys import raster_aggregated
 from zombie.utils import md_style
-from aind_data_schema.core.quality_control import QCMetric
+from aind_data_schema.core.quality_control import Status
 
 import panel as pn
 import numpy as np
@@ -20,7 +20,7 @@ for uclu in np.unique(clu):
     sy[index] = locs[uclu, 1]
 
 dmap = raster_aggregated(sx, sy)
-drift_map = pn.pane.Vega(dmap, width=600)
+drift_map = pn.pane.Vega(dmap, max_width=600)
 
 
 class QCMetricPanel:
@@ -39,6 +39,11 @@ class QCMetricPanel:
     
     def set_value(self, event):
         self.data.value = event.new
+        self.parent.set_dirty()
+
+    def set_status(self, event):
+
+        self.data.metric_status.status = Status(event.new)
         self.parent.set_dirty()
 
     def panel(self):
@@ -69,7 +74,7 @@ class QCMetricPanel:
     def metric_panel(self):
         # Markdown header to display current state
         md = f"""
-{md_style(10, "Current state:")}
+{md_style(10, f"Current state: {self.data.metric_status.status.value}")}
 {md_style(8, self.data.description if self.data.description else "*no description provided*")}
 {md_style(8, f"Value: {self.data.value}")}
 """
@@ -92,8 +97,11 @@ class QCMetricPanel:
         value_widget.value = value
         value_widget.param.watch(self.set_value, 'value')
 
+        state_selector = pn.widgets.Select(value=self.data.metric_status.status.value, options=["Pass", "Fail", "Pending"], name="Metric status")
+        state_selector.param.watch(self.set_status, 'value')
+
         header = pn.pane.Markdown(md)
 
-        col = pn.Column(header, pn.WidgetBox("Update value:", value_widget))
+        col = pn.Column(header, pn.WidgetBox(value_widget, state_selector))
 
         return col
