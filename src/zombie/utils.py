@@ -1,8 +1,22 @@
 import numpy as np
 from datetime import timedelta
+from aind_data_schema.core.quality_control import Status
 
 ASSET_LINK_PREFIX = "http://localhost:5007/qc_asset_app?id="
 QC_LINK_PREFIX = "http://localhost:5007/qc_app?id="
+
+
+def status_html(status: Status):
+    if status.status.value == "Pass":
+        color = "green"
+    elif status.status.value == "Pending":
+        color = "blue"
+    elif status.status.value == "Fail":
+        color = "red"
+    else:
+        color = "#F5BB00"
+
+    return f'<span style="color:{color};">{status.status.value}</span>'
 
 
 def df_timestamp_range(df, column="timestamp"):
@@ -36,22 +50,22 @@ def df_timestamp_range(df, column="timestamp"):
         min_range = min_date - (one_week - time_range) / 2
         max_range = max_date + (one_week - time_range) / 2
         unit = "day"
-        format = "%b %d, %Y"
+        format = "%b %d"
     elif time_range < one_month:
         min_range = min_date - (one_month - time_range) / 2
         max_range = max_date + (one_month - time_range) / 2
         unit = "week"
-        format = "%b %d, %Y"
+        format = "%b %d"
     elif time_range < three_months:
         min_range = min_date - (three_months - time_range) / 2
         max_range = max_date + (three_months - time_range) / 2
         unit = "week"
-        format = "%b, %Y"
+        format = "%b %d"
     else:
         min_range = min_date - (one_year - time_range) / 2
         max_range = max_date + (one_year - time_range) / 2
         unit = "month"
-        format = "%b, %Y"
+        format = "%b"
 
     return (min_range, max_range, unit, format)
 

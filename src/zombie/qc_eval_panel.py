@@ -4,7 +4,7 @@ import param
 import json
 from zombie.qc.metric import QCMetricPanel
 from zombie.database import qc_from_id, qc_update_to_id
-from zombie.utils import md_style
+from zombie.utils import md_style, status_html
 from aind_data_schema.core.quality_control import QualityControl, QCEvaluation
 
 
@@ -42,7 +42,7 @@ class QCEvalPanel:
 
         md = f"""
 {md_style(12, self.data.evaluation_description if self.data.evaluation_description else "*no description provided*")}
-{md_style(8, f"Current state: **{self.data.evaluation_status.status.value}** set by **{self.data.evaluation_status.evaluator}** on **{self.data.evaluation_status.timestamp}**")}
+{md_style(8, f"Current state: **{status_html(self.data.evaluation_status)}** set by **{self.data.evaluation_status.evaluator}** on **{self.data.evaluation_status.timestamp}**")}
 {md_style(8, f"Contains **{len(self.data.qc_metrics)}** metrics. {allow_failing_str}")}
 """
         
@@ -74,12 +74,18 @@ class QCPanel:
         self.id = id
 
         self.submit_button = pn.widgets.Button(
-            name="Submit changes", button_type="success"
+            name="Submit changes", button_type="success",
         )
-        self.submit_button.disabled = True
         pn.bind(self.submit_changes, self.submit_button, watch=True)
 
+        self.hidden_html = pn.pane.HTML("")
+        self.hidden_html.visible = False
+
+        self.update()
+
+    def update(self):
         self.get_data()
+        self.submit_button.disabled = True
 
     def get_data(self):
         json_data = qc_from_id(self.id)
@@ -105,7 +111,8 @@ class QCPanel:
 
     def submit_changes(self, *event):
         qc_update_to_id(self.id, self.data)
-        print("Submitted")
+        self.submit_button.disabled = True
+        self.hidden_html.object = "<script>window.location.reload();</script>"
 
     def panel(self):
         """Build a Panel object representing this QC action"""
@@ -125,7 +132,7 @@ class QCPanel:
 
         state_md = f"""
 <span style="font-size:14pt">Current state:</span>
-<span style="font-size:12pt">Status: {self.overall_status_html} on **{self.data.overall_status.timestamp}**</span>
+<span style="font-size:12pt">Status: {status_html(self.data.overall_status)} on **{self.data.overall_status.timestamp}**</span>
 <span style="font-size:12pt">Contains {len(self.evaluations)} evaluations. {failing_eval_str}</span>
 """
 
@@ -146,24 +153,10 @@ class QCPanel:
         tabs = pn.Tabs(sizing_mode='stretch_width')
         tabs.objects = objects
 
-        col = pn.Column(header_row, pn.layout.Divider(), tabs)
+        col = pn.Column(header_row, pn.layout.Divider(), tabs, self.hidden_html)
 
         body = col
         return body
 
     def dump(self):
         """Return this quality_control.json object back to it's JSON format"""
-
-    @property
-    def overall_status_html(self):
-        status = self.data.overall_status.status.value
-        if status == "Pass":
-            color = "green"
-        elif status == "Pending":
-            color = "blue"
-        elif status == "Fail":
-            color = "red"
-        else:
-            color = "#F5BB00"
-
-        return f'<span style="color:{color};">{status}</span>'
