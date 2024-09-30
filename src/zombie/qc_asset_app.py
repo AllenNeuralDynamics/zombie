@@ -3,9 +3,12 @@ import panel as pn
 from datetime import datetime
 import pandas as pd
 import altair as alt
+import json
 
 from zombie.database import get_subj_from_id, get_assets_by_subj, _raw_name_from_derived
 from zombie.utils import QC_LINK_PREFIX, qc_color, df_timestamp_range
+
+from aind_data_schema.core.quality_control import QualityControl
 
 alt.data_transformers.disable_max_rows()
 pn.extension("vega", "ace", "jsoneditor")
@@ -74,7 +77,8 @@ class AssetHistory(param.Parameterized):
                 type_label = name_split[4]
 
             if "quality_control" in record and record["quality_control"]:
-                status = record["quality_control"]["overall_status"]
+                qc = QualityControl.model_validate_json(json.dumps(record["quality_control"]))
+                status = qc.overall_status.status.value
             else:
                 status = "No QC"
 
