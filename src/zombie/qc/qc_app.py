@@ -6,7 +6,7 @@ import param
 
 alt.data_transformers.disable_max_rows()
 # from zombie.search import search_bar
-from zombie.qc_eval_panel import QCPanel
+from zombie.qc.quality_control import QCPanel
 
 alt.data_transformers.disable_max_rows()
 pn.extension("vega", "ace", "jsoneditor")
@@ -20,10 +20,6 @@ class Settings(param.Parameterized):
 
 settings = Settings()
 pn.state.location.sync(settings, {"id": "id"})
-
-
-# def set_submit
-
 
 qc_panel = QCPanel(id=settings.id)
 
