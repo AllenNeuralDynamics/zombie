@@ -35,7 +35,7 @@ class SpikeSorting:
 
     def _get_file(self, relative_filepath):
         """_summary_
-
+`
         Parameters
         ----------
         relative_filepath : _type_
