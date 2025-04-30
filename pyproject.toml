@@ -35,10 +35,8 @@ dev = [
     'flake8',
     'interrogate',
     'isort',
-    'Sphinx',
     'furo',
     'watchfiles',
-    'aind-data-schema'
 ]
 
 [tool.setuptools.packages.find]
