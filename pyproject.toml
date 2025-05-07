@@ -25,7 +25,10 @@ dependencies = [
     'matplotlib',
     'boto3',
     's3fs',
-    'aind-data-schema'
+    'aind-data-schema',
+    'pynapple',
+    'hdmf_zarr',
+    'pynwb',
 ]
 
 [project.optional-dependencies]
