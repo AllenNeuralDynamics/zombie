@@ -53,6 +53,7 @@ records = client.retrieve_docdb_records(
 # Build a dataframe from the records to track all the 
 
 
+pn.cache()
 def get_data():
     # S3 Zarr path
     s3_zarr_path = "s3://codeocean-s3datasetsbucket-1u41qdg42ur9/417d11c1-d4df-4f72-a84a-66753a503aeb/nwb/behavior_791691_2025-04-29_11-10-29.nwb/"
@@ -152,6 +153,18 @@ chart = alt.Chart(melted_df).mark_rule(size=0.1).encode(
 
 chart_pane = pn.pane.Vega(chart, sizing_mode='stretch_width')
 
+zoom_in_button = pn.widgets.Button(width=40, height=40, icon="zoom-in", icon_size="20px")
+zoom_out_button = pn.widgets.Button(width=40, height=40, icon="zoom-out", icon_size="20px")
+time_forw_button = pn.widgets.Button(width=40, height=40, icon="player-track-next", icon_size="20px")
+time_back_button = pn.widgets.Button(width=40, height=40, icon="player-track-prev", icon_size="20px")
+
+timeline_controls = pn.Column(
+    pn.Row(zoom_in_button, zoom_out_button),
+    pn.Row(time_back_button, time_forw_button)
+)
+
+timeline_row = pn.Row(chart_pane, timeline_controls)
+
 
 def window(selection):
     if not selection:
@@ -187,8 +200,9 @@ def window(selection):
 
     return pn.pane.Vega(window_chart, sizing_mode='stretch_width')
 
+
 col = pn.Column(
-    chart_pane,
+    timeline_row,
     pn.bind(window, selection=chart_pane.selection.param.brush),
 )
 
