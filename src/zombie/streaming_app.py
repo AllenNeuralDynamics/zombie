@@ -6,26 +6,15 @@ import altair as alt
 import pandas as pd
 import zarr
 import param
-import os
 from datetime import datetime
-
-from aind_data_access_api.document_db import MetadataDbClient
+from zombie.database import docdb_client
 
 
 pn.extension('vega')
-API_GATEWAY_HOST = os.getenv("API_GATEWAY_HOST", "api.allenneuraldynamics-test.org")
-DATABASE = os.getenv("DATABASE", "metadata_index")
-COLLECTION = os.getenv("COLLECTION", "data_assets")
 
 TIMEOUT_1M = 60
 TIMEOUT_1H = 60 * 60
 TIMEOUT_24H = 60 * 60 * 24
-
-client = MetadataDbClient(
-    host=API_GATEWAY_HOST,
-    database=DATABASE,
-    collection=COLLECTION,
-)
 
 
 class Settings(param.Parameterized):
@@ -40,7 +29,7 @@ pn.state.location.sync(settings,
 
 
 # Get all records
-records = client.retrieve_docdb_records(
+records = docdb_client.retrieve_docdb_records(
     filter_query={
         "subject_id": settings.subject_id,
         "data_description.data_level": "derived",
