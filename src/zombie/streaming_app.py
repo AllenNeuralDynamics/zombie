@@ -7,7 +7,7 @@ import pandas as pd
 import zarr
 import param
 from datetime import datetime
-from zombie.database import docdb_client
+from zombie.data.docdb import docdb_client
 
 
 pn.extension('vega')

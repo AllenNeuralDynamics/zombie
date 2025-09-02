@@ -1,13 +1,6 @@
-import os
+"""Zombe core database module"""
 
-from aind_data_access_api.document_db import MetadataDbClient
+from param import Parameterized
 
-API_GATEWAY_HOST = os.getenv("API_GATEWAY_HOST", "api.allenneuraldynamics-test.org")
-DATABASE = os.getenv("DATABASE", "metadata_index")
-COLLECTION = os.getenv("COLLECTION", "data_assets")
-
-docdb_client = MetadataDbClient(
-    host=API_GATEWAY_HOST,
-    database=DATABASE,
-    collection=COLLECTION,
-)
+class ZombieDatabase(Parameterized):
+    """Dataframe class for the main Zombie database."""

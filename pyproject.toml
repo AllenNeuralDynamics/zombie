@@ -29,6 +29,7 @@ dependencies = [
     'pynapple',
     'hdmf_zarr',
     'pynwb',
+    'umap-learn',
 ]
 
 [project.optional-dependencies]
