@@ -144,3 +144,5 @@ src/zombie/3dtest/files/*
 .venv*/*
 .aws_secrets
 .vscode/*
+
+data/*

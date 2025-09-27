@@ -22,6 +22,7 @@ dependencies = [
     'panel',
     'altair',
     'duckdb',
+    'fastparquet',
 ]
 
 [project.optional-dependencies]
