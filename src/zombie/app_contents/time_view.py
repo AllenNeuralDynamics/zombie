@@ -1,0 +1,15 @@
+
+import panel as pn
+from panel.custom import PyComponent
+from zombie.layout import OUTER_STYLE
+
+
+class TimeView(PyComponent):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def __panel__(self):
+        return pn.Column(
+            styles=OUTER_STYLE,
+        )

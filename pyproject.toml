@@ -18,8 +18,8 @@ dynamic = ["version"]
 
 dependencies = [
     'aind-data-schema',
-    'aind-data-access-api[docdb,helpers]',
-    'panel',
+    'aind-data-access-api[docdb,rds,helpers]',
+    'panel>=1.8.1',
     'altair',
     'duckdb',
     'fastparquet',
