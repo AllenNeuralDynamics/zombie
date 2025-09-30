@@ -6,7 +6,7 @@ import panel as pn
 
 
 class LoaderSettings(PyComponent):
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
