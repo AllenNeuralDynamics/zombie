@@ -30,6 +30,30 @@ def get_unique_project_names():
         return []
 
 
+def get_unique_modalities(project_names: Optional[list[str]] = None):
+    """Get unique modalities from the database"""
+    
+    if project_names is None:
+        return []
+
+    pipeline = []
+
+    if project_names:
+        pipeline.append({"$match": {"data_description.project_name": {"$in": project_names}}})
+
+    pipeline.append({"$group": {"_id": "$data_description.modalities.abbreviation"}})
+    pipeline.append({"$project": {"modality": "$_id", "_id": 0}})
+
+    try:
+        unique_modalities = client.aggregate_docdb_records(
+            pipeline=pipeline,
+        )
+        return [modality["modality"] for modality in unique_modalities]
+    except Exception as e:
+        print(f"Error fetching unique modalities: {e}")
+        return []
+
+
 @pn.cache(ttl=TTL_DAY)
 def get_subject_ids(self, project_names: Optional[list[str]] = None):
     """Get unique subject IDs for the given project names"""

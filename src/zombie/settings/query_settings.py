@@ -10,6 +10,8 @@ class QuerySettings(PyComponent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        
+        print("Initializing QuerySettings")
 
         header = pn.pane.Markdown("### Query settings")
 
@@ -18,10 +20,19 @@ class QuerySettings(PyComponent):
             options=get_unique_project_names(),
         )
 
+        # self.project_selector.param.watch(self._on_project_change, 'value')
+
         self.panel = pn.Column(
             header,
             self.project_selector,
         )
+    
+    # def _on_project_change(self, event):
+    #     """Handle changes in the selected projects."""
+    #     self.callback(event.new)
+    #     print(f"Selected projects changed to: {event.new}")
+    #     # Here you would add logic to handle the change in selected projects.
+    #     # For example, you might want to update other settings based on the selected projects.
 
     def __panel__(self):
 

@@ -1,6 +1,5 @@
 from panel.custom import PyComponent
 import panel as pn
-import param
 
 from zombie.app_contents.space_view import SpaceView
 from zombie.app_contents.time_view import TimeView
@@ -16,10 +15,8 @@ class MainView(PyComponent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.settings = settings_view
-
         # Import modal and create gear button
-        self.gear_button = self.settings.panel.create_button(
+        self.gear_button = settings_view.panel.create_button(
             action="toggle",
             icon="settings",
             button_type="primary",
@@ -42,11 +39,11 @@ class MainView(PyComponent):
         data_view = DataView()
 
         return pn.Column(
-            self.settings,
             self.gear_button,
             time_view,
             pn.Row(
                 data_view,
                 space_view,
             ),
+            settings_view,
         )
