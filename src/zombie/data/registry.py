@@ -10,13 +10,13 @@ from pydantic import BaseModel
 class LoaderRegistryItem(BaseModel):
     name: str
     modality_abbreviation: str
-    function: Callable
+    load_function: Callable
 
 
 loader_registry = [
     LoaderRegistryItem(
         name="QC Metrics",
         modality_abbreviation="all",
-        function=metadata_qc_loader,
+        load_function=metadata_qc_loader,
     ),
 ]

@@ -21,7 +21,6 @@ class LoaderSettings(PyComponent):
             name="Loaders",
             options=[],
             inline=True,
-            disabled=True,
         )
 
         query_settings.project_selector.param.watch(self._update_options, 'value')
@@ -33,7 +32,7 @@ class LoaderSettings(PyComponent):
 
     def _update_options(self, event):
         """Update the options for the loader checkboxes."""
-        
+
         project_name = event.new
 
         active_modalities = get_unique_modalities(project_name)
