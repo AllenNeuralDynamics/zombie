@@ -18,7 +18,7 @@ class DataView(PyComponent):
         data_path = Path(__file__).parent.parent.parent.parent / "data"
         query = f"""
         SELECT name, value, ts, subject_id
-        FROM read_parquet('{data_path}/qc-metric_*.pqt')
+        FROM read_parquet('{data_path}/qc-metrics_*.pqt')
         WHERE LOWER(TRIM(name)) = 'intensity stability'
         ORDER BY ts
         """

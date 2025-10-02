@@ -12,8 +12,10 @@ pn.extension("modal")
 
 class MainView(PyComponent):
 
-    def __init__(self, **kwargs):
+    def __init__(self, data_loader, **kwargs):
         super().__init__(**kwargs)
+
+        data_loader.param.watch(self._loading, 'loading')
 
         # Import modal and create gear button
         self.gear_button = settings_view.panel.create_button(
@@ -33,12 +35,11 @@ class MainView(PyComponent):
             },
         )
 
-    def __panel__(self):
         time_view = TimeView()
         space_view = SpaceView()
         data_view = DataView()
 
-        return pn.Column(
+        self.panel = pn.Column(
             self.gear_button,
             time_view,
             pn.Row(
@@ -47,3 +48,9 @@ class MainView(PyComponent):
             ),
             settings_view,
         )
+
+    def _loading(self, event):
+        self.panel.loading = event.new
+
+    def __panel__(self):
+        return self.panel

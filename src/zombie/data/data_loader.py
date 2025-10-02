@@ -16,8 +16,13 @@ class DataLoader(param.Parameterized):
     def __init__(self):
         """Initialize the DataLoader class.
         """
+        super().__init__()
         loader_settings.loader_checkboxes.param.watch(
             self._on_loader_change, 'value')
+
+    def _registry_data_table(self):
+        """Register that a data table is available for a given loader type"""
+        pass
         
     def _on_loader_change(self, event):
         """Handle changes in the selected loaders."""
