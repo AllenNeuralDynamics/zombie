@@ -13,16 +13,17 @@ client = MetadataDbClient(
 )
 
 
-def metadata_qc_loader(asset_name: str) -> tuple[Optional[Path], list[str]]:
-    """Save to disk a parquet file containing the QC for a metric"""
+def metadata_qc_value_loader(asset_name: str) -> Optional[Path]:
+    """Save to disk a parquet file containing the QC values for all metrics in an asset
+
+    Metric names will be columns, we'll also include the subject_id and timestamp required columns
+    """
 
     # Check if we already have a cached copy of this asset
     qc_filepath = DATA_PATH / f"qc-metrics_{asset_name}.pqt"
 
     if qc_filepath.exists():
         print(f"QC metrics file already exists at {qc_filepath}, skipping load.")
-        # Get the columns from the existing file
-        qc_df = pd.read_parquet(qc_filepath)
 
     else:
         records = client.retrieve_docdb_records(
@@ -40,13 +41,17 @@ def metadata_qc_loader(asset_name: str) -> tuple[Optional[Path], list[str]]:
         acquisition_time = datetime.fromisoformat(record["acquisition"]["acquisition_start_time"]).timestamp()
 
         # Split metrics by object type, "QC metric" or "Curation metric"
-        if "quality_control" not in record or not record["quality_control"] or "metrics" not in record["quality_control"]:
-            return None, []
+        if (
+            "quality_control" not in record
+            or not record["quality_control"]
+            or "metrics" not in record["quality_control"]
+        ):
+            return None
 
         metrics = record["quality_control"]["metrics"]
 
         if len(metrics) == 0:
-            return None, []
+            return None
 
         qc_metrics = [metric for metric in metrics if metric["object_type"] == "QC metric"]
         # curation_metrics = [metric for metric in metrics if metric["object_type"] == "Curation metric"]
@@ -62,4 +67,4 @@ def metadata_qc_loader(asset_name: str) -> tuple[Optional[Path], list[str]]:
         # curation_filepath = output_dir / f"{asset_name}_curation_metrics.pqt"
         # pd.DataFrame(curation_metrics).to_parquet(curation_filepath)
 
-    return qc_filepath, qc_df.columns.tolist()
+    return qc_filepath
