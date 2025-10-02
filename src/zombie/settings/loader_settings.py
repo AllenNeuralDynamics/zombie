@@ -1,14 +1,19 @@
 """Settings and modals for data loaders"""
 
+from datetime import datetime
+import param
 from zombie.data.registry import loader_registry
 from panel.custom import PyComponent
 import panel as pn
 
 from zombie.settings.query_settings import query_settings
-from zombie.data.docdb.utils import get_unique_modalities
+from zombie.data.docdb.utils import get_unique_modalities, get_acquisition_time_range
 
 
 class LoaderSettings(PyComponent):
+
+    start_time = param.Number(default=None, allow_None=True)
+    end_time = param.Number(default=None, allow_None=True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -36,6 +41,14 @@ class LoaderSettings(PyComponent):
         project_name = event.new
 
         active_modalities = get_unique_modalities(project_name)
+        time_range = get_acquisition_time_range(project_name)
+        if time_range:
+            self.start_time = datetime.fromisoformat(time_range[0]).timestamp() if time_range[0] else 0
+            self.end_time = datetime.fromisoformat(time_range[1]).timestamp() if time_range[1] else 0
+        else:
+            self.start_time = None
+            self.end_time = None
+        
         print(f"Active modalities for project '{project_name}': {active_modalities}")
 
         options = [

@@ -55,7 +55,7 @@ def get_unique_modalities(project_names: Optional[list[str]] = None):
 
 
 @pn.cache(ttl=TTL_DAY)
-def get_subject_ids(self, project_names: Optional[list[str]] = None):
+def get_subject_ids(project_names: Optional[list[str]] = None):
     """Get unique subject IDs for the given project names"""
 
     try:
@@ -77,7 +77,7 @@ def get_subject_ids(self, project_names: Optional[list[str]] = None):
 
 
 @pn.cache(ttl=TTL_HOUR)
-def get_acquisition_time_range(self, project_names: list[str]):
+def get_acquisition_time_range(project_names: list[str]):
     """Get the earliest start time for the given project names"""
 
     try:
@@ -94,10 +94,12 @@ def get_acquisition_time_range(self, project_names: list[str]):
                 {"$project": {"min_start_time": "$min_start_time", "max_start_time": "$max_start_time", "_id": 0}},
             ],
         )
-        return (
-            time_range[0]["min_start_time"] if time_range else None,
-            time_range[0]["max_start_time"] if time_range else None,
-        )
+        if time_range:
+            return (
+                time_range[0]["min_start_time"],
+                time_range[0]["max_start_time"],
+            )
+        return None
     except Exception as e:
         print(f"Error fetching start time: {e}")
         return None

@@ -18,7 +18,7 @@ def metadata_qc_loader(asset_name: str) -> Optional[Path]:
     """Save to disk a parquet file containing the QC for a metric"""
 
     # Check if we already have a cached copy of this asset
-    qc_filepath = DATA_PATH / f"{asset_name}_qc_metrics.pqt"
+    qc_filepath = DATA_PATH / f"qc-metrics_{asset_name}.pqt"
     
     if qc_filepath.exists():
         print(f"QC metrics file already exists at {qc_filepath}, skipping load.")
@@ -43,6 +43,10 @@ def metadata_qc_loader(asset_name: str) -> Optional[Path]:
         return None
 
     metrics = record["quality_control"]["metrics"]
+    
+    if len(metrics) == 0:
+        return None
+    
     qc_metrics = [metric for metric in metrics if metric["object_type"] == "QC metric"]
     # curation_metrics = [metric for metric in metrics if metric["object_type"] == "Curation metric"]
 
