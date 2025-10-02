@@ -22,7 +22,7 @@ dependencies = [
     'panel>=1.8.1',
     'altair',
     'duckdb',
-    'fastparquet',
+    'pyarrow',
 ]
 
 [project.optional-dependencies]
