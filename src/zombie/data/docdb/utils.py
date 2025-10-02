@@ -32,7 +32,7 @@ def get_unique_project_names():
 
 def get_unique_modalities(project_names: Optional[list[str]] = None):
     """Get unique modalities from the database"""
-    
+
     if project_names is None:
         return []
 

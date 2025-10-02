@@ -1,4 +1,5 @@
 """Constants and CSS styles for the Zombie app layout."""
+
 import panel as pn
 
 

@@ -10,7 +10,7 @@ class QuerySettings(PyComponent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         print("Initializing QuerySettings")
 
         header = pn.pane.Markdown("### Query settings")
@@ -27,11 +27,7 @@ class QuerySettings(PyComponent):
 
     def query(self):
         """Return the current query as a dictionary."""
-        return {
-            "data_description.project_name": {
-                "$in": self.project_selector.value
-            }
-        }
+        return {"data_description.project_name": {"$in": self.project_selector.value}}
 
     def __panel__(self):
 

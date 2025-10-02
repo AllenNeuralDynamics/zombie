@@ -1,4 +1,5 @@
 """Paths"""
+
 from pathlib import Path
 
 

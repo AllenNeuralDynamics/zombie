@@ -1,5 +1,3 @@
-
-
 from panel.custom import PyComponent
 import panel as pn
 

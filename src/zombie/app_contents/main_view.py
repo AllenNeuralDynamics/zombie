@@ -15,7 +15,7 @@ class MainView(PyComponent):
     def __init__(self, data_loader, **kwargs):
         super().__init__(**kwargs)
 
-        data_loader.param.watch(self._loading, 'loading')
+        data_loader.param.watch(self._loading, "loading")
 
         # Import modal and create gear button
         self.gear_button = settings_view.panel.create_button(

@@ -22,29 +22,31 @@ class DataView(PyComponent):
         WHERE LOWER(TRIM(name)) = 'intensity stability'
         ORDER BY ts
         """
-        
+
         try:
             df = duckdb.execute(query).df()
-            
+
             if not df.empty:
                 # Convert unix timestamp to datetime
-                df['datetime'] = pd.to_datetime(df['ts'], unit='s')
-                
+                df["datetime"] = pd.to_datetime(df["ts"], unit="s")
+
                 # Convert value to numeric if it's not already
-                df['value'] = pd.to_numeric(df['value'], errors='coerce')
-                
+                df["value"] = pd.to_numeric(df["value"], errors="coerce")
+
                 # Create Altair chart
-                chart = alt.Chart(df).mark_line(point=True).encode(
-                    x=alt.X('datetime:T', title='Time'),
-                    y=alt.Y('value:Q', title='Intensity Stability'),
-                    color=alt.Color('subject_id:N', title='Subject ID'),
-                    tooltip=['datetime:T', 'value:Q', 'subject_id:N']
-                ).properties(
-                    width=600,
-                    height=400,
-                    title='Intensity Stability Over Time'
-                ).interactive()
-                
+                chart = (
+                    alt.Chart(df)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("datetime:T", title="Time"),
+                        y=alt.Y("value:Q", title="Intensity Stability"),
+                        color=alt.Color("subject_id:N", title="Subject ID"),
+                        tooltip=["datetime:T", "value:Q", "subject_id:N"],
+                    )
+                    .properties(width=600, height=400, title="Intensity Stability Over Time")
+                    .interactive()
+                )
+
                 return pn.Column(
                     pn.pane.Vega(chart),
                     styles=OUTER_STYLE,

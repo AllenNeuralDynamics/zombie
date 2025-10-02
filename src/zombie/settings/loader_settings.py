@@ -17,7 +17,7 @@ class LoaderSettings(PyComponent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         print("Initializing LoaderSettings")
 
         header = pn.pane.Markdown("### Loaders to run")
@@ -28,7 +28,7 @@ class LoaderSettings(PyComponent):
             inline=True,
         )
 
-        query_settings.project_selector.param.watch(self._update_options, 'value')
+        query_settings.project_selector.param.watch(self._update_options, "value")
 
         self.panel = pn.Column(
             header,
@@ -48,11 +48,12 @@ class LoaderSettings(PyComponent):
         else:
             self.start_time = None
             self.end_time = None
-        
+
         print(f"Active modalities for project '{project_name}': {active_modalities}")
 
         options = [
-            item.name for item in loader_registry
+            item.name
+            for item in loader_registry
             if item.modality_abbreviation == "all" or item.modality_abbreviation in active_modalities
         ]
 

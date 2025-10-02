@@ -15,7 +15,7 @@ class SettingsView(PyComponent):
         self.panel = pn.Modal(
             query_settings,
             loader_settings,
-            styles={'z-index': '1001'},
+            styles={"z-index": "1001"},
         )
 
     def __panel__(self):
