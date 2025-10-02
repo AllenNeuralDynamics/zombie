@@ -3,6 +3,7 @@
 Used by zombie to populate options for what loaders a user wants to have run and then to call the appropriate function.
 """
 
+from pathlib import Path
 from typing import Callable
 from zombie.data.docdb.mongodb_loaders import metadata_qc_loader
 from pydantic import BaseModel
@@ -11,7 +12,8 @@ from pydantic import BaseModel
 class LoaderRegistryItem(BaseModel):
     name: str
     modality_abbreviation: str
-    load_function: Callable
+    # Load functions return both the file path (or None if loading failed) and a list of columns in the loaded data
+    load_function: Callable[[str], tuple[Path | None, list[str]]]
 
 
 loader_registry = [
