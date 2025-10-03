@@ -55,9 +55,9 @@ class DataView(PyComponent):
         # Create Altair chart with conditional domain
         domain = ([pd.to_datetime(event['datetime'][0], unit='ms'),
                    pd.to_datetime(event['datetime'][1], unit='ms')]
-                  if event and 'datetime' in event and len(event['datetime']) == 2
+                  if event and 'datetime' in event and len(event['datetime']) == 2 and not pd.isna(event['datetime'][0]) and not pd.isna(event['datetime'][1])
                   else alt.Undefined)
-        
+
         chart = (
             alt.Chart(filtered_df)
             .mark_line(point=True)

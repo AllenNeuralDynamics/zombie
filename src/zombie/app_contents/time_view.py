@@ -1,6 +1,6 @@
 import panel as pn
 from panel.custom import PyComponent
-from zombie.layout import OUTER_STYLE
+from zombie.layout import OUTER_STYLE, AIND_COLORS
 import altair as alt
 import pandas as pd
 
@@ -15,7 +15,21 @@ class TimeView(PyComponent):
         loader_settings.param.watch(self._start_time_changed, "start_time")
         loader_settings.param.watch(self._end_time_changed, "end_time")
 
-        self.plot_pane = pn.pane.Vega()
+        self.plot_pane = pn.pane.Vega(sizing_mode="stretch_width", height=150)
+        self.zoom_in_button = pn.widgets.ButtonIcon(
+            icon="plus", active_icon="check",
+            styles={
+                "background-color": AIND_COLORS["light_blue"], 
+                "color": "white", 
+                "border-radius": "50%",
+            },
+            width=30, height=30,
+        )
+        self.zoom_out_button = pn.widgets.ButtonIcon(
+            icon="minus",
+            styles={"background-color": AIND_COLORS["light_blue"], "color": "white", "border-radius": "50%"},
+            width=30, height=30,
+        )
         self._update_plot()
 
     def _create_time_chart(self, start_time, end_time):
@@ -37,7 +51,7 @@ class TimeView(PyComponent):
                     "height": [1, 1],  # Fixed height for vertical bars
                 }
             )
-        
+
         brush = alt.selection_interval(encodings=['x'], name="time_brush")
 
         # Create the chart with vertical bars on a timeline
@@ -72,8 +86,14 @@ class TimeView(PyComponent):
         self._update_plot()
 
     def __panel__(self):
+        controls_col = pn.Column(
+            pn.VSpacer(),
+            self.zoom_in_button,
+            self.zoom_out_button,
+        )
         return pn.Row(
             self.plot_pane,
+            controls_col,
             styles=OUTER_STYLE,
             sizing_mode="stretch_width",
             height=200,
