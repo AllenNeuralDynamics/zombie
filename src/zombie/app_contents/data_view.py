@@ -52,12 +52,17 @@ class DataView(PyComponent):
                 (filtered_df['datetime'] <= end_time)
             ]
 
-        # Create Altair chart
+        # Create Altair chart with conditional domain
+        domain = ([pd.to_datetime(event['datetime'][0], unit='ms'),
+                   pd.to_datetime(event['datetime'][1], unit='ms')]
+                  if event and 'datetime' in event and len(event['datetime']) == 2
+                  else alt.Undefined)
+        
         chart = (
             alt.Chart(filtered_df)
             .mark_line(point=True)
             .encode(
-                x=alt.X("datetime:T", title="Time"),
+                x=alt.X("datetime:T", title="Time", scale=alt.Scale(domain=domain)),
                 y=alt.Y("value:Q", title="Intensity Stability"),
                 color=alt.Color("subject_id:N", title="Subject ID"),
                 tooltip=["datetime:T", "value:Q", "subject_id:N"],

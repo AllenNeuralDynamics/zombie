@@ -15,7 +15,7 @@ class TimeView(PyComponent):
         loader_settings.param.watch(self._start_time_changed, "start_time")
         loader_settings.param.watch(self._end_time_changed, "end_time")
 
-        self.plot_pane = pn.pane.Vega(sizing_mode="stretch_width", height=200)
+        self.plot_pane = pn.pane.Vega()
         self._update_plot()
 
     def _create_time_chart(self, start_time, end_time):
@@ -72,7 +72,9 @@ class TimeView(PyComponent):
         self._update_plot()
 
     def __panel__(self):
-        return pn.Column(
+        return pn.Row(
             self.plot_pane,
             styles=OUTER_STYLE,
+            sizing_mode="stretch_width",
+            height=200,
         )
