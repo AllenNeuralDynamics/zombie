@@ -43,7 +43,7 @@ class MainView(PyComponent):
             self.gear_button,
             time_view,
             pn.Row(
-                data_view,
+                pn.bind(data_view.get_panel, time_view.plot_pane.selection.param.time_brush),
                 space_view,
             ),
             settings_view,
