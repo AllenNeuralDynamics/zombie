@@ -103,3 +103,27 @@ def get_acquisition_time_range(project_names: list[str]):
     except Exception as e:
         print(f"Error fetching start time: {e}")
         return None
+
+
+@pn.cache(ttl=TTL_HOUR)
+def get_acquisition_start_end_times(project_names: list[str]):
+    """Get all paired start and end times for the given project names"""
+    
+    try:
+        time_ranges = client.aggregate_docdb_records(
+            pipeline=[
+                {"$match": {"data_description.project_name": {"$in": project_names}}},
+                {
+                    "$project": {
+                        "start_time": "$acquisition.acquisition_start_time",
+                        "end_time": "$acquisition.acquisition_end_time",
+                        "_id": 0,
+                    }
+                },
+                {"$match": {"start_time": {"$ne": None}, "end_time": {"$ne": None}}},
+            ],
+        )
+        return [(tr["start_time"], tr["end_time"]) for tr in time_ranges if "start_time" in tr and "end_time" in tr]
+    except Exception as e:
+        print(f"Error fetching acquisition start and end times: {e}")
+        return []

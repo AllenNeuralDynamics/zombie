@@ -1,19 +1,35 @@
+from typing import Optional
 import panel as pn
 from panel.custom import PyComponent
 from zombie.layout import OUTER_STYLE, AIND_COLORS
 import altair as alt
 import pandas as pd
+import param
+from enum import Enum
 
 from zombie.settings.loader_settings import loader_settings
 
 
+class ZoomState(Enum):
+
+    PROJECT = 0
+    YEAR = 1
+    MONTH = 2
+    WEEK = 3
+    SESSION = 4
+    HUNDRED_TRIALS = 5
+    TEN_TRIALS = 6
+    ONE_TRIAL = 7
+
+
 class TimeView(PyComponent):
+
+    zoom_state = param.Integer(default=ZoomState.PROJECT.value)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        loader_settings.param.watch(self._start_time_changed, "start_time")
-        loader_settings.param.watch(self._end_time_changed, "end_time")
+        loader_settings.param.watch(self._update_plot, "session_times")
 
         self.plot_pane = pn.pane.Vega(sizing_mode="stretch_width", height=150)
         self.zoom_in_button = pn.widgets.ButtonIcon(
@@ -24,66 +40,69 @@ class TimeView(PyComponent):
                 "border-radius": "50%",
             },
             width=30, height=30,
+            on_click=self._increase_zoom,
         )
         self.zoom_out_button = pn.widgets.ButtonIcon(
             icon="minus",
             styles={"background-color": AIND_COLORS["light_blue"], "color": "white", "border-radius": "50%"},
             width=30, height=30,
+            on_click=self._decrease_zoom,
         )
         self._update_plot()
 
-    def _create_time_chart(self, start_time, end_time):
-        """Create an Altair bar chart showing vertical bars at start and end times"""
+    def _increase_zoom(self, event):
+        if self.zoom_state < ZoomState.ONE_TRIAL.value:
+            self.zoom_state += 1
+            print(f"Zoomed in to state: {ZoomState(self.zoom_state).name}")
+            # Implement zoom in logic here
 
-        # Handle case where times might be None
-        if start_time is None or end_time is None:
-            # Create empty chart
-            data = pd.DataFrame({"time_type": [], "datetime": [], "height": []})
+    def _decrease_zoom(self, event):
+        if self.zoom_state > ZoomState.PROJECT.value:
+            self.zoom_state -= 1
+            print(f"Zoomed out to state: {ZoomState(self.zoom_state).name}")
+            # Implement zoom out logic here
+
+    def _create_time_chart(self, start_end_times: list[tuple]):
+        """Create an Altair bar chart showing horizontal bars for each session from start to end time"""
+
+        if not start_end_times or not any(start_end_times):
+            data = pd.DataFrame({"session": [], "start_time": [], "end_time": []})
         else:
-            # Convert unix timestamps to datetime objects (not strings)
-            start_datetime = pd.to_datetime(start_time, unit="s")
-            end_datetime = pd.to_datetime(end_time, unit="s")
-
-            data = pd.DataFrame(
-                {
-                    "time_type": ["Start Time", "End Time"],
-                    "datetime": [start_datetime, end_datetime],  # Use datetime objects, not strings
-                    "height": [1, 1],  # Fixed height for vertical bars
-                }
-            )
+            data_rows = []
+            for i, (start_time, end_time) in enumerate(start_end_times):
+                if start_time is not None and end_time is not None:
+                    start_datetime = pd.to_datetime(start_time)
+                    end_datetime = pd.to_datetime(end_time)
+                    data_rows.append({
+                        "session": f"Session {i+1}",
+                        "start_time": start_datetime,
+                        "end_time": end_datetime,
+                    })
+            
+            data = pd.DataFrame(data_rows)
 
         brush = alt.selection_interval(encodings=['x'], name="time_brush")
 
-        # Create the chart with vertical bars on a timeline
         chart = (
             alt.Chart(data)
-            .mark_bar(width=10)
+            .mark_bar(height=20)
             .add_params(brush)
             .encode(
-                x=alt.X("datetime:T", title="Date", axis=alt.Axis(labelAngle=-45)),  # Use temporal scale
-                y=alt.Y("height:Q", title="", axis=alt.Axis(labels=False, ticks=False, grid=False)),
-                color=alt.Color(
-                    "time_type:N", scale=alt.Scale(range=["#1f77b4", "#ff7f0e"]), legend=alt.Legend(title="Event Type")
-                ),
-                tooltip=["time_type:N", "datetime:T"],  # Use datetime in tooltip
+                x=alt.X("start_time:T", title="Time", axis=alt.Axis(labelAngle=-45, format="%Y-%m-%d")),
+                x2="end_time:T",
+                y=alt.value(50),
+                color=alt.value(AIND_COLORS["light_blue"]),
+                tooltip=["session:N", "start_time:T", "end_time:T"],
             )
-            .properties(width=800, height=100, title="Data Time Range")
+            .properties(width=800, height=100, title="Session Time Ranges")
         )
 
         return chart
 
-    def _update_plot(self):
+    def _update_plot(self, event: Optional[object] = None):
         """Update the plot with current start and end times"""
-        chart = self._create_time_chart(loader_settings.start_time, loader_settings.end_time)
+        chart = self._create_time_chart(event.new if event else [])
         self.plot_pane.object = chart
-
-    def _start_time_changed(self, event):
-        print(f"Start time changed to: {event.new}")
-        self._update_plot()
-
-    def _end_time_changed(self, event):
-        print(f"End time changed to: {event.new}")
-        self._update_plot()
 
     def __panel__(self):
         controls_col = pn.Column(
@@ -96,5 +115,5 @@ class TimeView(PyComponent):
             controls_col,
             styles=OUTER_STYLE,
             sizing_mode="stretch_width",
-            height=200,
+            height=250,
         )

@@ -7,13 +7,14 @@ from panel.custom import PyComponent
 import panel as pn
 
 from zombie.settings.query_settings import query_settings
-from zombie.data.docdb.utils import get_unique_modalities, get_acquisition_time_range
+from zombie.data.docdb.utils import get_unique_modalities, get_acquisition_time_range, get_acquisition_start_end_times
 
 
 class LoaderSettings(PyComponent):
 
     start_time = param.Number(default=None, allow_None=True)
     end_time = param.Number(default=None, allow_None=True)
+    session_times = param.List(default=[])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -39,6 +40,8 @@ class LoaderSettings(PyComponent):
         """Update the options for the loader checkboxes."""
 
         project_name = event.new
+
+        self.session_times = get_acquisition_start_end_times(project_name)
 
         active_modalities = get_unique_modalities(project_name)
         time_range = get_acquisition_time_range(project_name)

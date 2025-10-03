@@ -21,18 +21,9 @@ class MainView(PyComponent):
         self.gear_button = settings_view.panel.create_button(
             action="toggle",
             icon="settings",
-            button_type="primary",
-            styles={
-                "position": "fixed",
-                "top": "5px",
-                "right": "5px",
-                "width": "30px",
-                "height": "30px",
-                "zIndex": "1000",
-                "background": "#fff",
-                "borderRadius": "50%",
-                "boxShadow": "0 2px 8px rgba(0,0,0,0.15)",
-            },
+            # button_type="primary",
+            width=32,
+            height=32,
         )
 
         time_view = TimeView()
@@ -40,8 +31,10 @@ class MainView(PyComponent):
         data_view = DataView()
 
         self.panel = pn.Column(
-            self.gear_button,
-            time_view,
+            pn.Row(
+                time_view,
+                self.gear_button
+            ),
             pn.Row(
                 pn.bind(data_view.get_panel, time_view.plot_pane.selection.param.time_brush),
                 space_view,
