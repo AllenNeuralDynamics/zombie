@@ -146,3 +146,4 @@ src/zombie/3dtest/files/*
 .vscode/*
 
 data/*
+.github/instructions/copilot-instructions.instructions.md
