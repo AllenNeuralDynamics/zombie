@@ -48,7 +48,10 @@ def get_unique_modalities(project_names: Optional[list[str]] = None):
         unique_modalities = client.aggregate_docdb_records(
             pipeline=pipeline,
         )
-        return [modality["modality"] for modality in unique_modalities]
+        modalities_nested_list = [modality["modality"] for modality in unique_modalities]
+        # flatten list before returning
+        modalities = [item for sublist in modalities_nested_list for item in sublist]
+        return list(set(modalities))
     except Exception as e:
         print(f"Error fetching unique modalities: {e}")
         return []
