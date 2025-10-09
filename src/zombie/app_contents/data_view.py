@@ -1,7 +1,8 @@
 from panel.custom import PyComponent
 import panel as pn
 import duckdb
-import altair as alt
+import holoviews as hv
+import hvplot.pandas
 import pandas as pd
 from pathlib import Path
 
@@ -52,27 +53,31 @@ class DataView(PyComponent):
                 (filtered_df['datetime'] <= end_time)
             ]
 
-        # Create Altair chart with conditional domain
-        domain = ([pd.to_datetime(event['datetime'][0], unit='ms'),
-                   pd.to_datetime(event['datetime'][1], unit='ms')]
-                  if event and 'datetime' in event and len(event['datetime']) == 2 and not pd.isna(event['datetime'][0]) and not pd.isna(event['datetime'][1])
-                  else alt.Undefined)
-
-        chart = (
-            alt.Chart(filtered_df)
-            .mark_line(point=True)
-            .encode(
-                x=alt.X("datetime:T", title="Time", scale=alt.Scale(domain=domain)),
-                y=alt.Y("value:Q", title="Intensity Stability"),
-                color=alt.Color("subject_id:N", title="Subject ID"),
-                tooltip=["datetime:T", "value:Q", "subject_id:N"],
+        # Create HoloViews chart with time domain filtering
+        if filtered_df.empty:
+            chart = hv.Empty().opts(title="Intensity Stability Over Time", width=600, height=400)
+        else:
+            chart = filtered_df.hvplot.scatter(
+                x='datetime',
+                y='value',
+                by='subject_id',
+                title="Intensity Stability Over Time",
+                xlabel="Time",
+                ylabel="Intensity Stability",
+                width=600,
+                height=400,
+                tools=['hover', 'pan', 'wheel_zoom', 'box_zoom', 'reset'],
+                hover_cols=['datetime', 'value', 'subject_id']
             )
-            .properties(width=600, height=400, title="Intensity Stability Over Time")
-            .interactive()
-        )
+            
+            # Apply time domain if provided
+            if event and 'datetime' in event and len(event['datetime']) == 2:
+                start_time = pd.to_datetime(event['datetime'][0], unit='ms')
+                end_time = pd.to_datetime(event['datetime'][1], unit='ms')
+                chart = chart.opts(xlim=(start_time, end_time))
 
         return pn.Column(
-            pn.pane.Vega(chart),
+            pn.pane.HoloViews(chart),
             styles=OUTER_STYLE,
         )
 

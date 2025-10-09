@@ -2,6 +2,7 @@
 
 from zombie.app_contents.main_view import MainView
 from zombie.data.data_loader import DataLoader
+import holoviews as hv
 from zombie.layout import format_css_background
 import panel as pn
 

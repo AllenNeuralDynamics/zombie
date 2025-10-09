@@ -2,11 +2,14 @@
 
 from panel.custom import PyComponent
 import panel as pn
+import param
 
 from zombie.data.docdb.utils import get_unique_project_names
 
 
 class QuerySettings(PyComponent):
+
+    project_names = param.List(default=[])
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -15,10 +18,14 @@ class QuerySettings(PyComponent):
 
         header = pn.pane.Markdown("### Query settings")
 
-        self.project_selector = pn.widgets.MultiChoice(
+        self.project_selector = pn.widgets.MultiChoice.from_param(
+            self.param.project_names,
             name="data_description.project_name",
             options=get_unique_project_names(),
         )
+
+        pn.state.location.sync(self, parameters=["project_names"])
+        self.project_selector.value = self.project_names
 
         self.panel = pn.Column(
             header,

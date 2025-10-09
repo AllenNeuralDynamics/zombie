@@ -7,8 +7,6 @@ from zombie.app_contents.data_view import DataView
 
 from zombie.settings.settings_view import settings_view
 
-pn.extension("modal")
-
 
 class MainView(PyComponent):
 
@@ -36,7 +34,7 @@ class MainView(PyComponent):
                 self.gear_button
             ),
             pn.Row(
-                pn.bind(data_view.get_panel, time_view.plot_pane.selection.param.time_brush),
+                pn.bind(data_view.get_panel, time_view.param.selection),
                 space_view,
             ),
             settings_view,
