@@ -138,7 +138,7 @@ class TimeView(PyComponent):
         chart = hv.Rectangles(rectangles, vdims='session').opts(
             color=AIND_COLORS["light_blue"],
             alpha=0.8,
-            title="Session Time Ranges",
+            title="Session times",
             xlabel="Time",
             ylabel="",
             width=800,
