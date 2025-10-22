@@ -27,7 +27,7 @@ class ZoomState(Enum):
 class TimeView(PyComponent):
 
     zoom_state = param.Integer(default=ZoomState.PROJECT.value)
-    selection = param.Parameter(default={})
+    selection = param.Parameter(default=None)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -39,6 +39,8 @@ class TimeView(PyComponent):
             sizing_mode="stretch_width"
         )
         self.box_stream = None
+        self.selection_overlay = None
+        self.base_chart = None
         
         self.zoom_in_button = pn.widgets.ButtonIcon(
             icon="plus", active_icon="check",
@@ -76,14 +78,44 @@ class TimeView(PyComponent):
             if x0 is not None and x1 is not None:
                 min_x = min(x0, x1)
                 max_x = max(x0, x1)
-                datetime_range = [pd.to_datetime(min_x), pd.to_datetime(max_x)]
+                # Bounds are already in milliseconds (chart's coordinate system)
+                # Convert to datetime for display, but store milliseconds for filtering
+                datetime_range = [pd.to_datetime(min_x, unit='ms'), pd.to_datetime(max_x, unit='ms')]
                 self.selection = {
-                    'datetime': [datetime_range[0].timestamp() * 1000, datetime_range[1].timestamp() * 1000]
+                    'datetime': [min_x, max_x]  # Store as milliseconds
                 }
+                print(f"Time selection: {datetime_range[0]} to {datetime_range[1]}")
+                self._update_selection_overlay(min_x, max_x)
             else:
-                self.selection = {}
+                self.selection = None
+                print("Time selection cleared")
+                self._update_selection_overlay(None, None)
         else:
-            self.selection = {}
+            self.selection = None
+            print("Time selection cleared")
+            self._update_selection_overlay(None, None)
+
+    def _update_selection_overlay(self, min_x, max_x):
+        """Update the plot with a selection overlay rectangle"""
+        if self.base_chart is None:
+            return
+        
+        if min_x is not None and max_x is not None:
+            # Create a semi-transparent rectangle for the selection
+            selection_rect = hv.Rectangles([(min_x, 0, max_x, 1)]).opts(
+                color='gray',
+                alpha=0.3,
+                line_width=0,
+            )
+            combined_chart = self.base_chart * selection_rect
+        else:
+            # No selection, just show the base chart
+            combined_chart = self.base_chart
+        
+        # Update the plot container
+        new_pane = pn.pane.HoloViews(combined_chart, sizing_mode="stretch_width", height=150)
+        self.plot_container.clear()
+        self.plot_container.append(new_pane)
 
     def _create_time_chart(self, start_end_times: list[tuple]):
         
@@ -135,7 +167,7 @@ class TimeView(PyComponent):
 
         from bokeh.models import DatetimeTickFormatter
         
-        chart = hv.Rectangles(rectangles, vdims='session').opts(
+        self.base_chart = hv.Rectangles(rectangles, vdims='session').opts(
             color=AIND_COLORS["light_blue"],
             alpha=0.8,
             title="Session times",
@@ -161,10 +193,14 @@ class TimeView(PyComponent):
             )
         )
 
-        self.box_stream = streams.BoundsXY(source=chart)
-        self.box_stream.param.watch(self._on_selection, ['bounds'])
+        # Set up the selection stream on the base chart
+        if self.box_stream is None:
+            self.box_stream = streams.BoundsXY(source=self.base_chart)
+            self.box_stream.param.watch(self._on_selection, ['bounds'])
+        else:
+            self.box_stream.source = self.base_chart
 
-        return chart
+        return self.base_chart
 
     def _update_plot(self, event: Optional[object] = None):
         """Update the plot with current start and end times"""
@@ -177,10 +213,15 @@ class TimeView(PyComponent):
         #     new_pane = pn.pane.Markdown("No session data available", sizing_mode="stretch_width", height=150)
         # else:
         chart = self._create_time_chart(session_times)
-        new_pane = pn.pane.HoloViews(chart, sizing_mode="stretch_width", height=150)
         
-        self.plot_container.clear()
-        self.plot_container.append(new_pane)
+        # If there's an existing selection, reapply the overlay
+        if self.selection and isinstance(self.selection, dict) and 'datetime' in self.selection:
+            min_x, max_x = self.selection['datetime']
+            self._update_selection_overlay(min_x, max_x)
+        else:
+            new_pane = pn.pane.HoloViews(chart, sizing_mode="stretch_width", height=150)
+            self.plot_container.clear()
+            self.plot_container.append(new_pane)
 
     def __panel__(self):
         controls_col = pn.Column(

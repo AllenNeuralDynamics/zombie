@@ -88,14 +88,20 @@ class DataView(PyComponent):
         where_clauses = [f"{y_col} IS NOT NULL"]
         
         # Add time filter if x_column is 'ts' and time_selection exists
-        if x_col == 'ts' and self.time_selection and 'datetime' in self.time_selection:
-            time_bounds = self.time_selection['datetime']
+        has_time_selection = (
+            x_col == 'ts' and time_selection is not None
+            and isinstance(time_selection, dict) and 'datetime' in time_selection
+        )
+        if has_time_selection:
+            time_bounds = time_selection['datetime']
             if len(time_bounds) == 2:
                 # Convert from milliseconds to seconds (Unix timestamp format in parquet)
                 min_ts = time_bounds[0] / 1000.0
                 max_ts = time_bounds[1] / 1000.0
                 where_clauses.append(f"ts BETWEEN {min_ts} AND {max_ts}")
-                print(f"Applying time filter: ts BETWEEN {min_ts} AND {max_ts}")
+                print(f"✓ Applying time filter: ts BETWEEN {min_ts} AND {max_ts}")
+        elif x_col == 'ts':
+            print(f"✗ No time filter applied (time_selection={time_selection})")
         
         # Add filter column condition if specified
         if filter_col and filter_vals:
