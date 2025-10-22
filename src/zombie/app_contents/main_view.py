@@ -28,13 +28,19 @@ class MainView(PyComponent):
         space_view = SpaceView()
         data_view = DataView()
 
+        # Link time view selection to data view filtering
+        time_view.param.watch(
+            lambda event: setattr(data_view, 'time_selection', event.new),
+            'selection'
+        )
+
         self.panel = pn.Column(
             pn.Row(
                 time_view,
                 self.gear_button
             ),
             pn.Row(
-                pn.bind(data_view.get_panel, time_view.param.selection),
+                data_view,
                 space_view,
             ),
             settings_view,

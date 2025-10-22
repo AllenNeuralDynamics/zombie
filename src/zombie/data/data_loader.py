@@ -20,7 +20,7 @@ class DataTableMetadata(BaseModel):
 
 class AllTableMetadata(BaseModel):
     types: dict[str, TableTypeMetadata]
-    tables: list[DataTableMetadata]
+    filepaths: dict[str, list[str]]
 
 
 class DataLoader(param.Parameterized):
@@ -50,7 +50,7 @@ class DataLoader(param.Parameterized):
 
         all_table_metadata = AllTableMetadata(
             types={},
-            tables=[],
+            filepaths={},
         )
         for asset in data_assets:
             for registry in loader_registry:
@@ -63,16 +63,14 @@ class DataLoader(param.Parameterized):
                     try:
                         data_path = registry.load_function(asset["name"])
                         if data_path:
-                            data_table_metadata = DataTableMetadata(
-                                data_type=registry.name,
-                                filepath=str(data_path),
-                            )
-                            all_table_metadata.tables.append(data_table_metadata)
+                            if registry.name not in all_table_metadata.filepaths:
+                                all_table_metadata.filepaths[registry.name] = []
+                            all_table_metadata.filepaths[registry.name].append(str(data_path))
                     except Exception as e:
                         print(f"Error loading data for asset {asset['name']} with loader {registry.name}: {e}")
 
         with open("data/loaded_assets.json", "w") as f:
             f.write(all_table_metadata.model_dump_json(indent=2))
 
-        print(f"Data loading complete. Loaded data for {len(all_table_metadata.tables)} assets.")
+        print(f"Data loading complete. Loaded data for {len(all_table_metadata.filepaths)} assets.")
         self.loading = False
