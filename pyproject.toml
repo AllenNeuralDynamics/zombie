@@ -23,6 +23,8 @@ dependencies = [
     'altair',
     'duckdb',
     'pyarrow',
+    'hvplot',
+    'holoviews',
 ]
 
 [project.optional-dependencies]
