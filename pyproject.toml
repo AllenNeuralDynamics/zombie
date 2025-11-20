@@ -18,13 +18,15 @@ dynamic = ["version"]
 
 dependencies = [
     'aind-data-schema',
-    'aind-data-access-api[docdb,rds,helpers]',
-    'panel>=1.8.1',
+    'aind-data-access-api[docdb,rds] @ git+https://github.com/AllenNeuralDynamics/aind-data-access-api.git@test-rds-rc',
+    'panel>=1.8.3',
     'altair',
     'duckdb',
     'pyarrow',
     'hvplot',
     'holoviews',
+    'zombie-squirrel',
+    'pandas==2.3.3',
 ]
 
 [project.optional-dependencies]
