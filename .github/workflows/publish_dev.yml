@@ -19,7 +19,7 @@ jobs:
           echo "docker_tag=$(echo ${GITHUB_REF_NAME})-$(git rev-parse --short "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
   publish_image:
     needs: compute-docker-tag
-    uses: AlleNeuralDynamics/.github/.github/workflows/release-publish-docker-image.yml@main
+    uses: AllenNeuralDynamics/.github/.github/workflows/release-publish-docker-image.yml@main
     with:
       default-branch: dev
       docker-tag: ${{ needs.compute-docker-tag.outputs.docker_tag }}
