@@ -5,7 +5,7 @@ df = asset_basics()
 
 
 col = pn.Column(
-    pn.widgets.Tabulator(df, header_filters=True, show_index=False)
+    pn.widgets.Tabulator(df, header_filters=True, show_index=False, disabled=True)
 )
 
 col.servable(title="Asset Basics")
