@@ -22,5 +22,5 @@ ENTRYPOINT ["sh", "-c", \
         --allow-websocket-origin ${ALLOW_WEBSOCKET_ORIGIN} \
         --oauth-redirect-uri ${OAUTH_REDIRECT} \
         --keep-alive 10000 \
-        --index app.py \
+        --index=app \
         --num-threads $(nproc)"]
