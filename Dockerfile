@@ -12,6 +12,8 @@ RUN pip install uv
 # Install your package using uv
 RUN uv pip install --system . --no-cache
 
+ENV TREE_SPECIES=s3
+
 EXPOSE 8000
 
 ENTRYPOINT ["sh", "-c", \
