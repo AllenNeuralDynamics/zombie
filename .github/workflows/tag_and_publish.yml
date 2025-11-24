@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - main
-# Remove line 65 to enable automated semantic version bumps.
 # Change line 71 from "if: false" to "if: true" to enable PyPI publishing. 
 # Requires that svc-aindscicomp be added as an admin to repo.
 jobs:
