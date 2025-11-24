@@ -62,7 +62,6 @@ jobs:
         add: '["README.md"]'
   tag:
     needs: update_badges
-    if: ${{github.event.repository.name == 'aind-library-template'}}
     uses: AllenNeuralDynamics/aind-github-actions/.github/workflows/tag.yml@main
     secrets:
       SERVICE_TOKEN: ${{ secrets.SERVICE_TOKEN }}
@@ -120,10 +119,10 @@ jobs:
       AWS_ECS_SERVICE : ${{ vars.AWS_ECS_SERVICE_PROD }}
     steps:
       - uses: actions/checkout@v3
-      - name: Set up Python 3.10
+      - name: Set up Python 3.13
         uses: actions/setup-python@v3
         with:
-          python-version: '3.10'
+          python-version: '3.13'
       - name: Configure aws credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
