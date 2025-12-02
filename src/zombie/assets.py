@@ -25,4 +25,4 @@ asset_panel = AssetPanel(asset_df=df)
 
 print(f"ZOMBIE/assets initialized and ready. Version: {__version__}")
 
-asset_panel.servable(title="Asset Basics")
+asset_panel.servable(title="AIND Data Assets")
