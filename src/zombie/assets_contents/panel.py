@@ -23,7 +23,7 @@ class AssetPanel(PyComponent):
 
         # Re-order columns to place _last_modified at the front
         print(df.columns.tolist())
-        ordered_cols = ['subject_id', 'acquisition_start_time', 'project_name', 'modalities', 'location', 'qc', 'co', 'metadata', 'data_level', 'process_date', 'genotype', '_id', '_last_modified', 'acquisition_end_time', 'name']
+        ordered_cols = ['subject_id', 'acquisition_start_time', 'project_name', 'modalities', 'location', 'qc', 'co', 'metadata', 'data_level', 'process_date', 'genotype']
         df = df[ordered_cols]
 
         # Sort DF by the _last_modified column in descending order
@@ -39,7 +39,7 @@ class AssetPanel(PyComponent):
                 show_index=False,
                 disabled=True,
                 page_size=100,
-                layout='fit_data_table',
+                layout='fit_columns',
                 sizing_mode="stretch_both",
                 formatters={
                     "location": {"type": "html"},
