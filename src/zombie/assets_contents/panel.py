@@ -1,6 +1,8 @@
 import panel as pn
 from panel.custom import PyComponent
 
+from aind_metadata_utils.data_assets import name_to_metadata_view_link, name_to_qc_view_link, co_id_to_co_link
+
 from zombie.layout import OUTER_STYLE
 
 
@@ -15,11 +17,11 @@ class AssetPanel(PyComponent):
         df['location'] = df['location'].apply(lambda x: f'<a href="{x}" target="_blank">S3 link</a>')
 
         # QC link column
-        df['qc'] = df['name'].apply(lambda x: f'<a href="https://qc.allenneuraldynamics-test.org/view?name={x}" target="_blank">QC link</a>')
-        df['metadata'] = df['name'].apply(lambda x: f'<a href="https://metadata-portal.allenneuraldynamics-test.org/view?name={x}" target="_blank">Metadata link</a>')
+        df['qc'] = df['name'].apply(name_to_qc_view_link)
+        df['metadata'] = df['name'].apply(name_to_metadata_view_link)
 
         # CO link column
-        df['co'] = df['code_ocean'].apply(lambda x: f'<a href="https://codeocean.allenneuraldynamics.org/data-assets/{x}" target="_blank">CO link</a>')
+        df['co'] = df['code_ocean'].apply(co_id_to_co_link)
 
         # Re-order columns to place _last_modified at the front
         print(df.columns.tolist())

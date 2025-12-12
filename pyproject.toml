@@ -19,6 +19,7 @@ dynamic = ["version"]
 dependencies = [
     'aind-data-schema',
     'aind-data-access-api[docdb]',
+    'aind-metadata-utils>=0.1.2,<2',
     'panel>=1.8.3',
     'altair',
     'duckdb',
