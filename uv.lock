@@ -1081,7 +1081,7 @@ wheels = [
 
 [[package]]
 name = "panel"
-version = "1.8.3"
+version = "1.8.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleach" },
@@ -1099,9 +1099,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/22/92/c37607052d34c5ca9a9ec0c75b9cef7a38ef341178665d5c91852682ed8c/panel-1.8.3.tar.gz", hash = "sha256:192a25fa4afdb25c5d0bf00d3749bb1b3601f25cddb76492e355fa278f91fce8", size = 32093790, upload-time = "2025-11-10T11:17:43.691Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1b/62/9147e3e5b8a4971606c1aa1ecf66d889ea7529914899e4192f4c5125430b/panel-1.8.4.tar.gz", hash = "sha256:c4d6e7e3a895d3a42b6b69ee30d3acc191580619a2d1b8cd18f7f6684246a67f", size = 32098216, upload-time = "2025-12-02T18:08:02.51Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/59/f6/6dd8932f59f0e1e2649a2b2ae4a9e849218aa3d6ae8fdbbd01f5457b3b9b/panel-1.8.3-py3-none-any.whl", hash = "sha256:0e435406c608c382dd3378251d16db4d8189ca44ca508c281e1bfd6c80f47689", size = 30175744, upload-time = "2025-11-10T11:17:40.422Z" },
+    { url = "https://files.pythonhosted.org/packages/27/39/796ffe83cf6a1a6458f42db0a5c2ea7671478651e8945386e89625af5fdc/panel-1.8.4-py3-none-any.whl", hash = "sha256:d0e0f316c78159c87544a403d4600f7f056a6cafdc035df5b13c9c8667c36c96", size = 30184708, upload-time = "2025-12-02T18:07:59.568Z" },
 ]
 
 [[package]]
@@ -1946,7 +1946,7 @@ requires-dist = [
     { name = "interrogate", marker = "extra == 'dev'" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "pandas", specifier = "==2.3.3" },
-    { name = "panel", specifier = ">=1.8.3" },
+    { name = "panel", specifier = ">=1.8.4" },
     { name = "pyarrow" },
     { name = "watchfiles", marker = "extra == 'dev'" },
     { name = "zombie-squirrel", specifier = ">=0.5.4" },

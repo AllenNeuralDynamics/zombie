@@ -19,13 +19,13 @@ dynamic = ["version"]
 dependencies = [
     'aind-data-schema',
     'aind-data-access-api[docdb]',
-    'panel>=1.8.3',
+    'panel>=1.8.4',
     'altair',
     'duckdb',
     'pyarrow',
     'hvplot',
     'holoviews',
-    'zombie-squirrel>=0.5.4',
+    'zombie-squirrel>=0.7.4',
     'pandas==2.3.3',
 ]
 
