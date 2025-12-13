@@ -20,6 +20,7 @@ dependencies = [
     'aind-data-schema',
     'aind-data-access-api[docdb]',
     'panel>=1.8.4',
+    'aind-metadata-utils>=0.1.2,<2',
     'altair',
     'duckdb',
     'pyarrow',
