@@ -35,11 +35,11 @@ class LoaderSettings(PyComponent):
             header,
             self.loader_checkboxes,
         )
+        
+        self._update_options(query_settings.project_selector.param.value)
 
-    def _update_options(self, event):
+    def _update_options(self, project_name):
         """Update the options for the loader checkboxes."""
-
-        project_name = event.new
 
         self.session_times = get_acquisition_start_end_times(project_name)
 
@@ -61,6 +61,9 @@ class LoaderSettings(PyComponent):
         ]
 
         self.loader_checkboxes.options = options
+
+    def update_options_callback(self, event):
+        self._update_options(event.new)
 
     def __panel__(self):
 

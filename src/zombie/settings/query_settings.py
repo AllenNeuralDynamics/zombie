@@ -4,7 +4,7 @@ from panel.custom import PyComponent
 import panel as pn
 import param
 
-from zombie.data.docdb.utils import get_unique_project_names
+from zombie_squirrel import unique_project_names
 
 
 class QuerySettings(PyComponent):
@@ -21,7 +21,7 @@ class QuerySettings(PyComponent):
         self.project_selector = pn.widgets.MultiChoice.from_param(
             self.param.project_names,
             name="data_description.project_name",
-            options=get_unique_project_names(),
+            options=unique_project_names(),
         )
 
         pn.state.location.sync(self, parameters=["project_names"])
