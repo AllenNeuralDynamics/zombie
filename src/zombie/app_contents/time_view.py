@@ -58,6 +58,12 @@ class TimeView(PyComponent):
             width=30, height=30,
             on_click=self._decrease_zoom,
         )
+        
+        pn.state.onload(self._startup)
+
+    def _startup(self):
+        print(loader_settings.session_times)
+        self._update_plot(loader_settings.session_times)
 
     def _increase_zoom(self, event):
         if self.zoom_state < ZoomState.ONE_TRIAL.value:
@@ -202,12 +208,8 @@ class TimeView(PyComponent):
 
         return self.base_chart
 
-    def _update_plot(self, event: Optional[object] = None):
+    def _update_plot(self, session_times):
         """Update the plot with current start and end times"""
-        try:
-            session_times = getattr(event, 'new', []) if event else []
-        except AttributeError:
-            session_times = []
 
         # if not session_times or not any(session_times):
         #     new_pane = pn.pane.Markdown("No session data available", sizing_mode="stretch_width", height=150)
@@ -222,6 +224,14 @@ class TimeView(PyComponent):
             new_pane = pn.pane.HoloViews(chart, sizing_mode="stretch_width", height=150)
             self.plot_container.clear()
             self.plot_container.append(new_pane)
+
+    def update_plot_callback(self, event):
+        try:
+            session_times = getattr(event, 'new', []) if event else []
+        except AttributeError:
+            session_times = []
+
+        self._update_plot(session_times)
 
     def __panel__(self):
         controls_col = pn.Column(
