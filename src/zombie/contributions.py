@@ -196,9 +196,8 @@ class ContributionMatrix(param.Parameterized):
     def _initialize_contributions(self):
         """Initialize the contributions dataframe"""
         data = {
-            'Order': list(range(1, len(self.authors) + 1)),
             'Author': self.authors,
-            'Shared First Author': [False] * len(self.authors),
+            'First Author': [False] * len(self.authors),
         }
         
         # Add columns for each CReDIT category
@@ -228,6 +227,21 @@ class ContributionMatrix(param.Parameterized):
         **Authors found**: {len(self.authors)}
         """)
         
+        # Author ordering widget
+        self.author_order = pn.widgets.MultiSelect(
+            name='Author Order',
+            value=[],
+            options=self.authors.copy(),
+            size=min(len(self.authors), 10),
+            width=200,
+        )
+        
+        # Buttons to reorder selected author
+        self.move_up_btn = pn.widgets.Button(name='↑ Move Up', button_type='default', width=100)
+        self.move_down_btn = pn.widgets.Button(name='↓ Move Down', button_type='default', width=100)
+        self.move_up_btn.on_click(self._move_author_up)
+        self.move_down_btn.on_click(self._move_author_down)
+        
         # Define cell styling function
         def style_contribution_cell(value):
             """Return CSS string for a contribution cell based on its value"""
@@ -240,30 +254,22 @@ class ContributionMatrix(param.Parameterized):
         
         # Create the editable table with cell styling
         editors = {
-            'Order': {'type': 'number', 'min': 1},
-            'Shared First Author': {'type': 'tickCross'},
+            'First Author': {'type': 'tickCross'},
         }
         editors.update({
             category: {'type': 'list', 'values': list(CONTRIBUTION_LEVELS.keys())}
             for category in CREDIT_CATEGORIES
         })
         
-        # Set column widths
-        widths = {
-            'Order': 60,
-            'Author': 150,
-            'Shared First Author': 80,
-        }
-        
         self.table = pn.widgets.Tabulator(
             self.contributions_df,
             editors=editors,
-            widths=widths,
             show_index=False,
             layout='fit_columns',
             height=400,
             sizing_mode='stretch_width',
             text_align='center',
+            sortable=False,
         )
         
         # Apply styling using pandas .style.map()
@@ -285,6 +291,11 @@ class ContributionMatrix(param.Parameterized):
             self.title,
             self.asset_input,
             self.info,
+            pn.Column(
+                self.author_order,
+                pn.Row(self.move_up_btn, self.move_down_btn),
+                width=250
+            ),
             self.table,
             self.download_button,
             self.output,
@@ -294,23 +305,79 @@ class ContributionMatrix(param.Parameterized):
         # Layout with HSpacers to center at 90% width
         self.layout = pn.Row(
             pn.HSpacer(),
-            pn.Column(content, width=int(1400 * 0.9)),
+            pn.Column(content, width=1600),
             pn.HSpacer(),
         )
+    
+    def _move_author_up(self, event):
+        """Move selected author up in the order"""
+        if not self.author_order.value or len(self.author_order.value) != 1:
+            return
+        
+        author = self.author_order.value[0]
+        current_options = list(self.author_order.options)
+        idx = current_options.index(author)
+        
+        if idx > 0:
+            # Swap with previous
+            current_options[idx], current_options[idx-1] = current_options[idx-1], current_options[idx]
+            self.author_order.options = current_options
+            self._update_table_order(current_options)
+    
+    def _move_author_down(self, event):
+        """Move selected author down in the order"""
+        if not self.author_order.value or len(self.author_order.value) != 1:
+            return
+        
+        author = self.author_order.value[0]
+        current_options = list(self.author_order.options)
+        idx = current_options.index(author)
+        
+        if idx < len(current_options) - 1:
+            # Swap with next
+            current_options[idx], current_options[idx+1] = current_options[idx+1], current_options[idx]
+            self.author_order.options = current_options
+            self._update_table_order(current_options)
+    
+    def _update_table_order(self, new_order):
+        """Update table based on new author order"""
+        # Create a mapping of author to their new position
+        order_map = {author: i for i, author in enumerate(new_order)}
+        
+        # Sort the DataFrame by the new order
+        df = self.table.value.copy()
+        df['_order'] = df['Author'].map(order_map)
+        df = df.sort_values('_order').drop('_order', axis=1).reset_index(drop=True)
+        self.table.value = df
     
     def _on_asset_input(self, event):
         """Handle manual asset name input"""
         self.asset_name = event.new
     
     def _generate_latex_columns(self, df):
-        """Generate LaTeX for column labels (authors)"""
+        """Generate LaTeX for column labels (CReDIT categories)"""
         lines = []
         lines.append("    % column labels")
         lines.append("    \\foreach \\a [count=\\n] in {")
         
+        for category in CREDIT_CATEGORIES:
+            lines.append(f"        {category},")
+        
+        lines.append("    } {")
+        lines.append("        \\node[col header] at (\\n,0) {\\a};")
+        lines.append("    }")
+        
+        return "\n".join(lines)
+    
+    def _generate_latex_rows(self, df):
+        """Generate LaTeX for row labels (authors)"""
+        lines = []
+        lines.append("    % row labels")
+        lines.append("    \\foreach \\a [count=\\i] in {")
+        
         for _, row in df.iterrows():
             author = row['Author']
-            is_first = row['Shared First Author']
+            is_first = row['First Author']
             
             # Format author name (e.g., "Cindy Poo" -> "C. Poo")
             parts = author.split()
@@ -319,26 +386,11 @@ class ContributionMatrix(param.Parameterized):
             else:
                 formatted = author
             
-            # Add marker for shared first authors
+            # Add marker for First Authors
             if is_first:
                 formatted += "*"
             
             lines.append(f"        {formatted},")
-        
-        lines.append("    } {")
-        lines.append("        \\node[col header] at (\\n,0) {\\a};")
-        lines.append("    }")
-        
-        return "\n".join(lines)
-    
-    def _generate_latex_rows(self):
-        """Generate LaTeX for row labels (CReDIT categories)"""
-        lines = []
-        lines.append("    % row labels")
-        lines.append("    \\foreach \\a [count=\\i] in {")
-        
-        for category in CREDIT_CATEGORIES:
-            lines.append(f"        {category},")
         
         lines.append("    } {")
         lines.append("        \\node[row label] at (0,-\\i) {\\a};")
@@ -351,12 +403,12 @@ class ContributionMatrix(param.Parameterized):
         lines = []
         lines.append("    \\foreach \\y [count=\\n] in {")
         
-        for category in CREDIT_CATEGORIES:
+        # Iterate through authors (rows)
+        for _, row in df.iterrows():
             values = []
-            for author in df['Author']:
-                # Get the contribution level for this author and category
-                row = df[df['Author'] == author]
-                level = row[category].values[0] if len(row) > 0 else "None"
+            # For each author, get their contribution level for each category (columns)
+            for category in CREDIT_CATEGORIES:
+                level = row[category]
                 values.append(CONTRIBUTION_LEVELS[level])
             
             lines.append("        {" + ",".join(str(v) for v in values) + "},")
@@ -372,8 +424,8 @@ class ContributionMatrix(param.Parameterized):
     
     def _generate_latex(self, event):
         """Generate LaTeX output"""
-        # Get current data from table and sort by Order column
-        df = self.table.value.sort_values('Order').reset_index(drop=True)
+        # Get current data from table
+        df = self.table.value
         
         # Build LaTeX output
         parts = []
@@ -382,7 +434,7 @@ class ContributionMatrix(param.Parameterized):
         parts.append("")
         parts.append(self._generate_latex_columns(df))
         parts.append("")
-        parts.append(self._generate_latex_rows())
+        parts.append(self._generate_latex_rows(df))
         parts.append("")
         parts.append(self._generate_latex_heatmap(df))
         parts.append("")

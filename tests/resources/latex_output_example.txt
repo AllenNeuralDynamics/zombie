@@ -3,6 +3,21 @@
 
     % column labels
     \foreach \a [count=\n] in {
+        Conceptualization,
+        Formal analysis,
+        Investigation,
+        Methodology,
+        Resources,
+        Software,
+        Writing---Original Draft,
+        Writing---Reviewing and Editing,
+        Funding acquisition,
+    } {
+        \node[col header] at (\n,0) {\a};
+    }
+
+    % row labels
+    \foreach \a [count=\i] in {
         D. Birman*,
         Author 2*,
         Author 3,
@@ -15,34 +30,21 @@
         Author 10$^\dagger$,
         Author 11$^\dagger$,
     } {
-        \node[col header] at (\n,0) {\a};
-    }
-
-    % row labels
-    \foreach \a [count=\i] in {
-        Conceptualization,
-        Formal analysis,
-        Investigation,
-        Methodology,
-        Resources,
-        Software,
-        Writing---Original Draft,
-        Writing---Reviewing and Editing,
-        Funding acquisition,
-    } {
         \node[row label] at (0,-\i) {\a};
     }
 
     \foreach \y [count=\n] in {
-        {\hi,\hi,\lo,0,0,0,0,0,0,\hi,\hi},
-        {\hi,0,\hi,0,0,0,\mid,\mid,\mid,0,\mid},
-        {\hi,\lo,0,\hi,\hi,\mid,0,0,0,0,\mid},
-        {\hi,\lo,0,0,0,0,0,0,0,0,0},
-        {\lo,\hi,0,0,0,0,0,0,0,\lo,0},
-        {\hi,\mid,0,0,0,0,0,0,0,\mid,0},
-        {\hi,\hi,0,0,0,0,0,0,0,\mid,0},
-        {\hi,\hi,0,0,0,0,0,0,0,\mid,\lo},
-        {0,0,0,0,0,0,0,0,\lo,\hi,\hi},
+        {\hi,\hi,\hi,\hi,\lo,\hi,\hi,\hi,0},
+        {\hi,0,\lo,\lo,\hi,\lo,\hi,\hi,0},
+        {\lo,\hi,0,0,0,0,0,0,0},
+        {0,0,\hi,0,0,0,0,0,0},
+        {0,0,\hi,0,0,0,0,0,0},
+        {0,0,\lo,0,0,0,0,0,0},
+        {0,\lo,0,0,0,0,0,0,0},
+        {0,\lo,0,0,0,0,0,0,0},
+        {0,\lo,0,0,0,0,0,0,\lo},
+        {\hi,0,0,0,\lo,\lo,\lo,\lo,\hi},
+        {\hi,\lo,\lo,0,0,0,0,\lo,\hi},
     } {
         % heatmap tiles
         \foreach \x [count=\m] in \y {

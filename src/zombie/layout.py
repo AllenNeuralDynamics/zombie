@@ -25,13 +25,12 @@ OUTER_STYLE = {
 def format_css_background():
     """Add the custom CSS for the background to the panel configuration"""
     # Add the custom CSS
-    background_color = AIND_COLORS[
-        (
-            pn.state.location.query_params["background"]
-            if "background" in pn.state.location.query_params
-            else "dark_blue"
-        )
-    ]
+    if hasattr(pn.state, "location") and hasattr(pn.state.location, "query_params"):
+        color_key = pn.state.location.query_params["background"] if "background" in pn.state.location.query_params else "dark_blue"
+    else:
+        color_key = "dark_blue"
+
+    background_color = AIND_COLORS[color_key]
     BACKGROUND_CSS = f"""
     body {{
         background-color: {background_color} !important;

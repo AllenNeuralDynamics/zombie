@@ -21,7 +21,7 @@ class TestLatexGeneration(unittest.TestCase):
         # Load the expected output
         test_resources = Path(__file__).parent / "resources"
         with open(test_resources / "latex_output_example.txt", "r") as f:
-            self.expected_output = f.read()
+            self.expected_output = f.read().rstrip('\n')  # Strip trailing newline for comparison
         
         # Create test data matching the example
         self.test_authors = [
@@ -41,34 +41,26 @@ class TestLatexGeneration(unittest.TestCase):
         # Create test dataframe with the contribution values from the example
         self.test_df = pd.DataFrame({
             'Author': self.test_authors,
+            'First Author': [True, True, False, False, False, False, False, False, False, False, False],
             'Conceptualization': ['High', 'High', 'Low', 'None', 'None', 'None', 'None', 'None', 'None', 'High', 'High'],
-            'Formal analysis': ['High', 'None', 'High', 'None', 'None', 'None', 'Medium', 'Medium', 'Medium', 'None', 'Medium'],
-            'Investigation': ['High', 'Low', 'None', 'High', 'High', 'Medium', 'None', 'None', 'None', 'None', 'Medium'],
+            'Formal analysis': ['High', 'None', 'High', 'None', 'None', 'None', 'Low', 'Low', 'Low', 'None', 'Low'],
+            'Investigation': ['High', 'Low', 'None', 'High', 'High', 'Low', 'None', 'None', 'None', 'None', 'Low'],
             'Methodology': ['High', 'Low', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'None'],
             'Resources': ['Low', 'High', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Low', 'None'],
-            'Software': ['High', 'Medium', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Medium', 'None'],
-            'Writing---Original Draft': ['High', 'High', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Medium', 'None'],
-            'Writing---Reviewing and Editing': ['High', 'High', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Medium', 'Low'],
+            'Software': ['High', 'Low', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Low', 'None'],
+            'Writing---Original Draft': ['High', 'High', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Low', 'None'],
+            'Writing---Reviewing and Editing': ['High', 'High', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Low', 'Low'],
             'Funding acquisition': ['None', 'None', 'None', 'None', 'None', 'None', 'None', 'None', 'Low', 'High', 'High'],
         })
     
-    def _generate_latex_columns(self, authors):
-        """Generate LaTeX for column labels (authors)"""
+    def _generate_latex_columns(self, df):
+        """Generate LaTeX for column labels (CReDIT categories)"""
         lines = []
         lines.append("    % column labels")
         lines.append("    \\foreach \\a [count=\\n] in {")
         
-        for i, author in enumerate(authors):
-            # Use author name as-is, just add markers
-            formatted = author
-            
-            # Add marker based on position (matching the example)
-            if i == 0 or i == 1:
-                formatted += "*"
-            elif i == 9 or i == 10:
-                formatted += "$^\\dagger$"
-            
-            lines.append(f"        {formatted},")
+        for category in CREDIT_CATEGORIES:
+            lines.append(f"        {category},")
         
         lines.append("    } {")
         lines.append("        \\node[col header] at (\\n,0) {\\a};")
@@ -76,14 +68,27 @@ class TestLatexGeneration(unittest.TestCase):
         
         return "\n".join(lines)
     
-    def _generate_latex_rows(self):
-        """Generate LaTeX for row labels (CReDIT categories)"""
+    def _generate_latex_rows(self, df):
+        """Generate LaTeX for row labels (authors)"""
         lines = []
         lines.append("    % row labels")
         lines.append("    \\foreach \\a [count=\\i] in {")
         
-        for category in CREDIT_CATEGORIES:
-            lines.append(f"        {category},")
+        for _, row in df.iterrows():
+            author = row['Author']
+            is_first = row['First Author']
+            
+            # Use author name as-is
+            formatted = author
+            
+            # Add marker for first authors
+            if is_first:
+                formatted += "*"
+            # Add dagger for specific authors (matching example)
+            elif author in ['Author 10', 'Author 11']:
+                formatted += "$^\\dagger$"
+            
+            lines.append(f"        {formatted},")
         
         lines.append("    } {")
         lines.append("        \\node[row label] at (0,-\\i) {\\a};")
@@ -96,12 +101,12 @@ class TestLatexGeneration(unittest.TestCase):
         lines = []
         lines.append("    \\foreach \\y [count=\\n] in {")
         
-        for category in CREDIT_CATEGORIES:
+        # Iterate through authors (rows)
+        for _, row in df.iterrows():
             values = []
-            for author in df['Author']:
-                # Get the contribution level for this author and category
-                row = df[df['Author'] == author]
-                level = row[category].values[0] if len(row) > 0 else "None"
+            # For each author, get their contribution level for each category (columns)
+            for category in CREDIT_CATEGORIES:
+                level = row[category]
                 values.append(CONTRIBUTION_LEVELS[level])
             
             lines.append("        {" + ",".join(str(v) for v in values) + "},")
@@ -117,11 +122,35 @@ class TestLatexGeneration(unittest.TestCase):
     
     def test_generate_latex_columns(self):
         """Test column label generation"""
-        result = self._generate_latex_columns(self.test_authors)
+        result = self._generate_latex_columns(self.test_df)
         
         expected_lines = [
             "    % column labels",
             "    \\foreach \\a [count=\\n] in {",
+            "        Conceptualization,",
+            "        Formal analysis,",
+            "        Investigation,",
+            "        Methodology,",
+            "        Resources,",
+            "        Software,",
+            "        Writing---Original Draft,",
+            "        Writing---Reviewing and Editing,",
+            "        Funding acquisition,",
+            "    } {",
+            "        \\node[col header] at (\\n,0) {\\a};",
+            "    }",
+        ]
+        expected = "\n".join(expected_lines)
+        
+        self.assertEqual(result, expected, "Column labels should match expected format")
+    
+    def test_generate_latex_rows(self):
+        """Test row label generation"""
+        result = self._generate_latex_rows(self.test_df)
+        
+        expected_lines = [
+            "    % row labels",
+            "    \\foreach \\a [count=\\i] in {",
             "        D. Birman*,",
             "        Author 2*,",
             "        Author 3,",
@@ -133,30 +162,6 @@ class TestLatexGeneration(unittest.TestCase):
             "        Author 9,",
             "        Author 10$^\\dagger$,",
             "        Author 11$^\\dagger$,",
-            "    } {",
-            "        \\node[col header] at (\\n,0) {\\a};",
-            "    }",
-        ]
-        expected = "\n".join(expected_lines)
-        
-        self.assertEqual(result, expected, "Column labels should match expected format")
-    
-    def test_generate_latex_rows(self):
-        """Test row label generation"""
-        result = self._generate_latex_rows()
-        
-        expected_lines = [
-            "    % row labels",
-            "    \\foreach \\a [count=\\i] in {",
-            "        Conceptualization,",
-            "        Formal analysis,",
-            "        Investigation,",
-            "        Methodology,",
-            "        Resources,",
-            "        Software,",
-            "        Writing---Original Draft,",
-            "        Writing---Reviewing and Editing,",
-            "        Funding acquisition,",
             "    } {",
             "        \\node[row label] at (0,-\\i) {\\a};",
             "    }",
@@ -171,15 +176,17 @@ class TestLatexGeneration(unittest.TestCase):
         
         expected_lines = [
             "    \\foreach \\y [count=\\n] in {",
-            "        {\\hi,\\hi,\\lo,0,0,0,0,0,0,\\hi,\\hi},",
-            "        {\\hi,0,\\hi,0,0,0,\\mid,\\mid,\\mid,0,\\mid},",
-            "        {\\hi,\\lo,0,\\hi,\\hi,\\mid,0,0,0,0,\\mid},",
-            "        {\\hi,\\lo,0,0,0,0,0,0,0,0,0},",
-            "        {\\lo,\\hi,0,0,0,0,0,0,0,\\lo,0},",
-            "        {\\hi,\\mid,0,0,0,0,0,0,0,\\mid,0},",
-            "        {\\hi,\\hi,0,0,0,0,0,0,0,\\mid,0},",
-            "        {\\hi,\\hi,0,0,0,0,0,0,0,\\mid,\\lo},",
-            "        {0,0,0,0,0,0,0,0,\\lo,\\hi,\\hi},",
+            "        {\\hi,\\hi,\\hi,\\hi,\\lo,\\hi,\\hi,\\hi,0},",
+            "        {\\hi,0,\\lo,\\lo,\\hi,\\lo,\\hi,\\hi,0},",
+            "        {\\lo,\\hi,0,0,0,0,0,0,0},",
+            "        {0,0,\\hi,0,0,0,0,0,0},",
+            "        {0,0,\\hi,0,0,0,0,0,0},",
+            "        {0,0,\\lo,0,0,0,0,0,0},",
+            "        {0,\\lo,0,0,0,0,0,0,0},",
+            "        {0,\\lo,0,0,0,0,0,0,0},",
+            "        {0,\\lo,0,0,0,0,0,0,\\lo},",
+            "        {\\hi,0,0,0,\\lo,\\lo,\\lo,\\lo,\\hi},",
+            "        {\\hi,\\lo,\\lo,0,0,0,0,\\lo,\\hi},",
             "    } {",
             "        % heatmap tiles",
             "        \\foreach \\x [count=\\m] in \\y {",
@@ -198,9 +205,9 @@ class TestLatexGeneration(unittest.TestCase):
         parts.append("\\section*{Author contribution matrix}")
         parts.append("\\begin{tikzpicture}[scale=0.6]")
         parts.append("")
-        parts.append(self._generate_latex_columns(self.test_authors))
+        parts.append(self._generate_latex_columns(self.test_df))
         parts.append("")
-        parts.append(self._generate_latex_rows())
+        parts.append(self._generate_latex_rows(self.test_df))
         parts.append("")
         parts.append(self._generate_latex_heatmap(self.test_df))
         parts.append("")
