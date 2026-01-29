@@ -48,8 +48,8 @@ class ContributionMatrix(param.Parameterized):
         # Sync asset_name with URL
         pn.state.location.sync(self, {'asset_name': 'asset_name'})
         
-        # Fetch the record
-        self.record = self._fetch_record()
+        # Fetch the records
+        self.records = self._fetch_records()
         
         # Extract authors
         self.authors = self._extract_authors()
@@ -63,28 +63,47 @@ class ContributionMatrix(param.Parameterized):
         # Watch for asset_name changes
         self.param.watch(self._on_asset_change, 'asset_name')
     
-    def _fetch_record(self):
-        """Fetch the metadata record"""
+    def _parse_asset_names(self):
+        """Parse asset_name as comma-separated list and remove duplicates"""
         if not self.asset_name:
-            return None
+            return []
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_names = []
+        for name in self.asset_name.split(','):
+            name = name.strip()
+            if name and name not in seen:
+                seen.add(name)
+                unique_names.append(name)
+        return unique_names
+    
+    def _fetch_records(self):
+        """Fetch the metadata records for all asset names"""
+        asset_names = self._parse_asset_names()
+        if not asset_names:
+            return []
         
-        records = self.client.retrieve_docdb_records(
-            filter_query={'name': self.asset_name},
-        )
-        if records:
-            return records[0]
-        return None
+        all_records = []
+        for name in asset_names:
+            records = self.client.retrieve_docdb_records(
+                filter_query={'name': name},
+            )
+            if records:
+                all_records.extend(records)
+        
+        return all_records
     
     def _on_asset_change(self, event):
         """Handle asset name changes from URL"""
-        # Refetch record and update UI
-        self.record = self._fetch_record()
+        # Refetch records and update UI
+        self.records = self._fetch_records()
         self.authors = self._extract_authors()
         self.contributions_df = self._initialize_contributions()
         
         # Update UI components
+        asset_names = self._parse_asset_names()
         self.info.object = f"""
-        **Record**: {self.asset_name}  
+        **Assets loaded**: {len(self.records)} ({len(asset_names)} requested)  
         **Authors found**: {len(self.authors)}
         """
         self.table.value = self.contributions_df
@@ -93,7 +112,7 @@ class ContributionMatrix(param.Parameterized):
         """Extract author names from all relevant sections of the metadata"""
         authors = []
         
-        if not self.record:
+        if not self.records:
             return authors
         
         def add_name(name):
@@ -101,77 +120,85 @@ class ContributionMatrix(param.Parameterized):
             if name and name not in authors and name.lower() not in ['unknown', 'na', 'n/a', '']:
                 authors.append(name)
         
-        # 1. Data Description - Investigators
-        data_desc = self.record.get('data_description', {})
-        investigators = data_desc.get('investigators', [])
-        for inv in investigators:
-            if isinstance(inv, dict):
-                add_name(inv.get('name'))
-            elif isinstance(inv, str):
-                add_name(inv)
-        
-        # 2. Data Description - Fundees from funding_source
-        funding_sources = data_desc.get('funding_source', [])
-        for funding in funding_sources:
-            fundee = funding.get('fundee', [])
-            # In v2, fundee can be a list of Person objects
-            if isinstance(fundee, list):
-                for person in fundee:
-                    if isinstance(person, dict):
-                        add_name(person.get('name'))
-                    elif isinstance(person, str):
-                        add_name(person)
-            elif isinstance(fundee, str):
-                # Handle old format or string format
-                for name in fundee.replace(' and ', ',').split(','):
-                    add_name(name.strip())
-        
-        # 3. Acquisition - Experimenters
-        acquisition = self.record.get('acquisition', {})
-        experimenters = acquisition.get('experimenters', [])
-        for exp in experimenters:
-            if isinstance(exp, dict):
-                add_name(exp.get('name'))
-            elif isinstance(exp, str):
-                add_name(exp)
-        
-        # 4. Procedures - Experimenters (surgeons, etc.)
-        procedures = self.record.get('procedures', {})
-        subject_procedures = procedures.get('subject_procedures', [])
-        for proc in subject_procedures:
-            proc_experimenters = proc.get('experimenters', [])
-            for exp in proc_experimenters:
+        # Process all records
+        for record in self.records:
+            # 1. Data Description - Investigators
+            data_desc = record.get('data_description', {})
+# Process all records
+        for record in self.records:
+            # 1. Data Description - Investigators
+            data_desc = record.get('data_description', {})
+            investigators = data_desc.get('investigators', [])
+            for inv in investigators:
+                if isinstance(inv, dict):
+                    add_name(inv.get('name'))
+                elif isinstance(inv, str):
+                    add_name(inv)
+            
+            # 2. Data Description - Fundees from funding_source
+            funding_sources = data_desc.get('funding_source', [])
+            for funding in funding_sources:
+                fundee = funding.get('fundee', [])
+                # In v2, fundee can be a list of Person objects
+                if isinstance(fundee, list):
+                    for person in fundee:
+                        if isinstance(person, dict):
+                            add_name(person.get('name'))
+                        elif isinstance(person, str):
+                            add_name(person)
+                elif isinstance(fundee, str):
+                    # Handle old format or string format
+                    for name in fundee.replace(' and ', ',').split(','):
+                        add_name(name.strip())
+            
+            # 3. Acquisition - Experimenters
+            acquisition = record.get('acquisition', {})
+            experimenters = acquisition.get('experimenters', [])
+            for exp in experimenters:
                 if isinstance(exp, dict):
                     add_name(exp.get('name'))
                 elif isinstance(exp, str):
                     add_name(exp)
-        
-        specimen_procedures = procedures.get('specimen_procedures', [])
-        for proc in specimen_procedures:
-            proc_experimenters = proc.get('experimenters', [])
-            for exp in proc_experimenters:
-                if isinstance(exp, dict):
-                    add_name(exp.get('name'))
-                elif isinstance(exp, str):
-                    add_name(exp)
-        
-        # 5. Processing - Experimenters (data processors)
-        processing = self.record.get('processing', {})
-        data_processes = processing.get('data_processes', [])
-        for process in data_processes:
-            proc_experimenters = process.get('experimenters', [])
-            for exp in proc_experimenters:
-                if isinstance(exp, dict):
-                    add_name(exp.get('name'))
-                elif isinstance(exp, str):
-                    add_name(exp)
+            
+            # 4. Procedures - Experimenters (surgeons, etc.)
+            procedures = record.get('procedures', {})
+            subject_procedures = procedures.get('subject_procedures', [])
+            for proc in subject_procedures:
+                proc_experimenters = proc.get('experimenters', [])
+                for exp in proc_experimenters:
+                    if isinstance(exp, dict):
+                        add_name(exp.get('name'))
+                    elif isinstance(exp, str):
+                        add_name(exp)
+            
+            specimen_procedures = procedures.get('specimen_procedures', [])
+            for proc in specimen_procedures:
+                proc_experimenters = proc.get('experimenters', [])
+                for exp in proc_experimenters:
+                    if isinstance(exp, dict):
+                        add_name(exp.get('name'))
+                    elif isinstance(exp, str):
+                        add_name(exp)
+            
+            # 5. Processing - Experimenters (data processors)
+            processing = record.get('processing', {})
+            data_processes = processing.get('data_processes', [])
+            for process in data_processes:
+                proc_experimenters = process.get('experimenters', [])
+                for exp in proc_experimenters:
+                    if isinstance(exp, dict):
+                        add_name(exp.get('name'))
+                    elif isinstance(exp, str):
+                        add_name(exp)
         
         return authors
     
     def _initialize_contributions(self):
         """Initialize the contributions dataframe"""
         data = {
+            'Order': list(range(1, len(self.authors) + 1)),
             'Author': self.authors,
+            'Shared First Author': [False] * len(self.authors),
         }
         
         # Add columns for each CReDIT category
@@ -187,16 +214,17 @@ class ContributionMatrix(param.Parameterized):
         
         # Asset name input
         self.asset_input = pn.widgets.TextInput(
-            name='Asset Name',
+            name='Asset Names (comma-separated)',
             value=self.asset_name,
-            placeholder='Enter asset name (e.g., multiplane-ophys_804670_2025-09-17_10-26-00_processed_2025-09-18_18-01-45)',
+            placeholder='Enter asset names separated by commas',
             sizing_mode='stretch_width',
         )
         self.asset_input.param.watch(self._on_asset_input, 'value')
         
-        # Info about the record
+        # Info about the records
+        asset_names = self._parse_asset_names()
         self.info = pn.pane.Markdown(f"""
-        **Record**: {self.asset_name}  
+        **Assets loaded**: {len(self.records)} ({len(asset_names)} requested)  
         **Authors found**: {len(self.authors)}
         """)
         
@@ -211,12 +239,26 @@ class ContributionMatrix(param.Parameterized):
                 return 'background-color: #ffffff; color: #333333'
         
         # Create the editable table with cell styling
+        editors = {
+            'Order': {'type': 'number', 'min': 1},
+            'Shared First Author': {'type': 'tickCross'},
+        }
+        editors.update({
+            category: {'type': 'list', 'values': list(CONTRIBUTION_LEVELS.keys())}
+            for category in CREDIT_CATEGORIES
+        })
+        
+        # Set column widths
+        widths = {
+            'Order': 60,
+            'Author': 150,
+            'Shared First Author': 80,
+        }
+        
         self.table = pn.widgets.Tabulator(
             self.contributions_df,
-            editors={
-                category: {'type': 'list', 'values': list(CONTRIBUTION_LEVELS.keys())}
-                for category in CREDIT_CATEGORIES
-            },
+            editors=editors,
+            widths=widths,
             show_index=False,
             layout='fit_columns',
             height=400,
@@ -260,13 +302,16 @@ class ContributionMatrix(param.Parameterized):
         """Handle manual asset name input"""
         self.asset_name = event.new
     
-    def _generate_latex_columns(self, authors):
+    def _generate_latex_columns(self, df):
         """Generate LaTeX for column labels (authors)"""
         lines = []
         lines.append("    % column labels")
         lines.append("    \\foreach \\a [count=\\n] in {")
         
-        for i, author in enumerate(authors):
+        for _, row in df.iterrows():
+            author = row['Author']
+            is_first = row['Shared First Author']
+            
             # Format author name (e.g., "Cindy Poo" -> "C. Poo")
             parts = author.split()
             if len(parts) >= 2:
@@ -274,8 +319,8 @@ class ContributionMatrix(param.Parameterized):
             else:
                 formatted = author
             
-            # Add marker if needed (just using * for first author as example)
-            if i == 0:
+            # Add marker for shared first authors
+            if is_first:
                 formatted += "*"
             
             lines.append(f"        {formatted},")
@@ -327,15 +372,15 @@ class ContributionMatrix(param.Parameterized):
     
     def _generate_latex(self, event):
         """Generate LaTeX output"""
-        # Get current data from table
-        df = self.table.value
+        # Get current data from table and sort by Order column
+        df = self.table.value.sort_values('Order').reset_index(drop=True)
         
         # Build LaTeX output
         parts = []
         parts.append("\\section*{Author contribution matrix}")
         parts.append("\\begin{tikzpicture}[scale=0.6]")
         parts.append("")
-        parts.append(self._generate_latex_columns(df['Author'].tolist()))
+        parts.append(self._generate_latex_columns(df))
         parts.append("")
         parts.append(self._generate_latex_rows())
         parts.append("")
