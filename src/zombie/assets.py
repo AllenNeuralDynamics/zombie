@@ -15,7 +15,7 @@ def get_data():
     df = asset_basics()
     end = time.time()
     print(f"Asset basics data loaded in {end - start:.2f} seconds.")
-    
+
     return df
 
 

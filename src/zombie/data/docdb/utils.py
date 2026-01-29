@@ -111,7 +111,7 @@ def get_acquisition_time_range(project_names: list[str]):
 @pn.cache(ttl=TTL_HOUR)
 def get_acquisition_start_end_times(project_names: list[str]):
     """Get all paired start and end times for the given project names"""
-    
+
     try:
         time_ranges = client.aggregate_docdb_records(
             pipeline=[

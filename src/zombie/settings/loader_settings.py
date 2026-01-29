@@ -35,7 +35,7 @@ class LoaderSettings(PyComponent):
             header,
             self.loader_checkboxes,
         )
-        
+
         self._update_options(query_settings.project_selector.param.value)
 
     def _update_options(self, project_name):
