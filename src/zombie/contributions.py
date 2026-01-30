@@ -113,7 +113,7 @@ class AuthorManagementComponent(PyComponent):
         self.parent = parent
 
         self.new_author_input = pn.widgets.TextInput(
-            name="New Author Name",
+            name="Add author",
             placeholder="Enter author name",
             width=200,
         )
@@ -141,7 +141,6 @@ class AuthorManagementComponent(PyComponent):
         self.parent.param.watch(self._on_df_change, "contributions_df")
 
         self.panel = pn.Column(
-            pn.pane.Markdown("### Manage Authors"),
             self.new_author_input,
             self.add_author_btn,
             self.remove_author_select,
