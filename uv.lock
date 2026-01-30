@@ -1114,6 +1114,20 @@ wheels = [
 ]
 
 [[package]]
+name = "panel-material-ui"
+version = "0.8.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "bokeh" },
+    { name = "packaging" },
+    { name = "panel" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/84/2f/48e4d2351baeedcc88adf7c2797ff87e08604d09b2297ca9dcf43e36f98f/panel_material_ui-0.8.1.tar.gz", hash = "sha256:dbee977b2ff54019ff8ed373be0601034ac1d8e12c2c3ed70ca51307a474dce8", size = 3837662, upload-time = "2026-01-14T16:29:50.413Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/bd/b7/7c8e2d4555349647f011dff45281697398c8636485b04d9b891a78e939ee/panel_material_ui-0.8.1-py3-none-any.whl", hash = "sha256:4d6a9ba07208dc654a48e841f85c9c58f2e59c88ac097cad5a794a47ed241e07", size = 1623573, upload-time = "2026-01-14T16:29:48.664Z" },
+]
+
+[[package]]
 name = "param"
 version = "2.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1926,6 +1940,7 @@ dependencies = [
     { name = "hvplot" },
     { name = "pandas" },
     { name = "panel" },
+    { name = "panel-material-ui" },
     { name = "pyarrow" },
     { name = "zombie-squirrel" },
 ]
@@ -1958,6 +1973,7 @@ requires-dist = [
     { name = "isort", marker = "extra == 'dev'" },
     { name = "pandas", specifier = "==2.3.3" },
     { name = "panel", specifier = ">=1.8.4" },
+    { name = "panel-material-ui" },
     { name = "pyarrow" },
     { name = "watchfiles", marker = "extra == 'dev'" },
     { name = "zombie-squirrel", specifier = ">=0.7.4" },

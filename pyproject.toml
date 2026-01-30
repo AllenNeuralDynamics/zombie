@@ -28,6 +28,7 @@ dependencies = [
     'holoviews',
     'zombie-squirrel>=0.7.4',
     'pandas==2.3.3',
+    'panel-material-ui',
 ]
 
 [project.optional-dependencies]
