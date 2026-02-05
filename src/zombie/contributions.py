@@ -350,7 +350,7 @@ Copy the LaTeX code above to use in your document.
 
 
 class ContributionMatrix(param.Parameterized):
-    asset_name = param.String(default="multiplane-ophys_804670_2025-09-17_10-26-00_processed_2025-09-18_18-01-45")
+    asset_name = param.String(default="")
     contributions_df = param.DataFrame()
 
     def __init__(self, **params):
