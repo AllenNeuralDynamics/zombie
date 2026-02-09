@@ -1976,13 +1976,13 @@ requires-dist = [
     { name = "panel-material-ui" },
     { name = "pyarrow" },
     { name = "watchfiles", marker = "extra == 'dev'" },
-    { name = "zombie-squirrel", specifier = ">=0.7.4" },
+    { name = "zombie-squirrel", specifier = ">=0.8.6" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "zombie-squirrel"
-version = "0.7.4"
+version = "0.8.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aind-data-access-api", extra = ["docdb"] },
@@ -1991,7 +1991,7 @@ dependencies = [
     { name = "fastparquet" },
     { name = "pandas" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/a0/41d4924d4c18439030feec33066ccb3d3fe5c2ed12d7bf951c6db49078d9/zombie_squirrel-0.7.4.tar.gz", hash = "sha256:dbdffb62313c170cd35ab596cc8f4cd1480dd665612f7d2e69d4199ff7c54651", size = 12366, upload-time = "2025-12-04T05:02:30.297Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3d/70/0cf14d925088247433e2570df62e399b09561b35560e896d26a4f1aae22d/zombie_squirrel-0.8.6.tar.gz", hash = "sha256:65565a4ca052b0d03622d8aa39a1fd6d7c2dd4e31d23bd337c902436e5c494bf", size = 11546, upload-time = "2026-02-04T23:05:43.248Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/82/1a/7f7693427e3da7d26397a3c0127c01f38374a45d0e971d958df33f70b0a3/zombie_squirrel-0.7.4-py3-none-any.whl", hash = "sha256:7b2fb1b6b9af4e77787bb215acfd7f589e05fe0de3b93bb6e417cbcd2d2fdc58", size = 8329, upload-time = "2025-12-04T05:02:29.231Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/de/61dc1f08b43cb89ac6350be3c2f69d0cadaa6d4fe426d9e8fac184bfe213/zombie_squirrel-0.8.6-py3-none-any.whl", hash = "sha256:ec3253155a3c7903873cbab3cc8c6552b04a82dcc9c97000aef784e18368bb57", size = 12777, upload-time = "2026-02-04T23:05:42.347Z" },
 ]
