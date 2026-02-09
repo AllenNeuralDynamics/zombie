@@ -32,7 +32,9 @@ class TimeView(PyComponent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
+        print("DEBUG TimeView: Initializing and setting up watcher for session_times")
         loader_settings.param.watch(self._update_plot, "session_times")
+        print(f"DEBUG TimeView: Watcher set up. Current session_times length: {len(loader_settings.session_times)}")
 
         self.plot_container = pn.Column(
             pn.pane.Markdown("No session data available", sizing_mode="stretch_width", height=150),
@@ -65,7 +67,8 @@ class TimeView(PyComponent):
         pn.state.onload(self._startup)
 
     def _startup(self):
-        print(loader_settings.session_times)
+        print(f"DEBUG TimeView._startup called")
+        print(f"DEBUG TimeView._startup: loader_settings.session_times has {len(loader_settings.session_times)} items")
         self._update_plot(loader_settings.session_times)
 
     def _increase_zoom(self, event):
@@ -205,6 +208,10 @@ class TimeView(PyComponent):
 
     def _update_plot(self, session_times):
         """Update the plot with current start and end times"""
+        
+        print(f"DEBUG TimeView._update_plot called!")
+        print(f"DEBUG TimeView._update_plot: session_times type = {type(session_times)}")
+        print(f"DEBUG TimeView._update_plot: session_times = {session_times if not isinstance(session_times, list) else f'list with {len(session_times)} items'}")
 
         # if not session_times or not any(session_times):
         #     new_pane = pn.pane.Markdown("No session data available", sizing_mode="stretch_width", height=150)

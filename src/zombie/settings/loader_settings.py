@@ -2,12 +2,12 @@
 
 from datetime import datetime
 import param
-from zombie.data.registry import loader_registry
+from zombie_squirrel.acorns import ACORN_REGISTRY
 from panel.custom import PyComponent
 import panel as pn
 
 from zombie.settings.query_settings import query_settings
-from zombie.data.docdb.utils import get_unique_modalities, get_acquisition_time_range, get_acquisition_start_end_times
+from zombie_squirrel import asset_basics
 
 
 class LoaderSettings(PyComponent):
@@ -36,15 +36,82 @@ class LoaderSettings(PyComponent):
             self.loader_checkboxes,
         )
 
-        self._update_options(query_settings.project_selector.param.value)
+        self._update_options(query_settings.project_names)
+
+    def _get_unique_modalities(self, project_names):
+        """Get unique modalities from asset_basics DataFrame."""
+        if not project_names:
+            return []
+        
+        # Ensure project_names is a list
+        if not isinstance(project_names, (list, tuple)):
+            project_names = [project_names]
+        
+        df = asset_basics()
+        filtered_df = df[df["project_name"].isin(list(project_names))]
+        
+        all_modalities = []
+        for modalities_list in filtered_df["modalities"].dropna():
+            if isinstance(modalities_list, list):
+                for mod in modalities_list:
+                    if isinstance(mod, dict) and "abbreviation" in mod:
+                        all_modalities.append(mod["abbreviation"])
+        
+        return list(set(all_modalities))
+
+    def _get_acquisition_time_range(self, project_names):
+        """Get acquisition time range from asset_basics DataFrame."""
+        if not project_names:
+            return None
+        
+        # Ensure project_names is a list
+        if not isinstance(project_names, (list, tuple)):
+            project_names = [project_names]
+        
+        df = asset_basics()
+        filtered_df = df[df["project_name"].isin(list(project_names))]
+        
+        if filtered_df.empty:
+            return None
+        
+        min_time = filtered_df["acquisition_start_time"].min()
+        max_time = filtered_df["acquisition_start_time"].max()
+        
+        return (min_time, max_time) if min_time and max_time else None
+
+    def _get_acquisition_start_end_times(self, project_names):
+        """Get acquisition start/end times from asset_basics DataFrame."""
+        if not project_names:
+            return []
+        
+        # Ensure project_names is a list
+        if not isinstance(project_names, (list, tuple)):
+            project_names = [project_names]
+        
+        df = asset_basics()
+        filtered_df = df[df["project_name"].isin(list(project_names))]
+        
+        times = []
+        for _, row in filtered_df.iterrows():
+            if row["acquisition_start_time"] and row["acquisition_end_time"]:
+                times.append((
+                    row["acquisition_start_time"],
+                    row["acquisition_end_time"],
+                ))
+        
+        return times
 
     def _update_options(self, project_name):
         """Update the options for the loader checkboxes."""
 
-        self.session_times = get_acquisition_start_end_times(project_name)
+        print(f"DEBUG LoaderSettings._update_options called with project_name: {project_name}")
+        new_session_times = self._get_acquisition_start_end_times(project_name)
+        print(f"DEBUG LoaderSettings: Got {len(new_session_times)} session times")
+        self.session_times = new_session_times
+        print(f"DEBUG LoaderSettings: Set session_times param to {len(self.session_times)} items")
 
-        active_modalities = get_unique_modalities(project_name)
-        time_range = get_acquisition_time_range(project_name)
+        active_modalities = self._get_unique_modalities(project_name)
+        time_range = self._get_acquisition_time_range(project_name)
         if time_range:
             self.start_time = datetime.fromisoformat(time_range[0]).timestamp() if time_range[0] else 0
             self.end_time = datetime.fromisoformat(time_range[1]).timestamp() if time_range[1] else 0
@@ -54,11 +121,7 @@ class LoaderSettings(PyComponent):
 
         print(f"Active modalities for project '{project_name}': {active_modalities}")
 
-        options = [
-            item.name
-            for item in loader_registry
-            if item.modality_abbreviation == "all" or item.modality_abbreviation in active_modalities
-        ]
+        options = list(ACORN_REGISTRY.keys())
 
         self.loader_checkboxes.options = options
 

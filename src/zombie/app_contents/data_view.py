@@ -1,11 +1,11 @@
 from panel.custom import PyComponent
 import panel as pn
-import duckdb
 import hvplot.pandas
 import pandas as pd
 import param
 
 from zombie.layout import OUTER_STYLE
+from zombie_squirrel.acorns import ACORN_REGISTRY
 from .data_view_settings import data_view_settings
 
 
@@ -75,69 +75,58 @@ class DataView(PyComponent):
         filter_vals = data_view_settings.filter_values
         print(f"Filter column: {filter_col}, Filter values: {filter_vals}")
 
-        # Validate settings
         if not data_type or not x_col or not y_col:
             return pn.pane.Markdown("Please configure data source and column mappings in settings.")
 
-        # Get filepaths for selected data type
-        filepaths = data_view_settings.get_filepaths()
-        if not filepaths:
-            return pn.pane.Markdown(f"No data files found for {data_type}.")
+        if data_type not in ACORN_REGISTRY:
+            return pn.pane.Markdown(f"Unknown data type: {data_type}")
 
-        # Build DuckDB query with filters for performance
-        # Query all files matching the pattern
-        file_pattern = "', '".join(filepaths)
+        subject_ids = data_view_settings.get_subject_ids()
+        asset_names = data_view_settings.get_asset_names()
+        
+        if not subject_ids or not asset_names:
+            return pn.pane.Markdown("No data assets found. Please configure query settings and enable loaders.")
+        
+        try:
+            loader_func = ACORN_REGISTRY[data_type]
+            df = loader_func(subject_ids, asset_names)
+        except Exception as e:
+            return pn.pane.Markdown(f"Error loading data: {str(e)}")
+        
+        if df.empty:
+            return pn.pane.Markdown("No data found for selected subjects and assets.")
 
-        # Build WHERE clause
-        where_clauses = [f"{y_col} IS NOT NULL"]
+        filter_mask = df[y_col].notna()
 
-        # Add time filter if x_column is 'ts' and time_selection exists
         has_time_selection = (
             x_col == "ts"
             and time_selection is not None
             and isinstance(time_selection, dict)
             and "datetime" in time_selection
         )
-        if has_time_selection:
+        if has_time_selection and "ts" in df.columns:
             time_bounds = time_selection["datetime"]
             if len(time_bounds) == 2:
-                # Convert from milliseconds to seconds (Unix timestamp format in parquet)
+                # Convert from milliseconds to seconds (Unix timestamp format)
                 min_ts = time_bounds[0] / 1000.0
                 max_ts = time_bounds[1] / 1000.0
-                where_clauses.append(f"ts BETWEEN {min_ts} AND {max_ts}")
+                filter_mask &= (df["ts"] >= min_ts) & (df["ts"] <= max_ts)
                 print(f"✓ Applying time filter: ts BETWEEN {min_ts} AND {max_ts}")
         elif x_col == "ts":
             print(f"✗ No time filter applied (time_selection={time_selection})")
 
         # Add filter column condition if specified
-        if filter_col and filter_vals:
-            # Use LOWER(TRIM()) for string comparison like original code
-            # Build individual conditions for each filter value
-            filter_conditions = []
-            for val in filter_vals:
-                # Escape single quotes in the value
-                escaped_val = str(val).replace("'", "''").lower()
-                filter_conditions.append(f"LOWER(TRIM({filter_col})) = '{escaped_val}'")
+        if filter_col and filter_vals and filter_col in df.columns:
+            # Use case-insensitive string comparison
+            filter_col_lower = df[filter_col].astype(str).str.strip().str.lower()
+            filter_vals_lower = [str(v).strip().lower() for v in filter_vals]
+            filter_mask &= filter_col_lower.isin(filter_vals_lower)
 
-            # Combine with OR since we want to keep any of the selected values
-            if filter_conditions:
-                where_clauses.append(f"({' OR '.join(filter_conditions)})")
-
-        where_clause = " AND ".join(where_clauses)
-
-        query = f"""
-        SELECT *
-        FROM read_parquet(['{file_pattern}'])
-        WHERE {where_clause}
-        """
-
-        try:
-            df = duckdb.execute(query).df()
-        except Exception as e:
-            return pn.pane.Markdown(f"Error loading data: {str(e)}")
+        # Apply all filters
+        df = df[filter_mask]
 
         if df.empty:
-            return pn.pane.Markdown("No data found with current settings.")
+            return pn.pane.Markdown("No data found with current filters.")
 
         # Convert numeric columns if needed
         for col in [x_col, y_col]:

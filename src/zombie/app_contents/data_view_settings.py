@@ -1,10 +1,12 @@
 """Settings for DataView plot configuration"""
 
-import json
 import param
 import panel as pn
-from pathlib import Path
 from panel.custom import PyComponent
+
+from zombie.settings.loader_settings import loader_settings
+from zombie.settings.query_settings import query_settings
+from zombie_squirrel.acorns import ACORN_REGISTRY
 
 
 class DataViewSettings(PyComponent):
@@ -35,8 +37,9 @@ class DataViewSettings(PyComponent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        # Load available data types from loaded_assets.json
-        self._load_data_types()
+        self._update_data_types()
+
+        loader_settings.loader_checkboxes.param.watch(self._on_loaders_changed, "value")
 
         # Create UI components
         header = pn.pane.Markdown("### Data View Settings")
@@ -66,9 +69,7 @@ class DataViewSettings(PyComponent):
         self.width_input = pn.widgets.IntInput.from_param(self.param.width, name="Width")
         self.height_input = pn.widgets.IntInput.from_param(self.param.height, name="Height")
 
-        # Watch for data type changes to update column options
         self.param.watch(self._update_column_options, "data_type")
-        # Watch for filter column changes to update filter values options
         self.param.watch(self._update_filter_values_options, "filter_column")
 
         # Initialize with first data type if available
@@ -95,29 +96,43 @@ class DataViewSettings(PyComponent):
             self.height_input,
         )
 
-    def _load_data_types(self):
-        """Load available data types from loaded_assets.json"""
-        data_path = Path(__file__).parent.parent.parent.parent / "data"
-        assets_file = data_path / "loaded_assets.json"
+    def _on_loaders_changed(self, event):
+        self._update_data_types()
 
-        if assets_file.exists():
-            with open(assets_file, "r") as f:
-                self.loaded_assets = json.load(f)
-                data_types = list(self.loaded_assets.get("types", {}).keys())
-                self.param.data_type.objects = data_types
-        else:
-            self.loaded_assets = {"types": {}, "filepaths": {}}
-            self.param.data_type.objects = []
+    def _update_data_types(self):
+        enabled_loaders = loader_settings.loader_checkboxes.value if loader_settings.loader_checkboxes.value else []
+        self.param.data_type.objects = enabled_loaders
+        if enabled_loaders and (not self.data_type or self.data_type not in enabled_loaders):
+            self.data_type = enabled_loaders[0]
+            self._update_column_options()
+
+    def _load_sample_data(self, data_type):
+        if data_type not in ACORN_REGISTRY:
+            return None
+        
+        subject_ids = query_settings.get_matching_subject_ids()[:1]
+        asset_names = query_settings.get_matching_asset_names()[:1]
+        
+        if not subject_ids or not asset_names:
+            return None
+        
+        try:
+            loader_func = ACORN_REGISTRY[data_type]
+            df = loader_func(subject_ids, asset_names)
+            return df
+        except Exception as e:
+            print(f"Error loading sample data for {data_type}: {e}")
+            return None
 
     def _update_column_options(self, *events):
-        """Update column options based on selected data type"""
-        if not self.data_type or self.data_type not in self.loaded_assets.get("types", {}):
+        if not self.data_type:
             return
-
-        # Get available columns for the selected data type
-        columns = self.loaded_assets["types"][self.data_type]["columns"]
-
-        # Update column selectors
+        
+        sample_df = self._load_sample_data(self.data_type)
+        if sample_df is None or sample_df.empty:
+            columns = []
+        else:
+            columns = list(sample_df.columns)
         self.param.x_column.objects = columns
         self.param.y_column.objects = columns
         self.param.by_column.objects = ["None"] + columns
@@ -137,50 +152,20 @@ class DataViewSettings(PyComponent):
         self.hover_cols = [col for col in [self.x_column, self.y_column, self.by_column] if col and col != "None"]
 
     def _update_filter_values_options(self, *events):
-        """Update filter values options based on selected filter column"""
         if not self.filter_column or self.filter_column == "None":
             self.filter_values_selector.options = []
             self.filter_values = []
             return
 
-        # Get filepaths and query unique values from the filter column
-        filepaths = self.get_filepaths()
-        if not filepaths:
-            self.filter_values_selector.options = []
-            self.filter_values = []
-            return
+        print(f"Filter column set to: {self.filter_column}")
+        self.filter_values_selector.options = []
+        self.filter_values = []
 
-        # Query unique values from the filter column
-        file_pattern = "', '".join(filepaths)
-        query = f"""
-        SELECT DISTINCT {self.filter_column}
-        FROM read_parquet(['{file_pattern}'])
-        WHERE {self.filter_column} IS NOT NULL
-        ORDER BY {self.filter_column}
-        """
+    def get_subject_ids(self):
+        return query_settings.get_matching_subject_ids()
 
-        try:
-            import duckdb
-
-            df = duckdb.execute(query).df()
-            unique_values = df[self.filter_column].tolist()
-            self.filter_values_selector.options = unique_values
-            # Select none by default
-            self.filter_values = []
-        except Exception as e:
-            print(f"Error loading filter values: {e}")
-            self.filter_values_selector.options = []
-            self.filter_values = []
-
-    def get_filepaths(self):
-        """Get the list of filepaths for the selected data type"""
-        if not self.data_type:
-            return []
-
-        filepaths = self.loaded_assets.get("filepaths", {}).get(self.data_type, [])
-        # Convert to absolute paths
-        data_path = Path(__file__).parent.parent.parent.parent / "data"
-        return [str(data_path / Path(fp).name) for fp in filepaths]
+    def get_asset_names(self):
+        return query_settings.get_matching_asset_names()
 
     def __panel__(self):
         return self.panel
