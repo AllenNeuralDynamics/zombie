@@ -17,7 +17,7 @@ ENV FOREST_TYPE=s3
 EXPOSE 8000
 
 ENTRYPOINT ["sh", "-c", \
-    "panel serve src/zombie/app.py src/zombie/assets.py src/zombie/contributions.py \
+    "panel serve src/zombie/app.py src/zombie/assets.py src/zombie/contributions.py src/zombie/subject.py \
         --static-dirs images=src/zombie/images \
         --address 0.0.0.0 \
         --port 8000 \
