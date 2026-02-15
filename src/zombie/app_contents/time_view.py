@@ -208,10 +208,12 @@ class TimeView(PyComponent):
 
     def _update_plot(self, session_times):
         """Update the plot with current start and end times"""
-        
+
         print(f"DEBUG TimeView._update_plot called!")
         print(f"DEBUG TimeView._update_plot: session_times type = {type(session_times)}")
-        print(f"DEBUG TimeView._update_plot: session_times = {session_times if not isinstance(session_times, list) else f'list with {len(session_times)} items'}")
+        print(
+            f"DEBUG TimeView._update_plot: session_times = {session_times if not isinstance(session_times, list) else f'list with {len(session_times)} items'}"
+        )
 
         # if not session_times or not any(session_times):
         #     new_pane = pn.pane.Markdown("No session data available", sizing_mode="stretch_width", height=150)

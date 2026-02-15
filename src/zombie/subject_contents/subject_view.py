@@ -9,16 +9,16 @@ from zombie.layout import OUTER_STYLE
 
 class SubjectView(PyComponent):
     """Main view combining subject information and timeline."""
-    
+
     subject_data = param.Dict(default={})
-    
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         # Create child views
         self.timeline_view = TimelineView()
         self.info_view = SubjectInfoView()
-        
+
         # Build layout with styling
         self.panel = pn.Column(
             pn.Column(
@@ -29,12 +29,12 @@ class SubjectView(PyComponent):
             ),
             sizing_mode="stretch_both",
         )
-    
+
     @param.depends("subject_data", watch=True)
     def _update_views(self):
         """Propagate subject data to child views."""
         self.timeline_view.subject_data = self.subject_data
         self.info_view.subject_data = self.subject_data
-    
+
     def __panel__(self):
         return self.panel

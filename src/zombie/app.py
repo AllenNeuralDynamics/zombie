@@ -10,7 +10,6 @@ from zombie import __version__
 import panel as pn
 
 
-
 pn.extension("vega", "modal", disconnect_notification="Connection lost, please reload the page!", notifications=True)
 
 format_css_background()

@@ -83,16 +83,16 @@ class DataView(PyComponent):
 
         subject_ids = data_view_settings.get_subject_ids()
         asset_names = data_view_settings.get_asset_names()
-        
+
         if not subject_ids or not asset_names:
             return pn.pane.Markdown("No data assets found. Please configure query settings and enable loaders.")
-        
+
         try:
             loader_func = ACORN_REGISTRY[data_type]
             df = loader_func(subject_ids, asset_names)
         except Exception as e:
             return pn.pane.Markdown(f"Error loading data: {str(e)}")
-        
+
         if df.empty:
             return pn.pane.Markdown("No data found for selected subjects and assets.")
 

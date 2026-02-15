@@ -6,7 +6,7 @@ from zombie.subject_contents.subject_app import SubjectApp
 format_css_background()
 
 
-pn.extension('bokeh')
+pn.extension()
 
 app = SubjectApp()
 app.panel.servable(title="Subject view")

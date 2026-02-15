@@ -40,28 +40,24 @@ class QuerySettings(PyComponent):
         """Get list of asset names matching the current project selection."""
         if not self.project_selector.value:
             return []
-        
+
         project_names = self.project_selector.value
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
-        
-        filtered_df = self._asset_basics_df[
-            self._asset_basics_df["project_name"].isin(list(project_names))
-        ]
+
+        filtered_df = self._asset_basics_df[self._asset_basics_df["project_name"].isin(list(project_names))]
         return filtered_df["name"].tolist()
 
     def get_matching_subject_ids(self):
         """Get list of unique subject_ids matching the current project selection."""
         if not self.project_selector.value:
             return []
-        
+
         project_names = self.project_selector.value
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
-        
-        filtered_df = self._asset_basics_df[
-            self._asset_basics_df["project_name"].isin(list(project_names))
-        ]
+
+        filtered_df = self._asset_basics_df[self._asset_basics_df["project_name"].isin(list(project_names))]
         return filtered_df["subject_id"].unique().tolist()
 
     def __panel__(self):

@@ -109,13 +109,13 @@ class DataViewSettings(PyComponent):
     def _load_sample_data(self, data_type):
         if data_type not in ACORN_REGISTRY:
             return None
-        
+
         subject_ids = query_settings.get_matching_subject_ids()[:1]
         asset_names = query_settings.get_matching_asset_names()[:1]
-        
+
         if not subject_ids or not asset_names:
             return None
-        
+
         try:
             loader_func = ACORN_REGISTRY[data_type]
             df = loader_func(subject_ids, asset_names)
@@ -127,7 +127,7 @@ class DataViewSettings(PyComponent):
     def _update_column_options(self, *events):
         if not self.data_type:
             return
-        
+
         sample_df = self._load_sample_data(self.data_type)
         if sample_df is None or sample_df.empty:
             columns = []
