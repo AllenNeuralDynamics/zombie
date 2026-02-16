@@ -5,7 +5,6 @@ This module provides common functionality for visualizing brain procedures (fibe
 injections, etc.) on a mouse skull image with proper coordinate transformation.
 """
 
-from pathlib import Path
 import math
 import holoviews as hv
 from PIL import Image

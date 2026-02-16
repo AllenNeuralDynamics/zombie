@@ -93,6 +93,22 @@ class SubjectApp(PyComponent):
             subject_id_from_url = str(pn.state.location.query_params["subject_id"])
             subject_settings.subject_id = subject_id_from_url
 
+    @pn.cache(ttl=60*60*24)
+    def _fetch(self):
+        """Fetch subject data from DocDB based on current subject_id."""
+        # Query DocDB by subject.subject_id
+        records = self.client.retrieve_docdb_records(
+            filter_query={"subject.subject_id": subject_settings.subject_id},
+            projection={
+                "subject": 1,
+                "procedures": 1,
+                "acquisition": 1,
+                "data_description": 1,
+            },
+        )
+        return records
+
+
     def _fetch_and_display(self, event):
         """Fetch subject data from DocDB and update view."""
         subject_id = subject_settings.subject_id
@@ -104,17 +120,8 @@ class SubjectApp(PyComponent):
 
         try:
             self.panel.loading = True
-
-            # Query DocDB by subject.subject_id
-            records = self.client.retrieve_docdb_records(
-                filter_query={"subject.subject_id": subject_id},
-                projection={
-                    "subject": 1,
-                    "procedures": 1,
-                    "acquisition": 1,
-                    "data_description": 1,
-                },
-            )
+            
+            records = self._fetch()
 
             if records:
                 # Merge all records, combining unique procedures and all acquisitions
