@@ -7,9 +7,10 @@ injections, etc.) on a mouse skull image with proper coordinate transformation.
 
 from pathlib import Path
 import math
-import numpy as np
 import holoviews as hv
 from PIL import Image
+import numpy as np
+from importlib.resources import files
 
 # Skull image configuration
 BREGMA_LAMBDA_DISTANCE_MM = 4.2  # Anatomical distance between Bregma and Lambda in mm
@@ -31,9 +32,10 @@ ITEM_COLORS = [
 
 
 def load_skull_image():
-    """Load the mouse skull image from the images directory."""
-    skull_image_path = Path(__file__).parent.parent.parent / "images" / "mouse_skull.png"
-    return Image.open(skull_image_path)
+    """Load the mouse skull image from the package."""
+    img_file = files('zombie').joinpath('images', 'mouse_skull.png')
+    with img_file.open('rb') as f:
+        return Image.open(f).copy()
 
 
 def calculate_image_bounds():
@@ -83,7 +85,7 @@ def create_skull_background():
     """
     img = load_skull_image()
     x_min, y_min, x_max, y_max, _ = calculate_image_bounds()
-
+    
     img_array = np.array(img)
     background = hv.RGB(img_array, bounds=(x_min, y_min, x_max, y_max)).opts(
         alpha=0.6,
