@@ -45,6 +45,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+zombie = ["images/*"]
+
 [tool.setuptools.dynamic]
 version = {attr = "zombie.__version__"}
 
