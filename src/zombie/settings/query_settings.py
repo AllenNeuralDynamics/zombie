@@ -29,7 +29,6 @@ class QuerySettings(PyComponent):
         )
 
         pn.state.location.sync(self, parameters=["project_names"])
-        self.project_selector.value = self.project_names
 
         self.panel = pn.Column(
             header,
