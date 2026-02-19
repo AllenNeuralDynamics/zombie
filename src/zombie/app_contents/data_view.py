@@ -175,18 +175,37 @@ class DataView(PyComponent):
             if col in df.columns:
                 print(f"[DATA_VIEW] {col} range: [{df[col].min()}, {df[col].max()}], NaN count: {df[col].isna().sum()}")
 
+        # Convert timestamp to datetime if x-axis is timestamp
+        if x_col == "timestamp" and x_col in df.columns:
+            print(f"[DATA_VIEW] Converting timestamp to datetime for x-axis")
+            df['timestamp_dt'] = pd.to_datetime(df['timestamp'], unit='s')
+            x_col_display = 'timestamp_dt'
+            
+            # Format as date + time for better readability
+            df['timestamp_formatted'] = df['timestamp_dt'].dt.strftime('%Y-%m-%d\n%H:%M:%S')
+        else:
+            x_col_display = x_col
+
         # Create plot using hvplot
         hover_cols = self.settings.hover_cols if self.settings.hover_cols else []
+        
+        # Add original timestamp to hover if we converted it
+        if x_col == "timestamp" and "timestamp_dt" in df.columns:
+            hover_cols_display = [c for c in hover_cols if c in df.columns and c != "timestamp"]
+            hover_cols_display.append("timestamp_formatted")
+        else:
+            hover_cols_display = [c for c in hover_cols if c in df.columns]
+        
         plot_kwargs = {
-            "x": x_col,
+            "x": x_col_display,
             "y": y_col,
             "title": self.settings.title,
-            "xlabel": self.settings.xlabel,
+            "xlabel": self.settings.xlabel if self.settings.xlabel != "X Axis" else ("Timestamp" if x_col == "timestamp" else self.settings.xlabel),
             "ylabel": self.settings.ylabel,
             "width": self.settings.width,
             "height": self.settings.height,
             "tools": self.settings.tools,
-            "hover_cols": [c for c in hover_cols if c in df.columns],
+            "hover_cols": hover_cols_display,
         }
 
         if by_col and by_col in df.columns:
