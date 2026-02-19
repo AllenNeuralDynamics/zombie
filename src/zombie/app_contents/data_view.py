@@ -4,7 +4,6 @@ import hvplot.pandas
 import pandas as pd
 import param
 
-from zombie.layout import OUTER_STYLE
 from zombie_squirrel.acorns import ACORN_REGISTRY
 from .data_view_settings import DataViewSettings
 from .data_view_utils import load_dataframe_from_s3
@@ -240,7 +239,6 @@ class DataView(PyComponent):
         return pn.Row(
             settings_panel,
             self.plot_panel,
-            styles=OUTER_STYLE,
             sizing_mode="fixed",
         )
 

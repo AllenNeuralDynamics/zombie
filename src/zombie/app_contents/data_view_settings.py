@@ -99,7 +99,7 @@ class DataViewSettings(PyComponent):
             self.ylabel_input,
             self.title_input,
             size_row,
-            width=300,
+            width=1200,
             sizing_mode="fixed",
         )
 

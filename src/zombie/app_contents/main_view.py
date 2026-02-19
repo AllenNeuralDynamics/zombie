@@ -4,6 +4,7 @@ import panel as pn
 from zombie.app_contents.space_view import SpaceView
 from zombie.app_contents.time_view import TimeView
 from zombie.app_contents.data_view import DataView
+from zombie.layout import OUTER_STYLE
 
 from zombie.settings.settings_view import settings_view
 
@@ -32,15 +33,12 @@ class MainView(PyComponent):
         # Add first data view
         self._add_data_view(time_view)
         
-        # Add/Remove buttons
-        add_button = pn.widgets.Button(name="+ Add Data View", button_type="success", width=150)
-        add_button.on_click(lambda event: self._add_data_view(time_view))
-        
-        data_view_controls = pn.Row(add_button, sizing_mode="fixed")
+        # Add button
+        self.add_button = pn.widgets.Button(name="+ Add Data View", button_type="success", width=150)
+        self.add_button.on_click(lambda event: self._add_data_view(time_view))
 
         self.panel = pn.Column(
-            pn.Row(time_view, self.gear_button),
-            data_view_controls,
+            pn.Row(time_view, pn.Spacer(), self.add_button, self.gear_button),
             self.data_views_container,
             pn.Row(space_view),
             settings_view,
@@ -58,12 +56,12 @@ class MainView(PyComponent):
         view_index = len(self.data_views)
         remove_button.on_click(lambda event: self._remove_data_view(view_index))
         
-        # Wrap in a card with remove button
+        # Wrap in a card with remove button and OUTER_STYLE
         view_card = pn.Card(
             data_view,
             header=pn.Row(pn.pane.Markdown("**Data View**"), pn.Spacer(), remove_button, sizing_mode="stretch_width"),
             sizing_mode="stretch_width",
-            styles={"border": "1px solid #ddd", "border-radius": "5px"},
+            styles=OUTER_STYLE,
         )
         
         self.data_views.append({"view": data_view, "card": view_card})
