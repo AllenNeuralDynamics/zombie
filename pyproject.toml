@@ -26,7 +26,7 @@ dependencies = [
     'pyarrow',
     'hvplot',
     'holoviews',
-    'zombie-squirrel>=0.10.0',
+    'zombie-squirrel>=0.10.3',
     'pandas==2.3.3',
     'panel-material-ui',
 ]

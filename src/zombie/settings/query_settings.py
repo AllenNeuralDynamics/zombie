@@ -28,7 +28,7 @@ class QuerySettings(PyComponent):
             options=unique_project_names(),
         )
 
-        pn.state.location.sync(self, parameters=["project_names"])
+        pn.state.location.sync(self, ["project_names"])
 
         self.panel = pn.Column(
             header,
@@ -37,27 +37,40 @@ class QuerySettings(PyComponent):
 
     def get_matching_asset_names(self):
         """Get list of asset names matching the current project selection."""
+        print(f"[QUERY_SETTINGS] get_matching_asset_names called")
+        print(f"[QUERY_SETTINGS] project_selector.value: {self.project_selector.value}")
         if not self.project_selector.value:
+            print(f"[QUERY_SETTINGS] ❌ No projects selected, returning empty list")
             return []
 
         project_names = self.project_selector.value
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
 
+        print(f"[QUERY_SETTINGS] Filtering for project_names: {project_names}")
+        print(f"[QUERY_SETTINGS] asset_basics_df shape: {self._asset_basics_df.shape}")
         filtered_df = self._asset_basics_df[self._asset_basics_df["project_name"].isin(list(project_names))]
-        return filtered_df["name"].tolist()
+        asset_names = filtered_df["name"].tolist()
+        print(f"[QUERY_SETTINGS] Found {len(asset_names)} asset names: {asset_names[:5]}..." if len(asset_names) > 5 else f"[QUERY_SETTINGS] Found {len(asset_names)} asset names: {asset_names}")
+        return asset_names
 
     def get_matching_subject_ids(self):
         """Get list of unique subject_ids matching the current project selection."""
+        print(f"[QUERY_SETTINGS] get_matching_subject_ids called")
+        print(f"[QUERY_SETTINGS] project_selector.value: {self.project_selector.value}")
         if not self.project_selector.value:
+            print(f"[QUERY_SETTINGS] ❌ No projects selected, returning empty list")
             return []
 
         project_names = self.project_selector.value
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
 
+        print(f"[QUERY_SETTINGS] Filtering for project_names: {project_names}")
         filtered_df = self._asset_basics_df[self._asset_basics_df["project_name"].isin(list(project_names))]
-        return filtered_df["subject_id"].unique().tolist()
+        subject_ids = filtered_df["subject_id"].unique().tolist()
+        print(f"[QUERY_SETTINGS] Found {len(subject_ids)} subject_ids: {subject_ids[:5]}..." if len(subject_ids) > 5 else f"[QUERY_SETTINGS] Found {len(subject_ids)} subject_ids: {subject_ids}")
+        return subject_ids
 
     def __panel__(self):
 

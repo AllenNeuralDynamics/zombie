@@ -64,7 +64,6 @@ class LoaderSettings(PyComponent):
         if not project_names:
             return None
 
-        # Ensure project_names is a list
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
 
@@ -74,25 +73,36 @@ class LoaderSettings(PyComponent):
         if filtered_df.empty:
             return None
 
-        min_time = filtered_df["acquisition_start_time"].min()
-        max_time = filtered_df["acquisition_start_time"].max()
+        valid_times = filtered_df["acquisition_start_time"].dropna()
+        
+        if valid_times.empty:
+            return None
+        
+        min_time = valid_times.min()
+        max_time = valid_times.max()
 
         return (min_time, max_time) if min_time and max_time else None
 
     def _get_acquisition_start_end_times(self, project_names):
         """Get acquisition start/end times from asset_basics DataFrame."""
         if not project_names:
+            print("DEBUG _get_acquisition_start_end_times: No project names provided")
             return []
 
-        # Ensure project_names is a list
         if not isinstance(project_names, (list, tuple)):
             project_names = [project_names]
 
+        print(f"DEBUG _get_acquisition_start_end_times: Filtering for projects: {project_names}")
+        
         df = asset_basics()
+        print(f"DEBUG _get_acquisition_start_end_times: asset_basics has {len(df)} rows")
+        print(f"DEBUG _get_acquisition_start_end_times: Unique projects in df: {df['project_name'].unique()[:5]}...")
+        
         filtered_df = df[df["project_name"].isin(list(project_names))]
+        print(f"DEBUG _get_acquisition_start_end_times: Filtered to {len(filtered_df)} rows")
 
         times = []
-        for _, row in filtered_df.iterrows():
+        for idx, row in filtered_df.iterrows():
             if row["acquisition_start_time"] and row["acquisition_end_time"]:
                 times.append(
                     (
@@ -100,20 +110,38 @@ class LoaderSettings(PyComponent):
                         row["acquisition_end_time"],
                     )
                 )
+            else:
+                start_val = row.get('acquisition_start_time')
+                end_val = row.get('acquisition_end_time')
+                print(f"DEBUG _get_acquisition_start_end_times: Row {idx} missing times")
+                print(f"  start={start_val}, end={end_val}")
 
+        print(f"DEBUG _get_acquisition_start_end_times: Returning {len(times)} valid time ranges")
         return times
 
-    def _update_options(self, project_name):
+    def _update_options(self, event_or_value):
         """Update the options for the loader checkboxes."""
 
-        print(f"DEBUG LoaderSettings._update_options called with project_name: {project_name}")
-        new_session_times = self._get_acquisition_start_end_times(project_name)
+        if hasattr(event_or_value, 'new'):
+            project_names = event_or_value.new
+            print(f"DEBUG LoaderSettings._update_options: Received Event with value: {project_names}")
+        else:
+            project_names = event_or_value
+            print(f"DEBUG LoaderSettings._update_options: Received direct value: {project_names}")
+
+        print(f"DEBUG LoaderSettings._update_options: project_names type = {type(project_names)}")
+        print(f"DEBUG LoaderSettings._update_options: project_names = {project_names}")
+
+        new_session_times = self._get_acquisition_start_end_times(project_names)
         print(f"DEBUG LoaderSettings: Got {len(new_session_times)} session times")
+        if new_session_times:
+            print(f"DEBUG LoaderSettings: First session time: {new_session_times[0]}")
+        
         self.session_times = new_session_times
         print(f"DEBUG LoaderSettings: Set session_times param to {len(self.session_times)} items")
 
-        active_modalities = self._get_unique_modalities(project_name)
-        time_range = self._get_acquisition_time_range(project_name)
+        active_modalities = self._get_unique_modalities(project_names)
+        time_range = self._get_acquisition_time_range(project_names)
         if time_range:
             self.start_time = datetime.fromisoformat(time_range[0]).timestamp() if time_range[0] else 0
             self.end_time = datetime.fromisoformat(time_range[1]).timestamp() if time_range[1] else 0
@@ -121,9 +149,17 @@ class LoaderSettings(PyComponent):
             self.start_time = None
             self.end_time = None
 
-        print(f"Active modalities for project '{project_name}': {active_modalities}")
+        print(f"DEBUG LoaderSettings: Active modalities: {active_modalities}")
+        print(f"DEBUG LoaderSettings: Time range: start={self.start_time}, end={self.end_time}")
 
-        options = list(ACORN_REGISTRY.keys())
+        excluded_acorns = {
+            'asset_basics', 
+            'raw_to_derived', 
+            'source_data', 
+            'unique_project_names', 
+            'unique_subject_ids'
+        }
+        options = [k for k in ACORN_REGISTRY.keys() if k not in excluded_acorns]
 
         self.loader_checkboxes.options = options
 
