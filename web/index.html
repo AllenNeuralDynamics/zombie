@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZOMBIE — Zoomable Observatory for Multi-scale Brain Investigation and Exploration</title>
+    <link rel="stylesheet" href="/styles/app.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1 class="app-title">ZOMBIE</h1>
+      <p class="app-subtitle">Zoomable Observatory for Multi-scale Brain Investigation and Exploration</p>
+    </header>
+
+    <div id="settings-bar" class="settings-bar">
+      <!-- Project selector and data type toggles mount here -->
+    </div>
+
+    <main id="app" class="app-main">
+      <!-- TimeView, DataViews, and SpaceView mount here -->
+      <div id="loading-message" class="loading-message">
+        Initializing DuckDB-WASM…
+      </div>
+    </main>
+
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>

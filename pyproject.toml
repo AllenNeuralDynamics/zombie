@@ -29,6 +29,7 @@ dependencies = [
     'zombie-squirrel>=0.10.3',
     'pandas==2.3.3',
     'panel-material-ui',
+    'duckdb-server>=0.21.1',
 ]
 
 [project.optional-dependencies]

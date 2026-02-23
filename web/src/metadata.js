@@ -1,0 +1,304 @@
+/**
+ * metadata.js — Fetch, parse, and register squirrel.json dataset definitions.
+ *
+ * Pure helper functions are exported individually so they can be unit-tested
+ * without a live DuckDB-WASM instance.  Functions that touch the Mosaic
+ * coordinator are grouped at the bottom under "# DB Operations".
+ */
+
+import { S3_REGION } from './constants.js';
+
+// ---------------------------------------------------------------------------
+// # Schema validation helpers
+// ---------------------------------------------------------------------------
+
+/** Minimum fields every acorn entry must carry. */
+const REQUIRED_ACORN_FIELDS = ['name', 'location', 'type', 'columns'];
+
+/**
+ * Validate one acorn entry.
+ *
+ * @param {unknown} acorn - Candidate object from the JSON.
+ * @param {number}  index - Position in the acorns array (for error messages).
+ * @throws {Error} if any required field is missing or has the wrong type.
+ */
+export function validateAcorn(acorn, index = -1) {
+  const label = index >= 0 ? `acorns[${index}]` : 'acorn';
+  if (acorn === null || typeof acorn !== 'object') {
+    throw new Error(`${label} must be an object, got ${typeof acorn}`);
+  }
+  for (const field of REQUIRED_ACORN_FIELDS) {
+    if (!(field in acorn)) {
+      throw new Error(`${label} is missing required field "${field}"`);
+    }
+  }
+  if (!Array.isArray(acorn.columns)) {
+    throw new Error(`${label}.columns must be an array`);
+  }
+  if (!['metadata', 'asset'].includes(acorn.type)) {
+    throw new Error(`${label}.type must be "metadata" or "asset", got "${acorn.type}"`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// # Pure helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse and validate the raw squirrel JSON object.
+ *
+ * @param {unknown} json - Parsed JSON value (not a string).
+ * @returns {{ acorns: object[] }} Validated metadata object.
+ * @throws {Error} on structural problems.
+ */
+export function parseSquirrelJson(json) {
+  if (json === null || typeof json !== 'object') {
+    throw new Error('squirrel.json must be a JSON object');
+  }
+  if (!('acorns' in json) || !Array.isArray(json.acorns)) {
+    throw new Error('squirrel.json must have an "acorns" array');
+  }
+  json.acorns.forEach((acorn, i) => validateAcorn(acorn, i));
+  return json;
+}
+
+/**
+ * Convert an `s3://bucket/key` path to a publicly accessible HTTPS URL.
+ *
+ * Uses the virtual-hosted-style URL:
+ *   https://<bucket>.s3.<region>.amazonaws.com/<key>
+ *
+ * @param {string} s3Path - e.g. "s3://my-bucket/path/to/file.pqt"
+ * @param {string} [region=S3_REGION] - AWS region string.
+ * @returns {string} HTTPS URL.
+ * @throws {Error} if the path is not a valid s3:// URI.
+ */
+export function s3PathToHttps(s3Path, region = S3_REGION) {
+  if (typeof s3Path !== 'string') {
+    throw new TypeError(`s3Path must be a string, got ${typeof s3Path}`);
+  }
+  const match = s3Path.match(/^s3:\/\/([^/]+)\/?(.*)/);
+  if (!match) {
+    throw new Error(`Invalid S3 path: "${s3Path}"`);
+  }
+  const [, bucket, key] = match;
+  return `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+}
+
+/**
+ * Build the DuckDB `read_parquet(...)` argument string for an acorn.
+ *
+ * Uses the `s3://` path directly so the server-side DuckDB can resolve
+ * credentials via the AWS credential chain (honouring `AWS_PROFILE`).
+ *
+ * - Non-partitioned: single `s3://` URL.
+ * - Partitioned directory: glob URL with `hive_partitioning=true, union_by_name=true`.
+ *
+ * @param {object} acorn - A validated acorn entry.
+ * @returns {string} The argument string to place inside `read_parquet(...)`.
+ */
+export function buildParquetArg(acorn) {
+  const s3Path = acorn.location;
+  if (acorn.partitioned) {
+    // Partitioned directory — glob all parquet files under it.
+    // Strip trailing slash before appending glob.
+    const base = s3Path.replace(/\/+$/, '');
+    return `'${base}/*.pqt', hive_partitioning=true, union_by_name=true`;
+  }
+  return `'${s3Path}'`;
+}
+
+/**
+ * Column-level type casts applied when registering specific acorn tables.
+ *
+ * zombie-squirrel currently writes some columns with incorrect types (e.g.
+ * acquisition timestamps stored as VARCHAR instead of TIMESTAMPTZ). These
+ * overrides fix them at ingest time via DuckDB's `SELECT * REPLACE(...)` so
+ * the rest of the app always sees proper typed columns.
+ *
+ * Remove entries here once the upstream parquet files are fixed.
+ *
+ * @type {Record<string, Record<string, string>>}
+ */
+export const ACORN_COLUMN_CASTS = {
+  asset_basics: {
+    // Stored as ISO-8601 VARCHAR with offset (e.g. "2024-07-09 15:39:33-07:00").
+    // Cast to TIMESTAMPTZ so vgplot renders them as a proper UTC time scale.
+    acquisition_start_time: 'TIMESTAMPTZ',
+    acquisition_end_time: 'TIMESTAMPTZ',
+  },
+};
+
+/**
+ * Build the `CREATE OR REPLACE TABLE` SQL for registering an acorn.
+ *
+ * Exported as a pure function so it can be unit-tested without a live
+ * coordinator.
+ *
+ * @param {object}                acorn       - Validated acorn entry.
+ * @param {Record<string,string>} [columnCasts={}]
+ *   Map of column name → DuckDB type string.  When non-empty, generates
+ *   `SELECT * REPLACE(CAST(col AS type) AS col, ...)` to fix column types
+ *   inline during table creation.
+ * @returns {string} The full CREATE TABLE … AS SELECT … SQL statement.
+ */
+export function buildRegisterSql(acorn, columnCasts = {}, subjectIds = null) {
+  const arg = buildParquetArg(acorn);
+  const entries = Object.entries(columnCasts);
+  let selectExpr = '*';
+  if (entries.length > 0) {
+    const replaceExprs = entries
+      .map(([col, type]) => `CAST(${col} AS ${type}) AS ${col}`)
+      .join(', ');
+    selectExpr = `* REPLACE(${replaceExprs})`;
+  }
+
+  // Optionally restrict to a set of subject_ids from the selected project.
+  // Only applied to asset-type acorns that have subject_id as a partition key
+  // or column; metadata acorns are always loaded in full.
+  let whereClause = '';
+  if (acorn.type === 'asset' && subjectIds != null && subjectIds.length > 0) {
+    const hasSubjectId =
+      acorn.partition_key === 'subject_id' ||
+      (Array.isArray(acorn.columns) && acorn.columns.includes('subject_id'));
+    if (hasSubjectId) {
+      const quotedIds = subjectIds
+        .map((id) => "'" + String(id).replace(/'/g, "''") + "'")
+        .join(', ');
+      whereClause = ' WHERE subject_id IN (' + quotedIds + ')';
+    }
+  }
+
+  return `CREATE OR REPLACE TABLE ${acorn.name} AS SELECT ${selectExpr} FROM read_parquet(${arg})${whereClause}`;
+}
+
+/**
+ * Return all acorns whose type is `"metadata"`.
+ *
+ * @param {object[]} acorns
+ * @returns {object[]}
+ */
+export function getMetadataAcorns(acorns) {
+  return acorns.filter((a) => a.type === 'metadata');
+}
+
+/**
+ * Return all acorns whose type is `"asset"`.
+ *
+ * @param {object[]} acorns
+ * @returns {object[]}
+ */
+export function getAssetAcorns(acorns) {
+  return acorns.filter((a) => a.type === 'asset');
+}
+
+/**
+ * Find an acorn by name.  Returns `undefined` if not found.
+ *
+ * @param {object[]} acorns
+ * @param {string}   name
+ * @returns {object | undefined}
+ */
+export function getAcornByName(acorns, name) {
+  return acorns.find((a) => a.name === name);
+}
+
+// ---------------------------------------------------------------------------
+// # DB Operations (require a live Mosaic coordinator)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the squirrel.json metadata file and register all `"metadata"`-type
+ * acorns as DuckDB tables via the provided coordinator.
+ *
+ * Relies on DuckDB's httpfs extension being available (wasmConnector enables
+ * it automatically when `SET s3_region` is issued).
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {string} squirrelUrl - HTTPS URL of the metadata JSON.
+ * @param {string} [region=S3_REGION]
+ * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
+ */
+export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region = S3_REGION) {
+  // 1. Configure S3 access on the server-side DuckDB instance.
+  //    CREDENTIAL_CHAIN tells DuckDB to use the standard AWS credential chain
+  //    (env vars, ~/.aws/config, IAM roles) including the AWS_PROFILE env var.
+  await coordinator.exec(`
+    INSTALL httpfs;
+    LOAD httpfs;
+    CREATE OR REPLACE SECRET zombie_s3_secret (
+      TYPE s3,
+      PROVIDER credential_chain,
+      REGION '${region}'
+    );
+  `);
+
+  // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny)
+  const resp = await fetch(squirrelUrl);
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
+  }
+  const json = await resp.json();
+  const metadata = parseSquirrelJson(json);
+
+  // 3. Register all metadata-type acorns as persistent DuckDB tables
+  const metaAcorns = getMetadataAcorns(metadata.acorns);
+  for (const acorn of metaAcorns) {
+    await registerAcornTable(coordinator, acorn, region);
+  }
+
+  return metadata;
+}
+
+/**
+ * Fetch the distinct subject_ids for a given project from the `asset_basics`
+ * table (which must already be registered).  Returns null when no project is
+ * provided or on error.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {string|null} projectName
+ * @returns {Promise<string[]|null>}
+ */
+export async function fetchSubjectIdsForProject(coordinator, projectName) {
+  if (!projectName) return null;
+  const safe = projectName.replace(/'/g, "''");
+  try {
+    const result = await coordinator.query(
+      `SELECT DISTINCT subject_id::VARCHAR AS subject_id FROM asset_basics WHERE project_name = '${safe}' AND subject_id IS NOT NULL ORDER BY 1`,
+    );
+    const col = result.getChild('subject_id');
+    if (!col) return null;
+    return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
+  } catch (err) {
+    console.warn('[ZOMBIE] fetchSubjectIdsForProject failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Register a single acorn as a DuckDB table (or replace if it already exists).
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {object}        acorn                    - Validated acorn entry.
+ * @param {object}        [options={}]
+ * @param {string[]|null} [options.subjectIds=null] - If provided, restricts the
+ *   table to rows matching these subject_ids (used to filter asset tables to
+ *   the currently selected project).
+ * @returns {Promise<void>}
+ */
+export async function registerAcornTable(coordinator, acorn, { subjectIds = null } = {}) {
+  const casts = ACORN_COLUMN_CASTS[acorn.name] ?? {};
+  const sql = buildRegisterSql(acorn, casts, subjectIds);
+  await coordinator.exec(sql);
+}
+
+/**
+ * Drop a previously registered acorn table.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {string} acornName - The `name` field of the acorn to drop.
+ * @returns {Promise<void>}
+ */
+export async function dropAcornTable(coordinator, acornName) {
+  await coordinator.exec(`DROP TABLE IF EXISTS ${acornName}`);
+}

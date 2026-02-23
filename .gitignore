@@ -147,3 +147,7 @@ src/zombie/3dtest/files/*
 
 data/*
 .github/instructions/copilot-instructions.instructions.md
+
+# JS
+web/node_modules/
+web/.vite/
