@@ -239,16 +239,18 @@ web/
 
 ## Existing Code Reference
 
-The old Panel/Python implementation lives in `src/zombie/`. Key files for understanding existing behavior:
+The old Panel/Python main-view app has been deleted. The files below no longer exist but are documented here for historical context. The retained Panel apps (`assets.py`, `contributions.py`, `subject.py`, `assets_contents/`, `subject_contents/`) remain in `src/zombie/`.
 
-| Old file | What it does | Mosaic equivalent |
+| Deleted file (was in `src/zombie/`) | What it did | Mosaic equivalent |
 |---|---|---|
-| `app_contents/main_view.py` | Top-level layout, wires TimeView↔DataView | `app.js` — coordinator setup + layout |
-| `app_contents/time_view.py` | Session timeline, box-select → selection | `time-view.js` — `rect` marks + `intervalX` |
-| `app_contents/data_view.py` | Scatter plot + settings, filters by time | `data-view.js` — `dot` marks + `filterBy` |
-| `app_contents/data_view_settings.py` | Column pickers, filter config | `data-view.js` settings panel (Params + inputs) |
-| `app_contents/data_view_utils.py` | S3 path resolution, DuckDB queries, `load_dataframe_from_s3()` | `metadata.js` — table registration |
-| `settings/query_settings.py` | Project name multi-select, asset/subject filtering | `settings.js` — `$project` Param + menu |
-| `settings/loader_settings.py` | Session times, data type checkboxes | `settings.js` — data type Params |
-| `settings/settings_view.py` | Modal wrapping query + loader settings | Part of `settings.js` or modal HTML |
-| `layout.py` | CSS background styling | `styles/app.css` |
+| `app.py` | Entrypoint — wired MainView, registered Panel extensions | `web/src/app.js` — coordinator + layout |
+| `app_contents/main_view.py` | Top-level layout, wires TimeView↔DataView | `web/src/app.js` |
+| `app_contents/time_view.py` | Session timeline, box-select → selection | `web/src/time-view.js` — `rect` marks + `intervalX` |
+| `app_contents/data_view.py` | Scatter plot + settings, filters by time | `web/src/data-view.js` — `dot` marks + `filterBy` |
+| `app_contents/data_view_settings.py` | Column pickers, filter config | `web/src/data-view.js` settings panel (Params + inputs) |
+| `app_contents/data_view_utils.py` | S3 path resolution, DuckDB queries | `web/src/metadata.js` — table registration |
+| `settings/query_settings.py` | Project name multi-select, asset/subject filtering | `web/src/settings.js` — `$project` Param + menu |
+| `settings/loader_settings.py` | Session times, data type checkboxes | `web/src/settings.js` — data type Params |
+| `settings/settings_view.py` | Modal wrapping query + loader settings | Part of `web/src/settings.js` or modal HTML |
+| `layout.py` | CSS background styling | `web/styles/app.css` |
+

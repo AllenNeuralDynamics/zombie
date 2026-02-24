@@ -171,19 +171,26 @@ Before starting conversion work:
 
 ---
 
-## Phase 7: Cleanup & Deployment
+## Phase 7: Cleanup & Deployment ⚙️ IN PROGRESS
+
+**Architecture:** Single Docker container. nginx on :8000 (the only exposed port) routes:
+- `/` → `web/dist/` (Mosaic SPA, static files, HTML5 history fallback)
+- `/ws` → duckdb-server on :3000 (WebSocket, nginx strips the prefix)
+- `/assets`, `/contributions`, `/subject` → Panel/Bokeh on :8001 (WebSocket-aware proxy)
+
+supervisord manages all three processes. AWS IAM role credentials are inherited by duckdb-server automatically via the ECS task role.
 
 ### Steps
 
-1. **Production build:** Configure Vite (or chosen bundler) for production output — minified JS, hashed assets.
+1. ✅ **Production build configured.** Vite multi-stage Dockerfile: Node 20 builder stage (`npm ci && npm run build`) produces minified, hashed assets in `web/dist/`.
 
-2. **Deployment:** The app is static files (HTML + JS + CSS). Deploy to S3 + CloudFront, or any static hosting.
+2. ✅ **Deployment:** Single container via Docker. `deploy/nginx.conf` and `deploy/supervisord.conf` added. `SERVER_WS_URL` auto-derives `wss://<host>/ws` in production (`import.meta.env.PROD`), falls back to `ws://localhost:3000/` in dev.
 
-3. **Remove old Panel code** (or move to `legacy/` branch) once the Mosaic version is validated.
+3. ✅ **Removed old app.py + app_contents/ + settings/.** `src/zombie/app.py`, `src/zombie/app_contents/`, and `src/zombie/settings/` deleted. The retained Panel apps (`assets.py`, `contributions.py`, `subject.py`) are unaffected.
 
-4. **Update `pyproject.toml` / `setup.py`** — remove Panel, HoloViews, hvplot, Bokeh dependencies. Add a `package.json`-based build step if the project needs to be pip-installable (or restructure as a pure JS project).
+4. **Update `pyproject.toml`** — remove Panel, HoloViews, hvplot, Bokeh, altair, zombie-squirrel dependencies once the retained Panel apps are also migrated or confirmed as long-term residents.
 
-5. **Update README.md** with new dev instructions (`npm install`, `npm run dev`).
+5. **Update README.md** with new dev instructions (`npm install`, `npm run dev` + `npm run server`) and Docker build instructions.
 
 ---
 

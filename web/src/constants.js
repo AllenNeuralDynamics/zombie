@@ -55,18 +55,28 @@ export const DEFAULT_PROJECT = null;
 // ---------------------------------------------------------------------------
 
 /**
- * WebSocket URL for the local duckdb-server.
- * Start the server with `npm run server` (or `.venv/bin/duckdb-server`).
- * The coordinator's socketConnector defaults to this URL.
+ * WebSocket URL for the duckdb-server.
+ *
+ * Development (Vite dev server):
+ *   Connects directly to the local duckdb-server at ws://localhost:3000/.
+ *   Start the server with `npm run server` (or `.venv/bin/duckdb-server`).
+ *
+ * Production (Docker / Vite build):
+ *   nginx proxies /ws → duckdb-server on :3000 inside the container.
+ *   The URL is derived from the page's own origin so it works at any hostname,
+ *   and automatically uses wss:// when the page is served over HTTPS.
  */
-export const SERVER_WS_URL = 'ws://localhost:3000/';
+export const SERVER_WS_URL = import.meta.env.PROD
+  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+  : 'ws://localhost:3000/';
 
 /**
- * HTTP REST URL for the local duckdb-server.
- * Used as an alternative to the WebSocket connector (e.g. for fetch-based
- * debugging).  `restConnector` defaults to this URL.
+ * HTTP REST URL for the local duckdb-server (debug / alternative connector).
+ * Only meaningful in development; in production the WebSocket path is used.
  */
-export const SERVER_HTTP_URL = 'http://localhost:3000/';
+export const SERVER_HTTP_URL = import.meta.env.PROD
+  ? `${window.location.protocol}//${window.location.host}/ws`
+  : 'http://localhost:3000/';
 
 // ---------------------------------------------------------------------------
 // Layout / plot defaults
