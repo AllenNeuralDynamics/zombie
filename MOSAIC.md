@@ -124,19 +124,21 @@ Before starting conversion work:
 
 ---
 
-## Phase 5: Multiple DataViews + Add/Remove
+## Phase 5: Multiple DataViews + Add/Remove ✅ COMPLETE
 
 **Goal:** User can add and remove DataView instances. All share the global time selection.
 
 ### Steps
 
-1. **Add "Add Data View" button** in `app.js` that calls `createDataView(newId, $timeSelection)` and appends the result to the flex container.
+1. ✅ **Added "+ Add Data View" button** in `app.js`. Clicking calls `createDataView(newId, $timeSelection, metadata)`, wires `onTableLoading`/`onTableRegistered` callbacks, and appends the new view to the `.data-views-container`.
 
-2. **Add remove button** to each DataView's settings panel. Clicking removes the DOM element and disconnects its clients from the coordinator (`coordinator().disconnect(client)`).
+2. ✅ **Added remove button (×)** to each DataView's header row in `data-view.js`. `createDataView()` now returns `removeBtn` so `app.js` can wire the click handler and control the disabled state.
 
-3. **Minimum one DataView** — disable the remove button if only one remains.
+3. ✅ **Minimum one DataView enforced** — `updateRemoveButtons()` in `app.js` sets `removeBtn.disabled = true` on all views whenever only one remains.
 
-4. **Verify:** Multiple DataViews render independently. Each has its own column/data type settings. All respond to the TimeView brush.
+4. ✅ **CSS** added: `.dv-remove-btn`, `.add-data-view-btn`.
+
+**Verification:** `npm test` → all pass. `npm run build` → clean bundle.
 
 ---
 

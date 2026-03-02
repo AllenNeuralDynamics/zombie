@@ -5,6 +5,7 @@
  * Phase 2: Settings bar — project selector and data-type toggles.
  * Phase 3: TimeView — session timeline with intervalX brush selection.
  * Phase 4: DataView — interactive scatter plot filtered by time selection.
+ * Phase 5: Multiple DataViews — add/remove with minimum-one enforcement.
  */
 
 import { coordinator, socketConnector } from '@uwdata/vgplot';
@@ -36,35 +37,72 @@ async function init() {
     console.info('[ZOMBIE] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 
     // 3. Phase 2: Settings bar
-    const { $project, settingsEl, onTableLoading, onTableRegistered } = initSettings(coordinator(), metadata);
+    const { $queryFilter, settingsEl, onTableLoading, onTableRegistered } = initSettings(coordinator(), metadata);
     const settingsBar = document.getElementById('settings-bar');
     if (settingsBar) {
       settingsBar.appendChild(settingsEl);
     }
 
     // 4. Phase 3: TimeView
-    const { $timeSelection, el: timeViewEl } = createTimeView($project);
-
-    // 5. Phase 4: DataView
-    const { el: dataViewEl, notifyTableLoading, notifyTableRegistered } = createDataView('1', $timeSelection, metadata);
-    // Notify the DataView when a table starts loading (show spinner)
-    // and when it finishes (render the plot).
-    onTableLoading(notifyTableLoading);
-    onTableRegistered(notifyTableRegistered);
+    const { $timeSelection, el: timeViewEl } = createTimeView($queryFilter);
 
     // Clear the loading message; mount the views.
     if (loadingEl) loadingEl.remove();
 
     const app = document.getElementById('app');
-    if (app) {
-      app.appendChild(timeViewEl);
+    if (!app) return;
 
-      const dataViewsEl = document.createElement('div');
-      dataViewsEl.id = 'data-views';
-      dataViewsEl.className = 'data-views-container';
-      dataViewsEl.appendChild(dataViewEl);
-      app.appendChild(dataViewsEl);
+    app.appendChild(timeViewEl);
+
+    // 5. Phase 5: Multiple DataViews container + Add button
+    const dataViewsEl = document.createElement('div');
+    dataViewsEl.id = 'data-views';
+    dataViewsEl.className = 'data-views-container';
+    app.appendChild(dataViewsEl);
+
+    const addBtnEl = document.createElement('button');
+    addBtnEl.type = 'button';
+    addBtnEl.className = 'add-data-view-btn';
+    addBtnEl.textContent = '+ Add Data View';
+    app.appendChild(addBtnEl);
+
+    // Active DataView records — each entry holds the remove button so we
+    // can disable it when only one view remains.
+    const dataViews = [];
+    let nextId = 1;
+
+    function updateRemoveButtons() {
+      const onlyOne = dataViews.length <= 1;
+      for (const dv of dataViews) {
+        dv.removeBtn.disabled = onlyOne;
+      }
     }
+
+    function addDataView() {
+      const id = String(nextId++);
+      const dv = createDataView(id, $timeSelection, metadata);
+
+      onTableLoading(dv.notifyTableLoading);
+      onTableRegistered(dv.notifyTableRegistered);
+
+      dv.removeBtn.addEventListener('click', () => {
+        const idx = dataViews.indexOf(dv);
+        if (idx === -1) return;
+        dataViews.splice(idx, 1);
+        dv.el.remove();
+        updateRemoveButtons();
+      });
+
+      dataViews.push(dv);
+      dataViewsEl.appendChild(dv.el);
+      updateRemoveButtons();
+    }
+
+    addBtnEl.addEventListener('click', () => addDataView());
+
+    // Seed with one DataView.
+    addDataView();
+
   } catch (err) {
     console.error('[ZOMBIE] Initialisation failed:', err);
     renderError(err);

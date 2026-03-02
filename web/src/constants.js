@@ -41,11 +41,18 @@ export const AIND_COLORS = {
 // Default application state
 // ---------------------------------------------------------------------------
 
-/** URL query-param key used to override the default project on load. */
-export const URL_PARAM_PROJECT = 'project';
+/** URL query-param key used to restore selected project names on load (comma-separated). */
+export const URL_PARAM_PROJECTS = 'projects';
 
 /** URL query-param key used to restore enabled data types on load. */
 export const URL_PARAM_DATA_TYPES = 'dataTypes';
+
+/**
+ * URL query-param key used to restore extra asset_basics column filters on load.
+ * Encoded as: col1:val1|val2,col2:val3  (colon separates column from values,
+ * pipe separates values, comma separates individual filter entries).
+ */
+export const URL_PARAM_EXTRA_FILTERS = 'extraFilters';
 
 /** Fallback project name when none is set via URL or user selection. */
 export const DEFAULT_PROJECT = null;

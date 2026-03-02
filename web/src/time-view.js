@@ -18,8 +18,6 @@ import {
   from,
   rect,
   intervalX,
-  eq,
-  literal,
   height,
   xLabel,
   xScale,
@@ -45,7 +43,7 @@ export const TIME_COL_END = 'acquisition_end_time';
 /** Column: subject identifier. Used as the y-axis grouping. */
 export const TIME_COL_SUBJECT = 'subject_id';
 
-/** Column: project name. Used to filter rows to the selected project. */
+/** Column: project name. Used to filter rows to the selected projects. */
 export const TIME_COL_PROJECT = 'project_name';
 
 // ---------------------------------------------------------------------------
@@ -72,19 +70,41 @@ export function buildRectMarkOptions(fill = AIND_COLORS.light_blue) {
 }
 
 /**
- * Build a Mosaic Selection clause for filtering by project name.
+ * Build a Mosaic Selection clause from a query filter object.
  *
- * The clause is passed to `Selection.update()` to push a new filter predicate
- * into the project-filter Selection that gates the TimeView's data source.
+ * Combines project names (IN clause) and arbitrary extra column filters
+ * (each also an IN clause) into a single AND-joined SQL predicate that is
+ * passed to `Selection.update()`.
  *
- * @param {string|null|undefined} projectName - Selected project, or falsy to clear the filter.
- * @returns {{ source: string, value: string|null, predicate: object|null }}
+ * @param {{ projects: string[], extraFilters: Array<{column: string, values: string[]}> }|null} queryFilter
+ * @returns {{ source: string, value: object|null, predicate: { toString(): string }|null }}
  */
-export function buildProjectClause(projectName) {
+export function buildQueryClause(queryFilter) {
+  const { projects = [], extraFilters = [] } = queryFilter || {};
+  const parts = [];
+
+  if (projects.length > 0) {
+    const quoted = projects
+      .map((p) => "'" + String(p).replace(/'/g, "''") + "'")
+      .join(', ');
+    parts.push(`"${TIME_COL_PROJECT}" IN (${quoted})`);
+  }
+
+  for (const f of extraFilters) {
+    if (Array.isArray(f.values) && f.values.length > 0) {
+      const col = f.column.replace(/"/g, '""');
+      const quoted = f.values
+        .map((v) => "'" + String(v).replace(/'/g, "''") + "'")
+        .join(', ');
+      parts.push(`"${col}" IN (${quoted})`);
+    }
+  }
+
+  const combined = parts.join(' AND ');
   return {
-    source: 'project',
-    value: projectName ?? null,
-    predicate: projectName ? eq(TIME_COL_PROJECT, literal(projectName)) : null,
+    source: 'query',
+    value: queryFilter ?? null,
+    predicate: combined ? { toString: () => combined } : null,
   };
 }
 
@@ -115,12 +135,14 @@ export function computeTimeViewHeight(subjectCount, baseHeight = TIME_VIEW_HEIGH
  * Create the TimeView component.
  *
  * Builds a vgplot `rect` plot backed by the `asset_basics` DuckDB table,
- * filtered to the currently selected project. Attaches an `intervalX`
- * interactor that populates the returned `$timeSelection`.
+ * filtered to the current query filter (selected projects + extra column
+ * filters). Attaches an `intervalX` interactor that populates the returned
+ * `$timeSelection`.
  *
- * @param {import('@uwdata/mosaic-core').Param} $project
- *   Reactive scalar Param holding the selected project name (from settings.js).
- *   The TimeView subscribes to value changes to update the project filter.
+ * @param {import('@uwdata/mosaic-core').Param} $queryFilter
+ *   Reactive Param holding `{ projects: string[], extraFilters: [] }`
+ *   (from settings.js). The TimeView subscribes to value changes to
+ *   update its filter.
  *
  * @returns {{
  *   $timeSelection: import('@uwdata/mosaic-core').Selection,
@@ -130,40 +152,47 @@ export function computeTimeViewHeight(subjectCount, baseHeight = TIME_VIEW_HEIGH
  *     pass as `filterBy` to DataView marks.
  *   - `el`: container DOM element ready to append to the page.
  */
-export function createTimeView($project) {
+export function createTimeView($queryFilter) {
   // ── Shared cross-filter selection ─────────────────────────────────────────
-  // The intervalX interactor writes into this. DataViews subscribe to it via
-  // `from(tableName, { filterBy: $timeSelection })`.
   const $timeSelection = Selection.crossfilter();
 
-  // ── Project-scoped filter ─────────────────────────────────────────────────
-  // Intersect-type: all clauses must be satisfied simultaneously. Here we
-  // have just one clause (the project predicate) but using intersect keeps
-  // the pattern extensible.
-  const $projectFilter = Selection.intersect();
+  // ── Query-scoped filter ───────────────────────────────────────────────────
+  const $queryFilterSel = Selection.intersect();
 
-  function applyProjectFilter(value) {
-    $projectFilter.update(buildProjectClause(value));
+  function applyQueryFilter(value) {
+    $queryFilterSel.update(buildQueryClause(value));
   }
 
-  // Apply the initial project value immediately.
-  applyProjectFilter($project.value);
-
-  // Re-apply whenever the user selects a different project.
-  $project.addEventListener('value', applyProjectFilter);
+  applyQueryFilter($queryFilter.value);
+  $queryFilter.addEventListener('value', applyQueryFilter);
 
   // ── Dynamic height ────────────────────────────────────────────────────────
-  // Start at the base height; updated after each subject-count query.
   const $height = Param.value(TIME_VIEW_HEIGHT);
 
-  async function updateHeight(projectName) {
-    if (!projectName) return;
+  async function updateHeight(queryFilter) {
+    const { projects = [], extraFilters = [] } = queryFilter || {};
+    if (projects.length === 0 && extraFilters.length === 0) return;
     try {
-      const escaped = String(projectName).replace(/'/g, "''");
+      let whereClause = '';
+      const parts = [];
+      if (projects.length > 0) {
+        const quoted = projects
+          .map((p) => "'" + String(p).replace(/'/g, "''") + "'")
+          .join(', ');
+        parts.push(`"${TIME_COL_PROJECT}" IN (${quoted})`);
+      }
+      for (const f of extraFilters) {
+        if (Array.isArray(f.values) && f.values.length > 0) {
+          const col = f.column.replace(/"/g, '""');
+          const quoted = f.values
+            .map((v) => "'" + String(v).replace(/'/g, "''") + "'")
+            .join(', ');
+          parts.push(`"${col}" IN (${quoted})`);
+        }
+      }
+      if (parts.length > 0) whereClause = `WHERE ${parts.join(' AND ')}`;
       const result = await coordinator().query(
-        `SELECT COUNT(DISTINCT ${TIME_COL_SUBJECT}) AS n ` +
-        `FROM ${TIME_TABLE} ` +
-        `WHERE ${TIME_COL_PROJECT} = '${escaped}'`,
+        `SELECT COUNT(DISTINCT "${TIME_COL_SUBJECT}") AS n FROM ${TIME_TABLE} ${whereClause}`,
       );
       const n = Number(result.getChild('n')?.get(0) ?? 25);
       $height.update(computeTimeViewHeight(n));
@@ -172,13 +201,13 @@ export function createTimeView($project) {
     }
   }
 
-  updateHeight($project.value);
-  $project.addEventListener('value', updateHeight);
+  updateHeight($queryFilter.value);
+  $queryFilter.addEventListener('value', updateHeight);
 
   // ── Plot ──────────────────────────────────────────────────────────────────
   const timeViewEl = plot(
     rect(
-      from(TIME_TABLE, { filterBy: $projectFilter }),
+      from(TIME_TABLE, { filterBy: $queryFilterSel }),
       buildRectMarkOptions(),
     ),
     intervalX({ as: $timeSelection }),

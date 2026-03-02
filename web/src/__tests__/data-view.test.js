@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getInitialColumns, buildDotMarkOptions, isTemporalType } from '../data-view.js';
+import { getInitialColumns, buildDotMarkOptions, isTemporalType, isObjectType, isNumericType } from '../data-view.js';
 import { AIND_COLORS } from '../constants.js';
 
 // ---------------------------------------------------------------------------
@@ -24,6 +24,25 @@ describe('isTemporalType', () => {
   it('returns false for BIGINT', () => expect(isTemporalType('BIGINT')).toBe(false));
   it('returns false for null', () => expect(isTemporalType(null)).toBe(false));
   it('returns false for undefined', () => expect(isTemporalType(undefined)).toBe(false));
+});
+
+// ---------------------------------------------------------------------------
+// isObjectType
+// ---------------------------------------------------------------------------
+
+describe('isObjectType', () => {
+  it('returns true for JSON', () => expect(isObjectType('JSON')).toBe(true));
+  it('returns true for STRUCT(...)', () => expect(isObjectType('STRUCT(x INT, y INT)')).toBe(true));
+  it('returns true for MAP(VARCHAR, INT)', () => expect(isObjectType('MAP(VARCHAR, INT)')).toBe(true));
+  it('returns true for ARRAY(INT)', () => expect(isObjectType('ARRAY(INT)')).toBe(true));
+  it('returns true for LIST', () => expect(isObjectType('LIST')).toBe(true));
+  it('returns true for UNION(...)', () => expect(isObjectType('UNION(a INT, b VARCHAR)')).toBe(true));
+  it('is case-insensitive', () => expect(isObjectType('struct(x INT)')).toBe(true));
+  it('returns false for VARCHAR', () => expect(isObjectType('VARCHAR')).toBe(false));
+  it('returns false for DOUBLE', () => expect(isObjectType('DOUBLE')).toBe(false));
+  it('returns false for TIMESTAMP', () => expect(isObjectType('TIMESTAMP')).toBe(false));
+  it('returns false for null', () => expect(isObjectType(null)).toBe(false));
+  it('returns false for undefined', () => expect(isObjectType(undefined)).toBe(false));
 });
 
 // ---------------------------------------------------------------------------
@@ -73,7 +92,7 @@ describe('buildDotMarkOptions', () => {
   });
 
   it('uses custom fallback fill colour', () => {
-    const opts = buildDotMarkOptions('ts', 'val', null, '#ff0000');
+    const opts = buildDotMarkOptions('ts', 'val', null, [], '#ff0000');
     expect(opts.fill).toBe('#ff0000');
   });
 
@@ -88,5 +107,36 @@ describe('buildDotMarkOptions', () => {
     expect(opts.fillOpacity).toBeGreaterThan(0);
     expect(opts.fillOpacity).toBeLessThanOrEqual(1);
   });
+
+  it('does not set tip or channels when tooltipCols is empty', () => {
+    const opts = buildDotMarkOptions('ts', 'val', null, []);
+    expect(opts.tip).toBeUndefined();
+    expect(opts.channels).toBeUndefined();
+  });
+
+  it('sets tip:true and channels when tooltipCols are provided', () => {
+    const opts = buildDotMarkOptions('ts', 'val', null, ['asset_name', 'stage']);
+    expect(opts.tip).toBe(true);
+    expect(opts.channels).toEqual({ asset_name: 'asset_name', stage: 'stage' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isNumericType
+// ---------------------------------------------------------------------------
+
+describe('isNumericType', () => {
+  it('returns true for INTEGER', () => expect(isNumericType('INTEGER')).toBe(true));
+  it('returns true for BIGINT', () => expect(isNumericType('BIGINT')).toBe(true));
+  it('returns true for DOUBLE', () => expect(isNumericType('DOUBLE')).toBe(true));
+  it('returns true for FLOAT', () => expect(isNumericType('FLOAT')).toBe(true));
+  it('returns true for DECIMAL(10,2)', () => expect(isNumericType('DECIMAL(10,2)')).toBe(true));
+  it('returns true for NUMERIC(5,3)', () => expect(isNumericType('NUMERIC(5,3)')).toBe(true));
+  it('returns true for lowercase double', () => expect(isNumericType('double')).toBe(true));
+  it('returns false for VARCHAR', () => expect(isNumericType('VARCHAR')).toBe(false));
+  it('returns false for TIMESTAMP', () => expect(isNumericType('TIMESTAMP')).toBe(false));
+  it('returns false for BOOLEAN', () => expect(isNumericType('BOOLEAN')).toBe(false));
+  it('returns false for null', () => expect(isNumericType(null)).toBe(false));
+  it('returns false for undefined', () => expect(isNumericType(undefined)).toBe(false));
 });
 

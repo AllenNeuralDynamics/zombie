@@ -1,50 +1,48 @@
 /**
  * settings.test.js — Unit tests for pure functions in settings.js.
  *
- * Only the URL helper functions (getInitialProjectFromUrl,
- * getInitialDataTypesFromUrl, buildSettingsUrl) are tested here.
- * They have no browser/DOM dependencies and run in the Node test environment.
- *
- * initSettings() and buildDataTypeCheckbox() require a live DOM + Mosaic
- * coordinator and are covered by future integration / browser tests.
+ * Only the URL helper functions and DOM-free exports are tested here.
+ * initSettings() requires a live DOM + Mosaic coordinator and is covered by
+ * future integration / browser tests.
  */
 
 import { describe, it, expect } from 'vitest';
 import {
-  getInitialProjectFromUrl,
+  getInitialProjectsFromUrl,
   getInitialDataTypesFromUrl,
+  getInitialExtraFiltersFromUrl,
+  encodeExtraFilters,
   buildSettingsUrl,
 } from '../settings.js';
 
 // ---------------------------------------------------------------------------
-// getInitialProjectFromUrl
+// getInitialProjectsFromUrl
 // ---------------------------------------------------------------------------
 
-describe('getInitialProjectFromUrl', () => {
-  it('returns the project name when present', () => {
-    expect(getInitialProjectFromUrl('?project=my-project')).toBe('my-project');
+describe('getInitialProjectsFromUrl', () => {
+  it('returns an empty array when the param is absent', () => {
+    expect(getInitialProjectsFromUrl('')).toEqual([]);
+    expect(getInitialProjectsFromUrl('?dataTypes=qc')).toEqual([]);
   });
 
-  it('returns null when the project param is absent', () => {
-    expect(getInitialProjectFromUrl('')).toBeNull();
-    expect(getInitialProjectFromUrl('?dataTypes=qc')).toBeNull();
+  it('returns a single project name', () => {
+    expect(getInitialProjectsFromUrl('?projects=my-project')).toEqual(['my-project']);
+  });
+
+  it('returns multiple project names split by comma', () => {
+    expect(getInitialProjectsFromUrl('?projects=foo,bar')).toEqual(['foo', 'bar']);
   });
 
   it('decodes URL-encoded project names', () => {
-    expect(getInitialProjectFromUrl('?project=my%20project')).toBe('my project');
+    expect(getInitialProjectsFromUrl('?projects=my%20project')).toEqual(['my project']);
   });
 
-  it('handles a leading "?" correctly', () => {
-    const result = getInitialProjectFromUrl('?project=test&dataTypes=qc');
-    expect(result).toBe('test');
+  it('trims whitespace around each name', () => {
+    expect(getInitialProjectsFromUrl('?projects=foo%20,%20bar')).toEqual(['foo', 'bar']);
   });
 
-  it('returns null for an empty project param value', () => {
-    // URLSearchParams returns "" for "?project=" — treat as null via ?? null
-    // Note: get() returns "" not null for empty values, but null for missing.
-    // The function uses ?? null so "" is NOT replaced — this is intentional.
-    const result = getInitialProjectFromUrl('?project=');
-    expect(result).toBe('');   // empty string, not null — caller should guard
+  it('filters out empty entries from double commas', () => {
+    expect(getInitialProjectsFromUrl('?projects=foo,,bar,')).toEqual(['foo', 'bar']);
   });
 });
 
@@ -55,7 +53,7 @@ describe('getInitialProjectFromUrl', () => {
 describe('getInitialDataTypesFromUrl', () => {
   it('returns an empty array when the param is absent', () => {
     expect(getInitialDataTypesFromUrl('')).toEqual([]);
-    expect(getInitialDataTypesFromUrl('?project=foo')).toEqual([]);
+    expect(getInitialDataTypesFromUrl('?projects=foo')).toEqual([]);
   });
 
   it('returns a single data type', () => {
@@ -81,61 +79,149 @@ describe('getInitialDataTypesFromUrl', () => {
 });
 
 // ---------------------------------------------------------------------------
+// getInitialExtraFiltersFromUrl
+// ---------------------------------------------------------------------------
+
+describe('getInitialExtraFiltersFromUrl', () => {
+  it('returns an empty array when the param is absent', () => {
+    expect(getInitialExtraFiltersFromUrl('')).toEqual([]);
+    expect(getInitialExtraFiltersFromUrl('?projects=foo')).toEqual([]);
+  });
+
+  it('parses a single filter with one value', () => {
+    const result = getInitialExtraFiltersFromUrl('?extraFilters=genotype%3Awt');
+    expect(result).toEqual([{ column: 'genotype', values: ['wt'] }]);
+  });
+
+  it('parses a single filter with multiple pipe-separated values', () => {
+    const result = getInitialExtraFiltersFromUrl('?extraFilters=data_level%3Araw%7Cderived');
+    expect(result).toEqual([{ column: 'data_level', values: ['raw', 'derived'] }]);
+  });
+
+  it('parses multiple comma-separated filter entries', () => {
+    const result = getInitialExtraFiltersFromUrl(
+      '?extraFilters=genotype%3Awt,data_level%3Araw',
+    );
+    expect(result).toEqual([
+      { column: 'genotype', values: ['wt'] },
+      { column: 'data_level', values: ['raw'] },
+    ]);
+  });
+
+  it('drops entries with no column or no values', () => {
+    const result = getInitialExtraFiltersFromUrl('?extraFilters=%3Awt,genotype%3A');
+    expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// encodeExtraFilters
+// ---------------------------------------------------------------------------
+
+describe('encodeExtraFilters', () => {
+  it('returns empty string for empty array', () => {
+    expect(encodeExtraFilters([])).toBe('');
+  });
+
+  it('encodes a single filter with one value', () => {
+    const encoded = encodeExtraFilters([{ column: 'genotype', values: ['wt'] }]);
+    expect(encoded).toBe('genotype%3Awt');
+  });
+
+  it('encodes multiple values with pipe separator', () => {
+    const encoded = encodeExtraFilters([{ column: 'data_level', values: ['raw', 'derived'] }]);
+    expect(encoded).toContain('raw');
+    expect(encoded).toContain('derived');
+    expect(encoded).toContain('%7C');
+  });
+
+  it('skips filters with no values', () => {
+    const encoded = encodeExtraFilters([
+      { column: 'genotype', values: [] },
+      { column: 'data_level', values: ['raw'] },
+    ]);
+    expect(encoded).not.toContain('genotype');
+    expect(encoded).toContain('data_level');
+  });
+
+  it('round-trips through getInitialExtraFiltersFromUrl', () => {
+    const filters = [
+      { column: 'data_level', values: ['raw', 'derived'] },
+      { column: 'genotype', values: ['wt'] },
+    ];
+    const encoded = encodeExtraFilters(filters);
+    const search = `?extraFilters=${encoded}`;
+    expect(getInitialExtraFiltersFromUrl(search)).toEqual(filters);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // buildSettingsUrl
 // ---------------------------------------------------------------------------
 
 describe('buildSettingsUrl', () => {
-  it('returns an empty string when project is null and no types are enabled', () => {
-    expect(buildSettingsUrl(null, [])).toBe('');
+  it('returns empty string when everything is empty', () => {
+    expect(buildSettingsUrl([], [], [])).toBe('');
   });
 
-  it('includes the project param when project is set', () => {
-    const url = buildSettingsUrl('my-project', []);
-    expect(url).toBe('?project=my-project');
+  it('includes the projects param when projects are set', () => {
+    const url = buildSettingsUrl(['proj-a'], [], []);
+    expect(url).toContain('projects=proj-a');
+  });
+
+  it('comma-joins multiple projects', () => {
+    const url = buildSettingsUrl(['foo', 'bar'], [], []);
+    expect(url).toContain('projects=foo');
+    expect(url).toContain('bar');
   });
 
   it('includes the dataTypes param when types are enabled', () => {
-    const url = buildSettingsUrl(null, ['quality_control', 'fiber']);
-    expect(url).toBe('?dataTypes=quality_control%2Cfiber');
+    const url = buildSettingsUrl([], ['quality_control', 'fiber'], []);
+    expect(url).toContain('dataTypes=quality_control');
   });
 
-  it('includes both params when project and types are set', () => {
-    const url = buildSettingsUrl('proj', ['qc']);
-    expect(url).toContain('project=proj');
+  it('includes the extraFilters param when filters are set', () => {
+    const url = buildSettingsUrl([], [], [{ column: 'genotype', values: ['wt'] }]);
+    expect(url).toContain('extraFilters=');
+    expect(url).toContain('genotype');
+  });
+
+  it('removes projects param when projects array is empty', () => {
+    const url = buildSettingsUrl([], ['qc'], [], '?projects=old&dataTypes=old');
+    expect(url).not.toContain('projects=');
     expect(url).toContain('dataTypes=qc');
   });
 
-  it('removes the project param when project is falsy', () => {
-    // Start with a search string that already has project set
-    const url = buildSettingsUrl(null, ['qc'], '?project=old&dataTypes=old');
-    expect(url).not.toContain('project=');
-    expect(url).toContain('dataTypes=qc');
-  });
-
-  it('removes the dataTypes param when types array is empty', () => {
-    const url = buildSettingsUrl('proj', [], '?project=old&dataTypes=qc');
-    expect(url).toContain('project=proj');
+  it('removes dataTypes param when types array is empty', () => {
+    const url = buildSettingsUrl(['proj'], [], [], '?projects=old&dataTypes=qc');
+    expect(url).toContain('projects=proj');
     expect(url).not.toContain('dataTypes=');
   });
 
+  it('removes extraFilters param when filters array is empty', () => {
+    const url = buildSettingsUrl(['p'], [], [], '?extraFilters=genotype%3Awt');
+    expect(url).not.toContain('extraFilters=');
+  });
+
   it('preserves unrelated existing params from baseSearch', () => {
-    const url = buildSettingsUrl('proj', ['qc'], '?other=value');
+    const url = buildSettingsUrl(['proj'], ['qc'], [], '?other=value');
     expect(url).toContain('other=value');
-    expect(url).toContain('project=proj');
+    expect(url).toContain('projects=proj');
   });
 
-  it('URL-encodes project names with spaces', () => {
-    const url = buildSettingsUrl('my project', []);
-    expect(url).toContain('my+project');  // URLSearchParams uses + for spaces
+  it('round-trips projects through getInitialProjectsFromUrl', () => {
+    const url = buildSettingsUrl(['round-trip', 'test'], [], []);
+    expect(getInitialProjectsFromUrl(url)).toEqual(['round-trip', 'test']);
   });
 
-  it('round-trips through getInitialProjectFromUrl', () => {
-    const url = buildSettingsUrl('round-trip-test', ['qc']);
-    expect(getInitialProjectFromUrl(url)).toBe('round-trip-test');
-  });
-
-  it('round-trips through getInitialDataTypesFromUrl', () => {
-    const url = buildSettingsUrl('proj', ['quality_control', 'fp']);
+  it('round-trips dataTypes through getInitialDataTypesFromUrl', () => {
+    const url = buildSettingsUrl([], ['quality_control', 'fp'], []);
     expect(getInitialDataTypesFromUrl(url)).toEqual(['quality_control', 'fp']);
+  });
+
+  it('round-trips extraFilters through getInitialExtraFiltersFromUrl', () => {
+    const filters = [{ column: 'data_level', values: ['raw'] }];
+    const url = buildSettingsUrl([], [], filters);
+    expect(getInitialExtraFiltersFromUrl(url)).toEqual(filters);
   });
 });

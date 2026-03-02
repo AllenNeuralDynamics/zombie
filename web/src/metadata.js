@@ -251,9 +251,68 @@ export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region 
 }
 
 /**
- * Fetch the distinct subject_ids for a given project from the `asset_basics`
- * table (which must already be registered).  Returns null when no project is
- * provided or on error.
+ * Build a SQL WHERE clause (including the WHERE keyword) that filters
+ * `asset_basics` rows to those matching the given query filter.
+ *
+ * The returned string always ends with `AND subject_id IS NOT NULL` so it
+ * is safe to use directly in subject-ID queries.
+ *
+ * @param {{ projects: string[], extraFilters: Array<{column: string, values: string[]}> }} queryFilter
+ * @returns {string} A WHERE … SQL fragment, or 'WHERE subject_id IS NOT NULL'
+ *   when the filter is empty.
+ */
+export function buildQueryWhereClause(queryFilter) {
+  const { projects = [], extraFilters = [] } = queryFilter || {};
+  const parts = [];
+  if (projects.length > 0) {
+    const quoted = projects
+      .map((p) => "'" + String(p).replace(/'/g, "''") + "'")
+      .join(', ');
+    parts.push(`project_name IN (${quoted})`);
+  }
+  for (const f of extraFilters) {
+    if (Array.isArray(f.values) && f.values.length > 0) {
+      const col = f.column.replace(/"/g, '""');
+      const quoted = f.values
+        .map((v) => "'" + String(v).replace(/'/g, "''") + "'")
+        .join(', ');
+      parts.push(`"${col}" IN (${quoted})`);
+    }
+  }
+  const filter = parts.length > 0 ? parts.join(' AND ') + ' AND ' : '';
+  return `WHERE ${filter}subject_id IS NOT NULL`;
+}
+
+/**
+ * Fetch distinct subject_ids from `asset_basics` that match the given query
+ * filter (projects + extra column filters).  Returns null when the filter
+ * selects nothing (empty projects list and no extra filters).
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {{ projects: string[], extraFilters: Array<{column: string, values: string[]}> }|null} queryFilter
+ * @returns {Promise<string[]|null>}
+ */
+export async function fetchSubjectIdsForQuery(coordinator, queryFilter) {
+  if (!queryFilter) return null;
+  const { projects = [], extraFilters = [] } = queryFilter;
+  if (projects.length === 0 && extraFilters.length === 0) return null;
+  const whereClause = buildQueryWhereClause(queryFilter);
+  try {
+    const result = await coordinator.query(
+      `SELECT DISTINCT subject_id::VARCHAR AS subject_id FROM asset_basics ${whereClause} ORDER BY 1`,
+    );
+    const col = result.getChild('subject_id');
+    if (!col) return null;
+    return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
+  } catch (err) {
+    console.warn('[ZOMBIE] fetchSubjectIdsForQuery failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetch the distinct subject_ids for a single project from the `asset_basics`
+ * table.  Thin wrapper around fetchSubjectIdsForQuery kept for compatibility.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
  * @param {string|null} projectName
@@ -261,18 +320,7 @@ export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region 
  */
 export async function fetchSubjectIdsForProject(coordinator, projectName) {
   if (!projectName) return null;
-  const safe = projectName.replace(/'/g, "''");
-  try {
-    const result = await coordinator.query(
-      `SELECT DISTINCT subject_id::VARCHAR AS subject_id FROM asset_basics WHERE project_name = '${safe}' AND subject_id IS NOT NULL ORDER BY 1`,
-    );
-    const col = result.getChild('subject_id');
-    if (!col) return null;
-    return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
-  } catch (err) {
-    console.warn('[ZOMBIE] fetchSubjectIdsForProject failed:', err);
-    return null;
-  }
+  return fetchSubjectIdsForQuery(coordinator, { projects: [projectName], extraFilters: [] });
 }
 
 /**

@@ -194,6 +194,237 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
+ * Query panel — project multi-select + extra filters
+ * ------------------------------------------------------------------------ */
+
+.query-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--gap);
+}
+
+.query-section {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: #fff;
+  min-width: 180px;
+  max-width: 340px;
+  font-size: 0.85rem;
+}
+
+.query-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.query-section-label {
+  font-weight: 600;
+  color: var(--color-dark-blue);
+  flex: 1;
+  white-space: nowrap;
+}
+
+.query-section-summary {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.query-section-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.query-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+/* Project search input */
+.project-search {
+  width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  color: var(--text-primary);
+}
+
+.project-search:focus {
+  outline: 2px solid var(--color-light-blue);
+  outline-offset: 1px;
+}
+
+/* Project actions row */
+.project-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.project-action-btn {
+  flex: 1;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  color: var(--color-dark-blue);
+}
+
+.project-action-btn:hover {
+  background: var(--color-light-blue);
+  color: #fff;
+  border-color: var(--color-light-blue);
+}
+
+/* Scrollable project checkbox list */
+.project-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.82rem;
+}
+
+.project-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-checkbox-label:hover {
+  background: var(--surface-card);
+}
+
+.project-checkbox-label input[type='checkbox'] {
+  accent-color: var(--color-light-blue);
+  flex-shrink: 0;
+}
+
+/* Extra filters section */
+.filters-section .query-section-header {
+  justify-content: space-between;
+}
+
+.add-filter-btn {
+  background: var(--color-light-blue);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 2px 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.add-filter-btn:hover {
+  background: var(--color-dark-blue);
+}
+
+.filter-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.filter-col-select {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 5px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  background: #fff;
+  color: var(--text-primary);
+}
+
+.filter-col-select:focus {
+  outline: 2px solid var(--color-light-blue);
+  outline-offset: 1px;
+}
+
+.filter-values {
+  flex: 1;
+  min-width: 0;
+}
+
+.filter-values-hint {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  padding: 3px 0;
+  font-style: italic;
+}
+
+.filter-values-select {
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  padding: 2px;
+  background: #fff;
+  color: var(--text-primary);
+}
+
+.filter-values-select:focus {
+  outline: 2px solid var(--color-light-blue);
+  outline-offset: 1px;
+}
+
+.filter-remove-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--color-red);
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+  padding: 0;
+}
+
+.filter-remove-btn:hover {
+  background: var(--color-red);
+  color: #fff;
+  border-color: var(--color-red);
+}
+
+/* ---------------------------------------------------------------------------
  * Main content area
  * ------------------------------------------------------------------------ */
 
@@ -416,6 +647,29 @@ body {
   transform: rotate(45deg);
 }
 
+/* Remove DataView button */
+.dv-remove-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 3px 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.dv-remove-btn:hover:not(:disabled) {
+  color: var(--color-red);
+  border-color: var(--color-red);
+}
+
+.dv-remove-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 /* Collapsible plot-controls panel */
 .dv-plot-controls {
   background: var(--surface-card);
@@ -554,6 +808,96 @@ body {
   outline-offset: 1px;
 }
 
+.dv-tooltip-select {
+  min-height: 52px;
+  resize: vertical;
+}
+
+.dv-tooltip-select option {
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.dv-tooltip-select option:checked {
+  background: var(--color-light-blue);
+  color: #fff;
+}
+
+/* Multi-filter chips */
+.dv-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 4px;
+}
+
+.dv-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  background: var(--color-light-blue);
+  color: #fff;
+  border-radius: 999px;
+}
+
+.dv-filter-chip-remove {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.8;
+}
+
+.dv-filter-chip-remove:hover {
+  opacity: 1;
+}
+
+/* Add-filter row */
+.dv-add-filter-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dv-add-filter-col,
+.dv-add-filter-val {
+  font-size: 0.8rem;
+  padding: 3px 5px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  flex: 1 1 80px;
+  min-width: 0;
+}
+
+.dv-add-filter-btn {
+  padding: 3px 9px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: var(--color-light-blue);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dv-add-filter-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.dv-add-filter-btn:not(:disabled):hover {
+  background: #1a6bbf;
+}
+
 /* Update plot button */
 .dv-update-btn {
   margin-top: 8px;
@@ -594,4 +938,162 @@ body {
 .data-view-plot svg {
   width: 100%;
   height: auto;
+}
+
+/* ---------------------------------------------------------------------------
+ * Debug data table
+ * ------------------------------------------------------------------------ */
+
+.dv-debug-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.dv-debug-toggle {
+  flex: 1;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dv-debug-limit-sel {
+  font-size: 0.75rem;
+  padding: 3px 4px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.dv-debug-toggle:hover {
+  background: var(--surface-border);
+  color: var(--text-primary);
+}
+
+.dv-debug-wrap {
+  margin-top: 6px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 6px;
+}
+
+.dv-debug-note {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.dv-debug-error {
+  font-size: 0.75rem;
+  color: var(--color-red);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #fff5f5;
+  padding: 6px;
+  border-radius: var(--radius);
+}
+
+.dv-plot-error {
+  padding: 12px;
+  border: 1px solid var(--color-red, #e53e3e);
+  border-radius: var(--radius);
+  background: #fff5f5;
+  color: var(--color-red, #e53e3e);
+}
+
+.dv-plot-error strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+
+.dv-plot-error pre {
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.dv-debug-scroll {
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.dv-debug-table {
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  font-family: 'Consolas', 'Menlo', monospace;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.dv-debug-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  padding: 3px 8px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.72rem;
+  z-index: 1;
+}
+
+.dv-debug-type {
+  display: block;
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 0.65rem;
+}
+
+.dv-debug-table td {
+  border: 1px solid var(--surface-border);
+  padding: 2px 8px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dv-debug-table tbody tr:nth-child(even) td {
+  background: var(--surface-card);
+}
+
+.dv-debug-null {
+  color: var(--color-grey);
+  font-style: italic;
+}
+
+/* ---------------------------------------------------------------------------
+ * Add DataView button
+ * ------------------------------------------------------------------------ */
+
+.add-data-view-btn {
+  display: block;
+  margin-bottom: var(--gap);
+  padding: 6px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: none;
+  color: var(--color-light-blue);
+  border: 1px dashed var(--color-light-blue);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.add-data-view-btn:hover {
+  background: var(--color-light-blue);
+  color: #fff;
 }

@@ -17,7 +17,7 @@ import {
   TIME_COL_SUBJECT,
   TIME_COL_PROJECT,
   buildRectMarkOptions,
-  buildProjectClause,
+  buildQueryClause,
   computeTimeViewHeight,
 } from '../time-view.js';
 import { AIND_COLORS, TIME_VIEW_HEIGHT } from '../constants.js';
@@ -86,52 +86,81 @@ describe('buildRectMarkOptions', () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildProjectClause
+// buildQueryClause
 // ---------------------------------------------------------------------------
 
-describe('buildProjectClause', () => {
-  it('uses "project" as the clause source', () => {
-    expect(buildProjectClause('my-project').source).toBe('project');
-    expect(buildProjectClause(null).source).toBe('project');
+describe('buildQueryClause', () => {
+  it('uses "query" as the clause source', () => {
+    const qf = { projects: ['p'], extraFilters: [] };
+    expect(buildQueryClause(qf).source).toBe('query');
   });
 
-  it('carries the project name as the clause value', () => {
-    expect(buildProjectClause('my-project').value).toBe('my-project');
+  it('carries the queryFilter object as the clause value', () => {
+    const qf = { projects: ['my-project'], extraFilters: [] };
+    expect(buildQueryClause(qf).value).toBe(qf);
   });
 
-  it('sets value to null when no project is given', () => {
-    expect(buildProjectClause(null).value).toBeNull();
-    expect(buildProjectClause(undefined).value).toBeNull();
+  it('sets predicate to null when projects is empty and no extra filters', () => {
+    expect(buildQueryClause({ projects: [], extraFilters: [] }).predicate).toBeNull();
+    expect(buildQueryClause(null).predicate).toBeNull();
   });
 
-  it('sets predicate to null when no project is given', () => {
-    expect(buildProjectClause(null).predicate).toBeNull();
-    expect(buildProjectClause(undefined).predicate).toBeNull();
-    expect(buildProjectClause('').predicate).toBeNull();
-  });
-
-  it('provides a truthy predicate when a project name is supplied', () => {
-    const { predicate } = buildProjectClause('my-project');
+  it('provides a truthy predicate when projects are supplied', () => {
+    const { predicate } = buildQueryClause({ projects: ['my-project'], extraFilters: [] });
     expect(predicate).toBeTruthy();
   });
 
-  it('produces a predicate that serialises to a SQL equality expression', () => {
-    const { predicate } = buildProjectClause('my-project');
-    // The predicate is an eq() expression from mosaic-sql; its toString()
-    // renders valid SQL: project_name = 'my-project'
+  it('serialises single project to an IN expression containing project_name', () => {
+    const { predicate } = buildQueryClause({ projects: ['my-project'], extraFilters: [] });
     const sql = String(predicate);
     expect(sql).toContain('project_name');
     expect(sql).toContain('my-project');
-    expect(sql).toContain('=');
+    expect(sql).toContain('IN');
   });
 
-  it('preserves the project name in the right-hand literal of the predicate', () => {
-    // eq(col, literal(value)) creates an expression with shape { a, b }
-    // where b is the literal node. Verify the original value is preserved.
-    const { predicate } = buildProjectClause("O'Malley's Lab");
-    expect(predicate).toBeTruthy();
-    // The eq() expression exposes its operands as .a (column) and .b (literal).
-    expect(predicate.b.value).toBe("O'Malley's Lab");
+  it('includes all selected projects in the IN list', () => {
+    const { predicate } = buildQueryClause({ projects: ['alpha', 'beta'], extraFilters: [] });
+    const sql = String(predicate);
+    expect(sql).toContain('alpha');
+    expect(sql).toContain('beta');
+  });
+
+  it('escapes single quotes inside project names', () => {
+    const { predicate } = buildQueryClause({ projects: ["O'Malley"], extraFilters: [] });
+    const sql = String(predicate);
+    expect(sql).toContain("O''Malley");
+  });
+
+  it('includes extra filter columns in the predicate', () => {
+    const qf = {
+      projects: [],
+      extraFilters: [{ column: 'data_level', values: ['raw', 'derived'] }],
+    };
+    const { predicate } = buildQueryClause(qf);
+    const sql = String(predicate);
+    expect(sql).toContain('data_level');
+    expect(sql).toContain('raw');
+    expect(sql).toContain('derived');
+  });
+
+  it('AND-joins project filter and extra filters', () => {
+    const qf = {
+      projects: ['proj'],
+      extraFilters: [{ column: 'genotype', values: ['wt'] }],
+    };
+    const sql = String(buildQueryClause(qf).predicate);
+    expect(sql).toContain('AND');
+    expect(sql).toContain('project_name');
+    expect(sql).toContain('genotype');
+  });
+
+  it('skips extra filter entries with no values', () => {
+    const qf = {
+      projects: ['proj'],
+      extraFilters: [{ column: 'genotype', values: [] }],
+    };
+    const sql = String(buildQueryClause(qf).predicate);
+    expect(sql).not.toContain('genotype');
   });
 });
 
