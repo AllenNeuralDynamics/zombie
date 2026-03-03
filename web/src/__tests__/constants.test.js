@@ -10,8 +10,9 @@ import {
   S3_BUCKET,
   SQUIRREL_URL,
   AIND_COLORS,
-  URL_PARAM_PROJECT,
+  URL_PARAM_PROJECTS,
   URL_PARAM_DATA_TYPES,
+  URL_PARAM_EXTRA_FILTERS,
   DEFAULT_PLOT_WIDTH,
   DEFAULT_PLOT_HEIGHT,
   TIME_VIEW_HEIGHT,
@@ -45,10 +46,12 @@ describe('constants', () => {
   });
 
   it('URL param keys are non-empty strings', () => {
-    expect(typeof URL_PARAM_PROJECT).toBe('string');
-    expect(URL_PARAM_PROJECT.length).toBeGreaterThan(0);
+    expect(typeof URL_PARAM_PROJECTS).toBe('string');
+    expect(URL_PARAM_PROJECTS.length).toBeGreaterThan(0);
     expect(typeof URL_PARAM_DATA_TYPES).toBe('string');
     expect(URL_PARAM_DATA_TYPES.length).toBeGreaterThan(0);
+    expect(typeof URL_PARAM_EXTRA_FILTERS).toBe('string');
+    expect(URL_PARAM_EXTRA_FILTERS.length).toBeGreaterThan(0);
   });
 
   it('numeric defaults are positive integers', () => {

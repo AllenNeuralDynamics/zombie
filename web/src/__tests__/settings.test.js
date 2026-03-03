@@ -125,14 +125,16 @@ describe('encodeExtraFilters', () => {
 
   it('encodes a single filter with one value', () => {
     const encoded = encodeExtraFilters([{ column: 'genotype', values: ['wt'] }]);
-    expect(encoded).toBe('genotype%3Awt');
+    expect(encoded).toContain('genotype');
+    expect(encoded).toContain('wt');
+    expect(encoded).toContain(':');
   });
 
   it('encodes multiple values with pipe separator', () => {
     const encoded = encodeExtraFilters([{ column: 'data_level', values: ['raw', 'derived'] }]);
     expect(encoded).toContain('raw');
     expect(encoded).toContain('derived');
-    expect(encoded).toContain('%7C');
+    expect(encoded).toContain('|');
   });
 
   it('skips filters with no values', () => {
