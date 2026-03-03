@@ -92,7 +92,7 @@ describe('buildDotMarkOptions', () => {
   });
 
   it('uses custom fallback fill colour', () => {
-    const opts = buildDotMarkOptions('ts', 'val', null, [], '#ff0000');
+    const opts = buildDotMarkOptions('ts', 'val', null, [], null, '#ff0000');
     expect(opts.fill).toBe('#ff0000');
   });
 
