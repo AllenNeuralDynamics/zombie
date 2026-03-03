@@ -116,10 +116,27 @@ async function init() {
 function renderError(err) {
   const app = document.getElementById('app');
   if (!app) return;
+
+  // Detect WebSocket / network failures and give actionable guidance.
+  const msg = String(err?.message ?? err);
+  const isConnErr =
+    msg.toLowerCase().includes('websocket') ||
+    msg.toLowerCase().includes('connect') ||
+    err?.type === 'error' ||
+    err?.constructor?.name === 'CloseEvent';
+
+  const title = isConnErr ? 'Cannot connect to DuckDB server' : 'Initialisation error';
+  const body = isConnErr
+    ? `<p>Could not reach the DuckDB server at <code>${SERVER_WS_URL}</code>.</p>
+       <p>Start it with:</p>
+       <pre>npm run server</pre>
+       <p class="error-hint">Then reload this page.</p>`
+    : `<pre>${String(err?.stack ?? err?.message ?? err)}</pre>`;
+
   app.innerHTML = `
     <div class="card error">
-      <h2>Initialisation error</h2>
-      <pre>${err.message}</pre>
+      <h2>${title}</h2>
+      ${body}
     </div>
   `;
 }

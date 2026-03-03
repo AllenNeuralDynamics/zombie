@@ -212,7 +212,7 @@ body {
   background: #fff;
   min-width: 180px;
   max-width: 340px;
-  font-size: 0.85rem;
+  font-size: 0.875rem;
 }
 
 .query-section-header {
@@ -258,10 +258,10 @@ body {
 /* Project search input */
 .project-search {
   width: 100%;
-  padding: 3px 6px;
+  padding: 4px 6px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  font-size: 0.82rem;
+  font-size: 0.875rem;
   color: var(--text-primary);
 }
 
@@ -281,8 +281,8 @@ body {
   background: var(--surface-card);
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  padding: 2px 6px;
-  font-size: 0.78rem;
+  padding: 4px 8px;
+  font-size: 0.875rem;
   cursor: pointer;
   color: var(--color-dark-blue);
 }
@@ -300,7 +300,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 0.82rem;
+  /* inherit font-size from .query-section so text is readable */
 }
 
 .project-checkbox-label {
@@ -311,9 +311,15 @@ body {
   border-radius: 3px;
   cursor: pointer;
   user-select: none;
+  min-width: 0; /* allow flex children to shrink */
+}
+
+/* text-overflow:ellipsis must be on the text's own element, not the flex container */
+.project-checkbox-label .project-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .project-checkbox-label:hover {
@@ -455,6 +461,26 @@ body {
 
 .card.error h2 {
   color: var(--color-red);
+  margin-bottom: 10px;
+}
+
+.card.error code {
+  background: #f5f5f5;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.card.error pre {
+  background: #fff5f5;
+  border: 1px solid #fed7d7;
+  color: var(--color-red);
+}
+
+.error-hint {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .card h2 {
@@ -472,20 +498,8 @@ body {
   font-size: 0.8rem;
 }
 
-/* ---------------------------------------------------------------------------
- * DataViews flex row
- * ------------------------------------------------------------------------ */
+/* (DataViews flex row merged into the DataViews container section below.) */
 
-.data-views-container {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gap);
-}
-
-.data-view-card {
-  flex: 1 1 560px;
-  max-width: 100%;
-}
 
 /* ---------------------------------------------------------------------------
  * Loading message
@@ -497,6 +511,22 @@ body {
   padding: 40px 20px;
   text-align: center;
   opacity: 0.8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+/* CSS-only spinner rendered before the loading text */
+.loading-message::before {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(255, 255, 255, 0.2);
+  border-top-color: var(--color-light-blue);
+  border-radius: 50%;
+  animation: dv-spin 0.75s linear infinite;
 }
 
 /* ---------------------------------------------------------------------------
@@ -598,8 +628,10 @@ body {
  * ------------------------------------------------------------------------ */
 
 .data-view {
-  flex: 1 1 600px;
-  min-width: 320px;
+  /* min-width is set dynamically from JS to track the configured plot width.
+     flex-basis auto lets each card claim its natural minimum width. */
+  flex: 1 1 auto;
+  min-width: 360px;
 }
 
 .data-view .view-header {
@@ -1023,6 +1055,33 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
+}
+
+/* No-data banner shown when a live plot has zero mark elements after ~3 s */
+.dv-no-data {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 20px;
+  border: 1px dashed var(--surface-border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+  background: var(--surface-card);
+  text-align: center;
+}
+
+.dv-no-data span {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.dv-no-data small {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 .dv-debug-scroll {

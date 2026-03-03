@@ -299,6 +299,25 @@ export function createDataView(id, $timeSelection, metadata) {
   // Dirty flag: true when settings have changed but plot has not been rebuilt
   let isDirty = false;
 
+  // ── No-data detection state ──────────────────────────────────────────────
+  let noDataObserver = null;
+  let noDataTimer    = null;
+
+  /** Cancel any pending empty-result observer and timer. */
+  function clearNoDataDetection() {
+    if (noDataObserver) { noDataObserver.disconnect(); noDataObserver = null; }
+    if (noDataTimer)    { clearTimeout(noDataTimer); noDataTimer = null; }
+  }
+
+  /**
+   * Set the card's min-width so it grows with the configured plot size:
+   * settings panel (160 px) + gap (12 px) + plotWidth + card padding (32 px) + buffer.
+   */
+  function updateContainerWidth() {
+    const needed = plotConfig.plotWidth + 220;
+    container.style.minWidth = `${Math.max(360, needed)}px`;
+  }
+
   function markDirty() {
     isDirty = true;
     if (updateBtnEl) updateBtnEl.classList.add('dv-update-btn--dirty');
@@ -823,6 +842,8 @@ export function createDataView(id, $timeSelection, metadata) {
 
   function rebuildPlot() {
     plotContainer.innerHTML = '';
+    clearNoDataDetection();
+    updateContainerWidth();
     hasLivePlot = false;
     isDirty = false;
     if (updateBtnEl) updateBtnEl.classList.remove('dv-update-btn--dirty');
@@ -917,6 +938,48 @@ export function createDataView(id, $timeSelection, metadata) {
     try {
       plotContainer.appendChild(plot(...plotParts));
       hasLivePlot = true;
+
+      // ── Empty-result detection ────────────────────────────────────────────
+      // vgplot renders marks asynchronously once the coordinator returns data.
+      // Watch the SVG for real mark elements; if none appear within 3 s,
+      // surface a "no data" banner so the user isn't left with empty axes.
+      const noDataEl = document.createElement('div');
+      noDataEl.className = 'dv-no-data';
+      noDataEl.hidden = true;
+      const noDataMsg = document.createElement('span');
+      noDataMsg.textContent = 'No data for the current selection';
+      const noDataHint = document.createElement('small');
+      noDataHint.textContent =
+        'Adjust the time brush, active filters, or ensure the data type is enabled.';
+      noDataEl.appendChild(noDataMsg);
+      noDataEl.appendChild(noDataHint);
+      plotContainer.appendChild(noDataEl);
+
+      const svgEl = plotContainer.querySelector('svg');
+      if (svgEl) {
+        // Observable Plot wraps each mark in a <g aria-label="<marktype>">.
+        // Exclude axis / frame / rule / grid / label groups (structural, not data).
+        const isDataMark = (/** @type {Element} */ el) =>
+          !/axis|frame|rule|label|tick|grid/i.test(el.getAttribute('aria-label') ?? '');
+
+        const checkMarks = () => {
+          const groups = /** @type {NodeListOf<Element>} */ (svgEl.querySelectorAll('g[aria-label]'));
+          return Array.from(groups).some((g) => isDataMark(g) && g.children.length > 0);
+        };
+
+        noDataObserver = new MutationObserver(() => {
+          if (checkMarks()) {
+            noDataEl.hidden = true;
+            clearNoDataDetection();
+          }
+        });
+        noDataObserver.observe(svgEl, { subtree: true, childList: true });
+
+        noDataTimer = setTimeout(() => {
+          clearNoDataDetection();
+          if (!checkMarks()) noDataEl.hidden = false;
+        }, 3000);
+      }
     } catch (err) {
       showPlotError(err);
     }

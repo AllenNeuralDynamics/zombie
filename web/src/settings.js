@@ -268,8 +268,11 @@ function buildProjectSection(coord, initialProjects, onChange) {
         onChange([...checkedSet]);
       });
 
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'project-name';
+      nameSpan.textContent = name;
       label.appendChild(cb);
-      label.appendChild(document.createTextNode(` ${name}`));
+      label.appendChild(nameSpan);
       listEl.appendChild(label);
     }
   }
