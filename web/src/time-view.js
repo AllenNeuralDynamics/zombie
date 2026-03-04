@@ -11,7 +11,6 @@
  */
 
 import {
-  Param,
   Selection,
   coordinator,
   plot,
@@ -59,13 +58,13 @@ export const TIME_COL_PROJECT = 'project_name';
  * @param {string} [fill] - Rectangle fill colour (CSS colour string).
  * @returns {object} Encoding options to pass to the vgplot `rect` mark.
  */
-export function buildRectMarkOptions(fill = AIND_COLORS.light_blue) {
+export function buildRectMarkOptions(fill = AIND_COLORS.light_blue, fillOpacity = 0.7) {
   return {
     x1: TIME_COL_START,
     x2: TIME_COL_END,
     y: TIME_COL_SUBJECT,
     fill,
-    fillOpacity: 0.7,
+    fillOpacity,
   };
 }
 
@@ -166,14 +165,21 @@ export function createTimeView($queryFilter) {
   applyQueryFilter($queryFilter.value);
   $queryFilter.addEventListener('value', applyQueryFilter);
 
-  // ── Dynamic height ────────────────────────────────────────────────────────
-  const $height = Param.value(TIME_VIEW_HEIGHT);
+  // ── Plot config ───────────────────────────────────────────────────────────
+  const plotConfig = {
+    plotHeight: 0,                          // 0 = auto-compute from subjects
+    fillColor: AIND_COLORS.light_blue,
+    fillOpacity: 0.7,
+    fontSize: 6,
+  };
 
-  async function updateHeight(queryFilter) {
+  // ── Auto height ───────────────────────────────────────────────────────────
+  let autoHeight = TIME_VIEW_HEIGHT;
+
+  async function updateAutoHeight(queryFilter) {
     const { projects = [], extraFilters = [] } = queryFilter || {};
     if (projects.length === 0 && extraFilters.length === 0) return;
     try {
-      let whereClause = '';
       const parts = [];
       if (projects.length > 0) {
         const quoted = projects
@@ -190,47 +196,160 @@ export function createTimeView($queryFilter) {
           parts.push(`"${col}" IN (${quoted})`);
         }
       }
-      if (parts.length > 0) whereClause = `WHERE ${parts.join(' AND ')}`;
+      const whereClause = parts.length > 0 ? `WHERE ${parts.join(' AND ')}` : '';
       const result = await coordinator().query(
         `SELECT COUNT(DISTINCT "${TIME_COL_SUBJECT}") AS n FROM ${TIME_TABLE} ${whereClause}`,
       );
       const n = Number(result.getChild('n')?.get(0) ?? 25);
-      $height.update(computeTimeViewHeight(n));
+      autoHeight = computeTimeViewHeight(n);
+      if (plotConfig.plotHeight === 0) rebuildPlot();
     } catch (err) {
       console.warn('[ZOMBIE] TimeView height query failed:', err);
     }
   }
 
-  updateHeight($queryFilter.value);
-  $queryFilter.addEventListener('value', updateHeight);
+  updateAutoHeight($queryFilter.value);
+  $queryFilter.addEventListener('value', updateAutoHeight);
 
-  // ── Plot ──────────────────────────────────────────────────────────────────
-  const timeViewEl = plot(
-    rect(
-      from(TIME_TABLE, { filterBy: $queryFilterSel }),
-      buildRectMarkOptions(),
-    ),
-    intervalX({ as: $timeSelection }),
-    height($height),
-    xScale('utc'),
-    xLabel('Acquisition time'),
-    // Suppress the y-axis label — subject IDs are self-explanatory.
-    yLabel(null),
-    // Let the outer card background show through.
-    style({ background: 'transparent' }),
-  );
+  // ── Plot wrapper + rebuild ────────────────────────────────────────────────
+  const plotWrapEl = document.createElement('div');
+  plotWrapEl.className = 'tv-plot-wrap';
+
+  function rebuildPlot() {
+    plotWrapEl.innerHTML = '';
+    const h = plotConfig.plotHeight > 0 ? plotConfig.plotHeight : autoHeight;
+    const newPlot = plot(
+      rect(
+        from(TIME_TABLE, { filterBy: $queryFilterSel }),
+        buildRectMarkOptions(plotConfig.fillColor, plotConfig.fillOpacity),
+      ),
+      intervalX({ as: $timeSelection }),
+      height(h),
+      xScale('utc'),
+      xLabel('Acquisition time'),
+      yLabel(null),
+      style({ background: 'transparent', fontSize: `${plotConfig.fontSize}px` }),
+    );
+    plotWrapEl.appendChild(newPlot);
+  }
 
   // ── Container ─────────────────────────────────────────────────────────────
   const container = document.createElement('div');
   container.className = 'card time-view';
   container.id = 'time-view';
 
-  const header = document.createElement('h3');
-  header.className = 'view-header';
-  header.textContent = 'Session Timeline';
+  // Header row: title + gear btn + collapse btn
+  const headerRow = document.createElement('div');
+  headerRow.className = 'tv-header-row';
 
-  container.appendChild(header);
-  container.appendChild(timeViewEl);
+  const headerTitle = document.createElement('h3');
+  headerTitle.className = 'view-header';
+  headerTitle.textContent = 'Session Timeline';
+  headerRow.appendChild(headerTitle);
+
+  const gearBtn = document.createElement('button');
+  gearBtn.type = 'button';
+  gearBtn.className = 'dv-gear-btn';
+  gearBtn.title = 'Timeline appearance settings';
+  gearBtn.innerHTML = '&#9881;'; // ⚙
+  headerRow.appendChild(gearBtn);
+
+  const collapseBtn = document.createElement('button');
+  collapseBtn.type = 'button';
+  collapseBtn.className = 'tv-collapse-btn';
+  collapseBtn.title = 'Collapse timeline';
+  collapseBtn.innerHTML = '&#9650;'; // ▲
+  headerRow.appendChild(collapseBtn);
+
+  container.appendChild(headerRow);
+
+  // ── Plot controls panel (hidden by default) ───────────────────────────────
+  const plotControlsEl = document.createElement('div');
+  plotControlsEl.className = 'dv-plot-controls';
+  plotControlsEl.hidden = true;
+  container.appendChild(plotControlsEl);
+
+  function buildPlotControls() {
+    plotControlsEl.innerHTML = '';
+
+    function addControlRow(labelText, inputEl) {
+      const row = document.createElement('label');
+      row.className = 'dv-ctrl-row';
+      const span = document.createElement('span');
+      span.textContent = labelText;
+      row.appendChild(span);
+      row.appendChild(inputEl);
+      plotControlsEl.appendChild(row);
+      return inputEl;
+    }
+
+    function makeNumber(value, min, max, step = 1) {
+      const el = document.createElement('input');
+      el.type = 'number';
+      el.className = 'dv-ctrl-input dv-ctrl-number';
+      el.value = value;
+      el.min = min;
+      el.max = max;
+      el.step = step;
+      return el;
+    }
+
+    // Height (0 = auto)
+    const heightInput = addControlRow('Height (px, 0=auto)', makeNumber(plotConfig.plotHeight, 0, 1200, 50));
+    heightInput.addEventListener('change', () => { plotConfig.plotHeight = Number(heightInput.value); rebuildPlot(); });
+
+    // Fill color
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.className = 'dv-ctrl-color';
+    colorInput.value = plotConfig.fillColor;
+    colorInput.addEventListener('input', () => { plotConfig.fillColor = colorInput.value; rebuildPlot(); });
+    const colorRow = document.createElement('label');
+    colorRow.className = 'dv-ctrl-row';
+    const colorSpan = document.createElement('span');
+    colorSpan.textContent = 'Mark color';
+    colorRow.appendChild(colorSpan);
+    colorRow.appendChild(colorInput);
+    plotControlsEl.appendChild(colorRow);
+
+    // Fill opacity
+    const opacityInput = addControlRow('Opacity (0–1)', makeNumber(plotConfig.fillOpacity, 0, 1, 0.05));
+    opacityInput.addEventListener('input', () => { plotConfig.fillOpacity = Number(opacityInput.value); rebuildPlot(); });
+
+    // Font size
+    const fontInput = addControlRow('Font size (px)', makeNumber(plotConfig.fontSize, 4, 32));
+    fontInput.addEventListener('change', () => { plotConfig.fontSize = Number(fontInput.value); rebuildPlot(); });
+  }
+
+  buildPlotControls();
+
+  gearBtn.addEventListener('click', () => {
+    plotControlsEl.hidden = !plotControlsEl.hidden;
+    gearBtn.classList.toggle('dv-gear-btn--active', !plotControlsEl.hidden);
+    if (!plotControlsEl.hidden) buildPlotControls(); // refresh with current values
+  });
+
+  // ── Collapsible body ──────────────────────────────────────────────────────
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'tv-body';
+  bodyEl.appendChild(plotWrapEl);
+  container.appendChild(bodyEl);
+
+  let collapsed = false;
+  collapseBtn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    bodyEl.hidden = collapsed;
+    if (collapsed) {
+      plotControlsEl.hidden = true;
+      gearBtn.classList.remove('dv-gear-btn--active');
+    }
+    collapseBtn.innerHTML = collapsed ? '&#9660;' : '&#9650;'; // ▼ or ▲
+    collapseBtn.title = collapsed ? 'Expand timeline' : 'Collapse timeline';
+    container.classList.toggle('time-view--collapsed', collapsed);
+  });
+
+  // ── Initial build ─────────────────────────────────────────────────────────
+  rebuildPlot();
 
   return { $timeSelection, el: container };
 }

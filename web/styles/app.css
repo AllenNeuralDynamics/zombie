@@ -580,13 +580,56 @@ body {
   overflow-x: auto;
 }
 
-.time-view .view-header {
+.time-view--collapsed {
+  /* Keep the card visible but compact — body is hidden via [hidden] */
+  padding-bottom: 10px;
+}
+
+/* Header row: title + gear + collapse buttons */
+.tv-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.tv-header-row .view-header {
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 6px;
+  margin-bottom: 0;
+  flex: 1;
+}
+
+/* Collapse toggle button */
+.tv-collapse-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.7rem;
+  line-height: 1;
+  padding: 4px 7px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tv-collapse-btn:hover {
+  color: var(--color-light-blue);
+  border-color: var(--surface-border);
+}
+
+/* Color picker input in the controls panel */
+.dv-ctrl-color {
+  width: 40px;
+  height: 26px;
+  padding: 1px 2px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  cursor: pointer;
 }
 
 /* Make the vgplot SVG fill its container horizontally. */
@@ -595,10 +638,7 @@ body {
   height: auto;
 }
 
-/* Shrink axis tick labels and axis title inside the timeline plot. */
-.time-view .plot svg text {
-  font-size: 6px !important;
-}
+/* Font size is now controlled via the JS plotConfig.fontSize — no override needed. */
 
 /* ---------------------------------------------------------------------------
  * Placeholder notes (Phase N+1 markers)
@@ -655,6 +695,14 @@ body {
   margin-bottom: 0;
 }
 
+/* Gear + remove button group — right side of header */
+.dv-header-btns {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-left: auto;
+}
+
 /* Gear toggle button */
 .dv-gear-btn {
   background: none;
@@ -700,6 +748,31 @@ body {
 .dv-remove-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* Collapsible gear panel — wraps both the plot-controls grid and the debug table.
+   Shown/hidden together when the gear button is toggled. */
+.dv-gear-panel {
+  margin-bottom: 10px;
+}
+
+.dv-gear-panel[hidden] {
+  display: none;
+}
+
+/* Data-table section title inside the gear panel */
+.dv-gear-panel .dv-ctrl-section-title {
+  margin: 8px 0 4px;
+  padding: 6px 2px 0;
+}
+
+/* Debug controls row and table inside gear panel: left-aligned full-width */
+.dv-gear-panel .dv-debug-controls {
+  margin-top: 4px;
+}
+
+.dv-gear-panel .dv-debug-wrap {
+  margin-top: 4px;
 }
 
 /* Collapsible plot-controls panel */
@@ -759,6 +832,51 @@ body {
 .dv-ctrl-input:focus {
   outline: 2px solid var(--color-light-blue);
   outline-offset: 1px;
+}
+
+.dv-ctrl-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: var(--surface-border);
+}
+
+/* Section title inside the plot-controls grid — spans all columns */
+.dv-ctrl-section-title {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--surface-border);
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+/* Axis-transform row — spans full width, horizontal layout */
+.dv-transform-row {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.dv-transform-axis-label {
+  font-size: 0.77rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 54px;
+}
+
+.dv-ctrl-transform-op {
+  flex: 1;
+  min-width: 0;
+}
+
+.dv-ctrl-transform-val {
+  width: 90px;
+  flex-shrink: 0;
 }
 
 /* Optional plot title shown above the SVG */

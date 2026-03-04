@@ -331,6 +331,12 @@ export function createDataView(id, $timeSelection, metadata) {
     plotHeight:  DEFAULT_PLOT_HEIGHT,
     fontSize:    12,                     // px, applied to both tick and axis labels
     showLegend:  true,
+    // Arithmetic transforms applied to numeric axis columns before plotting.
+    // op: 'none' | 'add' | 'subtract' | 'multiply' | 'divide'
+    xTransformOp:  'none',
+    xTransformVal: 0,
+    yTransformOp:  'none',
+    yTransformVal: 0,
   };
   // ── Registered table tracking ────────────────────────────────────────────
   // We must not build a vgplot mark (or send DESCRIBE) before the DuckDB table
@@ -386,22 +392,32 @@ export function createDataView(id, $timeSelection, metadata) {
   gearBtn.className = 'dv-gear-btn';
   gearBtn.title = 'Plot appearance settings';
   gearBtn.innerHTML = '&#9881;'; // ⚙ gear
-  headerRow.appendChild(gearBtn);
 
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
   removeBtn.className = 'dv-remove-btn';
   removeBtn.title = 'Remove this data view';
   removeBtn.innerHTML = '&#10005;'; // ✕
-  headerRow.appendChild(removeBtn);
+
+  // Group gear + remove buttons so they sit together on the right
+  const headerBtns = document.createElement('div');
+  headerBtns.className = 'dv-header-btns';
+  headerBtns.appendChild(gearBtn);
+  headerBtns.appendChild(removeBtn);
+  headerRow.appendChild(headerBtns);
 
   container.appendChild(headerRow);
 
-  // Collapsible plot-controls panel (hidden by default)
+  // Collapsible gear panel: wraps both the plot-controls and the debug section
+  const gearPanelEl = document.createElement('div');
+  gearPanelEl.className = 'dv-gear-panel';
+  gearPanelEl.hidden = true;
+  container.appendChild(gearPanelEl);
+
+  // Plot-controls sub-panel (appearance settings grid)
   const plotControlsEl = document.createElement('div');
   plotControlsEl.className = 'dv-plot-controls';
-  plotControlsEl.hidden = true;
-  container.appendChild(plotControlsEl);
+  gearPanelEl.appendChild(plotControlsEl);
 
   // Build plot-controls content
   function buildPlotControls() {
@@ -477,14 +493,87 @@ export function createDataView(id, $timeSelection, metadata) {
     legendSpan.textContent = 'Show legend';
     legendRow.appendChild(legendSpan);
     plotControlsEl.appendChild(legendRow);
+
+    // ── Axis transforms ────────────────────────────────────────────────────
+    const transformTitle = document.createElement('div');
+    transformTitle.className = 'dv-ctrl-section-title';
+    transformTitle.textContent = 'Axis transforms';
+    plotControlsEl.appendChild(transformTitle);
+
+    const OPS = [
+      ['none',     '— none —'],
+      ['add',      'add  (+)'],
+      ['subtract', 'subtract  (−)'],
+      ['multiply', 'multiply  (×)'],
+      ['divide',   'divide  (÷)'],
+    ];
+
+    /**
+     * Build one axis-transform row inside the plot-controls panel.
+     * @param {'x'|'y'} axis
+     */
+    function addTransformRow(axis) {
+      const opKey  = axis === 'x' ? 'xTransformOp'  : 'yTransformOp';
+      const valKey = axis === 'x' ? 'xTransformVal' : 'yTransformVal';
+      const colVal = axis === 'x' ? xColValue : yColValue;
+      const isNum  = isNumericType(liveColumnTypes.get(colVal));
+      const disabledTitle = isNum ? '' : `${axis.toUpperCase()} axis column is not numeric`;
+
+      const row = document.createElement('div');
+      row.className = 'dv-ctrl-row dv-transform-row';
+
+      const labelEl = document.createElement('span');
+      labelEl.className = 'dv-transform-axis-label';
+      labelEl.textContent = axis.toUpperCase() + ' axis:';
+      row.appendChild(labelEl);
+
+      const opSel = document.createElement('select');
+      opSel.className = 'dv-ctrl-input dv-ctrl-transform-op';
+      opSel.disabled = !isNum;
+      opSel.title = disabledTitle;
+      for (const [val, text] of OPS) {
+        const opt = document.createElement('option');
+        opt.value = val;
+        opt.textContent = text;
+        opt.selected = val === plotConfig[opKey];
+        opSel.appendChild(opt);
+      }
+
+      const valInput = document.createElement('input');
+      valInput.type = 'number';
+      valInput.className = 'dv-ctrl-input dv-ctrl-number dv-ctrl-transform-val';
+      valInput.value = plotConfig[valKey];
+      valInput.step = 'any';
+      valInput.placeholder = 'value';
+      valInput.disabled = !isNum || plotConfig[opKey] === 'none';
+      valInput.title = disabledTitle;
+
+      opSel.addEventListener('change', () => {
+        plotConfig[opKey] = opSel.value;
+        valInput.disabled = opSel.value === 'none';
+        rebuildPlot();
+      });
+
+      valInput.addEventListener('change', () => {
+        plotConfig[valKey] = Number(valInput.value);
+        rebuildPlot();
+      });
+
+      row.appendChild(opSel);
+      row.appendChild(valInput);
+      plotControlsEl.appendChild(row);
+    }
+
+    addTransformRow('x');
+    addTransformRow('y');
   }
 
   buildPlotControls();
 
   gearBtn.addEventListener('click', () => {
-    plotControlsEl.hidden = !plotControlsEl.hidden;
-    gearBtn.classList.toggle('dv-gear-btn--active', !plotControlsEl.hidden);
-    if (!plotControlsEl.hidden) buildPlotControls(); // refresh placeholder text
+    gearPanelEl.hidden = !gearPanelEl.hidden;
+    gearBtn.classList.toggle('dv-gear-btn--active', !gearPanelEl.hidden);
+    if (!gearPanelEl.hidden) buildPlotControls(); // refresh placeholder text
   });
 
   const layoutEl = document.createElement('div');
@@ -834,8 +923,13 @@ export function createDataView(id, $timeSelection, metadata) {
     if (debugVisible) await renderDebugTable();
   });
 
-  layoutEl.appendChild(debugControlsRow);
-  layoutEl.appendChild(debugTableContainer);
+  // Debug section lives inside the gear panel, below the plot controls
+  const debugSectionTitleEl = document.createElement('div');
+  debugSectionTitleEl.className = 'dv-ctrl-section-title';
+  debugSectionTitleEl.textContent = 'Data table';
+  gearPanelEl.appendChild(debugSectionTitleEl);
+  gearPanelEl.appendChild(debugControlsRow);
+  gearPanelEl.appendChild(debugTableContainer);
 
   // ── Plot builder ───────────────────────────────────────────────────────────
   let hasLivePlot = false;
@@ -893,9 +987,29 @@ export function createDataView(id, $timeSelection, metadata) {
       return sql`TRY_CAST(${sqlColumn(colName)} AS DOUBLE)`;
     }
 
+    /**
+     * Wrap a SQL expression with an arithmetic transform if one is configured
+     * for the given axis. Only applied when the column type is numeric.
+     */
+    function applyAxisTransform(baseExpr, colName, axis) {
+      const op  = axis === 'x' ? plotConfig.xTransformOp  : plotConfig.yTransformOp;
+      const val = axis === 'x' ? plotConfig.xTransformVal : plotConfig.yTransformVal;
+      if (op === 'none') return baseExpr;
+      const colType = liveColumnTypes.get(colName);
+      if (!isNumericType(colType)) return baseExpr;
+      const v = literal(val);
+      switch (op) {
+        case 'add':      return sql`(${baseExpr} + ${v})`;
+        case 'subtract': return sql`(${baseExpr} - ${v})`;
+        case 'multiply': return sql`(${baseExpr} * ${v})`;
+        case 'divide':   return sql`(${baseExpr} / NULLIF(${v}, 0))`;
+        default:         return baseExpr;
+      }
+    }
+
     const markOpts = buildDotMarkOptions(
-      colRefAxis(xColValue),
-      colRefAxis(yColValue),
+      applyAxisTransform(colRefAxis(xColValue), xColValue, 'x'),
+      applyAxisTransform(colRefAxis(yColValue), yColValue, 'y'),
       byColValue || null,
       tooltipColumns,
       sizeColValue ? colRefAxis(sizeColValue) : null,
@@ -957,15 +1071,9 @@ export function createDataView(id, $timeSelection, metadata) {
 
       const svgEl = plotContainer.querySelector('svg');
       if (svgEl) {
-        // Observable Plot wraps each mark in a <g aria-label="<marktype>">.
-        // Exclude axis / frame / rule / grid / label groups (structural, not data).
-        const isDataMark = (/** @type {Element} */ el) =>
-          !/axis|frame|rule|label|tick|grid/i.test(el.getAttribute('aria-label') ?? '');
-
-        const checkMarks = () => {
-          const groups = /** @type {NodeListOf<Element>} */ (svgEl.querySelectorAll('g[aria-label]'));
-          return Array.from(groups).some((g) => isDataMark(g) && g.children.length > 0);
-        };
+        // Dot marks render as <circle> elements inside the SVG.
+        // Simply check for the presence of any circle as a proxy for "has data".
+        const checkMarks = () => svgEl.querySelector('circle') !== null;
 
         noDataObserver = new MutationObserver(() => {
           if (checkMarks()) {
