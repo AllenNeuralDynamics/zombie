@@ -156,19 +156,22 @@ describe('s3PathToHttps', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildParquetArg', () => {
-  it('returns a quoted s3:// URL for a non-partitioned acorn', () => {
+  it('returns a quoted HTTPS URL for a non-partitioned acorn', () => {
     const arg = buildParquetArg(METADATA_ACORN);
-    expect(arg).toMatch(/^'s3:\/\//);
+    expect(arg).toMatch(/^'https:\/\//);
     expect(arg).not.toContain('hive_partitioning');
     expect(arg).toContain('zs_asset_basics.pqt');
   });
 
-  it('preserves the original s3:// location exactly', () => {
+  it('converts the s3:// location to a virtual-hosted HTTPS URL', () => {
     const arg = buildParquetArg(METADATA_ACORN);
-    expect(arg).toBe(`'${METADATA_ACORN.location}'`);
+    // s3://aind-scratch-data/application-caches/zs_asset_basics.pqt
+    // → https://aind-scratch-data.s3.<region>.amazonaws.com/application-caches/zs_asset_basics.pqt
+    expect(arg).toMatch(/^'https:\/\/aind-scratch-data\.s3\.[^.]+\.amazonaws\.com\//);
+    expect(arg).toContain('zs_asset_basics.pqt');
   });
 
-  it('returns a glob URL with hive_partitioning for a partitioned acorn', () => {
+  it('returns a glob HTTPS URL with hive_partitioning for a partitioned acorn', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
     expect(arg).toContain('*.pqt');
     expect(arg).toContain('hive_partitioning=true');
@@ -182,9 +185,14 @@ describe('buildParquetArg', () => {
     expect(arg).not.toContain('//*.pqt');
   });
 
-  it('uses the s3:// prefix in the glob path', () => {
+  it('uses the HTTPS prefix in the glob path', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
-    expect(arg).toMatch(/^'s3:\/\//);
+    expect(arg).toMatch(/^'https:\/\//);
+  });
+
+  it('accepts an explicit region for the HTTPS URL', () => {
+    const arg = buildParquetArg(METADATA_ACORN, 'eu-west-1');
+    expect(arg).toContain('.s3.eu-west-1.amazonaws.com');
   });
 });
 

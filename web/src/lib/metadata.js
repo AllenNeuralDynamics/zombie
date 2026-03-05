@@ -88,24 +88,27 @@ export function s3PathToHttps(s3Path, region = S3_REGION) {
 /**
  * Build the DuckDB `read_parquet(...)` argument string for an acorn.
  *
- * Uses the `s3://` path directly so the server-side DuckDB can resolve
- * credentials via the AWS credential chain (honouring `AWS_PROFILE`).
+ * Uses virtual-hosted HTTPS URLs (converted from `s3://` via `s3PathToHttps`)
+ * so DuckDB fetches files as anonymous plain HTTPS requests.  This avoids the
+ * problem where DuckDB finds stale/wrong AWS credentials in the environment,
+ * signs the request with them, and gets a 403 from S3 — even though the bucket
+ * is publicly readable without credentials.
  *
- * - Non-partitioned: single `s3://` URL.
- * - Partitioned directory: glob URL with `hive_partitioning=true, union_by_name=true`.
+ * - Non-partitioned: single HTTPS URL.
+ * - Partitioned directory: glob HTTPS URL with `hive_partitioning=true, union_by_name=true`.
  *
- * @param {object} acorn - A validated acorn entry.
+ * @param {object} acorn          - A validated acorn entry.
+ * @param {string} [region]       - AWS region (defaults to S3_REGION constant).
  * @returns {string} The argument string to place inside `read_parquet(...)`.
  */
-export function buildParquetArg(acorn) {
-  const s3Path = acorn.location;
+export function buildParquetArg(acorn, region = S3_REGION) {
   if (acorn.partitioned) {
     // Partitioned directory — glob all parquet files under it.
-    // Strip trailing slash before appending glob.
-    const base = s3Path.replace(/\/+$/, '');
-    return `'${base}/*.pqt', hive_partitioning=true, union_by_name=true`;
+    // Convert to HTTPS and strip trailing slash before appending glob.
+    const httpsBase = s3PathToHttps(acorn.location, region).replace(/\/+$/, '');
+    return `'${httpsBase}/*.pqt', hive_partitioning=true, union_by_name=true`;
   }
-  return `'${s3Path}'`;
+  return `'${s3PathToHttps(acorn.location, region)}'`;
 }
 
 /**
@@ -220,17 +223,16 @@ export function getAcornByName(acorns, name) {
  * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
  */
 export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region = S3_REGION) {
-  // 1. Configure S3 access on the server-side DuckDB instance.
-  //    CREDENTIAL_CHAIN tells DuckDB to use the standard AWS credential chain
-  //    (env vars, ~/.aws/config, IAM roles) including the AWS_PROFILE env var.
+  // 1. Ensure DuckDB's httpfs extension is loaded on the server.
+  //    We do NOT create an S3 secret here: all parquet files are read via
+  //    plain HTTPS URLs (virtual-hosted style), so DuckDB makes anonymous
+  //    requests.  Creating a credential_chain secret would cause DuckDB to
+  //    sign requests with whatever credentials happen to be in the environment,
+  //    which yields HTTP 403 on public buckets when those credentials belong
+  //    to a different account or are expired.
   await coordinator.exec(`
     INSTALL httpfs;
     LOAD httpfs;
-    CREATE OR REPLACE SECRET zombie_s3_secret (
-      TYPE s3,
-      PROVIDER credential_chain,
-      REGION '${region}'
-    );
   `);
 
   // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny)
