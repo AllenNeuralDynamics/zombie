@@ -13,7 +13,7 @@ import {
   getInitialExtraFiltersFromUrl,
   encodeExtraFilters,
   buildSettingsUrl,
-} from '../settings.js';
+} from '../explorer/settings.js';
 
 // ---------------------------------------------------------------------------
 // getInitialProjectsFromUrl

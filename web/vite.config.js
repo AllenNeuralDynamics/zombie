@@ -5,6 +5,14 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      // Forward /docdb/* to the local Python proxy on :3001 (avoids CORS;
+      // the proxy reaches the internal-network AIND API server-side).
+      '/docdb': {
+        target: 'http://localhost:3001',
+        rewrite: (path) => path.replace(/^\/docdb/, ''),
+      },
+    },
   },
 
   build: {

@@ -19,7 +19,7 @@ import {
   buildRectMarkOptions,
   buildProjectClause,
   computeTimeViewHeight,
-} from '../time-view.js';
+} from '../explorer/time-view.js';
 import { AIND_COLORS, TIME_VIEW_HEIGHT } from '../constants.js';
 
 // ---------------------------------------------------------------------------

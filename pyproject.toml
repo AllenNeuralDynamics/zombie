@@ -17,18 +17,9 @@ readme = "README.md"
 dynamic = ["version"]
 
 dependencies = [
-    'aind-data-schema>=2,<3',
+    # Server-side proxy for the AIND DocDB REST API (web/docdb_proxy.py)
     'aind-data-access-api[docdb]',
-    'panel>=1.8.7',
-    'aind-metadata-utils>=0.1.2,<2',
-    'altair',
-    'duckdb',
-    'pyarrow',
-    'hvplot',
-    'holoviews',
-    'zombie-squirrel>=0.10.3',
-    'pandas==2.3.3',
-    'panel-material-ui',
+    # Mosaic DuckDB WebSocket server
     'duckdb-server>=0.21.1',
 ]
 

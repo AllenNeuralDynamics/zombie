@@ -8,9 +8,11 @@ Zoomable Observatory for Multi-scale Brain Investigation and Exploration.
 
 ## Architecture
 
-The main explorer is a **Mosaic/DuckDB-server** single-page application. The browser sends SQL over WebSocket to a local Python DuckDB server that reads Parquet files directly from S3 using your AWS credentials.
+The app is a **Mosaic/DuckDB-server** single-page application. The browser sends SQL over WebSocket to a local Python DuckDB server that reads Parquet files directly from S3 using your AWS credentials.
 
-Additional tools (asset browser, subject viewer, contributions editor) still run as Panel apps and will be migrated to static sites over time. The long-term deployment target is a single static website + the duckdb-server; no Panel/Bokeh required.
+Additional tools (asset browser `/assets`, subject viewer `/subject`, contributions editor `/contributions`) are served by the same SPA via client-side routing. No Panel or Bokeh server is required.
+
+**Deployment:** nginx (:8000) → duckdb-server (:3000) + DocDB proxy (:3001) + static SPA. Two managed processes (nginx + duckdb-server + docdb-proxy via supervisord).
 
 ## Development
 
@@ -62,19 +64,9 @@ cd web && npm test
 
 ## Production build
 
-A Docker container bundles the Vite build (static files), the duckdb-server, and the legacy Panel apps behind an nginx reverse proxy.
+A Docker container bundles the Vite build (static files), the duckdb-server, and the DocDB proxy behind an nginx reverse proxy.
 
 ```bash
 docker build -t zombie .
 docker run -p 8000:8000 zombie
 ```
-
-## Legacy Panel apps
-
-The following apps are still served by the Docker container at their legacy paths until they are replaced by static sites:
-
-| Path | App |
-|------|-----|
-| `/assets` | Asset browser (`src/zombie/assets.py`) |
-| `/subject` | Subject viewer (`src/zombie/subject.py`) |
-| `/contributions` | Contributions editor (`src/zombie/contributions.py`) |

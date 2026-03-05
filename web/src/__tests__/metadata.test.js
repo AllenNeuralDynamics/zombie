@@ -18,7 +18,7 @@ import {
   getMetadataAcorns,
   getAssetAcorns,
   getAcornByName,
-} from '../metadata.js';
+} from '../lib/metadata.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -1,18 +1,22 @@
 /**
  * app.js — Entry point for ZOMBIE Mosaic.
  *
- * Phase 1: Initialize DuckDB-WASM, fetch metadata, render a placeholder.
- * Phase 2: Settings bar — project selector and data-type toggles.
- * Phase 3: TimeView — session timeline with intervalX brush selection.
- * Phase 4: DataView — interactive scatter plot filtered by time selection.
- * Phase 5: Multiple DataViews — add/remove with minimum-one enforcement.
+ * Initializes the DuckDB coordinator, fetches metadata, then hands off to the
+ * client-side router.  Routes:
+ *   /               — Main data explorer (TimeView + DataViews)
+ *   /assets         — Filterable table of all data assets
+ *   /contributions  — CReDIT author contribution matrix editor
  */
 
 import { coordinator, socketConnector } from '@uwdata/vgplot';
-import { fetchAndRegisterMetadata } from './metadata.js';
-import { initSettings } from './settings.js';
-import { createTimeView } from './time-view.js';
-import { createDataView } from './data-view.js';
+import { fetchAndRegisterMetadata } from './lib/metadata.js';
+import { initSettings } from './explorer/settings.js';
+import { createTimeView } from './explorer/time-view.js';
+import { createDataView } from './explorer/data-view.js';
+import { createAssetsView } from './assets/view.js';
+import { createContributionsView } from './contributions/view.js';
+import { createSubjectView } from './subject/view.js';
+import { initRouter } from './router.js';
 import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
 
 // ---------------------------------------------------------------------------
@@ -36,77 +40,130 @@ async function init() {
 
     console.info('[ZOMBIE] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 
-    // 3. Phase 2: Settings bar
-    const { $queryFilter, settingsEl, onTableLoading, onTableRegistered } = initSettings(coordinator(), metadata);
-    const settingsBar = document.getElementById('settings-bar');
-    if (settingsBar) {
-      settingsBar.appendChild(settingsEl);
-    }
-
-    // 4. Phase 3: TimeView
-    const { $timeSelection, el: timeViewEl } = createTimeView($queryFilter);
-
-    // Clear the loading message; mount the views.
+    // Clear the initial loading message before mounting views.
     if (loadingEl) loadingEl.remove();
 
+    // 3. Build the main explorer once (cached across route changes).
+    const explorerEl = buildExplorer(metadata);
+
+    // 4. Set up routes and start the router.
+    const settingsBar = document.getElementById('settings-bar');
     const app = document.getElementById('app');
     if (!app) return;
 
-    app.appendChild(timeViewEl);
-
-    // 5. Phase 5: Multiple DataViews container + Add button
-    const dataViewsEl = document.createElement('div');
-    dataViewsEl.id = 'data-views';
-    dataViewsEl.className = 'data-views-container';
-    app.appendChild(dataViewsEl);
-
-    const addBtnEl = document.createElement('button');
-    addBtnEl.type = 'button';
-    addBtnEl.className = 'add-data-view-btn';
-    addBtnEl.textContent = '+ Add Data View';
-    app.appendChild(addBtnEl);
-
-    // Active DataView records — each entry holds the remove button so we
-    // can disable it when only one view remains.
-    const dataViews = [];
-    let nextId = 1;
-
-    function updateRemoveButtons() {
-      const onlyOne = dataViews.length <= 1;
-      for (const dv of dataViews) {
-        dv.removeBtn.disabled = onlyOne;
-      }
-    }
-
-    function addDataView() {
-      const id = String(nextId++);
-      const dv = createDataView(id, $timeSelection, metadata);
-
-      onTableLoading(dv.notifyTableLoading);
-      onTableRegistered(dv.notifyTableRegistered);
-
-      dv.removeBtn.addEventListener('click', () => {
-        const idx = dataViews.indexOf(dv);
-        if (idx === -1) return;
-        dataViews.splice(idx, 1);
-        dv.el.remove();
-        updateRemoveButtons();
-      });
-
-      dataViews.push(dv);
-      dataViewsEl.appendChild(dv.el);
-      updateRemoveButtons();
-    }
-
-    addBtnEl.addEventListener('click', () => addDataView());
-
-    // Seed with one DataView.
-    addDataView();
+    initRouter({
+      '/': () => {
+        // Show settings bar and the main explorer.
+        if (settingsBar) settingsBar.style.display = '';
+        app.innerHTML = '';
+        app.appendChild(explorerEl);
+      },
+      '/assets': () => {
+        // Hide settings bar; show the assets table.
+        if (settingsBar) settingsBar.style.display = 'none';
+        app.innerHTML = '';
+        app.appendChild(createAssetsView(coordinator()));
+      },
+      '/contributions': () => {
+        // Hide settings bar; show the contributions editor.
+        if (settingsBar) settingsBar.style.display = 'none';
+        app.innerHTML = '';
+        const assetName = new URLSearchParams(window.location.search).get('asset_name') ?? '';
+        app.appendChild(createContributionsView({ assetName }));
+      },
+      '/subject': () => {
+        // Hide settings bar; show the subject viewer.
+        if (settingsBar) settingsBar.style.display = 'none';
+        app.innerHTML = '';
+        app.appendChild(createSubjectView());
+      },
+    });
 
   } catch (err) {
     console.error('[ZOMBIE] Initialisation failed:', err);
     renderError(err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Main explorer builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the main data-explorer element (TimeView + DataViews + settings).
+ * Called once; the returned element is re-attached when navigating back to '/'.
+ *
+ * @param {object} metadata - Parsed squirrel metadata.
+ * @returns {HTMLElement}
+ */
+function buildExplorer(metadata) {
+  // Settings bar content
+  const { $queryFilter, settingsEl, onTableLoading, onTableRegistered } = initSettings(coordinator(), metadata);
+  const settingsBar = document.getElementById('settings-bar');
+  if (settingsBar && !settingsBar.querySelector('.settings-content')) {
+    settingsBar.appendChild(settingsEl);
+  }
+
+  const fragment = document.createDocumentFragment();
+
+  // TimeView
+  const { $timeSelection, el: timeViewEl } = createTimeView($queryFilter);
+  fragment.appendChild(timeViewEl);
+
+  // DataViews container
+  const dataViewsEl = document.createElement('div');
+  dataViewsEl.id = 'data-views';
+  dataViewsEl.className = 'data-views-container';
+  fragment.appendChild(dataViewsEl);
+
+  const addBtnEl = document.createElement('button');
+  addBtnEl.type = 'button';
+  addBtnEl.className = 'add-data-view-btn';
+  addBtnEl.textContent = '+ Add Data View';
+  fragment.appendChild(addBtnEl);
+
+  // Wrapper div so the fragment can be cached and re-appended.
+  const wrapper = document.createElement('div');
+  wrapper.className = 'explorer-root';
+  wrapper.appendChild(fragment);
+
+  // DataView lifecycle
+  const dataViews = [];
+  let nextId = 1;
+
+  function updateRemoveButtons() {
+    const onlyOne = dataViews.length <= 1;
+    for (const dv of dataViews) {
+      dv.removeBtn.disabled = onlyOne;
+    }
+  }
+
+  function addDataView() {
+    const id = String(nextId++);
+    const dv = createDataView(id, $timeSelection, metadata);
+
+    onTableLoading(dv.notifyTableLoading);
+    onTableRegistered(dv.notifyTableRegistered);
+
+    dv.removeBtn.addEventListener('click', () => {
+      const idx = dataViews.indexOf(dv);
+      if (idx === -1) return;
+      dataViews.splice(idx, 1);
+      dv.el.remove();
+      updateRemoveButtons();
+    });
+
+    dataViews.push(dv);
+    dataViewsEl.appendChild(dv.el);
+    updateRemoveButtons();
+  }
+
+  addBtnEl.addEventListener('click', () => addDataView());
+
+  // Seed with one DataView.
+  addDataView();
+
+  return wrapper;
 }
 
 // ---------------------------------------------------------------------------

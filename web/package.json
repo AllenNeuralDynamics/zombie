@@ -4,11 +4,12 @@
   "description": "ZOMBIE data explorer — Mosaic/DuckDB-WASM frontend",
   "type": "module",
   "scripts": {
-    "start": "concurrently --names server,vite --prefix-colors cyan,yellow \"npm:server\" \"npm:dev\"",
+    "start": "concurrently --names server,docdb,vite --prefix-colors cyan,magenta,yellow \"npm:server\" \"npm:docdb\" \"npm:dev\"",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "server": "../.venv/bin/duckdb-server",
+    "docdb": "../.venv/bin/python docdb_proxy.py",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

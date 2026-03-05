@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { getInitialColumns, buildDotMarkOptions, isTemporalType, isObjectType, isNumericType } from '../data-view.js';
+import { getInitialColumns, buildDotMarkOptions, isTemporalType, isObjectType, isNumericType } from '../explorer/data-view.js';
 import { AIND_COLORS } from '../constants.js';
 
 // ---------------------------------------------------------------------------

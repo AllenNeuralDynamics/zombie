@@ -26,13 +26,19 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nginx supervisor libuv1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python packages (Panel apps + duckdb-server).
-COPY src ./src
-COPY pyproject.toml setup.py ./
-RUN pip install uv && uv pip install --system . --no-cache
+# Install Python runtime dependencies (duckdb-server + docdb proxy).
+# The zombie Python package is no longer needed at runtime; all apps are
+# served as static files by the Mosaic SPA.
+RUN pip install uv && uv pip install --system \
+    "duckdb-server>=0.21.1" \
+    "aind-data-access-api[docdb]" \
+    --no-cache
 
 # Copy the built Mosaic frontend (served as static files by nginx).
 COPY --from=web-builder /dist ./web/dist
+
+# Copy the DocDB proxy script (runs server-side to reach the internal AIND API).
+COPY web/docdb_proxy.py ./web/docdb_proxy.py
 
 # nginx + supervisord configuration.
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
@@ -41,8 +47,8 @@ COPY deploy/supervisord.conf /etc/supervisor/conf.d/zombie.conf
 ENV FOREST_TYPE=s3
 
 # Single externally-exposed port; nginx routes internally to duckdb-server
-# (:3000) and Panel (:8001).
+# (:3000) and the DocDB proxy (:3001).
 EXPOSE 8000
 
-# supervisord starts nginx, duckdb-server, and panel serve.
+# supervisord starts nginx, duckdb-server, and the docdb proxy.
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/zombie.conf"]
