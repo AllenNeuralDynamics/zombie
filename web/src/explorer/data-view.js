@@ -279,8 +279,8 @@ export function createDataView(id, $timeSelection, metadata) {
   const assetAcorns = getAssetAcorns(metadata.acorns);
 
   // ── State ──────────────────────────────────────────────────────────────────
-  let currentAcorn = assetAcorns[0] ?? null;
-  let liveColumns = currentAcorn?.columns ?? [];   // string[] of column names
+  let currentAcorn = null;  // set when the first table is registered or the user picks one
+  let liveColumns = [];   // string[] of column names
   let liveColumnTypes = new Map();                 // name → DuckDB type string
 
   const initialCols = getInitialColumns(liveColumns);
@@ -584,12 +584,20 @@ export function createDataView(id, $timeSelection, metadata) {
   const settingsEl = document.createElement('div');
   settingsEl.className = 'data-view-settings';
 
-  // Data-type selector
+  // Data-type selector — only shows types that have been successfully loaded.
+  // Options are added dynamically by refreshDataTypeDropdown() as tables register.
   const { wrapperEl: dtWrapperEl, selectEl: dtSelectEl } = buildColumnSelect(
     'Data type',
-    assetAcorns.map((a) => a.name),
-    currentAcorn?.name ?? null,
+    [],
+    null,
   );
+  {
+    const placeholderOpt = document.createElement('option');
+    placeholderOpt.value = '';
+    placeholderOpt.textContent = '— no data loaded —';
+    dtSelectEl.appendChild(placeholderOpt);
+    dtSelectEl.disabled = true;
+  }
   settingsEl.appendChild(dtWrapperEl);
 
   // Column/filter selector slots — rebuilt whenever the data type or real schema changes
@@ -1132,6 +1140,42 @@ export function createDataView(id, $timeSelection, metadata) {
     return wrap;
   }
 
+  // ── Data-type dropdown refresh ──────────────────────────────────────────────
+  /**
+   * Rebuild the data-type <select> to contain only the acorns whose tables are
+   * currently registered in DuckDB.  Preserves the current selection when
+   * possible, or auto-selects the first available type.
+   */
+  function refreshDataTypeDropdown() {
+    const loadedAcorns = assetAcorns.filter((a) => registeredTables.has(a.name));
+    const prevValue = dtSelectEl.value;
+
+    dtSelectEl.innerHTML = '';
+
+    if (loadedAcorns.length === 0) {
+      const placeholderOpt = document.createElement('option');
+      placeholderOpt.value = '';
+      placeholderOpt.textContent = '— no data loaded —';
+      dtSelectEl.appendChild(placeholderOpt);
+      dtSelectEl.disabled = true;
+      return;
+    }
+
+    dtSelectEl.disabled = false;
+    for (const acorn of loadedAcorns) {
+      const opt = document.createElement('option');
+      opt.value = acorn.name;
+      opt.textContent = acorn.name;
+      opt.selected = acorn.name === prevValue;
+      dtSelectEl.appendChild(opt);
+    }
+
+    // If the previously selected type is no longer available, pick the first.
+    if (!loadedAcorns.find((a) => a.name === prevValue)) {
+      dtSelectEl.value = loadedAcorns[0].name;
+    }
+  }
+
   // ── Data-type change handler ───────────────────────────────────────────────
   dtSelectEl.addEventListener('change', async () => {
     const acorn = assetAcorns.find((a) => a.name === dtSelectEl.value);
@@ -1198,6 +1242,25 @@ export function createDataView(id, $timeSelection, metadata) {
     // Mark this table as available regardless of which acorn is currently shown;
     // if the user later switches to it the guard in rebuildPlot() will pass.
     registeredTables.add(name);
+    refreshDataTypeDropdown();
+
+    // If no data type is currently selected, auto-select this newly registered one.
+    if (!currentAcorn) {
+      const acorn = assetAcorns.find((a) => a.name === name);
+      if (acorn) {
+        currentAcorn = acorn;
+        dtSelectEl.value = name;
+        liveColumns = acorn.columns;
+        liveColumnTypes = new Map();
+        const seedCols = getInitialColumns(acorn.columns);
+        xColValue = seedCols.x;
+        yColValue = seedCols.y;
+        byColValue = null;
+        sizeColValue = null;
+        tooltipColumns = acorn.columns.includes('asset_name') ? ['asset_name'] : [];
+        buildColumnSelectors(liveColumns);
+      }
+    }
 
     if (currentAcorn?.name !== name) return;
 
@@ -1216,6 +1279,20 @@ export function createDataView(id, $timeSelection, metadata) {
     rebuildPlot();
   }
 
+  function notifyTableFailed(name) {
+    // Ensure it's absent from the registered set and remove it from the dropdown.
+    registeredTables.delete(name);
+    refreshDataTypeDropdown();
+
+    if (currentAcorn?.name !== name) return;
+
+    // Replace the spinner (or loading state) with a user-friendly error note.
+    plotContainer.innerHTML = '';
+    plotContainer.appendChild(
+      makePlaceholder(`Failed to load "${name.replace(/_/g, ' ')}". The data source may be unavailable — uncheck and re-check the data type to retry.`),
+    );
+  }
+
   function onUnhandledRejection(event) {
     if (!hasLivePlot) return;
     event.preventDefault();
@@ -1226,5 +1303,5 @@ export function createDataView(id, $timeSelection, metadata) {
     window.removeEventListener('unhandledrejection', onUnhandledRejection);
   });
 
-  return { el: container, notifyTableLoading, notifyTableRegistered, removeBtn };
+  return { el: container, notifyTableLoading, notifyTableRegistered, notifyTableFailed, removeBtn };
 }

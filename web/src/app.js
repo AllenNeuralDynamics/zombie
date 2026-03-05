@@ -98,7 +98,7 @@ async function init() {
  */
 function buildExplorer(metadata) {
   // Settings bar content
-  const { $queryFilter, settingsEl, onTableLoading, onTableRegistered } = initSettings(coordinator(), metadata);
+  const { $queryFilter, settingsEl, onTableLoading, onTableRegistered, onTableFailed } = initSettings(coordinator(), metadata);
   const settingsBar = document.getElementById('settings-bar');
   if (settingsBar && !settingsBar.querySelector('.settings-content')) {
     settingsBar.appendChild(settingsEl);
@@ -144,6 +144,7 @@ function buildExplorer(metadata) {
 
     onTableLoading(dv.notifyTableLoading);
     onTableRegistered(dv.notifyTableRegistered);
+    onTableFailed(dv.notifyTableFailed);
 
     dv.removeBtn.addEventListener('click', () => {
       const idx = dataViews.indexOf(dv);

@@ -553,6 +553,7 @@ export function initSettings(coord, metadata) {
 
   const tableLoadingCallbacks = [];
   const tableRegisteredCallbacks = [];
+  const tableFailedCallbacks = [];
 
   function fireTableLoading(name) {
     for (const cb of tableLoadingCallbacks) cb(name);
@@ -560,6 +561,10 @@ export function initSettings(coord, metadata) {
 
   function fireTableRegistered(name) {
     for (const cb of tableRegisteredCallbacks) cb(name);
+  }
+
+  function fireTableFailed(name) {
+    for (const cb of tableFailedCallbacks) cb(name);
   }
 
   const $queryFilter = Param.value({ projects: initialProjects, extraFilters: initialExtraFilters });
@@ -575,6 +580,7 @@ export function initSettings(coord, metadata) {
         fireTableRegistered(state.acorn.name);
       } catch (err) {
         console.error(`[ZOMBIE] Failed to re-register "${state.acorn.name}":`, err);
+        fireTableFailed(state.acorn.name);
       }
     }
   }
@@ -640,6 +646,7 @@ export function initSettings(coord, metadata) {
           console.error(`[ZOMBIE] Failed to register table "${acorn.name}":`, err);
           checkbox.checked = false;
           dataTypeState.get(acorn.name).enabled = false;
+          fireTableFailed(acorn.name);
         });
     }
 
@@ -657,6 +664,7 @@ export function initSettings(coord, metadata) {
           console.error(`[ZOMBIE] Failed to register table "${acorn.name}":`, err);
           checkbox.checked = false;
           state.enabled = false;
+          fireTableFailed(acorn.name);
         } finally {
           checkbox.disabled = false;
         }
@@ -699,5 +707,6 @@ export function initSettings(coord, metadata) {
     settingsEl,
     onTableLoading: (cb) => tableLoadingCallbacks.push(cb),
     onTableRegistered: (cb) => tableRegisteredCallbacks.push(cb),
+    onTableFailed: (cb) => tableFailedCallbacks.push(cb),
   };
 }

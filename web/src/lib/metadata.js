@@ -88,27 +88,25 @@ export function s3PathToHttps(s3Path, region = S3_REGION) {
 /**
  * Build the DuckDB `read_parquet(...)` argument string for an acorn.
  *
- * Uses virtual-hosted HTTPS URLs (converted from `s3://` via `s3PathToHttps`)
- * so DuckDB fetches files as anonymous plain HTTPS requests.  This avoids the
- * problem where DuckDB finds stale/wrong AWS credentials in the environment,
- * signs the request with them, and gets a 403 from S3 — even though the bucket
- * is publicly readable without credentials.
+ * Uses the original `s3://` path so the server-side DuckDB instance can use
+ * the AWS credential chain (or instance profile) to resolve the S3 location.
+ * HTTPS glob paths are not supported: S3 cannot expand `*` in a plain HTTPS
+ * GET URL, so partitioned datasets must go through the S3 protocol.
  *
- * - Non-partitioned: single HTTPS URL.
- * - Partitioned directory: glob HTTPS URL with `hive_partitioning=true, union_by_name=true`.
+ * - Non-partitioned: single `s3://` URL.
+ * - Partitioned directory: glob `s3://` URL with `hive_partitioning=true, union_by_name=true`.
  *
- * @param {object} acorn          - A validated acorn entry.
- * @param {string} [region]       - AWS region (defaults to S3_REGION constant).
+ * @param {object} acorn - A validated acorn entry.
  * @returns {string} The argument string to place inside `read_parquet(...)`.
  */
-export function buildParquetArg(acorn, region = S3_REGION) {
+export function buildParquetArg(acorn) {
   if (acorn.partitioned) {
     // Partitioned directory — glob all parquet files under it.
-    // Convert to HTTPS and strip trailing slash before appending glob.
-    const httpsBase = s3PathToHttps(acorn.location, region).replace(/\/+$/, '');
-    return `'${httpsBase}/*.pqt', hive_partitioning=true, union_by_name=true`;
+    // Strip trailing slash before appending the glob pattern.
+    const base = acorn.location.replace(/\/+$/, '');
+    return `'${base}/*.pqt', hive_partitioning=true, union_by_name=true`;
   }
-  return `'${s3PathToHttps(acorn.location, region)}'`;
+  return `'${acorn.location}'`;
 }
 
 /**
@@ -214,22 +212,12 @@ export function getAcornByName(acorns, name) {
  * Fetch the squirrel.json metadata file and register all `"metadata"`-type
  * acorns as DuckDB tables via the provided coordinator.
  *
- * Relies on DuckDB's httpfs extension being available (wasmConnector enables
- * it automatically when `SET s3_region` is issued).
- *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
  * @param {string} squirrelUrl - HTTPS URL of the metadata JSON.
- * @param {string} [region=S3_REGION]
  * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
  */
-export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region = S3_REGION) {
-  // 1. Ensure DuckDB's httpfs extension is loaded on the server.
-  //    We do NOT create an S3 secret here: all parquet files are read via
-  //    plain HTTPS URLs (virtual-hosted style), so DuckDB makes anonymous
-  //    requests.  Creating a credential_chain secret would cause DuckDB to
-  //    sign requests with whatever credentials happen to be in the environment,
-  //    which yields HTTP 403 on public buckets when those credentials belong
-  //    to a different account or are expired.
+export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
+  // 1. Ensure DuckDB's httpfs / S3 extensions are loaded on the server.
   await coordinator.exec(`
     INSTALL httpfs;
     LOAD httpfs;
@@ -246,7 +234,7 @@ export async function fetchAndRegisterMetadata(coordinator, squirrelUrl, region 
   // 3. Register all metadata-type acorns as persistent DuckDB tables
   const metaAcorns = getMetadataAcorns(metadata.acorns);
   for (const acorn of metaAcorns) {
-    await registerAcornTable(coordinator, acorn, region);
+    await registerAcornTable(coordinator, acorn);
   }
 
   return metadata;
