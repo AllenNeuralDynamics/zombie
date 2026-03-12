@@ -16,6 +16,7 @@ import { createDataView } from './explorer/data-view.js';
 import { createAssetsView } from './assets/view.js';
 import { createContributionsView } from './contributions/view.js';
 import { createSubjectView } from './subject/view.js';
+import { createSmartSpimView } from './smartspim/view.js';
 import { initRouter } from './router.js';
 import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
 
@@ -76,6 +77,11 @@ async function init() {
         if (settingsBar) settingsBar.style.display = 'none';
         app.innerHTML = '';
         app.appendChild(createSubjectView());
+      },
+      '/smartspim': () => {
+        if (settingsBar) settingsBar.style.display = 'none';
+        app.innerHTML = '';
+        app.appendChild(createSmartSpimView(coordinator(), metadata));
       },
     });
 
