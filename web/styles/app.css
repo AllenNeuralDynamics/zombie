@@ -160,8 +160,22 @@ body {
   background: var(--surface-bg);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 16px 20px;
+  padding: 16px 20px 0;
   margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.smartspim-top-card .assets-table {
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0 -20px;
+  width: calc(100% + 40px);
+}
+
+.smartspim-top-card .assets-paging {
+  margin: 0 -20px;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .smartspim-charts {
@@ -169,6 +183,18 @@ body {
   flex-wrap: wrap;
   gap: 24px;
   margin-top: 8px;
+  align-items: flex-start;
+}
+
+.smartspim-desc {
+  flex: 1 1 280px;
+  max-width: 420px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .smartspim-chart-section {

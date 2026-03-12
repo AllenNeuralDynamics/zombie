@@ -377,6 +377,17 @@ export function createSmartSpimView(coord, metadata) {
     const chartsRow = document.createElement('div');
     chartsRow.className = 'smartspim-charts';
 
+    const descPanel = document.createElement('div');
+    descPanel.className = 'smartspim-desc';
+    descPanel.innerHTML = `
+      <p>The table below displays one row per subject that has started processing.</p>
+      <p>If there are multiple processing attempts, only the latest attempt is displayed.</p>
+      <p>If processing has not started or is incomplete, a row will exist but there will be no processing information.</p>
+      <p>The second group of links visualize cell segmentation results. If the &#8220;cell segmentation channels&#8221; column is not empty and there are no visualization links, this means that segmentation has not succeeded.</p>
+      <p>The third group of links visualize segmentation results aligned to the CCF. If there are no links, CCF alignment has not succeeded.</p>
+    `;
+    chartsRow.appendChild(descPanel);
+
     function makePieSection(rows, title) {
       const section = document.createElement('div');
       section.className = 'smartspim-chart-section';
@@ -395,12 +406,12 @@ export function createSmartSpimView(coord, metadata) {
     chartsRow.appendChild(makePieSection(processedRows, `Processed (${processedRows.length.toLocaleString()})` ));
 
     topCard.appendChild(chartsRow);
-    container.appendChild(topCard);
 
-    buildTable(allRows);
+    buildTable(allRows, topCard);
+    container.appendChild(topCard);
   }
 
-  function buildTable(allRows) {
+  function buildTable(allRows, target) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
     let filters = Object.fromEntries(DISPLAY_COLUMNS.map((c) => [c, '']));
@@ -448,8 +459,8 @@ export function createSmartSpimView(coord, metadata) {
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
 
-    container.appendChild(table);
-    container.appendChild(pagingBar);
+    target.appendChild(table);
+    target.appendChild(pagingBar);
 
     function updateSortIndicators() {
       table.querySelectorAll('th.sortable').forEach((th) => {
