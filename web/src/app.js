@@ -1,5 +1,5 @@
 /**
- * app.js — Entry point for ZOMBIE Mosaic.
+ * app.js — Entry point for Data Explorer.
  *
  * Initializes the DuckDB coordinator, fetches metadata, then hands off to the
  * client-side router.  Routes:
@@ -39,7 +39,7 @@ async function init() {
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
 
-    console.info('[ZOMBIE] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
+    console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 
     // Clear the initial loading message before mounting views.
     if (loadingEl) loadingEl.remove();
@@ -86,7 +86,7 @@ async function init() {
     });
 
   } catch (err) {
-    console.error('[ZOMBIE] Initialisation failed:', err);
+    console.error('[DataExplorer] Initialisation failed:', err);
     renderError(err);
   }
 }

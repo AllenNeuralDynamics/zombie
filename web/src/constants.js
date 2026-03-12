@@ -1,5 +1,5 @@
 /**
- * Application-wide constants for ZOMBIE Mosaic.
+ * Application-wide constants for Data Explorer.
  *
  * S3 paths use the virtual-hosted HTTPS style so DuckDB-WASM httpfs can
  * reach them without AWS credentials (public bucket, CORS enabled).

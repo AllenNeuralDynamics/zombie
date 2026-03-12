@@ -579,7 +579,7 @@ export function initSettings(coord, metadata) {
         await registerAcornTable(coord, state.acorn, { subjectIds });
         fireTableRegistered(state.acorn.name);
       } catch (err) {
-        console.error(`[ZOMBIE] Failed to re-register "${state.acorn.name}":`, err);
+        console.error(`[DataExplorer] Failed to re-register "${state.acorn.name}":`, err);
         fireTableFailed(state.acorn.name);
       }
     }
@@ -643,7 +643,7 @@ export function initSettings(coord, metadata) {
           fireTableRegistered(acorn.name);
         })
         .catch((err) => {
-          console.error(`[ZOMBIE] Failed to register table "${acorn.name}":`, err);
+          console.error(`[DataExplorer] Failed to register table "${acorn.name}":`, err);
           checkbox.checked = false;
           dataTypeState.get(acorn.name).enabled = false;
           fireTableFailed(acorn.name);
@@ -661,7 +661,7 @@ export function initSettings(coord, metadata) {
           state.enabled = true;
           fireTableRegistered(acorn.name);
         } catch (err) {
-          console.error(`[ZOMBIE] Failed to register table "${acorn.name}":`, err);
+          console.error(`[DataExplorer] Failed to register table "${acorn.name}":`, err);
           checkbox.checked = false;
           state.enabled = false;
           fireTableFailed(acorn.name);

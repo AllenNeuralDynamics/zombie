@@ -226,7 +226,7 @@ async function fetchTableColumns(tableName) {
       }));
     }
   } catch (err) {
-    console.warn(`[ZOMBIE] DESCRIBE ${tableName} failed:`, err);
+    console.warn(`[DataExplorer] DESCRIBE ${tableName} failed:`, err);
   }
   return null;
 }
@@ -255,7 +255,7 @@ async function fetchDistinctValues(tableName, colName, colType = null) {
       return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
     }
   } catch (err) {
-    console.warn(`[ZOMBIE] Distinct values query failed (${tableName}.${colName}):`, err);
+    console.warn(`[DataExplorer] Distinct values query failed (${tableName}.${colName}):`, err);
   }
   return [];
 }

@@ -1,5 +1,5 @@
 /**
- * router.js — Lightweight client-side router for ZOMBIE.
+ * router.js — Lightweight client-side router.
  *
  * Matches window.location.pathname to a map of { '/path': renderFunction }.
  * Unrecognised paths fall back to '/'.

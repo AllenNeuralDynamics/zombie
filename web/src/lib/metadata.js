@@ -295,7 +295,7 @@ export async function fetchSubjectIdsForQuery(coordinator, queryFilter) {
     if (!col) return null;
     return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
   } catch (err) {
-    console.warn('[ZOMBIE] fetchSubjectIdsForQuery failed:', err);
+    console.warn('[DataExplorer] fetchSubjectIdsForQuery failed:', err);
     return null;
   }
 }
