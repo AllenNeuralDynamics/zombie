@@ -382,7 +382,6 @@ export function createSmartSpimView(coord, metadata) {
     descPanel.innerHTML = `
       <p>The table below displays one row per subject that has started processing.</p>
       <p>If there are multiple processing attempts, only the latest attempt is displayed.</p>
-      <p>If processing has not started or is incomplete, a row will exist but there will be no processing information.</p>
       <p>The second group of links visualize cell segmentation results. If the &#8220;cell segmentation channels&#8221; column is not empty and there are no visualization links, this means that segmentation has not succeeded.</p>
       <p>The third group of links visualize segmentation results aligned to the CCF. If there are no links, CCF alignment has not succeeded.</p>
     `;
