@@ -26,7 +26,7 @@ import {
 
 const METADATA_ACORN = {
   name: 'asset_basics',
-  location: 's3://aind-scratch-data/application-caches/zs_asset_basics.pqt',
+  location: 's3://allen-data-views/data-asset-cache/zs_asset_basics.pqt',
   partitioned: false,
   partition_key: null,
   type: 'metadata',
@@ -35,7 +35,7 @@ const METADATA_ACORN = {
 
 const ASSET_ACORN_PARTITIONED = {
   name: 'quality_control',
-  location: 's3://aind-scratch-data/application-caches/zs_qc/',
+  location: 's3://allen-data-views/data-asset-cache/zs_qc/',
   partitioned: true,
   partition_key: 'subject_id',
   type: 'asset',

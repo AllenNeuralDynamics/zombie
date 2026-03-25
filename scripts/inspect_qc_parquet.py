@@ -3,8 +3,8 @@ import boto3
 import io
 import json
 
-S3_BUCKET = "aind-scratch-data"
-S3_KEY = "application-caches/zs_qc/833855.pqt"
+S3_BUCKET = "allen-data-views"
+S3_KEY = "data-asset-cache/zs_qc/833855.pqt"
 
 
 def main():

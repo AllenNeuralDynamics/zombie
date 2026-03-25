@@ -18,7 +18,7 @@ import { S3_BUCKET, S3_REGION } from '../constants.js';
 // ---------------------------------------------------------------------------
 
 const SMARTSPIM_S3_PATH =
-  `s3://aind-scratch-data/application-caches/zs_assets_smartspim.pqt`;
+  `s3://allen-data-views/data-asset-cache/zs_assets_smartspim.pqt`;
 
 // ---------------------------------------------------------------------------
 // Pure link builders

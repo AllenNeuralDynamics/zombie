@@ -15,14 +15,14 @@
 export const S3_REGION = 'us-west-2';
 
 /** S3 bucket name for application caches. */
-export const S3_BUCKET = 'aind-scratch-data';
+export const S3_BUCKET = 'allen-data-views';
 
 /**
  * HTTPS URL of the squirrel JSON metadata file.
  * Fetched once at startup to discover all available datasets ("acorns").
  */
 export const SQUIRREL_URL =
-  `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/application-caches/squirrel.json`;
+  `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/squirrel.json`;
 
 // ---------------------------------------------------------------------------
 // AIND brand colours (ported from src/zombie/layout.py)
