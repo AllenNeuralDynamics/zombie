@@ -26,18 +26,19 @@ import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
 
 async function init() {
   const loadingEl = document.getElementById('loading-message');
+  console.debug('[init] init() called, pathname=', window.location.pathname);
 
   try {
     // 1. Connect the Mosaic coordinator to the local duckdb-server.
-    //    The server runs DuckDB with full AWS credential chain support
-    //    (AWS_PROFILE env var) and native s3:// path resolution.
-    //    Start the server with: npm run server
+    console.debug('[init] connecting to duckdb-server at', SERVER_WS_URL);
     coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
 
     if (loadingEl) loadingEl.textContent = 'Loading dataset catalogue…';
 
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
+    console.debug('[init] calling fetchAndRegisterMetadata, squirrelUrl=', SQUIRREL_URL);
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
+    console.debug('[init] fetchAndRegisterMetadata returned');
 
     console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 
@@ -45,6 +46,7 @@ async function init() {
     if (loadingEl) loadingEl.remove();
 
     // 3. Build the main explorer once (cached across route changes).
+    console.debug('[init] building explorer element');
     const explorerEl = buildExplorer(metadata);
 
     // 4. Set up routes and start the router.
@@ -52,14 +54,17 @@ async function init() {
     const app = document.getElementById('app');
     if (!app) return;
 
+    console.debug('[init] calling initRouter');
     initRouter({
       '/': () => {
+        console.debug('[router] rendering /');
         // Show settings bar and the main explorer.
         if (settingsBar) settingsBar.style.display = '';
         app.innerHTML = '';
         app.appendChild(explorerEl);
       },
       '/assets': () => {
+        console.debug('[router] rendering /assets');
         // Hide settings bar; show the assets table.
         if (settingsBar) settingsBar.style.display = 'none';
         app.innerHTML = '';
@@ -209,4 +214,5 @@ function renderError(err) {
 // Start
 // ---------------------------------------------------------------------------
 
+console.debug('[app.js] module loaded, calling init(), pathname=', window.location.pathname);
 init();

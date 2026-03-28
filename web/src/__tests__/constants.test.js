@@ -29,10 +29,8 @@ describe('constants', () => {
     expect(S3_BUCKET.length).toBeGreaterThan(0);
   });
 
-  it('SQUIRREL_URL is an HTTPS URL containing bucket and region', () => {
-    expect(SQUIRREL_URL).toMatch(/^https:\/\//);
-    expect(SQUIRREL_URL).toContain(S3_BUCKET);
-    expect(SQUIRREL_URL).toContain(S3_REGION);
+  it('SQUIRREL_URL points to the squirrel.json metadata file', () => {
+    expect(SQUIRREL_URL).toContain('data-asset-cache');
     expect(SQUIRREL_URL).toContain('squirrel.json');
   });
 

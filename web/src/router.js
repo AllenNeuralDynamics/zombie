@@ -70,6 +70,7 @@ export function renderCurrentRoute() {
 
 function _render() {
   const key = matchRoute(window.location.pathname, _routes);
+  console.debug('[_render] pathname=', window.location.pathname, 'matched key=', key);
   _routes[key]();
   _updateActiveNav(key);
 }
@@ -98,6 +99,7 @@ function _updateActiveNav(activeKey) {
  * @param {Record<string, () => void>} routes - Map of pathname → render function.
  */
 export function initRouter(routes) {
+  console.debug('[initRouter] called, stack:', new Error().stack);
   _routes = routes;
   window.addEventListener('popstate', _render);
 

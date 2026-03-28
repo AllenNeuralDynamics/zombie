@@ -12,6 +12,12 @@ export default defineConfig({
         target: 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/docdb/, ''),
       },
+      // Forward /data-asset-cache/* to the public S3 bucket (avoids CORS
+      // in development; production uses the direct S3 URL).
+      '/data-asset-cache': {
+        target: 'https://allen-data-views.s3.us-west-2.amazonaws.com',
+        changeOrigin: true,
+      },
     },
   },
 

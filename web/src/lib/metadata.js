@@ -217,14 +217,20 @@ export function getAcornByName(acorns, name) {
  * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
  */
 export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
+  console.debug('[fetchAndRegisterMetadata] called, stack:', new Error().stack);
   // 1. Ensure DuckDB's httpfs / S3 extensions are loaded on the server.
+  console.debug('[fetchAndRegisterMetadata] installing httpfs');
   await coordinator.exec(`
     INSTALL httpfs;
     LOAD httpfs;
   `);
+  console.debug('[fetchAndRegisterMetadata] httpfs done');
 
-  // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny)
-  const resp = await fetch(squirrelUrl);
+  // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
+  // cache: 'no-cache' forces a conditional revalidation request so that a
+  // stale browser-cached copy of squirrel.json is never used after the file
+  // on S3 is updated (e.g. after removing an acorn entry).
+  const resp = await fetch(squirrelUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
   }
