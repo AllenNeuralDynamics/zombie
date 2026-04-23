@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zombie"
+version = "0.1.0"
+description = "ZOMBIE — AIND Data Explorer"
+requires-python = ">=3.11"
+dependencies = [
+    "duckdb-server>=0.21.1",
+    "aind-data-access-api[docdb]",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = []
+
+[project.optional-dependencies]
+scripts = [
+    "pyarrow",
+    "boto3",
+]

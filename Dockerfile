@@ -34,6 +34,11 @@ RUN pip install uv && uv pip install --system \
     "aind-data-access-api[docdb]" \
     --no-cache
 
+# Pre-install DuckDB extensions at build time so they are available without
+# outbound network access when the server starts (INSTALL at runtime hangs or
+# fails if extensions.duckdb.org is unreachable from inside the container).
+RUN python -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL httpfs; LOAD httpfs;'); con.close()"
+
 # Copy the built Mosaic frontend (served as static files by nginx).
 COPY --from=web-builder /dist ./web/dist
 

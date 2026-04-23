@@ -219,11 +219,17 @@ export function getAcornByName(acorns, name) {
 export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
   console.debug('[fetchAndRegisterMetadata] called, stack:', new Error().stack);
   // 1. Ensure DuckDB's httpfs / S3 extensions are loaded on the server.
-  console.debug('[fetchAndRegisterMetadata] installing httpfs');
-  await coordinator.exec(`
-    INSTALL httpfs;
-    LOAD httpfs;
-  `);
+  // Try LOAD first (fast path: extension already installed, e.g. pre-baked into
+  // the Docker image).  Only fall back to INSTALL if LOAD fails — INSTALL makes
+  // an outbound network request to extensions.duckdb.org and will hang or fail
+  // when the container has no external internet access.
+  console.debug('[fetchAndRegisterMetadata] loading httpfs');
+  try {
+    await coordinator.exec('LOAD httpfs;');
+  } catch {
+    console.debug('[fetchAndRegisterMetadata] LOAD failed, attempting INSTALL then LOAD');
+    await coordinator.exec('INSTALL httpfs; LOAD httpfs;');
+  }
   console.debug('[fetchAndRegisterMetadata] httpfs done');
 
   // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
