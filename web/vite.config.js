@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { resolve } from 'path';
 
 export default defineConfig({
   // Serve the `web/` directory as the project root during dev
@@ -24,6 +25,15 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        assets: resolve(__dirname, 'assets.html'),
+        contributions: resolve(__dirname, 'contributions.html'),
+        subject: resolve(__dirname, 'subject.html'),
+        smartspim: resolve(__dirname, 'smartspim.html'),
+      },
+    },
   },
 
   test: {

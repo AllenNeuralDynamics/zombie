@@ -313,6 +313,27 @@ export async function fetchSubjectIdsForQuery(coordinator, queryFilter) {
 }
 
 /**
+ * Fetch all distinct non-null subject_ids from the `asset_basics` table,
+ * ordered alphabetically.  Used to populate the subject-selector dropdown.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @returns {Promise<string[]>} Sorted list of subject ID strings (may be empty on error).
+ */
+export async function fetchAllSubjectIds(coordinator) {
+  try {
+    const result = await coordinator.query(
+      `SELECT DISTINCT subject_id::VARCHAR AS subject_id FROM asset_basics WHERE subject_id IS NOT NULL ORDER BY 1`,
+    );
+    const col = result.getChild('subject_id');
+    if (!col) return [];
+    return Array.from({ length: col.length }, (_, i) => String(col.get(i)));
+  } catch (err) {
+    console.warn('[DataExplorer] fetchAllSubjectIds failed:', err);
+    return [];
+  }
+}
+
+/**
  * Fetch the distinct subject_ids for a single project from the `asset_basics`
  * table.  Thin wrapper around fetchSubjectIdsForQuery kept for compatibility.
  *

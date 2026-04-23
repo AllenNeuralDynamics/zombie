@@ -13,6 +13,7 @@
  */
 
 import { queryDocDb } from '../lib/docdb.js';
+import { fetchAllSubjectIds } from '../lib/metadata.js';
 import { buildTimelineEvents } from './parsers.js';
 import { createSubjectTimeline } from './timeline.js';
 import { renderEventDetail } from './details.js';
@@ -125,11 +126,13 @@ export function organizeSubjectData(records, subjectId) {
  * Create the subject-viewer page element.
  *
  * @param {object} [opts]
- * @param {string} [opts.subjectId] - Subject ID; falls back to ?subject_id= URL param.
+ * @param {string} [opts.subjectId]    - Subject ID; falls back to ?subject_id= URL param.
+ * @param {object} [opts.coordinator]  - Mosaic coordinator for querying asset_basics subject list.
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const subjectId =
+  const { coordinator } = opts;
+  const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
     '';
@@ -137,30 +140,95 @@ export function createSubjectView(opts = {}) {
   const root = document.createElement('div');
   root.className = 'subject-view';
 
-  // Header
-  root.innerHTML = `
-    <div class="view-header">
-      <h2>Subject Viewer</h2>
-      ${subjectId ? `<span class="view-subtitle">Subject ID: <strong>${subjectId}</strong></span>` : ''}
-    </div>
-    <div class="subject-loading">Loading subject data…</div>`;
+  // ── Header + selector ─────────────────────────────────────────────────────
+  const headerEl = document.createElement('div');
+  headerEl.className = 'view-header';
+  headerEl.innerHTML = '<h2>Subject Viewer</h2>';
 
-  if (!subjectId) {
-    root.innerHTML += `
-      <div class="error-banner">
-        No subject ID specified. Use <code>?subject_id=&lt;id&gt;</code> in the URL.
-      </div>`;
-    root.querySelector('.subject-loading').remove();
-    return root;
+  const selectorEl = document.createElement('div');
+  selectorEl.className = 'subject-selector';
+  selectorEl.innerHTML = `
+    <label for="subject-id-select">Subject ID</label>
+    <select id="subject-id-select" aria-label="Select subject ID">
+      <option value="">— select a subject —</option>
+    </select>`;
+  headerEl.appendChild(selectorEl);
+  root.appendChild(headerEl);
+
+  // ── Content area (replaced on each selection) ─────────────────────────────
+  const contentEl = document.createElement('div');
+  contentEl.className = 'subject-content';
+  root.appendChild(contentEl);
+
+  // ── Populate dropdown ─────────────────────────────────────────────────────
+  const select = selectorEl.querySelector('select');
+
+  if (coordinator) {
+    fetchAllSubjectIds(coordinator).then((ids) => {
+      for (const id of ids) {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = id;
+        if (id === initialId) opt.selected = true;
+        select.appendChild(opt);
+      }
+      // If initialId wasn't found in the list, still show it as selected
+      if (initialId && !ids.includes(initialId)) {
+        const opt = document.createElement('option');
+        opt.value = initialId;
+        opt.textContent = initialId;
+        opt.selected = true;
+        select.insertBefore(opt, select.options[1]);
+      }
+    });
+  } else if (initialId) {
+    // No coordinator — pre-populate with the current ID only so the dropdown
+    // shows something sensible even without the full list.
+    const opt = document.createElement('option');
+    opt.value = initialId;
+    opt.textContent = initialId;
+    opt.selected = true;
+    select.appendChild(opt);
   }
 
-  // Async load
-  _loadSubject(root, subjectId);
+  // Pre-set the value synchronously for the initial render (before async load)
+  if (initialId) select.value = initialId;
+
+  // ── Sync dropdown → URL → content ─────────────────────────────────────────
+  select.addEventListener('change', () => {
+    const newId = select.value;
+    const params = new URLSearchParams(window.location.search);
+    if (newId) {
+      params.set('subject_id', newId);
+    } else {
+      params.delete('subject_id');
+    }
+    history.pushState(null, '', `${window.location.pathname}?${params.toString()}`);
+    _loadSubject(contentEl, newId);
+  });
+
+  // ── Initial load ──────────────────────────────────────────────────────────
+  _loadSubject(contentEl, initialId);
+
   return root;
 }
 
-async function _loadSubject(root, subjectId) {
-  const loadingEl = root.querySelector('.subject-loading');
+async function _loadSubject(contentEl, subjectId) {
+  // Clear previous content and show loading indicator
+  contentEl.innerHTML = '';
+
+  if (!subjectId) {
+    contentEl.innerHTML = `
+      <div class="error-banner">
+        No subject ID selected. Pick one from the dropdown or use <code>?subject_id=&lt;id&gt;</code> in the URL.
+      </div>`;
+    return;
+  }
+
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'subject-loading';
+  loadingEl.textContent = 'Loading subject data…';
+  contentEl.appendChild(loadingEl);
 
   try {
     // Query DocDB for all records matching this subject
@@ -202,11 +270,9 @@ async function _loadSubject(root, subjectId) {
       onSelect: (ev) => {
         renderEventDetail(ev, detailContainer, { subjectId });
         // Highlight selected rect
-        root.querySelectorAll('.timeline-event rect').forEach((r) => {
+        contentEl.querySelectorAll('.timeline-event rect').forEach((r) => {
           r.setAttribute('opacity', '0.45');
         });
-        // The clicked g element is the parent of the rect — find it by iteration
-        // (we don't have a reference here, so just reset all then let the next click re-highlight)
       },
     });
 
@@ -214,8 +280,8 @@ async function _loadSubject(root, subjectId) {
 
     // Replace loading message
     loadingEl.replaceWith(infoEl);
-    root.appendChild(timelineSection);
-    root.appendChild(detailSection);
+    contentEl.appendChild(timelineSection);
+    contentEl.appendChild(detailSection);
 
   } catch (err) {
     console.error('[SubjectView] Failed to load subject data:', err);

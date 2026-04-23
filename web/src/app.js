@@ -1,11 +1,11 @@
 /**
- * app.js — Entry point for Data Explorer.
+ * app.js — Entry point for the main Data Explorer page (/).
  *
- * Initializes the DuckDB coordinator, fetches metadata, then hands off to the
- * client-side router.  Routes:
- *   /               — Main data explorer (TimeView + DataViews)
- *   /assets         — Filterable table of all data assets
- *   /contributions  — CReDIT author contribution matrix editor
+ * Initializes the DuckDB coordinator, fetches metadata, then renders the
+ * explorer (TimeView + DataViews + settings).
+ *
+ * Other pages (assets, contributions, subject, smartspim) each have their own
+ * entry point so they can load independently without blocking on httpfs/DuckDB.
  */
 
 import { coordinator, socketConnector } from '@uwdata/vgplot';
@@ -13,11 +13,6 @@ import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { initSettings } from './explorer/settings.js';
 import { createTimeView } from './explorer/time-view.js';
 import { createDataView } from './explorer/data-view.js';
-import { createAssetsView } from './assets/view.js';
-import { createContributionsView } from './contributions/view.js';
-import { createSubjectView } from './subject/view.js';
-import { createSmartSpimView } from './smartspim/view.js';
-import { initRouter } from './router.js';
 import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
 
 // ---------------------------------------------------------------------------
@@ -26,69 +21,26 @@ import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
 
 async function init() {
   const loadingEl = document.getElementById('loading-message');
-  console.debug('[init] init() called, pathname=', window.location.pathname);
 
   try {
     // 1. Connect the Mosaic coordinator to the local duckdb-server.
-    console.debug('[init] connecting to duckdb-server at', SERVER_WS_URL);
     coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
 
     if (loadingEl) loadingEl.textContent = 'Loading dataset catalogue…';
 
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
-    console.debug('[init] calling fetchAndRegisterMetadata, squirrelUrl=', SQUIRREL_URL);
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
-    console.debug('[init] fetchAndRegisterMetadata returned');
 
     console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 
     // Clear the initial loading message before mounting views.
     if (loadingEl) loadingEl.remove();
 
-    // 3. Build the main explorer once (cached across route changes).
-    console.debug('[init] building explorer element');
-    const explorerEl = buildExplorer(metadata);
-
-    // 4. Set up routes and start the router.
-    const settingsBar = document.getElementById('settings-bar');
+    // 3. Build and mount the explorer.
     const app = document.getElementById('app');
     if (!app) return;
 
-    console.debug('[init] calling initRouter');
-    initRouter({
-      '/': () => {
-        console.debug('[router] rendering /');
-        // Show settings bar and the main explorer.
-        if (settingsBar) settingsBar.style.display = '';
-        app.innerHTML = '';
-        app.appendChild(explorerEl);
-      },
-      '/assets': () => {
-        console.debug('[router] rendering /assets');
-        // Hide settings bar; show the assets table.
-        if (settingsBar) settingsBar.style.display = 'none';
-        app.innerHTML = '';
-        app.appendChild(createAssetsView(coordinator()));
-      },
-      '/contributions': () => {
-        // Hide settings bar; show the contributions editor.
-        if (settingsBar) settingsBar.style.display = 'none';
-        app.innerHTML = '';
-        const assetName = new URLSearchParams(window.location.search).get('asset_name') ?? '';
-        app.appendChild(createContributionsView({ assetName }));
-      },
-      '/subject': () => {
-        // Hide settings bar; show the subject viewer.
-        if (settingsBar) settingsBar.style.display = 'none';
-        app.innerHTML = '';
-        app.appendChild(createSubjectView());
-      },
-      '/smartspim': () => {
-        if (settingsBar) settingsBar.style.display = 'none';
-        app.innerHTML = '';
-        app.appendChild(createSmartSpimView(coordinator(), metadata));
-      },
-    });
+    app.appendChild(buildExplorer(metadata));
 
   } catch (err) {
     console.error('[DataExplorer] Initialisation failed:', err);
@@ -214,5 +166,4 @@ function renderError(err) {
 // Start
 // ---------------------------------------------------------------------------
 
-console.debug('[app.js] module loaded, calling init(), pathname=', window.location.pathname);
 init();
