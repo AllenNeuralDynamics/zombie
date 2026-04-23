@@ -16,8 +16,6 @@ async function init() {
 
   try {
     coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
-
-    if (loadingEl) loadingEl.textContent = 'Loading dataset catalogue…';
     await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
     if (loadingEl) loadingEl.remove();
 

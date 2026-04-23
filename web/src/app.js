@@ -26,8 +26,6 @@ async function init() {
     // 1. Connect the Mosaic coordinator to the local duckdb-server.
     coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
 
-    if (loadingEl) loadingEl.textContent = 'Loading dataset catalogue…';
-
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
 

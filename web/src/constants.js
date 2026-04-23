@@ -21,15 +21,12 @@ export const S3_BUCKET = 'allen-data-views';
  * URL of the squirrel JSON metadata file.
  * Fetched once at startup to discover all available datasets ("acorns").
  *
- * Development (Vite dev server):
- *   Resolved via the Vite proxy (/data-asset-cache → S3) to avoid CORS.
- *
- * Production (Docker / nginx):
- *   Fetched directly from S3; the bucket has CORS enabled for public reads.
+ * Always uses a same-origin relative path so the browser never makes a
+ * cross-origin request to S3:
+ *   - Development: Vite proxies /data-asset-cache → S3.
+ *   - Production:  nginx proxies /data-asset-cache → S3 (see deploy/nginx.conf).
  */
-export const SQUIRREL_URL = import.meta.env.PROD
-  ? `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/squirrel.json`
-  : '/data-asset-cache/squirrel.json';
+export const SQUIRREL_URL = '/data-asset-cache/squirrel.json';
 
 // ---------------------------------------------------------------------------
 // AIND brand colours (ported from src/zombie/layout.py)
