@@ -15,6 +15,7 @@ import {
   extractFibersFromSurgery,
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
+import { buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -60,6 +61,15 @@ export function buildBirthDetail(event) {
 export function buildAcquisitionDetail(event) {
   const { start, end, event: label, details, data = {} } = event;
   const durationHrs = start && end ? ((end - start) / 3_600_000).toFixed(2) : 'N/A';
+  const assetName = data._assetName ?? null;
+  const qcHref = buildQcLink(assetName);
+  const metaHref = buildMetadataLink(assetName);
+  const coHref = buildCoLink(data._codeOcean ?? null);
+  const linkParts = [
+    coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">Code Ocean</a>` : '',
+    metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Metadata</a>` : '',
+    qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC Portal</a>` : '',
+  ].filter(Boolean).join(' · ');
   const extra = [
     data.acquisition_type ? `<dt>Acquisition type</dt><dd>${data.acquisition_type}</dd>` : '',
     data.session_type ? `<dt>Session type</dt><dd>${data.session_type}</dd>` : '',
@@ -70,6 +80,7 @@ export function buildAcquisitionDetail(event) {
     data.reward_consumed_total != null
       ? `<dt>Reward consumed</dt><dd>${data.reward_consumed_total} ${data.reward_consumed_unit ?? ''}</dd>`
       : '',
+    linkParts ? `<dt>Links</dt><dd>${linkParts}</dd>` : '',
   ].join('');
   return `
     <div class="detail-card">

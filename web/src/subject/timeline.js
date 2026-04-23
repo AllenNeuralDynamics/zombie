@@ -119,6 +119,13 @@ export function createSubjectTimeline(events, opts = {}) {
   const innerW = SVG_W - MARGIN_LEFT - MARGIN_RIGHT;
   const { rects, ticks } = buildTimelineSvgParts(sorted, SVG_W, SVG_H);
 
+  // Pre-compute the SVG x positions and date range used by the minimap so the
+  // window can be sized to match the visible date span of the bubble strip.
+  const tMin = sorted[0].start.getTime() - PADDING_MS;
+  const tMax = sorted[sorted.length - 1].end.getTime() + PADDING_MS;
+  const rangeMs = tMax - tMin;
+  const msToSvgX = (ms) => MARGIN_LEFT + ((ms - tMin) / rangeMs) * innerW;
+
   // ── Minimap SVG ────────────────────────────────────────────────────────────
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
@@ -170,7 +177,6 @@ export function createSubjectTimeline(events, opts = {}) {
   windowRect.setAttribute('height', SVG_H.toString());
   windowRect.setAttribute('rx', '3');
   windowRect.setAttribute('visibility', 'hidden');
-  windowRect.style.cursor = 'grab';
   windowRect.style.pointerEvents = 'none';
   svg.appendChild(windowRect);
 
@@ -181,6 +187,7 @@ export function createSubjectTimeline(events, opts = {}) {
   bubbleScroll.className = 'subject-timeline-bubbles';
 
   let selectedBubble = null;
+  const bubbleEls = []; // parallel to sorted[]
 
   for (const ev of sorted) {
     const bubble = document.createElement('button');
@@ -214,26 +221,15 @@ export function createSubjectTimeline(events, opts = {}) {
     });
 
     bubbleScroll.appendChild(bubble);
+    bubbleEls.push(bubble);
   }
 
   wrapper.appendChild(bubbleScroll);
 
-  // ── Bidirectional sync ─────────────────────────────────────────────────────
-  let isDragging = false;
-  let dragStartClientX = 0;
-  let dragStartWinX = 0;
-
-  function getWindowX() {
-    return parseFloat(windowRect.getAttribute('x') || MARGIN_LEFT);
-  }
+  // ── Sync: scroll → window position/size ───────────────────────────────────
 
   function getWindowW() {
     return parseFloat(windowRect.getAttribute('width') || '120');
-  }
-
-  function clampWindowX(x) {
-    const winW = getWindowW();
-    return Math.max(MARGIN_LEFT, Math.min(MARGIN_LEFT + innerW - winW, x));
   }
 
   /** Recalculate window position + size from the current bubble scroll state. */
@@ -250,94 +246,48 @@ export function createSubjectTimeline(events, opts = {}) {
     }
 
     windowRect.setAttribute('visibility', 'visible');
-    windowRect.style.pointerEvents = 'all';
+    windowRect.style.pointerEvents = 'none';
 
-    const winW = Math.max((visibleW / totalW) * innerW, 16);
-    const maxScroll = Math.max(totalW - visibleW, 1);
-    const scrollFrac = bubbleScroll.scrollLeft / maxScroll;
-    const winX = MARGIN_LEFT + scrollFrac * (innerW - winW);
-
-    windowRect.setAttribute('width', winW.toFixed(1));
-    windowRect.setAttribute('x', Math.max(MARGIN_LEFT, winX).toFixed(1));
-  }
-
-  /** Scroll the bubble strip so it matches the given window x position. */
-  function scrollFromWindowX(winX) {
-    const winW = getWindowW();
-    const totalW = bubbleScroll.scrollWidth;
-    const visibleW = bubbleScroll.clientWidth;
-    const maxScroll = Math.max(totalW - visibleW, 0);
-    const frac = Math.max(0, Math.min(1, (winX - MARGIN_LEFT) / Math.max(innerW - winW, 1)));
-    bubbleScroll.scrollLeft = frac * maxScroll;
-  }
-
-  // Bubble scroll → window
-  bubbleScroll.addEventListener('scroll', () => {
-    if (!isDragging) updateWindowFromScroll();
-  });
-
-  // Click anywhere on the minimap to center the window there (only when scrollable)
-  svg.addEventListener('click', (e) => {
-    if (isDragging) return;
-    if (windowRect.getAttribute('visibility') === 'hidden') return;
-    const svgRect = svg.getBoundingClientRect();
-    const scaleX = SVG_W / (svgRect.width || SVG_W);
-    const clickX = (e.clientX - svgRect.left) * scaleX;
-    const newX = clampWindowX(clickX - getWindowW() / 2);
-    windowRect.setAttribute('x', newX.toFixed(1));
-    scrollFromWindowX(newX);
-  });
-
-  // Drag window → scroll
-  windowRect.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    dragStartClientX = e.clientX;
-    dragStartWinX = getWindowX();
-    windowRect.style.cursor = 'grabbing';
-    e.preventDefault();
-    e.stopPropagation(); // don't also trigger the svg click
-  });
-
-  function onMouseMove(e) {
-    if (!isDragging) return;
-    const svgRect = svg.getBoundingClientRect();
-    const scaleX = SVG_W / (svgRect.width || SVG_W);
-    const dx = (e.clientX - dragStartClientX) * scaleX;
-    const newX = clampWindowX(dragStartWinX + dx);
-    windowRect.setAttribute('x', newX.toFixed(1));
-    scrollFromWindowX(newX);
-  }
-
-  function onMouseUp() {
-    if (isDragging) {
-      isDragging = false;
-      windowRect.style.cursor = 'grab';
+    // Find which bubbles are at least partially visible in the scroll container.
+    const scrollLeft = bubbleScroll.scrollLeft;
+    const scrollRight = scrollLeft + visibleW;
+    let visibleStartMs = null;
+    let visibleEndMs = null;
+    for (let i = 0; i < bubbleEls.length; i++) {
+      const b = bubbleEls[i];
+      const bLeft = b.offsetLeft;
+      const bRight = bLeft + b.offsetWidth;
+      if (bRight > scrollLeft && bLeft < scrollRight) {
+        const ev = sorted[i];
+        if (visibleStartMs === null || ev.start.getTime() < visibleStartMs) {
+          visibleStartMs = ev.start.getTime();
+        }
+        if (visibleEndMs === null || ev.end.getTime() > visibleEndMs) {
+          visibleEndMs = ev.end.getTime();
+        }
+      }
     }
+
+    // Fall back to scroll-fraction sizing if no bubbles are measurable yet.
+    if (visibleStartMs === null) {
+      const winW = Math.max((visibleW / totalW) * innerW, 16);
+      const maxScroll = Math.max(totalW - visibleW, 1);
+      const scrollFrac = scrollLeft / maxScroll;
+      const winX = MARGIN_LEFT + scrollFrac * (innerW - winW);
+      windowRect.setAttribute('width', winW.toFixed(1));
+      windowRect.setAttribute('x', Math.max(MARGIN_LEFT, winX).toFixed(1));
+      return;
+    }
+
+    const svgX1 = msToSvgX(visibleStartMs);
+    const svgX2 = msToSvgX(visibleEndMs);
+    const winW = Math.max(svgX2 - svgX1, 4);
+    windowRect.setAttribute('width', winW.toFixed(1));
+    windowRect.setAttribute('x', svgX1.toFixed(1));
   }
 
-  document.addEventListener('mousemove', onMouseMove);
-  document.addEventListener('mouseup', onMouseUp);
-
-  // Touch support
-  windowRect.addEventListener('touchstart', (e) => {
-    isDragging = true;
-    dragStartClientX = e.touches[0].clientX;
-    dragStartWinX = getWindowX();
-    e.preventDefault();
-    e.stopPropagation();
-  }, { passive: false });
-
-  document.addEventListener('touchmove', (e) => {
-    if (!isDragging) return;
-    const svgRect = svg.getBoundingClientRect();
-    const scaleX = SVG_W / (svgRect.width || SVG_W);
-    const dx = (e.touches[0].clientX - dragStartClientX) * scaleX;
-    const newX = clampWindowX(dragStartWinX + dx);
-    windowRect.setAttribute('x', newX.toFixed(1));
-    scrollFromWindowX(newX);
-  });
-
-  document.addEventListener('touchend', () => { isDragging = false; });
+  // Scroll → window
+  bubbleScroll.addEventListener('scroll', updateWindowFromScroll);
 
   // Initialise geometry after first browser layout pass
   requestAnimationFrame(updateWindowFromScroll);
