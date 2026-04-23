@@ -1,89 +1,23 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "zombie"
-description = "Zoomable observatory for mult-scale brain investigation and exploration"
-license = {text = "MIT"}
-requires-python = ">=3.13"
-authors = [
-    {name = "Allen Institute for Neural Dynamics"}
-]
-classifiers = [
-    "Programming Language :: Python :: 3"
-]
-readme = "README.md"
-dynamic = ["version"]
-
+version = "0.1.0"
+description = "ZOMBIE — AIND Data Explorer"
+requires-python = ">=3.11"
 dependencies = [
-    'aind-data-schema',
-    'aind-data-access-api[docdb]',
-    'panel>=1.8.3',
-    'altair',
-    'duckdb',
-    'pyarrow',
-    'hvplot',
-    'holoviews',
-    'zombie-squirrel>=0.5.4',
-    'pandas==2.3.3',
-]
-
-[project.optional-dependencies]
-dev = [
-    'black',
-    'coverage',
-    'flake8',
-    'interrogate',
-    'isort',
-    'furo',
-    'watchfiles',
+    "duckdb-server>=0.21.1",
+    "aind-data-access-api[docdb]",
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = []
 
-[tool.setuptools.dynamic]
-version = {attr = "zombie.__version__"}
-
-[tool.black]
-line-length = 120
-target_version = ['py313']
-exclude = '''
-
-(
-  /(
-      \.eggs         # exclude a few common directories in the
-    | \.git          # root of the project
-    | \.hg
-    | \.mypy_cache
-    | \.tox
-    | \.venv
-    | _build
-    | build
-    | dist
-  )/
-  | .gitignore
-)
-'''
-
-[tool.coverage.run]
-omit = ["*__init__*", "src/zombie/server_test.py"]
-source = ["zombie", "tests"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "if __name__ == .__main__.:",
-    "from",
-    "import",
-    "pragma: no cover"
+[project.optional-dependencies]
+scripts = [
+    "pyarrow",
+    "boto3",
 ]
-fail_under = 100
-
-[tool.isort]
-line_length = 120
-profile = "black"
-
-[tool.interrogate]
-exclude = ["setup.py", "docs", "build"]
-fail-under = 100

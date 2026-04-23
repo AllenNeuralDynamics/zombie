@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Do not ignore the JS source lib directory
+!web/src/lib/
 parts/
 sdist/
 var/
@@ -147,3 +149,7 @@ src/zombie/3dtest/files/*
 
 data/*
 .github/instructions/copilot-instructions.instructions.md
+
+# JS
+web/node_modules/
+web/.vite/
