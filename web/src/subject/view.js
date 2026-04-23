@@ -265,14 +265,8 @@ async function _loadSubject(contentEl, subjectId) {
     renderEventDetail(null, detailContainer);
 
     const timelineSvg = createSubjectTimeline(events, {
-      width: 900,
-      height: 90,
       onSelect: (ev) => {
         renderEventDetail(ev, detailContainer, { subjectId });
-        // Highlight selected rect
-        contentEl.querySelectorAll('.timeline-event rect').forEach((r) => {
-          r.setAttribute('opacity', '0.45');
-        });
       },
     });
 
