@@ -30,6 +30,7 @@ describe('constants', () => {
   });
 
   it('SQUIRREL_URL points to the squirrel.json metadata file', () => {
+    expect(SQUIRREL_URL).toContain('allen-data-views');
     expect(SQUIRREL_URL).toContain('data-asset-cache');
     expect(SQUIRREL_URL).toContain('squirrel.json');
   });

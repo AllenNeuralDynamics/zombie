@@ -1799,7 +1799,8 @@ body {
 .subject-info-card dd { margin: 0; }
 
 .subject-timeline-section,
-.subject-detail-section {
+.subject-detail-section,
+.subject-assets-section {
   background: var(--surface-card);
   border-radius: var(--radius);
   padding: var(--gap);
@@ -1807,7 +1808,32 @@ body {
 }
 
 .subject-timeline-section h3,
-.subject-detail-section h3 { margin: 0 0 0.75rem; }
+.subject-detail-section h3,
+.subject-assets-section h3 { margin: 0 0 0.75rem; }
+
+.subject-assets-table-wrapper {
+  overflow-x: auto;
+}
+
+.subject-assets-table {
+  width: 100%;
+}
+
+.subject-assets-table .asset-derived-row {
+  opacity: 0.82;
+  background: var(--surface-bg, #f8f8f8);
+}
+
+.subject-assets-table .asset-name-child {
+  padding-left: 1.5rem;
+  color: var(--color-muted, #666);
+}
+
+.subject-assets-table tr.asset-highlighted {
+  outline: 2px solid var(--color-accent, #2196F3);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--color-accent, #2196F3) 12%, transparent);
+}
 
 /* Wrapper: minimap SVG above, bubble strip below */
 .subject-timeline-wrapper {
