@@ -1,8 +1,9 @@
 /*
  * app.css — Data Explorer application styles.
  *
- * Palette ported from src/zombie/layout.py  AIND_COLORS.
- * Background: AIND dark blue (#003057) + repeating SVG pattern (aind-pattern.svg).
+ * Clean black-and-white theme with red accent.
+ * Supports light/dark via system preference (prefers-color-scheme)
+ * or explicit [data-theme="light"|"dark"] on <html>.
  */
 
 /* ---------------------------------------------------------------------------
@@ -10,29 +11,74 @@
  * ------------------------------------------------------------------------ */
 
 :root {
-  --color-dark-blue:  #003057;
-  --color-light-blue: #2A7DE1;
-  --color-green:      #1D8649;
-  --color-yellow:     #FFB71B;
-  --color-grey:       #7C7C7F;
-  --color-red:        #FF5733;
+  /* Accent */
+  --color-red:        #c0392b;
+  --color-red-hover:  #a93226;
 
-  /* Surface colours */
+  /* Semantic colours kept for badge / chart compatibility */
+  --color-green:      #1D8649;
+  --color-yellow:     #d97706;
+  --color-grey:       #888888;
+
+  /* Neutral stand-ins for old brand blues (used by chart fill defaults) */
+  --color-dark-blue:  #111111;
+  --color-light-blue: #555555;
+
+  /* Surfaces — light mode */
   --surface-bg:       #ffffff;
-  --surface-card:     #f7f9ff;
-  --surface-border:   #d0daea;
+  --surface-card:     #f5f5f5;
+  --surface-border:   #e0e0e0;
+
+  /* Header */
+  --header-bg:        #ffffff;
+  --header-border:    #e0e0e0;
 
   /* Text */
-  --text-primary:     #0d1b2a;
-  --text-secondary:   #4a5568;
-  --text-on-dark:     #e8f0ff;
+  --text-primary:     #111111;
+  --text-secondary:   #555555;
+  --text-muted:       #888888;
+  --text-on-dark:     #111111;
 
   /* Spacing */
   --gap:              12px;
-  --radius:           6px;
+  --radius:           4px;
 
   /* Shadow */
-  --shadow:           0 2px 8px rgba(0, 48, 87, 0.15);
+  --shadow:           0 1px 3px rgba(0, 0, 0, 0.07);
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface-bg:       #141414;
+    --surface-card:     #1e1e1e;
+    --surface-border:   #2e2e2e;
+    --header-bg:        #0f0f0f;
+    --header-border:    #2e2e2e;
+    --text-primary:     #eeeeee;
+    --text-secondary:   #999999;
+    --text-muted:       #666666;
+    --text-on-dark:     #eeeeee;
+    --color-dark-blue:  #dddddd;
+    --color-light-blue: #aaaaaa;
+    --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Explicit dark mode */
+[data-theme="dark"] {
+  --surface-bg:       #141414;
+  --surface-card:     #1e1e1e;
+  --surface-border:   #2e2e2e;
+  --header-bg:        #0f0f0f;
+  --header-border:    #2e2e2e;
+  --text-primary:     #eeeeee;
+  --text-secondary:   #999999;
+  --text-muted:       #666666;
+  --text-on-dark:     #eeeeee;
+  --color-dark-blue:  #dddddd;
+  --color-light-blue: #aaaaaa;
+  --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
 }
 
 /* ---------------------------------------------------------------------------
@@ -51,21 +97,16 @@ html,
 body {
   height: 100%;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 /* ---------------------------------------------------------------------------
- * Background — AIND dark blue + repeating SVG pattern (same as layout.py)
+ * Background — clean white / dark depending on theme
  * ------------------------------------------------------------------------ */
 
 body {
-  background-color: var(--color-dark-blue);
-  /* The SVG pattern is served from /images/aind-pattern.svg (static asset).
-     Set background-size to match the Panel version (1200px). */
-  background-image: url('/images/aind-pattern.svg');
-  background-size: 1200px;
-  background-repeat: repeat;
+  background-color: var(--surface-bg);
   color: var(--text-primary);
   min-height: 100vh;
 }
@@ -75,9 +116,9 @@ body {
  * ------------------------------------------------------------------------ */
 
 .app-header {
-  background: rgba(0, 48, 87, 0.92);
-  border-bottom: 2px solid var(--color-light-blue);
-  padding: 10px 20px;
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--header-border);
+  padding: 8px 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -91,16 +132,15 @@ body {
 }
 
 .app-title {
-  font-size: 1.4rem;
+  font-size: 1.1rem;
   font-weight: 700;
-  color: var(--color-yellow);
-  letter-spacing: 0.05em;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
 }
 
 .app-subtitle {
-  font-size: 0.75rem;
-  color: var(--text-on-dark);
-  opacity: 0.8;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
 }
 
 /* ---------------------------------------------------------------------------
@@ -114,26 +154,25 @@ body {
 }
 
 .app-nav a {
-  color: var(--text-on-dark);
+  color: var(--text-secondary);
   text-decoration: none;
-  font-size: 0.875rem;
+  font-size: 0.82rem;
   font-weight: 500;
-  padding: 5px 12px;
+  padding: 5px 10px;
   border-radius: var(--radius);
   transition: background 0.15s, color 0.15s;
-  opacity: 0.85;
 }
 
 .app-nav a:hover {
-  background: rgba(255, 255, 255, 0.12);
-  opacity: 1;
+  background: var(--surface-card);
+  color: var(--text-primary);
 }
 
 .app-nav a.active,
 .app-nav a[aria-current='page'] {
-  background: var(--color-light-blue);
-  color: #fff;
-  opacity: 1;
+  background: transparent;
+  color: var(--color-red);
+  font-weight: 600;
 }
 
 /* ---------------------------------------------------------------------------
@@ -243,8 +282,9 @@ body {
 }
 
 .assets-table thead {
-  background: var(--color-dark-blue);
-  color: var(--text-on-dark);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--surface-border);
 }
 
 .assets-table thead th {
@@ -259,7 +299,7 @@ body {
 }
 
 .assets-table thead th.sortable:hover {
-  background: var(--color-light-blue);
+  background: var(--surface-border);
 }
 
 /* Label line inside each <th> — this is the sort click target */
@@ -277,27 +317,27 @@ body {
   width: 100%;
   padding: 3px 6px;
   font-size: 0.76rem;
-  border: 1px solid rgba(255,255,255,0.25);
+  border: 1px solid var(--surface-border);
   border-radius: 3px;
-  background: rgba(255,255,255,0.12);
-  color: var(--text-on-dark);
+  background: var(--surface-bg);
+  color: var(--text-primary);
   outline: none;
   min-width: 60px;
   box-sizing: border-box;
 }
 
 .assets-table thead .col-filter::placeholder {
-  color: rgba(255,255,255,0.45);
+  color: var(--text-muted);
 }
 
 .assets-table thead .col-filter:focus {
-  background: rgba(255,255,255,0.22);
-  border-color: var(--color-light-blue);
+  background: var(--surface-bg);
+  border-color: var(--color-red);
 }
 
 .assets-table thead select.col-filter option {
-  background: #003057;
-  color: #fff;
+  background: var(--surface-bg);
+  color: var(--text-primary);
 }
 
 /* Links column header — no filter */
@@ -310,7 +350,7 @@ body {
 }
 
 .assets-table tbody tr:hover {
-  background: #e8f0ff;
+  background: var(--surface-card);
 }
 
 .assets-table td {
@@ -334,13 +374,13 @@ body {
   font-weight: 600;
   border-radius: 3px;
   text-decoration: none;
-  background: var(--color-dark-blue);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
   transition: background 0.15s;
 }
 
 .assets-table .link-cell a:hover {
-  background: var(--color-light-blue);
+  background: var(--color-red);
 }
 
 .no-link {
@@ -373,9 +413,9 @@ body {
 }
 
 .assets-paging .page-btn:hover:not(:disabled) {
-  background: var(--color-light-blue);
-  color: #fff;
-  border-color: var(--color-light-blue);
+  background: var(--text-primary);
+  color: var(--surface-bg);
+  border-color: var(--text-primary);
 }
 
 .assets-paging .page-btn:disabled {
@@ -393,7 +433,7 @@ body {
  * ------------------------------------------------------------------------ */
 
 .settings-bar {
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--header-bg);
   border-bottom: 1px solid var(--surface-border);
   padding: var(--gap) 20px;
   display: flex;
@@ -423,7 +463,7 @@ body {
 .settings-content .input label,
 .settings-content .project-menu label {
   font-weight: 600;
-  color: var(--color-dark-blue);
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -441,7 +481,7 @@ body {
 
 .settings-content .input select:focus,
 .settings-content .project-menu select:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -458,8 +498,8 @@ body {
 
 .toggles-label {
   font-weight: 600;
-  font-size: 0.875rem;
-  color: var(--color-dark-blue);
+  font-size: 0.82rem;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -474,7 +514,7 @@ body {
 }
 
 .data-type-label input[type='checkbox'] {
-  accent-color: var(--color-light-blue);
+  accent-color: var(--color-red);
   width: 14px;
   height: 14px;
   cursor: pointer;
@@ -519,7 +559,7 @@ body {
 
 .query-section-label {
   font-weight: 600;
-  color: var(--color-dark-blue);
+  color: var(--text-primary);
   flex: 1;
   white-space: nowrap;
 }
@@ -558,7 +598,7 @@ body {
 }
 
 .project-search:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -580,9 +620,9 @@ body {
 }
 
 .project-action-btn:hover {
-  background: var(--color-light-blue);
-  color: #fff;
-  border-color: var(--color-light-blue);
+  background: var(--text-primary);
+  color: var(--surface-bg);
+  border-color: var(--text-primary);
 }
 
 /* Scrollable project checkbox list */
@@ -619,7 +659,7 @@ body {
 }
 
 .project-checkbox-label input[type='checkbox'] {
-  accent-color: var(--color-light-blue);
+  accent-color: var(--color-red);
   flex-shrink: 0;
 }
 
@@ -629,8 +669,8 @@ body {
 }
 
 .add-filter-btn {
-  background: var(--color-light-blue);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
   border: none;
   border-radius: var(--radius);
   padding: 2px 8px;
@@ -640,7 +680,7 @@ body {
 }
 
 .add-filter-btn:hover {
-  background: var(--color-dark-blue);
+  background: var(--color-red);
 }
 
 .filter-rows {
@@ -667,7 +707,7 @@ body {
 }
 
 .filter-col-select:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -695,7 +735,7 @@ body {
 }
 
 .filter-values-select:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -741,9 +781,9 @@ body {
 .card {
   background: var(--surface-bg);
   border-radius: var(--radius);
-  border: 2px solid #000;
+  border: 1px solid var(--surface-border);
   padding: 16px;
-  box-shadow: 5px 5px 5px #bcbcbc;
+  box-shadow: var(--shadow);
   margin: 5px;
 }
 
@@ -778,7 +818,7 @@ body {
 .card h2 {
   font-size: 1rem;
   font-weight: 600;
-  color: var(--color-dark-blue);
+  color: var(--text-primary);
   margin-bottom: 8px;
 }
 
@@ -798,11 +838,10 @@ body {
  * ------------------------------------------------------------------------ */
 
 .loading-message {
-  color: var(--text-on-dark);
-  font-size: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
   padding: 40px 20px;
   text-align: center;
-  opacity: 0.8;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -813,10 +852,10 @@ body {
 .loading-message::before {
   content: '';
   display: block;
-  width: 44px;
-  height: 44px;
-  border: 4px solid rgba(255, 255, 255, 0.2);
-  border-top-color: var(--color-light-blue);
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--surface-border);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: dv-spin 0.75s linear infinite;
 }
@@ -909,7 +948,7 @@ body {
 }
 
 .tv-collapse-btn:hover {
-  color: var(--color-light-blue);
+  color: var(--text-primary);
   border-color: var(--surface-border);
 }
 
@@ -1009,13 +1048,13 @@ body {
 }
 
 .dv-gear-btn:hover {
-  color: var(--color-light-blue);
+  color: var(--text-primary);
   border-color: var(--surface-border);
 }
 
 .dv-gear-btn--active {
-  color: var(--color-light-blue);
-  border-color: var(--color-light-blue);
+  color: var(--color-red);
+  border-color: var(--color-red);
   transform: rotate(45deg);
 }
 
@@ -1122,7 +1161,7 @@ body {
 }
 
 .dv-ctrl-input:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -1194,8 +1233,8 @@ body {
 .dv-spinner {
   width: 36px;
   height: 36px;
-  border: 4px solid var(--surface-border);
-  border-top-color: var(--color-light-blue);
+  border: 3px solid var(--surface-border);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: dv-spin 0.75s linear infinite;
 }
@@ -1246,7 +1285,7 @@ body {
 }
 
 .dv-select:focus {
-  outline: 2px solid var(--color-light-blue);
+  outline: 2px solid var(--color-red);
   outline-offset: 1px;
 }
 
@@ -1261,8 +1300,8 @@ body {
 }
 
 .dv-tooltip-select option:checked {
-  background: var(--color-light-blue);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
 }
 
 /* Multi-filter chips */
@@ -1279,8 +1318,8 @@ body {
   gap: 4px;
   padding: 2px 7px;
   font-size: 0.75rem;
-  background: var(--color-light-blue);
-  color: #fff;
+  background: #333333;
+  color: #ffffff;
   border-radius: 999px;
 }
 
@@ -1323,8 +1362,8 @@ body {
   padding: 3px 9px;
   font-size: 0.8rem;
   font-weight: 600;
-  background: var(--color-light-blue);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
@@ -1337,7 +1376,7 @@ body {
 }
 
 .dv-add-filter-btn:not(:disabled):hover {
-  background: #1a6bbf;
+  background: var(--color-red);
 }
 
 /* Update plot button */
@@ -1346,8 +1385,8 @@ body {
   padding: 5px 12px;
   font-size: 0.82rem;
   font-weight: 600;
-  background: var(--color-light-blue);
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
@@ -1355,7 +1394,7 @@ body {
 }
 
 .dv-update-btn:hover {
-  background: #1a6bbf;
+  background: var(--color-red);
 }
 
 /* Highlight when settings have changed but plot hasn't been updated */
@@ -1552,19 +1591,19 @@ body {
   display: block;
   margin-bottom: var(--gap);
   padding: 6px 16px;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   background: none;
-  color: var(--color-light-blue);
-  border: 1px dashed var(--color-light-blue);
+  color: var(--text-secondary);
+  border: 1px dashed var(--surface-border);
   border-radius: var(--radius);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .add-data-view-btn:hover {
-  background: var(--color-light-blue);
-  color: #fff;
+  background: var(--surface-card);
+  color: var(--text-primary);
 }
 
 /* ---------------------------------------------------------------------------
@@ -1589,9 +1628,9 @@ body {
 }
 
 .contributions-header h2 {
-  font-size: 1.35rem;
+  font-size: 1.2rem;
   font-weight: 700;
-  color: var(--color-dark-blue);
+  color: var(--text-primary);
   margin-bottom: var(--gap);
 }
 
@@ -1864,4 +1903,118 @@ body {
 .subject-loading {
   color: var(--color-muted, #888);
   padding: var(--gap);
+}
+
+/* ---------------------------------------------------------------------------
+ * Theme toggle button
+ * ------------------------------------------------------------------------ */
+
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 4px 8px;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark mode overrides for elements that use hardcoded colours
+ * ------------------------------------------------------------------------ */
+
+/* Explicit dark override */
+[data-theme="dark"] .dv-debug-wrap,
+[data-theme="dark"] .query-section,
+[data-theme="dark"] .filter-col-select,
+[data-theme="dark"] .filter-values-select,
+[data-theme="dark"] .dv-ctrl-input,
+[data-theme="dark"] .dv-select,
+[data-theme="dark"] .dv-add-filter-col,
+[data-theme="dark"] .dv-add-filter-val,
+[data-theme="dark"] .assets-paging,
+[data-theme="dark"] .assets-table,
+[data-theme="dark"] .assets-table tbody tr:nth-child(even) {
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .settings-bar {
+  background: var(--header-bg);
+  border-color: var(--header-border);
+}
+
+[data-theme="dark"] .error-banner {
+  background: #2a0a0a;
+}
+
+[data-theme="dark"] .dv-debug-error,
+[data-theme="dark"] .dv-plot-error {
+  background: #2a0a0a;
+}
+
+[data-theme="dark"] .card pre {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dv-filter-chip {
+  background: #555555;
+}
+
+[data-theme="dark"] .contributions-view {
+  background: var(--surface-bg);
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dv-debug-wrap,
+  :root:not([data-theme="light"]) .query-section,
+  :root:not([data-theme="light"]) .filter-col-select,
+  :root:not([data-theme="light"]) .filter-values-select,
+  :root:not([data-theme="light"]) .dv-ctrl-input,
+  :root:not([data-theme="light"]) .dv-select,
+  :root:not([data-theme="light"]) .dv-add-filter-col,
+  :root:not([data-theme="light"]) .dv-add-filter-val,
+  :root:not([data-theme="light"]) .assets-paging,
+  :root:not([data-theme="light"]) .assets-table,
+  :root:not([data-theme="light"]) .assets-table tbody tr:nth-child(even) {
+    background: var(--surface-bg);
+    color: var(--text-primary);
+  }
+
+  :root:not([data-theme="light"]) .settings-bar {
+    background: var(--header-bg);
+    border-color: var(--header-border);
+  }
+
+  :root:not([data-theme="light"]) .error-banner {
+    background: #2a0a0a;
+  }
+
+  :root:not([data-theme="light"]) .dv-debug-error,
+  :root:not([data-theme="light"]) .dv-plot-error {
+    background: #2a0a0a;
+  }
+
+  :root:not([data-theme="light"]) .card pre {
+    background: var(--surface-card);
+    color: var(--text-primary);
+  }
+
+  :root:not([data-theme="light"]) .dv-filter-chip {
+    background: #555555;
+  }
+
+  :root:not([data-theme="light"]) .contributions-view {
+    background: var(--surface-bg);
+  }
 }

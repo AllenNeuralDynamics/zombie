@@ -33,12 +33,12 @@ export const SQUIRREL_URL = '/data-asset-cache/squirrel.json';
 // ---------------------------------------------------------------------------
 
 export const AIND_COLORS = {
-  dark_blue: '#003057',
-  light_blue: '#2A7DE1',
-  green: '#1D8649',
-  yellow: '#FFB71B',
-  grey: '#7C7C7F',
-  red: '#FF5733',
+  dark_blue: '#111111',
+  light_blue: '#555555',
+  green:      '#1D8649',
+  yellow:     '#d97706',
+  grey:       '#888888',
+  red:        '#c0392b',
 };
 
 // ---------------------------------------------------------------------------
