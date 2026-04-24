@@ -57,6 +57,16 @@ export const URL_PARAM_EXTRA_FILTERS = 'extraFilters';
 export const DEFAULT_PROJECT = null;
 
 // ---------------------------------------------------------------------------
+// Contributions / authorship API
+// ---------------------------------------------------------------------------
+
+/**
+ * Base URL for the aind-metadata-viz contributions REST API.
+ * Proxied via Vite in dev (→ localhost:8000) and nginx in prod.
+ */
+export const CONTRIBUTIONS_API_BASE = '/metadata-viz';
+
+// ---------------------------------------------------------------------------
 // DuckDB server connector
 // ---------------------------------------------------------------------------
 

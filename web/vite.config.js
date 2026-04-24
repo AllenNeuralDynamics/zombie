@@ -13,6 +13,11 @@ export default defineConfig({
         target: 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/docdb/, ''),
       },
+      // Forward /metadata-viz/* to the aind-metadata-viz Tornado server on :8000.
+      '/metadata-viz': {
+        target: 'http://localhost:8000',
+        rewrite: (path) => path.replace(/^\/metadata-viz/, ''),
+      },
     },
   },
 

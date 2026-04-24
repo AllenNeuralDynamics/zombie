@@ -1770,6 +1770,59 @@ body {
   white-space: pre;
 }
 
+/* Project name / endpoint row */
+.contributions-project-section {
+  margin-top: var(--gap);
+  padding: var(--gap);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--radius);
+}
+
+.contributions-project-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.contributions-project-row label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.contributions-project-row input[type="text"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+
+.contributions-endpoint-status {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  min-height: 1.25em;
+}
+.contributions-endpoint-status.status-success { color: #059669; }
+.contributions-endpoint-status.status-error   { color: #dc2626; }
+.contributions-endpoint-status.status-loading { color: var(--color-muted, #6b7280); }
+
+/* cell levels for new set */
+.cell-supporting { background: rgba(99,102,241,0.12); }
+.cell-equal      { background: rgba(99,102,241,0.28); }
+.cell-lead       { background: rgba(99,102,241,0.55); color: #fff; }
+
+/* Preview section wrapper */
+.contributions-preview-section {
+  margin-top: var(--gap);
+}
+
 /* -----------------------------------------------------------------------
    Subject view
    ----------------------------------------------------------------------- */
