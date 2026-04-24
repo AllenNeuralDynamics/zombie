@@ -203,11 +203,18 @@ export function createSubjectTimeline(events, opts = {}) {
 
     const dateEl = document.createElement('span');
     dateEl.className = 'tl-bubble-date';
-    dateEl.textContent = ev.start.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: '2-digit',
-    });
+    dateEl.textContent = ev.dateOnly
+      ? ev.start.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: '2-digit',
+          timeZone: 'UTC',
+        })
+      : ev.start.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: '2-digit',
+        });
 
     bubble.appendChild(dot);
     bubble.appendChild(typeEl);

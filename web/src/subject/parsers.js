@@ -90,6 +90,7 @@ export function parseBirth(subject) {
     type: 'Birth',
     details: `Subject ${subject.subject_id ?? 'Unknown'} born`,
     data: details,
+    dateOnly: true,
   };
 }
 
@@ -118,7 +119,7 @@ export function parseProcedure(proc) {
     detailStr = procType;
   }
 
-  return { start, end, event: procType, type: procType, details: detailStr, data: proc };
+  return { start, end, event: procType, type: procType, details: detailStr, data: proc, dateOnly: true };
 }
 
 /**
@@ -189,6 +190,7 @@ export function parsePerfusion(proc, surgeryDate = null) {
     type: 'Perfusion',
     details: `Perfusion (specimen: ${specimens.length ? specimens.join(', ') : 'Unknown'})`,
     data: proc,
+    dateOnly: true,
   };
 }
 
@@ -216,6 +218,7 @@ export function parseBrainInjection(proc, surgeryDate = null) {
     type: 'Brain injection',
     details: `Brain injection (${positions.join(', ') || 'Unknown'}): ${materials.join(', ') || 'Unknown'}`,
     data: proc,
+    dateOnly: true,
   };
 }
 
@@ -241,6 +244,7 @@ export function parseGenericSurgeryProcedure(proc, surgeryDate = null) {
     type: 'Generic surgery procedure',
     details: notes ? `${description} - ${notes}` : description,
     data: proc,
+    dateOnly: true,
   };
 }
 
@@ -270,7 +274,7 @@ export function parseSpecimenProcedure(proc) {
   if (reagents.length) parts.push(`Reagents: ${reagents.join(', ')}`);
   if (specimenId !== 'Unknown') parts.push(`Specimen: ${specimenId}`);
 
-  return { start, end, event: procedureType, type: procedureType, details: parts.join(' - '), data: proc };
+  return { start, end, event: procedureType, type: procedureType, details: parts.join(' - '), data: proc, dateOnly: true };
 }
 
 /**
@@ -296,6 +300,7 @@ export function parseFiberImplant(proc, surgeryDate = null) {
     details: detailStr,
     data: proc,
     hasFiberVisualization: true,
+    dateOnly: true,
   };
 }
 
