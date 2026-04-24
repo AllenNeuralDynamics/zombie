@@ -68,6 +68,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    HTTPServer.allow_reuse_address = True
     server = HTTPServer((HOST, PORT), DocDbProxyHandler)
     log.info("Listening on %s:%d", HOST, PORT)
     server.serve_forever()

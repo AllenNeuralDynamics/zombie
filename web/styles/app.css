@@ -11,6 +11,8 @@
  * ------------------------------------------------------------------------ */
 
 :root {
+  color-scheme: light dark;
+
   /* Accent */
   --color-red:        #c0392b;
   --color-red-hover:  #a93226;
@@ -2027,7 +2029,7 @@ body {
 /* Detail cards rendered by subject-details.js */
 .detail-card {
   padding: 0.75rem;
-  background: var(--surface-main, #fafafa);
+  background: var(--surface-card);
   border-radius: var(--radius);
 }
 
