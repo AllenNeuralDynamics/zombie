@@ -10,8 +10,10 @@ function init() {
   const app = document.getElementById('app');
   if (!app) return;
 
-  const assetName = new URLSearchParams(window.location.search).get('asset_name') ?? '';
-  app.appendChild(createContributionsView({ assetName }));
+  const params = new URLSearchParams(window.location.search);
+  const assetName = params.get('asset_name') ?? '';
+  const projectName = params.get('project') ?? '';
+  app.appendChild(createContributionsView({ assetName, projectName }));
 }
 
 init();
