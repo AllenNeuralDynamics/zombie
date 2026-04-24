@@ -1832,6 +1832,45 @@ body {
   width: 100%;
 }
 
+/* Subject ID combobox selector */
+.subject-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.subject-selector label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.subject-selector input {
+  padding: 5px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  min-width: 220px;
+  max-width: 360px;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.subject-selector input:focus {
+  outline: none;
+  border-color: var(--color-red);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-red) 20%, transparent);
+}
+
+.subject-selector input::placeholder {
+  color: var(--text-muted);
+}
+
 .subject-info-card {
   background: var(--surface-card);
   border-radius: var(--radius);
