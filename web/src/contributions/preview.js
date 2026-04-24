@@ -62,6 +62,15 @@ function ensureWidgetCSS() {
   const style = document.createElement('style');
   style.id = 'ae-preview-overrides';
   style.textContent = `
+    /* Matrix centering — override upstream width:100% */
+    .ae-matrix-wrap {
+      display: flex;
+      justify-content: center;
+      overflow-x: auto;
+    }
+    .ae-matrix {
+      width: auto !important;
+    }
     /* Flipped matrix: role headers as columns */
     .ae-matrix-role-col-th {
       padding: 2px 2px 0;
@@ -74,17 +83,12 @@ function ensureWidgetCSS() {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 3px;
       padding-bottom: 6px;
-    }
-    .ae-matrix-role-col-icon {
-      font-size: 13px;
-      line-height: 1;
     }
     .ae-matrix-role-col-label {
       writing-mode: vertical-lr;
       transform: rotate(180deg);
-      font-size: 9px;
+      font-size: 11px;
       font-weight: 500;
       color: #4b5563;
       max-height: 90px;
@@ -94,21 +98,14 @@ function ensureWidgetCSS() {
     }
     /* Author sticky row-header cell */
     .ae-matrix-author-row-td {
-      position: sticky;
-      left: 0;
-      z-index: 10;
       background: #fff;
-      padding: 4px 10px 4px 6px;
+      padding: 4px 12px 4px 4px;
       border-bottom: 1px solid #f9fafb;
       white-space: nowrap;
-    }
-    .ae-matrix-author-row-inner {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      text-align: right;
     }
     .ae-matrix-author-row-name {
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 500;
       color: #374151;
       cursor: pointer;
@@ -119,18 +116,15 @@ function ensureWidgetCSS() {
     }
     /* Corner cell (empty top-left) */
     .ae-matrix-corner-cell {
-      position: sticky;
-      left: 0;
-      z-index: 20;
       background: #fff;
-      min-width: 160px;
     }
     /* Dark mode overrides */
-    .ae-dark .ae-matrix-role-col-label { color: #d1d5db; }
+    .ae-dark .ae-matrix-role-col-label { color: #9ca3af; }
     .ae-dark .ae-matrix-author-row-td { background: #1f2937; border-bottom-color: #374151; }
     .ae-dark .ae-matrix-author-row-name { color: #d1d5db; }
     .ae-dark .ae-matrix-author-row-name:hover { color: #a5b4fc; }
     .ae-dark .ae-matrix-corner-cell { background: #1f2937; }
+    .ae-dark .ae-matrix { --ae-matrix-bg: #1f2937; }
     /* Preview wrapper */
     .ae-preview-wrap {
       margin-top: 24px;
@@ -464,18 +458,16 @@ export function createPreview(container, authors) {
 
   /** CRediT matrix — TRANSPOSED: authors as rows, roles as columns */
   function buildMatrixTab(sorted) {
-    const wrap = el('div', { className: 'ae-matrix-wrap' });
-    const table = el('table', { className: 'ae-matrix' });
+    const wrap = el('div', { className: 'ae-matrix-wrap', style: { overflowX: 'auto', display: 'flex', justifyContent: 'center' } });
+    const table = el('table', { className: 'ae-matrix', style: { width: 'auto', margin: '0' } });
 
     // Header row: [sticky corner | role1 | role2 | ...]
     const thead = el('thead');
     const headerRow = el('tr');
     headerRow.appendChild(el('th', { className: 'ae-matrix-corner-cell' }));
     for (const role of ALL_CREDIT_ROLES) {
-      const icon = ROLE_ICONS[role] || '🏷️';
       const th = el('th', { className: 'ae-matrix-role-col-th' });
       const inner = el('div', { className: 'ae-matrix-role-col-header' });
-      inner.appendChild(el('span', { className: 'ae-matrix-role-col-icon' }, icon));
       inner.appendChild(el('span', { className: 'ae-matrix-role-col-label' }, role));
       th.appendChild(inner);
       headerRow.appendChild(th);
@@ -488,21 +480,14 @@ export function createPreview(container, authors) {
     for (let ai = 0; ai < sorted.length; ai++) {
       const author = sorted[ai];
       const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
-      const color = getColor(author.name);
       const row = el('tr');
       if (isDimmed) row.style.opacity = '0.3';
 
       // Sticky author cell
       const tdAuthor = el('td', { className: 'ae-matrix-author-row-td' });
-      const inner = el('div', { className: 'ae-matrix-author-row-inner' });
-      inner.appendChild(el('div', {
-        className: 'ae-matrix-avatar',
-        style: { backgroundColor: color },
-      }, getInitials(author.name)));
       const nameEl = el('span', { className: 'ae-matrix-author-row-name' }, author.name);
       attachAuthorPopover(nameEl, author);
-      inner.appendChild(nameEl);
-      tdAuthor.appendChild(inner);
+      tdAuthor.appendChild(nameEl);
       row.appendChild(tdAuthor);
 
       // Role cells
@@ -574,13 +559,11 @@ export function createPreview(container, authors) {
       menu.appendChild(el('div', { className: 'ae-credit-menu-title' }, 'Sort by specific CRediT role'));
       for (const role of ALL_CREDIT_ROLES) {
         const key = `credit:${role}`;
-        const icon = ROLE_ICONS[role] || '🏷️';
         const isActive = sortKey === key;
         const item = el('button', {
           className: `ae-credit-item ${isActive ? 'ae-credit-item-active' : ''}`,
           onClick: () => { sortKey = key; showCreditMenu = false; rerender(); },
         },
-          el('span', { className: 'ae-credit-icon' }, icon),
           el('span', {}, role),
           isActive ? el('span', { className: 'ae-check' }, '✓') : null,
         );
