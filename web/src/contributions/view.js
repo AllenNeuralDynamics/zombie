@@ -1,41 +1,76 @@
 /**
  * contributions-view.js — CReDIT Author Contribution Matrix page.
  *
- * Ported from src/zombie/contributions.py.
- *
  * Pure helpers (parseAssetNames, extractAuthors, initMatrix, formatAuthorForLatex,
- * generateLatex) are exported for unit testing.
+ * generateLatex, toEndpointPayload, fromEndpointPayload, rowsToWidgetAuthors)
+ * are exported for unit testing.
  *
  * createContributionsView(options) builds and returns a DOM element.
  */
 
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
+import { CONTRIBUTIONS_API_BASE } from '../constants.js';
+import { createPreview } from './preview.js';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** CReDIT taxonomy categories (order preserved from the Python source). */
+/**
+ * All 14 CRediT taxonomy roles in widget display order.
+ * These match ALL_CREDIT_ROLES in preview.js (and the upstream authorship widget).
+ */
 export const CREDIT_CATEGORIES = [
   'Conceptualization',
+  'Methodology',
+  'Software',
+  'Validation',
   'Formal analysis',
   'Investigation',
-  'Methodology',
   'Resources',
-  'Software',
-  'Writing---Original Draft',
-  'Writing---Reviewing and Editing',
-  'Funding acquisition',
+  'Data curation',
+  'Writing \u2013 original draft',
+  'Writing \u2013 review & editing',
+  'Visualization',
+  'Supervision',
+  'Project Administration',
+  'Funding Acquisition',
 ];
 
-/** Allowed contribution levels. */
-export const CONTRIBUTION_LEVELS = ['None', 'Low', 'High'];
+/** Contribution levels in ascending order. */
+export const CONTRIBUTION_LEVELS = ['None', 'Supporting', 'Equal', 'Lead'];
+
+/**
+ * Map from CREDIT_CATEGORIES display name to the endpoint's CreditRole enum value
+ * (kebab-case, as defined in aind_metadata_viz.contributions.models.CreditRole).
+ */
+export const CREDIT_ROLE_ENUM = {
+  'Conceptualization':               'conceptualization',
+  'Methodology':                     'methodology',
+  'Software':                        'software',
+  'Validation':                      'validation',
+  'Formal analysis':                 'formal-analysis',
+  'Investigation':                   'investigation',
+  'Resources':                       'resources',
+  'Data curation':                   'data-curation',
+  'Writing \u2013 original draft':   'writing-original-draft',
+  'Writing \u2013 review & editing': 'writing-review-editing',
+  'Visualization':                   'visualization',
+  'Supervision':                     'supervision',
+  'Project Administration':          'project-administration',
+  'Funding Acquisition':             'funding-acquisition',
+};
+
+/** Reverse map: endpoint enum value → display name. */
+export const CREDIT_ROLE_ENUM_REVERSE = Object.fromEntries(
+  Object.entries(CREDIT_ROLE_ENUM).map(([k, v]) => [v, k]),
+);
 
 /**
  * LaTeX macro values for each contribution level.
  * Used to fill TikZ heatmap tiles.
  */
-const LATEX_LEVEL_VALUES = { None: 0, Low: '\\lo', High: '\\hi' };
+const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\med', Lead: '\\hi' };
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -231,6 +266,76 @@ export function generateLatex(rows) {
 }
 
 // ---------------------------------------------------------------------------
+// Endpoint format conversion
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert internal matrix rows to the ProjectContributions JSON payload
+ * expected by POST /contributions/post?project=<name>.
+ *
+ * @param {ReturnType<typeof initMatrix>} rows
+ * @param {string} projectName
+ * @returns {{ project_name: string, contributors: Array }}
+ */
+export function toEndpointPayload(rows, projectName) {
+  const contributors = rows.map((row) => {
+    const credit_levels = [];
+    for (const displayRole of CREDIT_CATEGORIES) {
+      const level = row[displayRole];
+      if (level && level !== 'None') {
+        credit_levels.push({
+          role: CREDIT_ROLE_ENUM[displayRole],
+          level: level.toLowerCase(), // 'lead' | 'equal' | 'supporting'
+        });
+      }
+    }
+    return { person: { name: row.name }, credit_levels };
+  });
+  return { project_name: projectName, contributors };
+}
+
+/**
+ * Convert a ProjectContributions JSON response (from GET /contributions/get)
+ * into internal matrix rows.
+ *
+ * @param {{ project_name: string, contributors: Array }} data
+ * @returns {ReturnType<typeof initMatrix>}
+ */
+export function fromEndpointPayload(data) {
+  return (data.contributors || []).map((contributor) => {
+    const row = { name: contributor.person?.name ?? '', isFirst: false };
+    for (const cat of CREDIT_CATEGORIES) row[cat] = 'None';
+    for (const cl of contributor.credit_levels || []) {
+      const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
+      if (displayRole) {
+        // Capitalize first letter: 'lead' → 'Lead'
+        row[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
+      }
+    }
+    return row;
+  });
+}
+
+/**
+ * Convert internal matrix rows to the widget author format used by preview.js.
+ *
+ * @param {ReturnType<typeof initMatrix>} rows
+ * @returns {Array<{name:string, credit_levels:Array<{role:string,level:string}>}>}
+ */
+export function rowsToWidgetAuthors(rows) {
+  return rows.map((row) => {
+    const credit_levels = [];
+    for (const displayRole of CREDIT_CATEGORIES) {
+      const level = row[displayRole];
+      if (level && level !== 'None') {
+        credit_levels.push({ role: displayRole, level: level.toLowerCase() });
+      }
+    }
+    return { name: row.name, credit_levels };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // DOM component
 // ---------------------------------------------------------------------------
 
@@ -268,9 +373,19 @@ export function createContributionsView(options = {}) {
       <div class="contributions-asset-input">
         <label for="cv-asset-names">Asset names (comma-separated)</label>
         <input id="cv-asset-names" type="text" placeholder="e.g. my_project_2024-01-01" />
-        <button id="cv-load-btn" class="btn-primary">Load</button>
+        <button id="cv-load-btn" class="btn-primary">Load assets</button>
       </div>
       <div id="cv-info" class="contributions-info" aria-live="polite"></div>
+    </div>
+
+    <div class="contributions-project-section">
+      <div class="contributions-project-row">
+        <label for="cv-project-name">Project name</label>
+        <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024" />
+        <button id="cv-get-btn" class="btn-secondary">Load from server</button>
+        <button id="cv-post-btn" class="btn-primary" disabled>Save to server</button>
+      </div>
+      <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
     </div>
 
     <div class="contributions-controls" style="display:none">
@@ -289,8 +404,8 @@ export function createContributionsView(options = {}) {
           <legend>Reorder</legend>
           <select id="cv-reorder-select" size="6"></select>
           <div>
-            <button id="cv-move-up-btn">↑ Up</button>
-            <button id="cv-move-down-btn">↓ Down</button>
+            <button id="cv-move-up-btn">\u2191 Up</button>
+            <button id="cv-move-down-btn">\u2193 Down</button>
           </div>
         </fieldset>
       </div>
@@ -301,6 +416,13 @@ export function createContributionsView(options = {}) {
     <div id="cv-latex-section" class="contributions-latex-section" style="display:none">
       <button id="cv-generate-latex-btn" class="btn-primary">Generate LaTeX</button>
       <pre id="cv-latex-output" class="contributions-latex-output" style="display:none"></pre>
+    </div>
+
+    <div id="cv-preview-section" class="contributions-preview-section" style="display:none">
+      <div class="ae-preview-wrap">
+        <h3>Preview</h3>
+        <div id="cv-preview-container"></div>
+      </div>
     </div>
   `;
 
@@ -318,8 +440,13 @@ export function createContributionsView(options = {}) {
   const newAuthorInput = root.querySelector('#cv-new-author');
   const latexSection = root.querySelector('#cv-latex-section');
   const latexOutput = root.querySelector('#cv-latex-output');
+  const projectNameInput = root.querySelector('#cv-project-name');
+  const getBtn = root.querySelector('#cv-get-btn');
+  const postBtn = root.querySelector('#cv-post-btn');
+  const endpointStatus = root.querySelector('#cv-endpoint-status');
+  const previewSection = root.querySelector('#cv-preview-section');
+  const previewContainer = root.querySelector('#cv-preview-container');
 
-  // Pre-populate from options
   if (assetName) assetInput.value = assetName;
 
   // -------------------------------------------------------------------------
@@ -372,6 +499,7 @@ export function createContributionsView(options = {}) {
       chk.setAttribute('aria-label', `${row.name} first author`);
       chk.addEventListener('change', () => {
         rows[rowIdx].isFirst = chk.checked;
+        updatePreview();
       });
       tdFirst.appendChild(chk);
       tr.appendChild(tdFirst);
@@ -381,7 +509,7 @@ export function createContributionsView(options = {}) {
         const td = document.createElement('td');
         td.className = `cell-center cell-${(row[cat] || 'none').toLowerCase()}`;
         const sel = document.createElement('select');
-        sel.setAttribute('aria-label', `${row.name} — ${cat}`);
+        sel.setAttribute('aria-label', `${row.name} \u2014 ${cat}`);
         for (const level of CONTRIBUTION_LEVELS) {
           const opt = document.createElement('option');
           opt.value = level;
@@ -391,8 +519,8 @@ export function createContributionsView(options = {}) {
         }
         sel.addEventListener('change', () => {
           rows[rowIdx][cat] = sel.value;
-          // Update cell colour class
           td.className = `cell-center cell-${sel.value.toLowerCase()}`;
+          updatePreview();
         });
         td.appendChild(sel);
         tr.appendChild(td);
@@ -422,6 +550,11 @@ export function createContributionsView(options = {}) {
     }
   }
 
+  function updatePreview() {
+    const authors = rowsToWidgetAuthors(rows);
+    createPreview(previewContainer, authors);
+  }
+
   function setRows(newRows) {
     rows = newRows;
     renderTable();
@@ -430,10 +563,13 @@ export function createContributionsView(options = {}) {
     controlsEl.style.display = hasRows ? '' : 'none';
     latexSection.style.display = hasRows ? '' : 'none';
     latexOutput.style.display = 'none';
+    previewSection.style.display = hasRows ? '' : 'none';
+    postBtn.disabled = !hasRows;
+    updatePreview();
   }
 
   // -------------------------------------------------------------------------
-  // Load records
+  // Load records from DocDB
   // -------------------------------------------------------------------------
 
   async function loadRecords() {
@@ -444,7 +580,7 @@ export function createContributionsView(options = {}) {
     }
 
     loadBtn.disabled = true;
-    infoEl.textContent = `Loading ${names.length} asset(s)…`;
+    infoEl.textContent = `Loading ${names.length} asset(s)\u2026`;
 
     try {
       const records = await fetchDocDbRecordsByName(names, docdbOptions);
@@ -475,12 +611,92 @@ export function createContributionsView(options = {}) {
   }
 
   // -------------------------------------------------------------------------
+  // Endpoint GET / POST
+  // -------------------------------------------------------------------------
+
+  async function loadFromServer() {
+    const project = projectNameInput.value.trim();
+    if (!project) {
+      endpointStatus.textContent = 'Enter a project name first.';
+      endpointStatus.className = 'contributions-endpoint-status status-error';
+      return;
+    }
+
+    getBtn.disabled = true;
+    endpointStatus.textContent = `Fetching \u201c${project}\u201d from server\u2026`;
+    endpointStatus.className = 'contributions-endpoint-status status-loading';
+
+    try {
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
+      const res = await fetch(url);
+      if (res.status === 404) throw new Error(`Project \u201c${project}\u201d not found on server.`);
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      const loadedRows = fromEndpointPayload(data);
+      authorSources = {};
+      setRows(loadedRows);
+      endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
+      endpointStatus.className = 'contributions-endpoint-status status-success';
+    } catch (err) {
+      endpointStatus.textContent = `Error: ${err.message}`;
+      endpointStatus.className = 'contributions-endpoint-status status-error';
+      console.error('[contributions-view] GET failed', err);
+    } finally {
+      getBtn.disabled = false;
+    }
+  }
+
+  async function saveToServer() {
+    const project = projectNameInput.value.trim();
+    if (!project) {
+      endpointStatus.textContent = 'Enter a project name to save under.';
+      endpointStatus.className = 'contributions-endpoint-status status-error';
+      return;
+    }
+    if (rows.length === 0) return;
+
+    postBtn.disabled = true;
+    endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
+    endpointStatus.className = 'contributions-endpoint-status status-loading';
+
+    try {
+      const payload = toEndpointPayload(rows, project);
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Server error ${res.status}`);
+      }
+      const result = await res.json();
+      const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
+      endpointStatus.textContent = `\u2713 Saved \u201c${project}\u201d${commit}`;
+      endpointStatus.className = 'contributions-endpoint-status status-success';
+    } catch (err) {
+      endpointStatus.textContent = `Error: ${err.message}`;
+      endpointStatus.className = 'contributions-endpoint-status status-error';
+      console.error('[contributions-view] POST failed', err);
+    } finally {
+      postBtn.disabled = rows.length === 0;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Event listeners
   // -------------------------------------------------------------------------
 
   loadBtn.addEventListener('click', loadRecords);
   assetInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loadRecords();
+  });
+
+  getBtn.addEventListener('click', loadFromServer);
+  postBtn.addEventListener('click', saveToServer);
+  projectNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') loadFromServer();
   });
 
   // Add author
@@ -509,7 +725,6 @@ export function createContributionsView(options = {}) {
     const next = [...rows];
     [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
     setRows(next);
-    // Re-select
     root.querySelector(`#cv-reorder-select option[value="${CSS.escape(name)}"]`).selected = true;
   });
 
@@ -538,7 +753,6 @@ export function createContributionsView(options = {}) {
   // -------------------------------------------------------------------------
 
   if (assetName) {
-    // Kick off load after the element is returned to the caller.
     Promise.resolve().then(loadRecords);
   }
 

@@ -9,11 +9,16 @@ import { describe, it, expect } from 'vitest';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
+  CREDIT_ROLE_ENUM,
+  CREDIT_ROLE_ENUM_REVERSE,
   parseAssetNames,
   extractAuthors,
   initMatrix,
   formatAuthorForLatex,
   generateLatex,
+  toEndpointPayload,
+  fromEndpointPayload,
+  rowsToWidgetAuthors,
 } from '../contributions/view.js';
 
 // ---------------------------------------------------------------------------
@@ -248,18 +253,18 @@ describe('generateLatex', () => {
     const rows = initMatrix(['Alice Smith']);
     // All None by default → all zeros
     const tex = generateLatex(rows);
-    expect(tex).toContain('{0,0,0,0,0,0,0,0,0}');
+    expect(tex).toContain('{0,0,0,0,0,0,0,0,0,0,0,0,0,0}');
   });
 
-  it('uses \\lo for Low contributions', () => {
+  it('uses \\lo for Supporting contributions', () => {
     const rows = initMatrix(['Alice Smith']);
-    rows[0]['Conceptualization'] = 'Low';
+    rows[0]['Conceptualization'] = 'Supporting';
     expect(generateLatex(rows)).toContain('\\lo');
   });
 
-  it('uses \\hi for High contributions', () => {
+  it('uses \\hi for Lead contributions', () => {
     const rows = initMatrix(['Alice Smith']);
-    rows[0]['Conceptualization'] = 'High';
+    rows[0]['Conceptualization'] = 'Lead';
     expect(generateLatex(rows)).toContain('\\hi');
   });
 
@@ -273,18 +278,141 @@ describe('generateLatex', () => {
 // ---------------------------------------------------------------------------
 
 describe('CREDIT_CATEGORIES', () => {
-  it('has 9 entries', () => {
-    expect(CREDIT_CATEGORIES).toHaveLength(9);
+  it('has 14 entries', () => {
+    expect(CREDIT_CATEGORIES).toHaveLength(14);
   });
 
-  it('includes Conceptualization and Funding acquisition', () => {
+  it('includes Conceptualization and Funding Acquisition', () => {
     expect(CREDIT_CATEGORIES).toContain('Conceptualization');
-    expect(CREDIT_CATEGORIES).toContain('Funding acquisition');
+    expect(CREDIT_CATEGORIES).toContain('Funding Acquisition');
   });
 });
 
 describe('CONTRIBUTION_LEVELS', () => {
-  it('contains None, Low, High in that order', () => {
-    expect(CONTRIBUTION_LEVELS).toEqual(['None', 'Low', 'High']);
+  it('contains None, Supporting, Equal, Lead in that order', () => {
+    expect(CONTRIBUTION_LEVELS).toEqual(['None', 'Supporting', 'Equal', 'Lead']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CREDIT_ROLE_ENUM / CREDIT_ROLE_ENUM_REVERSE
+// ---------------------------------------------------------------------------
+
+describe('CREDIT_ROLE_ENUM', () => {
+  it('maps every CREDIT_CATEGORIES entry to a kebab-case string', () => {
+    for (const cat of CREDIT_CATEGORIES) {
+      expect(typeof CREDIT_ROLE_ENUM[cat]).toBe('string');
+      expect(CREDIT_ROLE_ENUM[cat]).toMatch(/^[a-z-]+$/);
+    }
+  });
+
+  it('maps Conceptualization to conceptualization', () => {
+    expect(CREDIT_ROLE_ENUM['Conceptualization']).toBe('conceptualization');
+  });
+});
+
+describe('CREDIT_ROLE_ENUM_REVERSE', () => {
+  it('is a proper inverse of CREDIT_ROLE_ENUM', () => {
+    for (const [display, enumVal] of Object.entries(CREDIT_ROLE_ENUM)) {
+      expect(CREDIT_ROLE_ENUM_REVERSE[enumVal]).toBe(display);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toEndpointPayload
+// ---------------------------------------------------------------------------
+
+describe('toEndpointPayload', () => {
+  it('sets project_name correctly', () => {
+    const rows = initMatrix(['Alice Smith']);
+    const payload = toEndpointPayload(rows, 'my-project');
+    expect(payload.project_name).toBe('my-project');
+  });
+
+  it('omits None contributions from credit_levels', () => {
+    const rows = initMatrix(['Alice Smith']);
+    // All None by default
+    const payload = toEndpointPayload(rows, 'proj');
+    expect(payload.contributors[0].credit_levels).toHaveLength(0);
+  });
+
+  it('includes non-None contributions with kebab-case role and lowercase level', () => {
+    const rows = initMatrix(['Alice Smith']);
+    rows[0]['Conceptualization'] = 'Lead';
+    rows[0]['Software'] = 'Supporting';
+    const payload = toEndpointPayload(rows, 'proj');
+    const levels = payload.contributors[0].credit_levels;
+    expect(levels).toContainEqual({ role: 'conceptualization', level: 'lead' });
+    expect(levels).toContainEqual({ role: 'software', level: 'supporting' });
+  });
+
+  it('includes person.name for each contributor', () => {
+    const rows = initMatrix(['Bob Jones']);
+    const payload = toEndpointPayload(rows, 'proj');
+    expect(payload.contributors[0].person.name).toBe('Bob Jones');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fromEndpointPayload
+// ---------------------------------------------------------------------------
+
+describe('fromEndpointPayload', () => {
+  it('converts endpoint payload back into matrix rows', () => {
+    const data = {
+      project_name: 'proj',
+      contributors: [
+        {
+          person: { name: 'Alice Smith' },
+          credit_levels: [
+            { role: 'conceptualization', level: 'lead' },
+            { role: 'software', level: 'supporting' },
+          ],
+        },
+      ],
+    };
+    const rows = fromEndpointPayload(data);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('Alice Smith');
+    expect(rows[0]['Conceptualization']).toBe('Lead');
+    expect(rows[0]['Software']).toBe('Supporting');
+    expect(rows[0]['Methodology']).toBe('None');
+  });
+
+  it('returns empty array for empty contributors', () => {
+    expect(fromEndpointPayload({ project_name: 'p', contributors: [] })).toEqual([]);
+  });
+
+  it('round-trips through toEndpointPayload → fromEndpointPayload', () => {
+    const original = initMatrix(['Alice Smith', 'Bob Jones']);
+    original[0]['Conceptualization'] = 'Lead';
+    original[1]['Software'] = 'Equal';
+    const payload = toEndpointPayload(original, 'proj');
+    const restored = fromEndpointPayload(payload);
+    expect(restored[0]['Conceptualization']).toBe('Lead');
+    expect(restored[1]['Software']).toBe('Equal');
+    expect(restored[0]['Software']).toBe('None');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rowsToWidgetAuthors
+// ---------------------------------------------------------------------------
+
+describe('rowsToWidgetAuthors', () => {
+  it('converts rows to widget author format with display role names', () => {
+    const rows = initMatrix(['Alice Smith']);
+    rows[0]['Conceptualization'] = 'Lead';
+    const authors = rowsToWidgetAuthors(rows);
+    expect(authors[0].name).toBe('Alice Smith');
+    expect(authors[0].credit_levels).toContainEqual({ role: 'Conceptualization', level: 'lead' });
+  });
+
+  it('omits None levels from credit_levels', () => {
+    const rows = initMatrix(['Bob Jones']);
+    // All None
+    const authors = rowsToWidgetAuthors(rows);
+    expect(authors[0].credit_levels).toHaveLength(0);
   });
 });

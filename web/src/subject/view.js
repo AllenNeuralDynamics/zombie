@@ -44,25 +44,11 @@ export function generateInfoHtml(subject, projects = []) {
   const cageId = housing.cage_id ?? 'Unknown';
   const roomId = housing.room_id ?? 'Unknown';
 
-  // Calculate approximate age
-  let ageStr = 'Unknown';
-  if (dob !== 'Unknown') {
-    try {
-      const birthMs = new Date(dob).getTime();
-      if (!isNaN(birthMs)) {
-        const days = Math.floor((Date.now() - birthMs) / 86_400_000);
-        ageStr = `${days} days (${Math.floor(days / 7)} weeks)`;
-      }
-    } catch {
-      // leave as Unknown
-    }
-  }
-
   return `
     <div class="subject-info-card">
       <h3>Subject ${id}</h3>
       <dl>
-        <dt>Born</dt>       <dd>${dob} (${ageStr})</dd>
+        <dt>Born</dt>       <dd>${dob}</dd>
         <dt>Sex</dt>        <dd>${sex}</dd>
         <dt>Species</dt>    <dd>${species}</dd>
         <dt>Strain</dt>     <dd>${strain}</dd>
@@ -164,10 +150,12 @@ export function createSubjectView(opts = {}) {
   const selectorEl = document.createElement('div');
   selectorEl.className = 'subject-selector';
   selectorEl.innerHTML = `
-    <label for="subject-id-select">Subject ID</label>
-    <select id="subject-id-select" aria-label="Select subject ID">
-      <option value="">— select a subject —</option>
-    </select>`;
+    <label for="subject-id-input">Subject ID</label>
+    <input id="subject-id-input" list="subject-id-list"
+           placeholder="Type or select a subject ID…"
+           autocomplete="off" spellcheck="false"
+           aria-label="Subject ID" />
+    <datalist id="subject-id-list"></datalist>`;
   headerEl.appendChild(selectorEl);
   root.appendChild(headerEl);
 
@@ -176,46 +164,29 @@ export function createSubjectView(opts = {}) {
   contentEl.className = 'subject-content';
   root.appendChild(contentEl);
 
-  // ── Populate dropdown ─────────────────────────────────────────────────────
-  const select = selectorEl.querySelector('select');
+  // ── Populate datalist ─────────────────────────────────────────────────────
+  const input = selectorEl.querySelector('input');
+  const datalist = selectorEl.querySelector('datalist');
 
   if (coordinator) {
     fetchAllSubjectIds(coordinator).then((ids) => {
       for (const id of ids) {
         const opt = document.createElement('option');
         opt.value = id;
-        opt.textContent = id;
-        if (id === initialId) opt.selected = true;
-        select.appendChild(opt);
-      }
-      // If initialId wasn't found in the list, still show it as selected
-      if (initialId && !ids.includes(initialId)) {
-        const opt = document.createElement('option');
-        opt.value = initialId;
-        opt.textContent = initialId;
-        opt.selected = true;
-        select.insertBefore(opt, select.options[1]);
+        datalist.appendChild(opt);
       }
     });
-  } else if (initialId) {
-    // No coordinator — pre-populate with the current ID only so the dropdown
-    // shows something sensible even without the full list.
-    const opt = document.createElement('option');
-    opt.value = initialId;
-    opt.textContent = initialId;
-    opt.selected = true;
-    select.appendChild(opt);
   }
 
   // Pre-set the value synchronously for the initial render (before async load)
-  if (initialId) select.value = initialId;
+  if (initialId) input.value = initialId;
 
-  // ── Sync dropdown → URL → content ─────────────────────────────────────────
+  // ── Sync input → URL → content ────────────────────────────────────────────
   let loadAbortController = null;
 
-  select.addEventListener('change', () => {
-    const newId = select.value;
-    console.debug('[SubjectView] dropdown changed → newId:', newId, 'prev aborted:', loadAbortController?.signal?.aborted);
+  function handleSubjectChange() {
+    const newId = input.value.trim();
+    console.debug('[SubjectView] input changed → newId:', newId, 'prev aborted:', loadAbortController?.signal?.aborted);
     const params = new URLSearchParams(window.location.search);
     if (newId) {
       params.set('subject_id', newId);
@@ -232,6 +203,14 @@ export function createSubjectView(opts = {}) {
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
     _loadSubject(contentEl, newId, coordinator, loadAbortController.signal);
+  }
+
+  input.addEventListener('change', handleSubjectChange);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      input.blur();
+    }
   });
 
   // ── Initial load ──────────────────────────────────────────────────────────

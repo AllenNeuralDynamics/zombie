@@ -1770,6 +1770,59 @@ body {
   white-space: pre;
 }
 
+/* Project name / endpoint row */
+.contributions-project-section {
+  margin-top: var(--gap);
+  padding: var(--gap);
+  background: var(--surface-card);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: var(--radius);
+}
+
+.contributions-project-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.contributions-project-row label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.contributions-project-row input[type="text"] {
+  flex: 1;
+  min-width: 180px;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid var(--border-color, #d1d5db);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+
+.contributions-endpoint-status {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  min-height: 1.25em;
+}
+.contributions-endpoint-status.status-success { color: #059669; }
+.contributions-endpoint-status.status-error   { color: #dc2626; }
+.contributions-endpoint-status.status-loading { color: var(--color-muted, #6b7280); }
+
+/* cell levels for new set */
+.cell-supporting { background: rgba(99,102,241,0.12); }
+.cell-equal      { background: rgba(99,102,241,0.28); }
+.cell-lead       { background: rgba(99,102,241,0.55); color: #fff; }
+
+/* Preview section wrapper */
+.contributions-preview-section {
+  margin-top: var(--gap);
+}
+
 /* -----------------------------------------------------------------------
    Subject view
    ----------------------------------------------------------------------- */
@@ -1777,6 +1830,45 @@ body {
 .subject-view {
   padding: var(--gap);
   width: 100%;
+}
+
+/* Subject ID combobox selector */
+.subject-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.subject-selector label {
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.subject-selector input {
+  padding: 5px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-family: inherit;
+  min-width: 220px;
+  max-width: 360px;
+  width: 100%;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.subject-selector input:focus {
+  outline: none;
+  border-color: var(--color-red);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-red) 20%, transparent);
+}
+
+.subject-selector input::placeholder {
+  color: var(--text-muted);
 }
 
 .subject-info-card {
