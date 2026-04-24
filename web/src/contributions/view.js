@@ -345,11 +345,13 @@ export function rowsToWidgetAuthors(rows) {
  * @param {object} [options]
  * @param {string}   [options.assetName=''] - Comma-separated asset names
  *   (pre-populated from URL param `?asset_name=...`).
+ * @param {string}   [options.projectName=''] - Project name
+ *   (pre-populated from URL param `?project=...`).
  * @param {object}   [options.docdbOptions={}] - Options forwarded to fetchDocDbRecordsByName.
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', docdbOptions = {} } = options;
+  const { assetName = '', projectName = '', docdbOptions = {} } = options;
 
   // -------------------------------------------------------------------------
   // State
@@ -448,10 +450,40 @@ export function createContributionsView(options = {}) {
   const previewContainer = root.querySelector('#cv-preview-container');
 
   if (assetName) assetInput.value = assetName;
+  if (projectName) projectNameInput.value = projectName;
 
   // -------------------------------------------------------------------------
-  // Re-render helpers
+  // URL sync & draft persistence
   // -------------------------------------------------------------------------
+
+  const DRAFT_KEY = 'contributions:draft';
+
+  function syncUrl() {
+    const params = new URLSearchParams(window.location.search);
+    const names = assetInput.value.trim();
+    if (names) params.set('asset_name', names); else params.delete('asset_name');
+    const project = projectNameInput.value.trim();
+    if (project) params.set('project', project); else params.delete('project');
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }
+
+  function saveDraft() {
+    if (rows.length === 0) {
+      sessionStorage.removeItem(DRAFT_KEY);
+      return;
+    }
+    try {
+      sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+        assetNames: assetInput.value.trim(),
+        projectName: projectNameInput.value.trim(),
+        rows,
+        authorSources,
+      }));
+    } catch (_) { /* quota exceeded or private browsing */ }
+  }
+
+
 
   function renderTable() {
     tableContainer.innerHTML = '';
@@ -500,6 +532,7 @@ export function createContributionsView(options = {}) {
       chk.addEventListener('change', () => {
         rows[rowIdx].isFirst = chk.checked;
         updatePreview();
+        saveDraft();
       });
       tdFirst.appendChild(chk);
       tr.appendChild(tdFirst);
@@ -521,6 +554,7 @@ export function createContributionsView(options = {}) {
           rows[rowIdx][cat] = sel.value;
           td.className = `cell-center cell-${sel.value.toLowerCase()}`;
           updatePreview();
+          saveDraft();
         });
         td.appendChild(sel);
         tr.appendChild(td);
@@ -566,6 +600,7 @@ export function createContributionsView(options = {}) {
     previewSection.style.display = hasRows ? '' : 'none';
     postBtn.disabled = !hasRows;
     updatePreview();
+    saveDraft();
   }
 
   // -------------------------------------------------------------------------
@@ -602,6 +637,7 @@ export function createContributionsView(options = {}) {
           : '');
 
       setRows(initMatrix(authors));
+      syncUrl();
     } catch (err) {
       infoEl.textContent = `Error: ${err.message}`;
       console.error('[contributions-view] load failed', err);
@@ -635,6 +671,7 @@ export function createContributionsView(options = {}) {
       const loadedRows = fromEndpointPayload(data);
       authorSources = {};
       setRows(loadedRows);
+      syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
     } catch (err) {
@@ -675,6 +712,7 @@ export function createContributionsView(options = {}) {
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       endpointStatus.textContent = `\u2713 Saved \u201c${project}\u201d${commit}`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
+      syncUrl();
     } catch (err) {
       endpointStatus.textContent = `Error: ${err.message}`;
       endpointStatus.className = 'contributions-endpoint-status status-error';
@@ -692,12 +730,14 @@ export function createContributionsView(options = {}) {
   assetInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loadRecords();
   });
+  assetInput.addEventListener('input', syncUrl);
 
   getBtn.addEventListener('click', loadFromServer);
   postBtn.addEventListener('click', saveToServer);
   projectNameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') loadFromServer();
   });
+  projectNameInput.addEventListener('input', syncUrl);
 
   // Add author
   root.querySelector('#cv-add-author-btn').addEventListener('click', () => {
@@ -749,10 +789,26 @@ export function createContributionsView(options = {}) {
   });
 
   // -------------------------------------------------------------------------
-  // Auto-load when asset_name is provided via URL
+  // Restore draft or auto-load from URL
   // -------------------------------------------------------------------------
 
-  if (assetName) {
+  let draftRestored = false;
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (raw) {
+      const draft = JSON.parse(raw);
+      if (draft.rows?.length > 0) {
+        assetInput.value = draft.assetNames || '';
+        projectNameInput.value = draft.projectName || '';
+        authorSources = draft.authorSources || {};
+        setRows(draft.rows);
+        syncUrl();
+        draftRestored = true;
+      }
+    }
+  } catch (_) { /* malformed storage */ }
+
+  if (assetName && !draftRestored) {
     Promise.resolve().then(loadRecords);
   }
 
