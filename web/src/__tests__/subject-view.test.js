@@ -114,6 +114,27 @@ describe('organizeSubjectData', () => {
     expect(bundle.acquisitions).toHaveLength(1);
   });
 
+  it('excludes acquisitions from derived records', () => {
+    const records = [
+      {
+        data_description: { data_level: 'raw' },
+        acquisition: {
+          acquisition_start_time: '2025-06-01T10:00:00Z',
+          acquisition_end_time: '2025-06-01T14:00:00Z',
+        },
+      },
+      {
+        data_description: { data_level: 'derived' },
+        acquisition: {
+          acquisition_start_time: '2025-06-01T10:00:00Z',
+          acquisition_end_time: '2025-06-01T14:00:00Z',
+        },
+      },
+    ];
+    const bundle = organizeSubjectData(records, '42');
+    expect(bundle.acquisitions).toHaveLength(1);
+  });
+
   it('uses first matching subject record only', () => {
     const records = [
       { subject: { subject_id: '42', subject_details: { sex: 'Male' } } },

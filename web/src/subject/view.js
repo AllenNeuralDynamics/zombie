@@ -110,8 +110,13 @@ export function organizeSubjectData(records, subjectId) {
       }
     }
 
-    // Acquisitions — store asset name alongside acquisition data
-    if (rec.acquisition?.acquisition_start_time) {
+    // Acquisitions — store asset name alongside acquisition data.
+    // Derived assets are excluded: they duplicate the source raw acquisition on
+    // the timeline and cause overlapping bubbles.
+    if (
+      rec.acquisition?.acquisition_start_time &&
+      rec.data_description?.data_level !== 'derived'
+    ) {
       bundle.acquisitions.push({ ...rec.acquisition, _assetName: rec.name ?? '' });
     }
   }
