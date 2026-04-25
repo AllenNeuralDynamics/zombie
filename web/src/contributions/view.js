@@ -343,10 +343,8 @@ export function rowsToWidgetAuthors(rows) {
  * Build and return the contributions page element.
  *
  * @param {object} [options]
- * @param {string}   [options.assetName=''] - Comma-separated asset names
- *   (pre-populated from URL param `?asset_name=...`).
- * @param {string}   [options.projectName=''] - Project name
- *   (pre-populated from URL param `?project=...`).
+ * @param {string}   [options.assetName=''] - Comma-separated asset names.
+ * @param {string}   [options.projectName=''] - Project name.
  * @param {object}   [options.docdbOptions={}] - Options forwarded to fetchDocDbRecordsByName.
  * @returns {HTMLElement}
  */
@@ -363,6 +361,28 @@ export function createContributionsView(options = {}) {
   /** @type {Record<string, string[]>} */
   let authorSources = {};
 
+  /** @type {Record<string, string>} orcid keyed by author name */
+  let authorOrcids = {};
+
+  /** @type {Record<string, string[]>} affiliation IDs keyed by author name */
+  let authorAffIds = {};
+
+  /** @type {Array<{id: string, name: string}>} */
+  let affiliations = [
+    { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
+  ];
+
+  /** @type {string[]} Asset names that were loaded */
+  let loadedAssetNames = [];
+
+  /** @type {'preview'|'latex'} */
+  let activeOutputTab = 'preview';
+
+  /** @type {'asset-names'|'query'} */
+  let activeAssetsTab = 'asset-names';
+
+  let assetsOpen = true;
+
   // -------------------------------------------------------------------------
   // Root element
   // -------------------------------------------------------------------------
@@ -370,87 +390,113 @@ export function createContributionsView(options = {}) {
   const root = document.createElement('div');
   root.className = 'contributions-view';
   root.innerHTML = `
-    <div class="contributions-header">
-      <h2>Author Contribution Matrix</h2>
-      <div class="contributions-asset-input">
-        <label for="cv-asset-names">Asset names (comma-separated)</label>
-        <input id="cv-asset-names" type="text" placeholder="e.g. my_project_2024-01-01" />
-        <button id="cv-load-btn" class="btn-primary">Load assets</button>
+    <!-- ── Assets section ───────────────────────────────────────────── -->
+    <section class="cv-section cv-assets-section">
+      <button class="cv-section-toggle" id="cv-assets-toggle" aria-expanded="true">
+        <span class="cv-section-title">Assets</span>
+        <span class="cv-toggle-icon">▲</span>
+      </button>
+      <div class="cv-section-body" id="cv-assets-body">
+        <div class="cv-tabs" role="tablist">
+          <button class="cv-tab cv-tab-active" id="cv-tab-asset-names" role="tab" aria-selected="true">Asset Names</button>
+          <button class="cv-tab" id="cv-tab-query" role="tab" aria-selected="false">Query</button>
+        </div>
+        <div id="cv-panel-asset-names" class="cv-tab-panel">
+          <div class="cv-asset-input-row">
+            <input id="cv-asset-names" type="text" placeholder="e.g. my_project_2024-01-01, another_asset" />
+            <button id="cv-load-btn" class="btn-primary">Load assets</button>
+          </div>
+        </div>
+        <div id="cv-panel-query" class="cv-tab-panel" style="display:none">
+          <p class="cv-placeholder">Query interface coming soon.</p>
+        </div>
+        <div id="cv-info" class="cv-info" aria-live="polite"></div>
+        <div id="cv-assets-table-wrap" style="display:none">
+          <table class="cv-assets-table">
+            <thead><tr><th>Asset name</th></tr></thead>
+            <tbody id="cv-assets-tbody"></tbody>
+          </table>
+        </div>
       </div>
-      <div id="cv-info" class="contributions-info" aria-live="polite"></div>
-    </div>
+    </section>
 
-    <div class="contributions-project-section">
-      <div class="contributions-project-row">
+    <!-- ── Project / server sync ────────────────────────────────────── -->
+    <section class="cv-section cv-project-section">
+      <div class="cv-project-row">
         <label for="cv-project-name">Project name</label>
         <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024" />
         <button id="cv-get-btn" class="btn-secondary">Load from server</button>
         <button id="cv-post-btn" class="btn-primary" disabled>Save to server</button>
       </div>
       <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
-    </div>
+    </section>
 
-    <div class="contributions-controls" style="display:none">
-      <div class="contributions-author-controls">
-        <fieldset>
-          <legend>Add author</legend>
-          <input id="cv-new-author" type="text" placeholder="Full name" />
-          <button id="cv-add-author-btn" class="btn-primary">Add</button>
-        </fieldset>
-        <fieldset>
-          <legend>Remove author</legend>
-          <select id="cv-remove-author-select"></select>
-          <button id="cv-remove-author-btn" class="btn-danger">Remove</button>
-        </fieldset>
-        <fieldset>
-          <legend>Reorder</legend>
-          <select id="cv-reorder-select" size="6"></select>
-          <div>
-            <button id="cv-move-up-btn">\u2191 Up</button>
-            <button id="cv-move-down-btn">\u2193 Down</button>
-          </div>
-        </fieldset>
+    <!-- ── Contributors section ─────────────────────────────────────── -->
+    <section class="cv-section cv-contributors-section" id="cv-contributors-section" style="display:none">
+      <h3 class="cv-section-heading">Contributors</h3>
+
+      <div class="cv-authors-table-wrap">
+        <div class="cv-table-scroll">
+          <table class="cv-authors-table" id="cv-authors-table">
+            <thead>
+              <tr id="cv-authors-thead-row"></tr>
+            </thead>
+            <tbody id="cv-authors-tbody"></tbody>
+          </table>
+        </div>
+        <button id="cv-add-author-btn" class="btn-secondary cv-add-row-btn">+ Add author</button>
       </div>
-    </div>
 
-    <div id="cv-table-container" class="contributions-table-container"></div>
+      <div class="cv-affiliations-section">
+        <h4 class="cv-subsection-heading">Affiliations</h4>
+        <table class="cv-affiliations-table" id="cv-affiliations-table">
+          <thead><tr><th></th><th>Affiliation</th></tr></thead>
+          <tbody id="cv-affiliations-tbody"></tbody>
+        </table>
+        <button id="cv-add-affiliation-btn" class="btn-secondary cv-add-row-btn">+ Add affiliation</button>
+      </div>
+    </section>
 
-    <div id="cv-latex-section" class="contributions-latex-section" style="display:none">
-      <button id="cv-generate-latex-btn" class="btn-primary">Generate LaTeX</button>
-      <pre id="cv-latex-output" class="contributions-latex-output" style="display:none"></pre>
-    </div>
-
-    <div id="cv-preview-section" class="contributions-preview-section" style="display:none">
-      <div class="ae-preview-wrap">
-        <h3>Preview</h3>
+    <!-- ── Preview / LaTeX output tabs ──────────────────────────────── -->
+    <section class="cv-section cv-output-section" id="cv-output-section" style="display:none">
+      <div class="cv-tabs" role="tablist">
+        <button class="cv-tab cv-tab-active" id="cv-out-tab-preview" role="tab" aria-selected="true">Preview</button>
+        <button class="cv-tab" id="cv-out-tab-latex" role="tab" aria-selected="false">Generate LaTeX</button>
+      </div>
+      <div id="cv-out-panel-preview" class="cv-tab-panel">
         <div id="cv-preview-container"></div>
       </div>
-    </div>
+      <div id="cv-out-panel-latex" class="cv-tab-panel" style="display:none">
+        <pre id="cv-latex-output" class="contributions-latex-output"></pre>
+      </div>
+    </section>
   `;
 
   // -------------------------------------------------------------------------
   // Element references
   // -------------------------------------------------------------------------
 
-  const assetInput = root.querySelector('#cv-asset-names');
-  const loadBtn = root.querySelector('#cv-load-btn');
-  const infoEl = root.querySelector('#cv-info');
-  const controlsEl = root.querySelector('.contributions-controls');
-  const tableContainer = root.querySelector('#cv-table-container');
-  const removeSelect = root.querySelector('#cv-remove-author-select');
-  const reorderSelect = root.querySelector('#cv-reorder-select');
-  const newAuthorInput = root.querySelector('#cv-new-author');
-  const latexSection = root.querySelector('#cv-latex-section');
-  const latexOutput = root.querySelector('#cv-latex-output');
-  const projectNameInput = root.querySelector('#cv-project-name');
-  const getBtn = root.querySelector('#cv-get-btn');
-  const postBtn = root.querySelector('#cv-post-btn');
-  const endpointStatus = root.querySelector('#cv-endpoint-status');
-  const previewSection = root.querySelector('#cv-preview-section');
-  const previewContainer = root.querySelector('#cv-preview-container');
+  const assetInput        = root.querySelector('#cv-asset-names');
+  const loadBtn           = root.querySelector('#cv-load-btn');
+  const infoEl            = root.querySelector('#cv-info');
+  const assetsToggle      = root.querySelector('#cv-assets-toggle');
+  const assetsBody        = root.querySelector('#cv-assets-body');
+  const assetsTableWrap   = root.querySelector('#cv-assets-table-wrap');
+  const assetsTbody       = root.querySelector('#cv-assets-tbody');
+  const authorsTbody      = root.querySelector('#cv-authors-tbody');
+  const authorsTheadRow   = root.querySelector('#cv-authors-thead-row');
+  const contributorsSection = root.querySelector('#cv-contributors-section');
+  const outputSection     = root.querySelector('#cv-output-section');
+  const previewContainer  = root.querySelector('#cv-preview-container');
+  const latexOutput       = root.querySelector('#cv-latex-output');
+  const projectNameInput  = root.querySelector('#cv-project-name');
+  const getBtn            = root.querySelector('#cv-get-btn');
+  const postBtn           = root.querySelector('#cv-post-btn');
+  const endpointStatus    = root.querySelector('#cv-endpoint-status');
+  const affiliationsTbody = root.querySelector('#cv-affiliations-tbody');
 
-  if (assetName) assetInput.value = assetName;
-  if (projectName) projectNameInput.value = projectName;
+  if (assetName)    assetInput.value    = assetName;
+  if (projectName)  projectNameInput.value = projectName;
 
   // -------------------------------------------------------------------------
   // URL sync & draft persistence
@@ -469,80 +515,259 @@ export function createContributionsView(options = {}) {
   }
 
   function saveDraft() {
-    if (rows.length === 0) {
-      sessionStorage.removeItem(DRAFT_KEY);
-      return;
-    }
+    if (rows.length === 0) { sessionStorage.removeItem(DRAFT_KEY); return; }
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         assetNames: assetInput.value.trim(),
         projectName: projectNameInput.value.trim(),
-        rows,
-        authorSources,
+        rows, authorSources, authorOrcids, authorAffIds, affiliations, loadedAssetNames,
       }));
-    } catch (_) { /* quota exceeded or private browsing */ }
+    } catch (_) {}
   }
 
+  // -------------------------------------------------------------------------
+  // Assets tab panel
+  // -------------------------------------------------------------------------
 
-
-  function renderTable() {
-    tableContainer.innerHTML = '';
-    if (rows.length === 0) return;
-
-    const table = document.createElement('table');
-    table.className = 'contributions-matrix';
-
-    // Header
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    const thAuthor = document.createElement('th');
-    thAuthor.textContent = 'Author';
-    headerRow.appendChild(thAuthor);
-    const thFirst = document.createElement('th');
-    thFirst.textContent = 'First\u00a0Author';
-    headerRow.appendChild(thFirst);
-    for (const cat of CREDIT_CATEGORIES) {
-      const th = document.createElement('th');
-      th.textContent = cat;
-      headerRow.appendChild(th);
+  function renderAssetsTable() {
+    assetsTbody.innerHTML = '';
+    for (const name of loadedAssetNames) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.textContent = name;
+      tr.appendChild(td);
+      assetsTbody.appendChild(tr);
     }
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
+    assetsTableWrap.style.display = loadedAssetNames.length ? '' : 'none';
+  }
 
-    // Body
-    const tbody = document.createElement('tbody');
-    rows.forEach((row, rowIdx) => {
+  // -------------------------------------------------------------------------
+  // Affiliations table
+  // -------------------------------------------------------------------------
+
+  function renderAffiliationsTable() {
+    affiliationsTbody.innerHTML = '';
+    affiliations.forEach((aff, idx) => {
       const tr = document.createElement('tr');
 
-      // Author name
-      const tdName = document.createElement('td');
-      tdName.textContent = row.name;
-      if (authorSources[row.name]?.length) {
-        tdName.title = `Sources: ${authorSources[row.name].join(', ')}`;
-      }
-      tr.appendChild(tdName);
-
-      // First author checkbox
-      const tdFirst = document.createElement('td');
-      tdFirst.className = 'cell-center';
-      const chk = document.createElement('input');
-      chk.type = 'checkbox';
-      chk.checked = row.isFirst;
-      chk.setAttribute('aria-label', `${row.name} first author`);
-      chk.addEventListener('change', () => {
-        rows[rowIdx].isFirst = chk.checked;
+      const tdX = document.createElement('td');
+      const xBtn = document.createElement('button');
+      xBtn.className = 'cv-x-btn';
+      xBtn.textContent = '×';
+      xBtn.setAttribute('aria-label', `Remove affiliation ${aff.name}`);
+      xBtn.addEventListener('click', () => {
+        affiliations = affiliations.filter((_, i) => i !== idx);
+        // Drop this aff from all author selections
+        for (const name of Object.keys(authorAffIds)) {
+          authorAffIds[name] = (authorAffIds[name] || []).filter(id => id !== aff.id);
+        }
+        renderAffiliationsTable();
+        renderAuthorsTable();
         updatePreview();
         saveDraft();
       });
-      tdFirst.appendChild(chk);
-      tr.appendChild(tdFirst);
+      tdX.appendChild(xBtn);
+      tr.appendChild(tdX);
 
-      // Contribution level selects
+      const tdName = document.createElement('td');
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = aff.name;
+      nameInput.className = 'cv-aff-name-input';
+      nameInput.addEventListener('change', () => {
+        affiliations[idx].name = nameInput.value;
+        renderAuthorsTable();
+        updatePreview();
+        saveDraft();
+      });
+      tdName.appendChild(nameInput);
+      tr.appendChild(tdName);
+
+      affiliationsTbody.appendChild(tr);
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Chip-select helper
+  // -------------------------------------------------------------------------
+
+  /**
+   * Build a chip-select widget: selected items shown as removable bubbles,
+   * a "+" button opens a dropdown of remaining options.
+   *
+   * @param {Array<{id:string,name:string}>} options - All available options
+   * @param {string[]} selectedIds - Currently selected IDs
+   * @param {(ids:string[]) => void} onChange
+   * @param {string} ariaLabel
+   */
+  function buildChipSelect(options, selectedIds, onChange, ariaLabel) {
+    const wrap = document.createElement('div');
+    wrap.className = 'cv-chip-select';
+    wrap.setAttribute('aria-label', ariaLabel);
+
+    function abbrevAff(name) {
+      const beforeComma = name.split(',')[0];
+      return beforeComma.split(/\s+/).map(w => w[0]?.toUpperCase() ?? '').join('');
+    }
+
+    function render(currentIds) {
+      wrap.innerHTML = '';
+
+      // Chips for selected items
+      for (const id of currentIds) {
+        const aff = options.find(o => o.id === id);
+        if (!aff) continue;
+        const chip = document.createElement('span');
+        chip.className = 'cv-chip';
+        chip.textContent = abbrevAff(aff.name);
+        chip.title = aff.name;
+        const x = document.createElement('button');
+        x.className = 'cv-chip-remove';
+        x.textContent = '×';
+        x.setAttribute('aria-label', `Remove ${aff.name}`);
+        x.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const next = currentIds.filter(i => i !== id);
+          onChange(next);
+          render(next);
+          updatePreview();
+        });
+        chip.appendChild(x);
+        wrap.appendChild(chip);
+      }
+
+      // "+" add button — only if there are unselected options
+      const remaining = options.filter(o => !currentIds.includes(o.id));
+      if (remaining.length === 0) return;
+
+      const addBtn = document.createElement('button');
+      addBtn.className = 'cv-chip-add';
+      addBtn.textContent = '+';
+      addBtn.setAttribute('aria-label', 'Add affiliation');
+
+      let dropdownOpen = false;
+      let dropdown = null;
+
+      function closeDropdown() {
+        if (dropdown) { dropdown.remove(); dropdown = null; }
+        dropdownOpen = false;
+      }
+
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (dropdownOpen) { closeDropdown(); return; }
+        dropdownOpen = true;
+        dropdown = document.createElement('div');
+        dropdown.className = 'cv-chip-dropdown';
+        for (const opt of remaining) {
+          const item = document.createElement('button');
+          item.className = 'cv-chip-dropdown-item';
+          item.textContent = opt.name;
+          item.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            const next = [...currentIds, opt.id];
+            onChange(next);
+            closeDropdown();
+            render(next);
+            updatePreview();
+          });
+          dropdown.appendChild(item);
+        }
+        wrap.appendChild(dropdown);
+        // Close if clicking outside
+        setTimeout(() => {
+          document.addEventListener('click', closeDropdown, { once: true });
+        }, 0);
+      });
+
+      wrap.appendChild(addBtn);
+    }
+
+    render(selectedIds);
+    return wrap;
+  }
+
+  // -------------------------------------------------------------------------
+  // Authors table
+  // -------------------------------------------------------------------------
+
+  function buildAuthorsTableHeader() {
+    authorsTheadRow.innerHTML = '';
+    const cols = ['', 'Name', 'ORCID', 'Affiliations', ...CREDIT_CATEGORIES];
+    for (const col of cols) {
+      const th = document.createElement('th');
+      th.textContent = col;
+      authorsTheadRow.appendChild(th);
+    }
+  }
+
+  function renderAuthorsTable() {
+    authorsTbody.innerHTML = '';
+    rows.forEach((row, rowIdx) => {
+      const tr = document.createElement('tr');
+
+      // X — remove
+      const tdX = document.createElement('td');
+      const xBtn = document.createElement('button');
+      xBtn.className = 'cv-x-btn';
+      xBtn.textContent = '×';
+      xBtn.setAttribute('aria-label', `Remove ${row.name}`);
+      xBtn.addEventListener('click', () => {
+        setRows(rows.filter((_, i) => i !== rowIdx));
+      });
+      tdX.appendChild(xBtn);
+      tr.appendChild(tdX);
+
+      // Name
+      const tdName = document.createElement('td');
+      const nameInput = document.createElement('input');
+      nameInput.type = 'text';
+      nameInput.value = row.name;
+      nameInput.className = 'cv-author-name-input';
+      nameInput.addEventListener('change', () => {
+        const oldName = rows[rowIdx].name;
+        const newName = nameInput.value.trim();
+        if (!newName || newName === oldName) return;
+        rows[rowIdx].name = newName;
+        // Migrate metadata maps
+        if (authorOrcids[oldName]) { authorOrcids[newName] = authorOrcids[oldName]; delete authorOrcids[oldName]; }
+        if (authorAffIds[oldName]) { authorAffIds[newName] = authorAffIds[oldName]; delete authorAffIds[oldName]; }
+        if (authorSources[oldName]) { authorSources[newName] = authorSources[oldName]; delete authorSources[oldName]; }
+        updatePreview(); saveDraft();
+      });
+      tdName.appendChild(nameInput);
+      tr.appendChild(tdName);
+
+      // ORCID
+      const tdOrcid = document.createElement('td');
+      const orcidInput = document.createElement('input');
+      orcidInput.type = 'text';
+      orcidInput.value = authorOrcids[row.name] || '';
+      orcidInput.className = 'cv-orcid-input';
+      orcidInput.placeholder = '0000-0000-0000-0000';
+      orcidInput.addEventListener('change', () => {
+        authorOrcids[row.name] = orcidInput.value.trim();
+        saveDraft();
+      });
+      tdOrcid.appendChild(orcidInput);
+      tr.appendChild(tdOrcid);
+
+      // Affiliations chip-select
+      const tdAff = document.createElement('td');
+      tdAff.appendChild(buildChipSelect(
+        affiliations,
+        authorAffIds[row.name] || [],
+        (selectedIds) => { authorAffIds[row.name] = selectedIds; saveDraft(); },
+        `${row.name} affiliations`,
+      ));
+      tr.appendChild(tdAff);
+
+      // Credit category selects
       for (const cat of CREDIT_CATEGORIES) {
         const td = document.createElement('td');
         td.className = `cell-center cell-${(row[cat] || 'none').toLowerCase()}`;
         const sel = document.createElement('select');
-        sel.setAttribute('aria-label', `${row.name} \u2014 ${cat}`);
+        sel.setAttribute('aria-label', `${row.name} — ${cat}`);
         for (const level of CONTRIBUTION_LEVELS) {
           const opt = document.createElement('option');
           opt.value = level;
@@ -553,54 +778,79 @@ export function createContributionsView(options = {}) {
         sel.addEventListener('change', () => {
           rows[rowIdx][cat] = sel.value;
           td.className = `cell-center cell-${sel.value.toLowerCase()}`;
-          updatePreview();
-          saveDraft();
+          updatePreview(); saveDraft();
         });
         td.appendChild(sel);
         tr.appendChild(td);
       }
 
-      tbody.appendChild(tr);
+      authorsTbody.appendChild(tr);
     });
-    table.appendChild(tbody);
-    tableContainer.appendChild(table);
   }
 
-  function syncAuthorLists() {
-    const names = rows.map((r) => r.name);
-
-    removeSelect.innerHTML = '';
-    reorderSelect.innerHTML = '';
-    for (const name of names) {
-      const opt1 = document.createElement('option');
-      opt1.value = name;
-      opt1.textContent = name;
-      removeSelect.appendChild(opt1);
-
-      const opt2 = document.createElement('option');
-      opt2.value = name;
-      opt2.textContent = name;
-      reorderSelect.appendChild(opt2);
-    }
-  }
+  // -------------------------------------------------------------------------
+  // Preview / LaTeX output
+  // -------------------------------------------------------------------------
 
   function updatePreview() {
-    const authors = rowsToWidgetAuthors(rows);
+    const authors = rowsToWidgetAuthors(rows).map(a => {
+      const affIds = authorAffIds[a.name] || [];
+      const affNames = affIds
+        .map(id => affiliations.find(af => af.id === id)?.name)
+        .filter(Boolean);
+      return {
+        ...a,
+        orcid: authorOrcids[a.name] || undefined,
+        affiliations: affNames.length ? affNames : undefined,
+      };
+    });
     createPreview(previewContainer, authors);
   }
 
+  function switchOutputTab(tab) {
+    activeOutputTab = tab;
+    root.querySelector('#cv-out-tab-preview').classList.toggle('cv-tab-active', tab === 'preview');
+    root.querySelector('#cv-out-tab-latex').classList.toggle('cv-tab-active', tab === 'latex');
+    root.querySelector('#cv-out-tab-preview').setAttribute('aria-selected', String(tab === 'preview'));
+    root.querySelector('#cv-out-tab-latex').setAttribute('aria-selected', String(tab === 'latex'));
+    root.querySelector('#cv-out-panel-preview').style.display = tab === 'preview' ? '' : 'none';
+    root.querySelector('#cv-out-panel-latex').style.display  = tab === 'latex'   ? '' : 'none';
+    if (tab === 'latex' && rows.length > 0) {
+      latexOutput.textContent = generateLatex(rows);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Visibility helpers
+  // -------------------------------------------------------------------------
+
   function setRows(newRows) {
     rows = newRows;
-    renderTable();
-    syncAuthorLists();
+    buildAuthorsTableHeader();
+    renderAuthorsTable();
     const hasRows = rows.length > 0;
-    controlsEl.style.display = hasRows ? '' : 'none';
-    latexSection.style.display = hasRows ? '' : 'none';
-    latexOutput.style.display = 'none';
-    previewSection.style.display = hasRows ? '' : 'none';
+    contributorsSection.style.display = hasRows ? '' : 'none';
+    outputSection.style.display       = hasRows ? '' : 'none';
     postBtn.disabled = !hasRows;
-    updatePreview();
+    if (hasRows) {
+      updatePreview();
+      if (activeOutputTab === 'latex') latexOutput.textContent = generateLatex(rows);
+    }
     saveDraft();
+  }
+
+  // -------------------------------------------------------------------------
+  // Assets tab switching
+  // -------------------------------------------------------------------------
+
+  function switchAssetsTab(tab) {
+    activeAssetsTab = tab;
+    root.querySelector('#cv-tab-asset-names').classList.toggle('cv-tab-active', tab === 'asset-names');
+    root.querySelector('#cv-tab-query').classList.toggle('cv-tab-active', tab === 'query');
+    root.querySelector('#cv-tab-asset-names').setAttribute('aria-selected', String(tab === 'asset-names'));
+    root.querySelector('#cv-tab-query').setAttribute('aria-selected', String(tab === 'query'));
+    root.querySelector('#cv-panel-asset-names').style.display = tab === 'asset-names' ? '' : 'none';
+    root.querySelector('#cv-panel-query').style.display       = tab === 'query'       ? '' : 'none';
   }
 
   // -------------------------------------------------------------------------
@@ -609,32 +859,20 @@ export function createContributionsView(options = {}) {
 
   async function loadRecords() {
     const names = parseAssetNames(assetInput.value);
-    if (names.length === 0) {
-      infoEl.textContent = 'Enter at least one asset name.';
-      return;
-    }
+    if (names.length === 0) { infoEl.textContent = 'Enter at least one asset name.'; return; }
 
     loadBtn.disabled = true;
+    loadedAssetNames = names;
+    renderAssetsTable();
     infoEl.textContent = `Loading ${names.length} asset(s)\u2026`;
 
     try {
       const records = await fetchDocDbRecordsByName(names, docdbOptions);
-      const { authors, authorSources: sources } = extractAuthors(records);
+      const { authors, authorSources: sources, authorOrcids: orcids } = extractAuthorsWithOrcids(records);
       authorSources = sources;
+      authorOrcids = { ...orcids };
 
-      infoEl.innerHTML =
-        `<strong>${records.length} record(s)</strong> loaded for ${names.length} asset(s). ` +
-        `<strong>${authors.length} author(s)</strong> found.` +
-        (authors.length
-          ? '<ul>' +
-            authors
-              .map(
-                (a) =>
-                  `<li><strong>${a}</strong>: ${(sources[a] || []).join(', ')}</li>`,
-              )
-              .join('') +
-            '</ul>'
-          : '');
+      infoEl.textContent = `${records.length} record(s) loaded — ${authors.length} author(s) found.`;
 
       setRows(initMatrix(authors));
       syncUrl();
@@ -657,11 +895,9 @@ export function createContributionsView(options = {}) {
       endpointStatus.className = 'contributions-endpoint-status status-error';
       return;
     }
-
     getBtn.disabled = true;
-    endpointStatus.textContent = `Fetching \u201c${project}\u201d from server\u2026`;
+    endpointStatus.textContent = `Fetching \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
-
     try {
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
       const res = await fetch(url);
@@ -691,11 +927,9 @@ export function createContributionsView(options = {}) {
       return;
     }
     if (rows.length === 0) return;
-
     postBtn.disabled = true;
     endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
-
     try {
       const payload = toEndpointPayload(rows, project);
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
@@ -726,72 +960,56 @@ export function createContributionsView(options = {}) {
   // Event listeners
   // -------------------------------------------------------------------------
 
-  loadBtn.addEventListener('click', loadRecords);
-  assetInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') loadRecords();
+  // Assets collapsible toggle
+  assetsToggle.addEventListener('click', () => {
+    assetsOpen = !assetsOpen;
+    assetsBody.style.display = assetsOpen ? '' : 'none';
+    assetsToggle.setAttribute('aria-expanded', String(assetsOpen));
+    assetsToggle.querySelector('.cv-toggle-icon').textContent = assetsOpen ? '▲' : '▼';
   });
+
+  // Assets tabs
+  root.querySelector('#cv-tab-asset-names').addEventListener('click', () => switchAssetsTab('asset-names'));
+  root.querySelector('#cv-tab-query').addEventListener('click', () => switchAssetsTab('query'));
+
+  // Load
+  loadBtn.addEventListener('click', loadRecords);
+  assetInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadRecords(); });
   assetInput.addEventListener('input', syncUrl);
 
+  // Project
   getBtn.addEventListener('click', loadFromServer);
   postBtn.addEventListener('click', saveToServer);
-  projectNameInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') loadFromServer();
-  });
+  projectNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFromServer(); });
   projectNameInput.addEventListener('input', syncUrl);
 
   // Add author
   root.querySelector('#cv-add-author-btn').addEventListener('click', () => {
-    const name = newAuthorInput.value.trim();
-    if (!name || rows.some((r) => r.name === name)) return;
-    const newRow = { name, isFirst: false };
+    const newRow = { name: 'New Author', isFirst: false };
     for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
     setRows([...rows, newRow]);
-    newAuthorInput.value = '';
   });
 
-  // Remove author
-  root.querySelector('#cv-remove-author-btn').addEventListener('click', () => {
-    const name = removeSelect.value;
-    if (!name) return;
-    setRows(rows.filter((r) => r.name !== name));
+  // Add affiliation
+  root.querySelector('#cv-add-affiliation-btn').addEventListener('click', () => {
+    const id = `aff-${Date.now()}`;
+    affiliations = [...affiliations, { id, name: '' }];
+    renderAffiliationsTable();
+    renderAuthorsTable();
+    saveDraft();
   });
 
-  // Move up
-  root.querySelector('#cv-move-up-btn').addEventListener('click', () => {
-    const name = reorderSelect.value;
-    if (!name) return;
-    const idx = rows.findIndex((r) => r.name === name);
-    if (idx <= 0) return;
-    const next = [...rows];
-    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
-    setRows(next);
-    root.querySelector(`#cv-reorder-select option[value="${CSS.escape(name)}"]`).selected = true;
-  });
-
-  // Move down
-  root.querySelector('#cv-move-down-btn').addEventListener('click', () => {
-    const name = reorderSelect.value;
-    if (!name) return;
-    const idx = rows.findIndex((r) => r.name === name);
-    if (idx < 0 || idx >= rows.length - 1) return;
-    const next = [...rows];
-    [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
-    setRows(next);
-    root.querySelector(`#cv-reorder-select option[value="${CSS.escape(name)}"]`).selected = true;
-  });
-
-  // Generate LaTeX
-  root.querySelector('#cv-generate-latex-btn').addEventListener('click', () => {
-    if (rows.length === 0) return;
-    const latex = generateLatex(rows);
-    latexOutput.textContent = latex;
-    latexOutput.style.display = '';
-  });
+  // Output tabs
+  root.querySelector('#cv-out-tab-preview').addEventListener('click', () => switchOutputTab('preview'));
+  root.querySelector('#cv-out-tab-latex').addEventListener('click', () => switchOutputTab('latex'));
 
   // -------------------------------------------------------------------------
-  // Restore draft or auto-load from URL
+  // Initial render
   // -------------------------------------------------------------------------
 
+  renderAffiliationsTable();
+
+  // Restore draft or auto-load
   let draftRestored = false;
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
@@ -801,16 +1019,74 @@ export function createContributionsView(options = {}) {
         assetInput.value = draft.assetNames || '';
         projectNameInput.value = draft.projectName || '';
         authorSources = draft.authorSources || {};
+        authorOrcids  = draft.authorOrcids  || {};
+        authorAffIds  = draft.authorAffIds  || {};
+        if (draft.affiliations?.length) affiliations = draft.affiliations;
+        loadedAssetNames = draft.loadedAssetNames || [];
+        renderAffiliationsTable();
+        renderAssetsTable();
         setRows(draft.rows);
         syncUrl();
         draftRestored = true;
       }
     }
-  } catch (_) { /* malformed storage */ }
+  } catch (_) {}
 
   if (assetName && !draftRestored) {
     Promise.resolve().then(loadRecords);
   }
 
   return root;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: extractAuthors with ORCID collection
+// ---------------------------------------------------------------------------
+
+function extractAuthorsWithOrcids(records) {
+  const authors = [];
+  const authorSources = {};
+  const authorOrcids = {};
+
+  function addName(nameOrObj, source) {
+    const name = typeof nameOrObj === 'object' ? nameOrObj?.name : nameOrObj;
+    if (!name) return;
+    const trimmed = String(name).trim();
+    const lower = trimmed.toLowerCase();
+    if (!trimmed || lower === 'unknown' || lower === 'na' || lower === 'n/a') return;
+    if (!authorSources[trimmed]) {
+      authors.push(trimmed);
+      authorSources[trimmed] = [];
+    }
+    if (!authorSources[trimmed].includes(source)) authorSources[trimmed].push(source);
+    if (typeof nameOrObj === 'object') {
+      const orcid = nameOrObj.orcid || nameOrObj.orcid_id || '';
+      if (orcid && !authorOrcids[trimmed]) authorOrcids[trimmed] = orcid;
+    }
+  }
+
+  for (const record of records) {
+    const dataDesc = record.data_description ?? {};
+    for (const inv of dataDesc.investigators ?? [])
+      addName(inv, 'investigators');
+    for (const funding of dataDesc.funding_source ?? []) {
+      const fundee = funding.fundee;
+      if (Array.isArray(fundee)) {
+        for (const p of fundee) addName(p, 'funding');
+      } else if (typeof fundee === 'string') {
+        for (const part of fundee.replace(/ and /gi, ',').split(','))
+          addName(part.trim(), 'funding');
+      }
+    }
+    for (const exp of record.acquisition?.experimenters ?? [])
+      addName(exp, 'acquisition');
+    for (const proc of record.procedures?.subject_procedures ?? [])
+      for (const exp of proc.experimenters ?? []) addName(exp, 'procedures');
+    for (const proc of record.procedures?.specimen_procedures ?? [])
+      for (const exp of proc.experimenters ?? []) addName(exp, 'procedures');
+    for (const process of record.processing?.data_processes ?? [])
+      for (const exp of process.experimenters ?? []) addName(exp, 'processing');
+  }
+
+  return { authors, authorSources, authorOrcids };
 }

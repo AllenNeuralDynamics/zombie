@@ -64,8 +64,6 @@ function ensureWidgetCSS() {
   style.textContent = `
     /* Matrix centering — override upstream width:100% */
     .ae-matrix-wrap {
-      display: flex;
-      justify-content: center;
       overflow-x: auto;
     }
     .ae-matrix {
@@ -140,7 +138,46 @@ function ensureWidgetCSS() {
       align-items: center;
       gap: 8px;
     }
-    .ae-preview-empty {
+    /* Profile cards */
+    .ae-profile-card {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+      margin-bottom: 10px;
+    }
+    .ae-dark .ae-profile-card { background: #1f2937; border-color: #374151; }
+    .ae-profile-info { flex: 1; min-width: 0; }
+    .ae-profile-name-row {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 3px;
+    }
+    .ae-profile-name { font-size: 14px; font-weight: 700; color: #111827; }
+    .ae-dark .ae-profile-name { color: #f3f4f6; }
+    .ae-career-stage { font-size: 11px; color: #6b7280; }
+    .ae-orcid-badge { display: inline-flex; align-items: center; text-decoration: none; }
+    .ae-orcid-badge:hover svg { opacity: 0.8; }
+    .ae-profile-aff { font-size: 12px; color: #6b7280; margin: 0 0 6px; }
+    .ae-dark .ae-profile-aff { color: #9ca3af; }
+    .ae-profile-roles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .ae-avatar {
+      width: 44px; height: 44px; border-radius: 50%;
+      color: #fff; font-size: 14px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; position: relative;
+    }
+    .ae-avatar-badge {
+      position: absolute; bottom: -2px; right: -2px;
+      background: #f59e0b; border-radius: 50%;
+      width: 16px; height: 16px; font-size: 9px;
+      display: flex; align-items: center; justify-content: center; color: #fff;
+    }
       padding: 32px;
       text-align: center;
       color: #9ca3af;
@@ -149,6 +186,26 @@ function ensureWidgetCSS() {
       border: 1px dashed #e5e7eb;
       border-radius: 10px;
     }
+    /* Vertical colored-word legend */
+    .ae-matrix-legend {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 0 0 20px;
+      flex-shrink: 0;
+    }
+    .ae-legend-word {
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .ae-legend-word-lead { color: #4338ca; }
+    .ae-legend-word-equal { color: #818cf8; }
+    .ae-legend-word-supporting { color: #9ca3af; }
+    .ae-dark .ae-legend-word-lead { color: #a5b4fc; }
+    .ae-dark .ae-legend-word-equal { color: #818cf8; }
+    .ae-dark .ae-legend-word-supporting { color: #6b7280; }
   `;
   document.head.appendChild(style);
 }
@@ -412,7 +469,7 @@ export function createPreview(container, authors) {
   // State
   let sortKey = 'alpha';
   let expanded = true;
-  let activeTab = 'matrix';
+  let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;
   let searchQuery = '';
 
@@ -458,7 +515,11 @@ export function createPreview(container, authors) {
 
   /** CRediT matrix — TRANSPOSED: authors as rows, roles as columns */
   function buildMatrixTab(sorted) {
-    const wrap = el('div', { className: 'ae-matrix-wrap', style: { overflowX: 'auto', display: 'flex', justifyContent: 'center' } });
+    const centering = el('div', { style: { display: 'flex', justifyContent: 'center' } });
+    const outer = el('div', { style: { display: 'inline-flex', flexDirection: 'row', alignItems: 'center' } });
+    centering.appendChild(outer);
+    const wrap = el('div', { className: 'ae-matrix-wrap', style: { overflowX: 'auto' } });
+    outer.appendChild(wrap);
     const table = el('table', { className: 'ae-matrix', style: { width: 'auto', margin: '0' } });
 
     // Header row: [sticky corner | role1 | role2 | ...]
@@ -510,16 +571,12 @@ export function createPreview(container, authors) {
 
     // Legend
     const legend = el('div', { className: 'ae-matrix-legend' });
-    legend.appendChild(el('span', { className: 'ae-legend-label' }, 'Legend:'));
-    legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-lead' }));
-    legend.appendChild(document.createTextNode(' Lead  '));
-    legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-equal' }));
-    legend.appendChild(document.createTextNode(' Equal  '));
-    legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-supporting' }));
-    legend.appendChild(document.createTextNode(' Supporting'));
-    wrap.appendChild(legend);
+    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-lead' }, 'Lead'));
+    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-equal' }, 'Equal'));
+    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-supporting' }, 'Supporting'));
+    outer.appendChild(legend);
 
-    return wrap;
+    return centering;
   }
 
   /** Sorted author list with affiliation superscripts and sort chips */
@@ -697,6 +754,7 @@ export function createPreview(container, authors) {
       card.style.setProperty('--i', String(ai));
       if (isDimmed) card.style.opacity = '0.3';
 
+      // Avatar
       const avatar = el('div', {
         className: 'ae-avatar',
         style: { backgroundColor: color },
@@ -706,7 +764,10 @@ export function createPreview(container, authors) {
       }
       card.appendChild(avatar);
 
+      // Info column
       const info = el('div', { className: 'ae-profile-info' });
+
+      // Name row: name + career stage + ORCID badge
       const nameRow = el('div', { className: 'ae-profile-name-row' });
       nameRow.appendChild(el('span', { className: 'ae-profile-name' }, author.name));
       if (author.career_stage) {
@@ -717,19 +778,25 @@ export function createPreview(container, authors) {
           href: `https://orcid.org/${author.orcid}`,
           target: '_blank',
           rel: 'noopener noreferrer',
-          className: 'ae-orcid-link',
-          title: 'ORCID',
-        }, '🆔'));
+          className: 'ae-orcid-badge',
+          title: `ORCID: ${author.orcid}`,
+          innerHTML: '<svg viewBox="0 0 24 24" width="16" height="16" fill="#a6ce39" style="vertical-align:middle"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zM8.44 6.4a1.1 1.1 0 1 1 0 2.2 1.1 1.1 0 0 1 0-2.2zm-.77 3.6h1.54v7.6H7.67V10zm3.84 0h4.1c3.9 0 5.33 2.8 5.33 3.8 0 2.5-1.97 3.8-5.2 3.8h-4.23V10zm1.54 1.4v5.2h2.4c2.3 0 3.6-1.1 3.6-2.6 0-1.4-1.2-2.6-3.5-2.6h-2.5z"/></svg>',
+        }));
       }
       info.appendChild(nameRow);
 
+      // Affiliations line
       if (author.affiliations?.length) {
-        const affText = author.affiliations
-          .map(a => typeof a === 'string' ? a : (a.name || a))
-          .join(' · ');
-        info.appendChild(el('p', { className: 'ae-profile-aff' }, affText));
+        const affWrap = el('div', { className: 'ae-profile-aff' });
+        const affStrings = author.affiliations.map(a => typeof a === 'string' ? a : (a.name || a));
+        affStrings.forEach((aff, i) => {
+          if (i > 0) affWrap.appendChild(document.createElement('br'));
+          affWrap.appendChild(document.createTextNode(aff));
+        });
+        info.appendChild(affWrap);
       }
 
+      // Social links (from upstream data, if present)
       if (author.social_links?.length) {
         const links = el('div', { className: 'ae-social-links' });
         for (const link of author.social_links) {
@@ -747,14 +814,17 @@ export function createPreview(container, authors) {
 
       card.appendChild(info);
 
-      const roles = el('div', { className: 'ae-profile-roles' });
+      // Credit role badges
       const creditLevels = author.credit_levels || [];
-      for (const cr of creditLevels) {
-        roles.appendChild(el('span', {
-          className: `ae-role-badge ae-role-${cr.level}`,
-        }, cr.role.replace('Writing – ', 'W: ').replace('Formal ', 'F. ')));
+      if (creditLevels.length) {
+        const roles = el('div', { className: 'ae-profile-roles' });
+        for (const cr of creditLevels) {
+          roles.appendChild(el('span', {
+            className: `ae-role-badge ae-role-${cr.level}`,
+          }, cr.role.replace('Writing – ', 'W: ').replace('Formal ', 'F. ')));
+        }
+        card.appendChild(roles);
       }
-      card.appendChild(roles);
 
       wrap.appendChild(card);
     }
@@ -823,16 +893,6 @@ export function createPreview(container, authors) {
 
     const container2 = el('div', { className: `ae-widget ${isDark ? 'ae-dark' : ''}` });
 
-    // Title bar
-    const matchCount = searchQuery ? sorted.filter(a => matchesSearch(a, searchQuery)).length : sorted.length;
-    const countLabel = searchQuery
-      ? `${matchCount} of ${sorted.length} highlighted`
-      : `${sorted.length} contributor${sorted.length === 1 ? '' : 's'}`;
-    container2.appendChild(el('div', { className: 'ae-title-bar' },
-      el('h3', { className: 'ae-title' }, 'Contributors Preview'),
-      el('span', { className: 'ae-title-count' }, countLabel),
-    ));
-
     // Tabs: matrix, sections, authors, profiles (no network, no timeline)
     const panel = el('div', { className: 'ae-panel' });
     const tabs = el('div', { className: 'ae-tabs', role: 'tablist', 'aria-label': 'Authorship views' });
@@ -850,7 +910,7 @@ export function createPreview(container, authors) {
         role: 'tab',
         'aria-selected': String(isActive),
         tabindex: isActive ? '0' : '-1',
-        onClick: () => { activeTab = t.id; rerender(); },
+        onClick: () => { activeTab = t.id; container.dataset.cvTab = t.id; rerender(); },
       }, t.label);
       tabBtn.addEventListener('keydown', (e) => {
         let next = -1;
