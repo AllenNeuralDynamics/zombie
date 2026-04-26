@@ -437,12 +437,6 @@ export function createContributionsView(options = {}) {
           <p class="cv-placeholder">Query interface coming soon.</p>
         </div>
         <div id="cv-info" class="cv-info" aria-live="polite"></div>
-        <div id="cv-assets-table-wrap" style="display:none">
-          <table class="cv-assets-table">
-            <thead><tr><th>Asset name</th></tr></thead>
-            <tbody id="cv-assets-tbody"></tbody>
-          </table>
-        </div>
       </div>
     </section>
 
@@ -455,6 +449,12 @@ export function createContributionsView(options = {}) {
         <button id="cv-post-btn" class="btn-primary" disabled>Save to server</button>
       </div>
       <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
+      <div id="cv-assets-table-wrap" style="display:none">
+        <table class="cv-assets-table">
+          <thead><tr><th>Associated assets</th></tr></thead>
+          <tbody id="cv-assets-tbody"></tbody>
+        </table>
+      </div>
     </section>
 
     <!-- ── Version history timeline ────────────────────────────────── -->
@@ -939,7 +939,7 @@ export function createContributionsView(options = {}) {
     const hasRows = rows.length > 0;
     contributorsSection.style.display = hasRows ? '' : 'none';
     outputSection.style.display       = hasRows ? '' : 'none';
-    postBtn.disabled = !hasRows;
+    updateProjectButtons();
     if (hasRows) {
       updatePreview();
       if (activeOutputTab === 'latex') latexOutput.textContent = generateLatex(rows);
@@ -972,6 +972,9 @@ export function createContributionsView(options = {}) {
     loadBtn.disabled = true;
     loadedAssetNames = names;
     renderAssetsTable();
+    projectNameInput.value = '';
+    syncUrl();
+    updateProjectButtons();
     infoEl.textContent = `Loading ${names.length} asset(s)\u2026`;
 
     try {
@@ -1221,13 +1224,18 @@ export function createContributionsView(options = {}) {
       syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
+      // Collapse assets section — irrelevant when working with a loaded project
+      assetsOpen = false;
+      assetsBody.style.display = 'none';
+      assetsToggle.setAttribute('aria-expanded', 'false');
+      assetsToggle.querySelector('.cv-toggle-icon').textContent = '▼';
       fetchHistory(project);
     } catch (err) {
       endpointStatus.textContent = `Error: ${err.message}`;
       endpointStatus.className = 'contributions-endpoint-status status-error';
       console.error('[contributions-view] GET failed', err);
     } finally {
-      getBtn.disabled = false;
+      updateProjectButtons();
     }
   }
 
@@ -1265,8 +1273,18 @@ export function createContributionsView(options = {}) {
       endpointStatus.className = 'contributions-endpoint-status status-error';
       console.error('[contributions-view] POST failed', err);
     } finally {
-      postBtn.disabled = rows.length === 0;
+      updateProjectButtons();
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Button state management
+  // -------------------------------------------------------------------------
+
+  function updateProjectButtons() {
+    const hasProject = projectNameInput.value.trim().length > 0;
+    getBtn.disabled = !hasProject;
+    postBtn.disabled = !hasProject || rows.length === 0;
   }
 
   // -------------------------------------------------------------------------
@@ -1294,7 +1312,7 @@ export function createContributionsView(options = {}) {
   getBtn.addEventListener('click', loadFromServer);
   postBtn.addEventListener('click', saveToServer);
   projectNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFromServer(); });
-  projectNameInput.addEventListener('input', syncUrl);
+  projectNameInput.addEventListener('input', () => { syncUrl(); updateProjectButtons(); });
 
   // Add author
   root.querySelector('#cv-add-author-btn').addEventListener('click', () => {
@@ -1361,6 +1379,7 @@ export function createContributionsView(options = {}) {
     Promise.resolve().then(loadRecords);
   }
 
+  updateProjectButtons();
   return root;
 }
 
