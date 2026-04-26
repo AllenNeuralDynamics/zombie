@@ -275,9 +275,11 @@ export function generateLatex(rows) {
  *
  * @param {ReturnType<typeof initMatrix>} rows
  * @param {string} projectName
+ * @param {{ authorOrcids?: Record<string,string>, authorAffIds?: Record<string,string[]>, affiliations?: Array<{id:string,name:string}> }} [meta]
  * @returns {{ project_name: string, contributors: Array }}
  */
-export function toEndpointPayload(rows, projectName) {
+export function toEndpointPayload(rows, projectName, meta = {}) {
+  const { authorOrcids = {}, authorAffIds = {}, affiliations = [] } = meta;
   const contributors = rows.map((row) => {
     const credit_levels = [];
     for (const displayRole of CREDIT_CATEGORIES) {
@@ -289,7 +291,13 @@ export function toEndpointPayload(rows, projectName) {
         });
       }
     }
-    return { person: { name: row.name }, credit_levels };
+    const author = { name: row.name };
+    const orcid = authorOrcids[row.name];
+    if (orcid) author.registry_identifier = orcid;
+    const affIds = authorAffIds[row.name] || [];
+    const affName = affIds.map(id => affiliations.find(a => a.id === id)?.name).filter(Boolean)[0];
+    if (affName) author.affiliation = affName;
+    return { author, credit_levels };
   });
   return { project_name: projectName, contributors };
 }
@@ -303,7 +311,7 @@ export function toEndpointPayload(rows, projectName) {
  */
 export function fromEndpointPayload(data) {
   return (data.contributors || []).map((contributor) => {
-    const row = { name: contributor.person?.name ?? '', isFirst: false };
+    const row = { name: contributor.author?.name ?? '', isFirst: false };
     for (const cat of CREDIT_CATEGORIES) row[cat] = 'None';
     for (const cl of contributor.credit_levels || []) {
       const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
@@ -906,6 +914,30 @@ export function createContributionsView(options = {}) {
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
       authorSources = {};
+      // Extract orcids and affiliations from the new Author model
+      const newOrcids = {};
+      const newAffIds = {};
+      const newAffiliations = [];
+      const affByName = new Map();
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const orcid = contributor.author?.registry_identifier;
+        if (orcid) newOrcids[name] = orcid;
+        const affStr = contributor.author?.affiliation;
+        if (affStr) {
+          if (!affByName.has(affStr)) {
+            const id = affStr.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/, '');
+            affByName.set(affStr, id);
+            newAffiliations.push({ id, name: affStr });
+          }
+          newAffIds[name] = [affByName.get(affStr)];
+        }
+      }
+      authorOrcids = newOrcids;
+      authorAffIds = newAffIds;
+      affiliations = newAffiliations.length ? newAffiliations : affiliations;
+      renderAffiliationsTable();
       setRows(loadedRows);
       syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
@@ -931,7 +963,7 @@ export function createContributionsView(options = {}) {
     endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
     try {
-      const payload = toEndpointPayload(rows, project);
+      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations });
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',

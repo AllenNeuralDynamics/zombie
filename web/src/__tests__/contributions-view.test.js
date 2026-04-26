@@ -347,10 +347,10 @@ describe('toEndpointPayload', () => {
     expect(levels).toContainEqual({ role: 'software', level: 'supporting' });
   });
 
-  it('includes person.name for each contributor', () => {
+  it('includes author.name for each contributor', () => {
     const rows = initMatrix(['Bob Jones']);
     const payload = toEndpointPayload(rows, 'proj');
-    expect(payload.contributors[0].person.name).toBe('Bob Jones');
+    expect(payload.contributors[0].author.name).toBe('Bob Jones');
   });
 });
 
@@ -364,7 +364,7 @@ describe('fromEndpointPayload', () => {
       project_name: 'proj',
       contributors: [
         {
-          person: { name: 'Alice Smith' },
+          author: { name: 'Alice Smith' },
           credit_levels: [
             { role: 'conceptualization', level: 'lead' },
             { role: 'software', level: 'supporting' },
