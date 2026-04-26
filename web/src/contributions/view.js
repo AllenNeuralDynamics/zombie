@@ -1125,12 +1125,9 @@ export function createContributionsView(options = {}) {
       authorSectionIds = newAuthorSectionIds;
       // Extract assets
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
-      if (newAssets.length) {
-        loadedAssetNames = newAssets;
-        assetInput.value = newAssets.join(', ');
-        renderAssetsTable();
-        syncUrl();
-      }
+      loadedAssetNames = newAssets;
+      assetInput.value = newAssets.join(', ');
+      renderAssetsTable();
       renderAffiliationsTable();
       renderSectionsTable();
       setRows(loadedRows);
@@ -1213,11 +1210,9 @@ export function createContributionsView(options = {}) {
       authorSectionIds = newAuthorSectionIds;
       // Extract assets
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
-      if (newAssets.length) {
-        loadedAssetNames = newAssets;
-        assetInput.value = newAssets.join(', ');
-        renderAssetsTable();
-      }
+      loadedAssetNames = newAssets;
+      assetInput.value = newAssets.join(', ');
+      renderAssetsTable();
       renderAffiliationsTable();
       renderSectionsTable();
       setRows(loadedRows);
