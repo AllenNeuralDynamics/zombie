@@ -2130,6 +2130,24 @@ body {
   padding: 8px 0;
 }
 
+/* History timeline section */
+.cv-history-section { padding: 10px 16px 12px; }
+.cv-history-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.cv-history-section .cv-section-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.cv-history-hint {
+  font-size: 0.78rem;
+  color: var(--color-muted, #6b7280);
+}
+
 /* Output section (Preview / LaTeX tabs) */
 .cv-output-section { padding: 0; }
 .cv-output-section .cv-tabs { margin: 0; padding: 0 16px; }

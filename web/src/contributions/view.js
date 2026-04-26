@@ -391,6 +391,9 @@ export function createContributionsView(options = {}) {
 
   let assetsOpen = true;
 
+  /** @type {HTMLElement|null} Currently-selected history bubble. */
+  let selectedHistoryBubble = null;
+
   // -------------------------------------------------------------------------
   // Root element
   // -------------------------------------------------------------------------
@@ -437,6 +440,15 @@ export function createContributionsView(options = {}) {
         <button id="cv-post-btn" class="btn-primary" disabled>Save to server</button>
       </div>
       <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
+    </section>
+
+    <!-- ── Version history timeline ────────────────────────────────── -->
+    <section class="cv-section cv-history-section" id="cv-history-section" style="display:none">
+      <div class="cv-history-header">
+        <span class="cv-section-title">Version History</span>
+        <span class="cv-history-hint" id="cv-history-hint"></span>
+      </div>
+      <div class="subject-timeline-bubbles" id="cv-history-bubbles"></div>
     </section>
 
     <!-- ── Contributors section ─────────────────────────────────────── -->
@@ -502,6 +514,9 @@ export function createContributionsView(options = {}) {
   const postBtn           = root.querySelector('#cv-post-btn');
   const endpointStatus    = root.querySelector('#cv-endpoint-status');
   const affiliationsTbody = root.querySelector('#cv-affiliations-tbody');
+  const historySection    = root.querySelector('#cv-history-section');
+  const historyBubbles    = root.querySelector('#cv-history-bubbles');
+  const historyHint       = root.querySelector('#cv-history-hint');
 
   if (assetName)    assetInput.value    = assetName;
   if (projectName)  projectNameInput.value = projectName;
@@ -893,6 +908,122 @@ export function createContributionsView(options = {}) {
   }
 
   // -------------------------------------------------------------------------
+  // Version history timeline
+  // -------------------------------------------------------------------------
+
+  function renderHistoryTimeline(commits) {
+    historyBubbles.innerHTML = '';
+    selectedHistoryBubble = null;
+    if (!commits.length) { historySection.style.display = 'none'; return; }
+    historySection.style.display = '';
+    historyHint.textContent = `${commits.length} version${commits.length !== 1 ? 's' : ''}`;
+
+    for (let i = 0; i < commits.length; i++) {
+      const entry = commits[i];
+      const hash = entry.commit ?? entry.sha ?? entry.hash ?? '';
+      const rawDate = entry.date ?? entry.committed_date ?? entry.timestamp ?? entry.authored_date ?? '';
+      const date = rawDate ? new Date(rawDate) : null;
+
+      const bubble = document.createElement('button');
+      bubble.className = 'tl-bubble';
+      bubble.style.setProperty('--bubble-color', '#4338ca');
+      bubble.dataset.commit = hash;
+
+      const dot = document.createElement('span');
+      dot.className = 'tl-bubble-dot';
+
+      const hashEl = document.createElement('span');
+      hashEl.className = 'tl-bubble-type';
+      hashEl.textContent = hash ? hash.slice(0, 8) : `v${i + 1}`;
+
+      const dateEl = document.createElement('span');
+      dateEl.className = 'tl-bubble-date';
+      if (date && !isNaN(date)) {
+        dateEl.textContent = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      } else {
+        dateEl.textContent = entry.message ? String(entry.message).slice(0, 20) : '';
+      }
+
+      bubble.appendChild(dot);
+      bubble.appendChild(hashEl);
+      bubble.appendChild(dateEl);
+
+      bubble.addEventListener('click', () => {
+        if (selectedHistoryBubble) selectedHistoryBubble.classList.remove('tl-bubble--selected');
+        bubble.classList.add('tl-bubble--selected');
+        selectedHistoryBubble = bubble;
+        loadVersion(hash);
+      });
+
+      historyBubbles.appendChild(bubble);
+
+      // Auto-select the first bubble (most-recent version just loaded)
+      if (i === 0) {
+        bubble.classList.add('tl-bubble--selected');
+        selectedHistoryBubble = bubble;
+      }
+    }
+  }
+
+  async function fetchHistory(project) {
+    try {
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}&history=true`;
+      const res = await fetch(url);
+      if (!res.ok) { historySection.style.display = 'none'; return; }
+      const data = await res.json();
+      const commits = Array.isArray(data) ? data : (data.commits ?? data.history ?? []);
+      renderHistoryTimeline(commits);
+    } catch (_) {
+      historySection.style.display = 'none';
+    }
+  }
+
+  async function loadVersion(commit) {
+    const project = projectNameInput.value.trim();
+    if (!project || !commit) return;
+    endpointStatus.textContent = `Loading version ${commit.slice(0, 8)}…`;
+    endpointStatus.className = 'contributions-endpoint-status status-loading';
+    try {
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}&commit=${encodeURIComponent(commit)}`;
+      const res = await fetch(url);
+      if (res.status === 404) throw new Error(`Version not found.`);
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      const data = await res.json();
+      const loadedRows = fromEndpointPayload(data);
+      const newOrcids = {};
+      const newAffIds = {};
+      const newAffiliations = [];
+      const affByName = new Map();
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const orcid = contributor.author?.registry_identifier;
+        if (orcid) newOrcids[name] = orcid;
+        const affStr = contributor.author?.affiliation;
+        if (affStr) {
+          if (!affByName.has(affStr)) {
+            const id = affStr.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/, '');
+            affByName.set(affStr, id);
+            newAffiliations.push({ id, name: affStr });
+          }
+          newAffIds[name] = [affByName.get(affStr)];
+        }
+      }
+      authorOrcids = newOrcids;
+      authorAffIds = newAffIds;
+      affiliations = newAffiliations.length ? newAffiliations : affiliations;
+      renderAffiliationsTable();
+      setRows(loadedRows);
+      endpointStatus.textContent = `\u2713 Loaded version ${commit.slice(0, 8)} \u2014 ${loadedRows.length} contributor(s).`;
+      endpointStatus.className = 'contributions-endpoint-status status-success';
+    } catch (err) {
+      endpointStatus.textContent = `Error: ${err.message}`;
+      endpointStatus.className = 'contributions-endpoint-status status-error';
+      console.error('[contributions-view] loadVersion failed', err);
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Endpoint GET / POST
   // -------------------------------------------------------------------------
 
@@ -942,6 +1073,7 @@ export function createContributionsView(options = {}) {
       syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
+      fetchHistory(project);
     } catch (err) {
       endpointStatus.textContent = `Error: ${err.message}`;
       endpointStatus.className = 'contributions-endpoint-status status-error';
@@ -979,6 +1111,7 @@ export function createContributionsView(options = {}) {
       endpointStatus.textContent = `\u2713 Saved \u201c${project}\u201d${commit}`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
       syncUrl();
+      fetchHistory(project);
     } catch (err) {
       endpointStatus.textContent = `Error: ${err.message}`;
       endpointStatus.className = 'contributions-endpoint-status status-error';
