@@ -279,7 +279,7 @@ export function generateLatex(rows) {
  * @returns {{ project_name: string, contributors: Array }}
  */
 export function toEndpointPayload(rows, projectName, meta = {}) {
-  const { authorOrcids = {}, authorAffIds = {}, affiliations = [], sections = [], authorSectionIds = {} } = meta;
+  const { authorOrcids = {}, authorAffIds = {}, affiliations = [], sections = [], authorSectionIds = {}, assets = [] } = meta;
   const contributors = rows.map((row) => {
     const credit_levels = [];
     for (const displayRole of CREDIT_CATEGORIES) {
@@ -302,7 +302,13 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     return { author, credit_levels, ...(sectionContribs.length ? { section_contributions: sectionContribs } : {}) };
   });
   const topSections = sections.map(s => s.title).filter(Boolean);
-  return { project_name: projectName, ...(topSections.length ? { sections: topSections } : {}), contributors };
+  const topAssets = assets.filter(Boolean);
+  return {
+    project_name: projectName,
+    ...(topAssets.length ? { assets: topAssets } : {}),
+    ...(topSections.length ? { sections: topSections } : {}),
+    contributors,
+  };
 }
 
 /**
@@ -1114,6 +1120,14 @@ export function createContributionsView(options = {}) {
       }
       sections = newSections.length ? newSections : sections;
       authorSectionIds = newAuthorSectionIds;
+      // Extract assets
+      const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
+      if (newAssets.length) {
+        loadedAssetNames = newAssets;
+        assetInput.value = newAssets.join(', ');
+        renderAssetsTable();
+        syncUrl();
+      }
       renderAffiliationsTable();
       renderSectionsTable();
       setRows(loadedRows);
@@ -1194,6 +1208,13 @@ export function createContributionsView(options = {}) {
       }
       sections = newSections.length ? newSections : sections;
       authorSectionIds = newAuthorSectionIds;
+      // Extract assets
+      const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
+      if (newAssets.length) {
+        loadedAssetNames = newAssets;
+        assetInput.value = newAssets.join(', ');
+        renderAssetsTable();
+      }
       renderAffiliationsTable();
       renderSectionsTable();
       setRows(loadedRows);
@@ -1222,7 +1243,7 @@ export function createContributionsView(options = {}) {
     endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
     try {
-      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, authorSectionIds });
+      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, authorSectionIds, assets: loadedAssetNames });
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
