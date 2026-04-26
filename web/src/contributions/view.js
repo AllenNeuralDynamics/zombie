@@ -279,7 +279,7 @@ export function generateLatex(rows) {
  * @returns {{ project_name: string, contributors: Array }}
  */
 export function toEndpointPayload(rows, projectName, meta = {}) {
-  const { authorOrcids = {}, authorAffIds = {}, affiliations = [] } = meta;
+  const { authorOrcids = {}, authorAffIds = {}, affiliations = [], sections = [], authorSectionIds = {} } = meta;
   const contributors = rows.map((row) => {
     const credit_levels = [];
     for (const displayRole of CREDIT_CATEGORIES) {
@@ -297,9 +297,12 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     const affIds = authorAffIds[row.name] || [];
     const affName = affIds.map(id => affiliations.find(a => a.id === id)?.name).filter(Boolean)[0];
     if (affName) author.affiliation = affName;
-    return { author, credit_levels };
+    const sectionIds = authorSectionIds[row.name] || [];
+    const sectionContribs = sectionIds.map(id => sections.find(s => s.id === id)?.title).filter(Boolean);
+    return { author, credit_levels, ...(sectionContribs.length ? { section_contributions: sectionContribs } : {}) };
   });
-  return { project_name: projectName, contributors };
+  const topSections = sections.map(s => s.title).filter(Boolean);
+  return { project_name: projectName, ...(topSections.length ? { sections: topSections } : {}), contributors };
 }
 
 /**
@@ -379,6 +382,12 @@ export function createContributionsView(options = {}) {
   let affiliations = [
     { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
   ];
+
+  /** @type {Array<{id: string, title: string}>} Paper section headers. */
+  let sections = [];
+
+  /** @type {Record<string, string[]>} Section IDs each author contributed to. */
+  let authorSectionIds = {};
 
   /** @type {string[]} Asset names that were loaded */
   let loadedAssetNames = [];
@@ -475,6 +484,15 @@ export function createContributionsView(options = {}) {
         </table>
         <button id="cv-add-affiliation-btn" class="btn-secondary cv-add-row-btn">+ Add affiliation</button>
       </div>
+
+      <div class="cv-sections-section">
+        <h4 class="cv-subsection-heading">Paper Sections</h4>
+        <table class="cv-sections-table" id="cv-sections-table">
+          <thead><tr><th></th><th>Title</th></tr></thead>
+          <tbody id="cv-sections-tbody"></tbody>
+        </table>
+        <button id="cv-add-section-btn" class="btn-secondary cv-add-row-btn">+ Add section</button>
+      </div>
     </section>
 
     <!-- ── Preview / LaTeX output tabs ──────────────────────────────── -->
@@ -514,6 +532,7 @@ export function createContributionsView(options = {}) {
   const postBtn           = root.querySelector('#cv-post-btn');
   const endpointStatus    = root.querySelector('#cv-endpoint-status');
   const affiliationsTbody = root.querySelector('#cv-affiliations-tbody');
+  const sectionsTbody     = root.querySelector('#cv-sections-tbody');
   const historySection    = root.querySelector('#cv-history-section');
   const historyBubbles    = root.querySelector('#cv-history-bubbles');
   const historyHint       = root.querySelector('#cv-history-hint');
@@ -544,6 +563,7 @@ export function createContributionsView(options = {}) {
         assetNames: assetInput.value.trim(),
         projectName: projectNameInput.value.trim(),
         rows, authorSources, authorOrcids, authorAffIds, affiliations, loadedAssetNames,
+        sections, authorSectionIds,
       }));
     } catch (_) {}
   }
@@ -607,6 +627,48 @@ export function createContributionsView(options = {}) {
       tr.appendChild(tdName);
 
       affiliationsTbody.appendChild(tr);
+    });
+  }
+
+  function renderSectionsTable() {
+    sectionsTbody.innerHTML = '';
+    sections.forEach((sec, idx) => {
+      const tr = document.createElement('tr');
+
+      const tdX = document.createElement('td');
+      const xBtn = document.createElement('button');
+      xBtn.className = 'cv-x-btn';
+      xBtn.textContent = '×';
+      xBtn.setAttribute('aria-label', `Remove section ${sec.title}`);
+      xBtn.addEventListener('click', () => {
+        sections = sections.filter((_, i) => i !== idx);
+        for (const name of Object.keys(authorSectionIds)) {
+          authorSectionIds[name] = (authorSectionIds[name] || []).filter(id => id !== sec.id);
+        }
+        renderSectionsTable();
+        renderAuthorsTable();
+        updatePreview();
+        saveDraft();
+      });
+      tdX.appendChild(xBtn);
+      tr.appendChild(tdX);
+
+      const tdTitle = document.createElement('td');
+      const titleInput = document.createElement('input');
+      titleInput.type = 'text';
+      titleInput.value = sec.title;
+      titleInput.className = 'cv-sec-title-input';
+      titleInput.placeholder = 'e.g. Introduction';
+      titleInput.addEventListener('change', () => {
+        sections[idx].title = titleInput.value;
+        renderAuthorsTable();
+        updatePreview();
+        saveDraft();
+      });
+      tdTitle.appendChild(titleInput);
+      tr.appendChild(tdTitle);
+
+      sectionsTbody.appendChild(tr);
     });
   }
 
@@ -716,7 +778,7 @@ export function createContributionsView(options = {}) {
 
   function buildAuthorsTableHeader() {
     authorsTheadRow.innerHTML = '';
-    const cols = ['', 'Name', 'ORCID', 'Affiliations', ...CREDIT_CATEGORIES];
+    const cols = ['', 'Name', 'ORCID', 'Affiliations', 'Sections', ...CREDIT_CATEGORIES];
     for (const col of cols) {
       const th = document.createElement('th');
       th.textContent = col;
@@ -755,6 +817,7 @@ export function createContributionsView(options = {}) {
         // Migrate metadata maps
         if (authorOrcids[oldName]) { authorOrcids[newName] = authorOrcids[oldName]; delete authorOrcids[oldName]; }
         if (authorAffIds[oldName]) { authorAffIds[newName] = authorAffIds[oldName]; delete authorAffIds[oldName]; }
+        if (authorSectionIds[oldName]) { authorSectionIds[newName] = authorSectionIds[oldName]; delete authorSectionIds[oldName]; }
         if (authorSources[oldName]) { authorSources[newName] = authorSources[oldName]; delete authorSources[oldName]; }
         updatePreview(); saveDraft();
       });
@@ -784,6 +847,16 @@ export function createContributionsView(options = {}) {
         `${row.name} affiliations`,
       ));
       tr.appendChild(tdAff);
+
+      // Sections chip-select
+      const tdSec = document.createElement('td');
+      tdSec.appendChild(buildChipSelect(
+        sections.map(s => ({ id: s.id, name: s.title })),
+        authorSectionIds[row.name] || [],
+        (selectedIds) => { authorSectionIds[row.name] = selectedIds; updatePreview(); saveDraft(); },
+        `${row.name} sections`,
+      ));
+      tr.appendChild(tdSec);
 
       // Credit category selects
       for (const cat of CREDIT_CATEGORIES) {
@@ -821,10 +894,16 @@ export function createContributionsView(options = {}) {
       const affNames = affIds
         .map(id => affiliations.find(af => af.id === id)?.name)
         .filter(Boolean);
+      const secIds = authorSectionIds[a.name] || [];
+      const sectionContribs = secIds
+        .map(id => sections.find(s => s.id === id))
+        .filter(Boolean)
+        .map(s => ({ section: s.title }));
       return {
         ...a,
         orcid: authorOrcids[a.name] || undefined,
         affiliations: affNames.length ? affNames : undefined,
+        section_contributions: sectionContribs.length ? sectionContribs : undefined,
       };
     });
     createPreview(previewContainer, authors);
@@ -1012,7 +1091,31 @@ export function createContributionsView(options = {}) {
       authorOrcids = newOrcids;
       authorAffIds = newAffIds;
       affiliations = newAffiliations.length ? newAffiliations : affiliations;
+      // Extract sections
+      const newSectionTitles = Array.isArray(data.sections) ? data.sections : [];
+      const newSections = [];
+      const secByTitle = new Map();
+      for (const raw of newSectionTitles) {
+        const title = typeof raw === 'string' ? raw : (raw.title || raw.name || '');
+        if (!title) continue;
+        const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/, '');
+        secByTitle.set(title, id);
+        newSections.push({ id, title });
+      }
+      const newAuthorSectionIds = {};
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const scs = contributor.section_contributions || [];
+        const ids = scs
+          .map(sc => secByTitle.get(typeof sc === 'string' ? sc : (sc.section || '')))
+          .filter(Boolean);
+        if (ids.length) newAuthorSectionIds[name] = ids;
+      }
+      sections = newSections.length ? newSections : sections;
+      authorSectionIds = newAuthorSectionIds;
       renderAffiliationsTable();
+      renderSectionsTable();
       setRows(loadedRows);
       endpointStatus.textContent = `\u2713 Loaded version ${commit.slice(0, 8)} \u2014 ${loadedRows.length} contributor(s).`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
@@ -1068,7 +1171,31 @@ export function createContributionsView(options = {}) {
       authorOrcids = newOrcids;
       authorAffIds = newAffIds;
       affiliations = newAffiliations.length ? newAffiliations : affiliations;
+      // Extract sections
+      const newSectionTitles = Array.isArray(data.sections) ? data.sections : [];
+      const newSections = [];
+      const secByTitle = new Map();
+      for (const raw of newSectionTitles) {
+        const title = typeof raw === 'string' ? raw : (raw.title || raw.name || '');
+        if (!title) continue;
+        const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/, '');
+        secByTitle.set(title, id);
+        newSections.push({ id, title });
+      }
+      const newAuthorSectionIds = {};
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const scs = contributor.section_contributions || [];
+        const ids = scs
+          .map(sc => secByTitle.get(typeof sc === 'string' ? sc : (sc.section || '')))
+          .filter(Boolean);
+        if (ids.length) newAuthorSectionIds[name] = ids;
+      }
+      sections = newSections.length ? newSections : sections;
+      authorSectionIds = newAuthorSectionIds;
       renderAffiliationsTable();
+      renderSectionsTable();
       setRows(loadedRows);
       syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
@@ -1095,7 +1222,7 @@ export function createContributionsView(options = {}) {
     endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
     try {
-      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations });
+      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, authorSectionIds });
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -1164,6 +1291,14 @@ export function createContributionsView(options = {}) {
     saveDraft();
   });
 
+  root.querySelector('#cv-add-section-btn').addEventListener('click', () => {
+    const id = `sec-${Date.now()}`;
+    sections = [...sections, { id, title: '' }];
+    renderSectionsTable();
+    renderAuthorsTable();
+    saveDraft();
+  });
+
   // Output tabs
   root.querySelector('#cv-out-tab-preview').addEventListener('click', () => switchOutputTab('preview'));
   root.querySelector('#cv-out-tab-latex').addEventListener('click', () => switchOutputTab('latex'));
@@ -1173,6 +1308,7 @@ export function createContributionsView(options = {}) {
   // -------------------------------------------------------------------------
 
   renderAffiliationsTable();
+  renderSectionsTable();
 
   // Restore draft or auto-load
   let draftRestored = false;
@@ -1187,8 +1323,11 @@ export function createContributionsView(options = {}) {
         authorOrcids  = draft.authorOrcids  || {};
         authorAffIds  = draft.authorAffIds  || {};
         if (draft.affiliations?.length) affiliations = draft.affiliations;
+        if (draft.sections?.length) sections = draft.sections;
+        authorSectionIds = draft.authorSectionIds || {};
         loadedAssetNames = draft.loadedAssetNames || [];
         renderAffiliationsTable();
+        renderSectionsTable();
         renderAssetsTable();
         setRows(draft.rows);
         syncUrl();

@@ -2122,6 +2122,28 @@ body {
 }
 .cv-aff-name-input:focus { outline: 1px solid #4338ca; border-radius: 2px; }
 
+/* Sections table */
+.cv-sections-section { margin-top: 16px; }
+.cv-sections-table {
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  width: 100%;
+  max-width: 520px;
+}
+.cv-sections-table th, .cv-sections-table td {
+  border: 1px solid var(--surface-border, #e5e7eb);
+  padding: 3px 6px;
+}
+.cv-sections-table th { background: var(--surface-bg); font-weight: 600; }
+.cv-sec-title-input {
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  width: 100%;
+  color: inherit;
+}
+.cv-sec-title-input:focus { outline: 1px solid #4338ca; border-radius: 2px; }
+
 /* Placeholder text */
 .cv-placeholder {
   color: var(--color-muted, #6b7280);

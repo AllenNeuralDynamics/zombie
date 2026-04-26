@@ -166,6 +166,10 @@ function ensureWidgetCSS() {
     .ae-profile-aff { font-size: 12px; color: #6b7280; margin: 0 0 6px; }
     .ae-dark .ae-profile-aff { color: #9ca3af; }
     .ae-profile-roles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .ae-profile-sections { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+    .ae-profile-sections-label { font-size: 11px; color: #6b7280; margin-right: 2px; }
+    .ae-section-badge { padding: 2px 7px; border-radius: 8px; font-size: 10px; font-weight: 500; background: #e0f2fe; color: #0369a1; white-space: nowrap; }
+    .ae-dark .ae-section-badge { background: #075985; color: #bae6fd; }
     .ae-avatar {
       width: 44px; height: 44px; border-radius: 50%;
       color: #fff; font-size: 14px; font-weight: 700;
@@ -824,6 +828,18 @@ export function createPreview(container, authors) {
           }, cr.role.replace('Writing – ', 'W: ').replace('Formal ', 'F. ')));
         }
         card.appendChild(roles);
+      }
+
+      // Section contributions
+      const sectionContribs = author.section_contributions || [];
+      if (sectionContribs.length) {
+        const secRow = el('div', { className: 'ae-profile-sections' });
+        secRow.appendChild(el('span', { className: 'ae-profile-sections-label' }, 'Sections:'));
+        for (const sc of sectionContribs) {
+          const title = typeof sc === 'string' ? sc : sc.section;
+          if (title) secRow.appendChild(el('span', { className: 'ae-section-badge' }, title));
+        }
+        card.appendChild(secRow);
       }
 
       wrap.appendChild(card);
