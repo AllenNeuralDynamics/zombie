@@ -279,7 +279,7 @@ export function generateLatex(rows) {
  * @returns {{ project_name: string, contributors: Array }}
  */
 export function toEndpointPayload(rows, projectName, meta = {}) {
-  const { authorOrcids = {}, authorAffIds = {}, affiliations = [], sections = [], authorSectionIds = {}, assets = [] } = meta;
+  const { authorOrcids = {}, authorAffIds = {}, affiliations = [], sections = [], authorSectionIds = {}, assets = [], authorContribDescriptions = {} } = meta;
   const contributors = rows.map((row) => {
     const credit_levels = [];
     for (const displayRole of CREDIT_CATEGORIES) {
@@ -299,7 +299,13 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     if (affName) author.affiliation = affName;
     const sectionIds = authorSectionIds[row.name] || [];
     const sectionContribs = sectionIds.map(id => sections.find(s => s.id === id)?.title).filter(Boolean);
-    return { author, credit_levels, ...(sectionContribs.length ? { section_contributions: sectionContribs } : {}) };
+    const contribDesc = authorContribDescriptions[row.name];
+    return {
+      author,
+      credit_levels,
+      ...(contribDesc ? { contribution_description: contribDesc } : {}),
+      ...(sectionContribs.length ? { section_contributions: sectionContribs } : {}),
+    };
   });
   const topSections = sections.map(s => s.title).filter(Boolean);
   const topAssets = assets.filter(Boolean);
@@ -334,6 +340,50 @@ export function fromEndpointPayload(data) {
 }
 
 /**
+ * Format an author name to dot-separated initials: "First Mid Last" → "F.M.L."
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+export function formatAuthorInitials(name) {
+  return name.trim().split(/\s+/).map(p => (p[0] || '').toUpperCase() + '.').join('');
+}
+
+/**
+ * Generate the CRediT contribution statement and per-author descriptions.
+ *
+ * Statement format: "Conceptualization, A.B., C.D.; Methodology, E.F.; ..."
+ * Authors within each role are ordered Lead → Equal → Supporting.
+ *
+ * @param {ReturnType<typeof initMatrix>} rows
+ * @param {Record<string, string>} [contribDescriptions] - Per-author free-text descriptions.
+ * @returns {{ statement: string, descriptions: string }}
+ */
+export function generateContributionStatement(rows, contribDescriptions = {}) {
+  const parts = [];
+  for (const cat of CREDIT_CATEGORIES) {
+    const initials = [];
+    for (const level of ['Lead', 'Equal', 'Supporting']) {
+      for (const row of rows) {
+        if (row[cat] === level) initials.push(formatAuthorInitials(row.name));
+      }
+    }
+    if (initials.length > 0) parts.push(`${cat}, ${initials.join(', ')}`);
+  }
+  const statement = parts.join('; ');
+
+  const descLines = [];
+  for (const row of rows) {
+    const desc = contribDescriptions[row.name];
+    if (desc && desc.trim()) {
+      descLines.push(`${formatAuthorInitials(row.name)}: ${desc.trim()}`);
+    }
+  }
+
+  return { statement, descriptions: descLines.join('\n') };
+}
+
+/**
  * Convert internal matrix rows to the widget author format used by preview.js.
  *
  * @param {ReturnType<typeof initMatrix>} rows
@@ -355,6 +405,117 @@ export function rowsToWidgetAuthors(rows) {
 // ---------------------------------------------------------------------------
 // DOM component
 // ---------------------------------------------------------------------------
+
+/**
+ * Render the contribution matrix to an HTMLCanvasElement and return it.
+ *
+ * Columns with no contributions are omitted (matching the image reference).
+ * Colors use the page's indigo palette (rgba 99,102,241 at three opacities).
+ *
+ * @param {ReturnType<typeof initMatrix>} rows
+ * @returns {HTMLCanvasElement}
+ */
+export function generateMatrixCanvas(rows) {
+  const CELL        = 30;
+  const NAME_W      = 170;
+  const HEADER_H    = 155;  // enough room for ~45°-rotated text
+  const PAD         = 20;
+  const LEGEND_GAP  = 28;
+  const LEGEND_W    = 76;   // "Supporting" at 11.5px ≈ 60px
+  const LEGEND_STEP = 22;
+  const FONT_BODY   = 'bold 12px Inter, system-ui, sans-serif';
+  const FONT_HDR    = '500 11.5px Inter, system-ui, sans-serif';
+  const FONT_LEGEND = '600 11.5px Inter, system-ui, sans-serif';
+
+  // Only roles with at least one non-None entry
+  const activeRoles = CREDIT_CATEGORIES.filter(cat =>
+    rows.some(row => row[cat] && row[cat] !== 'None'),
+  );
+
+  const gridW   = activeRoles.length * CELL;
+  const gridH   = rows.length * CELL;
+  const canvasW = PAD + NAME_W + gridW + LEGEND_GAP + LEGEND_W + PAD;
+  const canvasH = HEADER_H + gridH + PAD;
+
+  const canvas = document.createElement('canvas');
+  const dpr    = Math.ceil(window.devicePixelRatio || 1);
+  canvas.width  = canvasW * dpr;
+  canvas.height = canvasH * dpr;
+  canvas.style.width  = canvasW + 'px';
+  canvas.style.height = canvasH + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  // Background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Cell fill colours — indigo palette matching cell-lead/equal/supporting
+  const FILL = {
+    Lead:       'rgba(99,102,241,0.75)',
+    Equal:      'rgba(99,102,241,0.40)',
+    Supporting: 'rgba(99,102,241,0.18)',
+  };
+
+  // ── Column headers (rotated −45°) ──
+  for (let ci = 0; ci < activeRoles.length; ci++) {
+    const cx = PAD + NAME_W + ci * CELL + CELL / 2;
+    const cy = HEADER_H - 8;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-Math.PI / 4);
+    ctx.font         = FONT_HDR;
+    ctx.fillStyle    = '#374151';
+    ctx.textAlign    = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(activeRoles[ci], 4, 0);
+    ctx.restore();
+  }
+
+  // ── Author rows ──
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri];
+    const ry  = HEADER_H + ri * CELL;
+
+    // Author name (right-aligned into name column)
+    ctx.font         = FONT_BODY;
+    ctx.fillStyle    = '#111827';
+    ctx.textAlign    = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(row.name, PAD + NAME_W - 8, ry + CELL / 2);
+
+    // Contribution cells
+    for (let ci = 0; ci < activeRoles.length; ci++) {
+      const level = row[activeRoles[ci]];
+      if (!level || level === 'None') continue;
+      const cx = PAD + NAME_W + ci * CELL;
+      ctx.fillStyle = FILL[level] || FILL.Supporting;
+      ctx.fillRect(cx + 1, ry + 1, CELL - 1, CELL - 1);
+    }
+  }
+
+  // ── Vertical legend — right of matrix, centered — colored words only ──
+  const LEGEND_COLORS = {
+    Lead:       '#4338ca',
+    Equal:      '#818cf8',
+    Supporting: '#9ca3af',
+  };
+  const legendX      = PAD + NAME_W + gridW + LEGEND_GAP;
+  const legendItems  = ['Lead', 'Equal', 'Supporting'];
+  const legendTotalH = legendItems.length * LEGEND_STEP;
+  const legendStartY = HEADER_H + gridH / 2 - legendTotalH / 2 + LEGEND_STEP / 2;
+
+  ctx.font         = FONT_LEGEND;
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i < legendItems.length; i++) {
+    ctx.fillStyle = LEGEND_COLORS[legendItems[i]];
+    ctx.fillText(legendItems[i], legendX, legendStartY + i * LEGEND_STEP);
+  }
+
+  return canvas;
+}
 
 /**
  * Build and return the contributions page element.
@@ -395,10 +556,13 @@ export function createContributionsView(options = {}) {
   /** @type {Record<string, string[]>} Section IDs each author contributed to. */
   let authorSectionIds = {};
 
+  /** @type {Record<string, string>} Free-text contribution description keyed by author name. */
+  let authorContribDescriptions = {};
+
   /** @type {string[]} Asset names that were loaded */
   let loadedAssetNames = [];
 
-  /** @type {'preview'|'latex'} */
+  /** @type {'preview'|'latex'|'statement'|'matrix-png'} */
   let activeOutputTab = 'preview';
 
   /** @type {'asset-names'|'query'} */
@@ -506,12 +670,26 @@ export function createContributionsView(options = {}) {
       <div class="cv-tabs" role="tablist">
         <button class="cv-tab cv-tab-active" id="cv-out-tab-preview" role="tab" aria-selected="true">Preview</button>
         <button class="cv-tab" id="cv-out-tab-latex" role="tab" aria-selected="false">Generate LaTeX</button>
+        <button class="cv-tab" id="cv-out-tab-statement" role="tab" aria-selected="false">Contribution Statement</button>
+        <button class="cv-tab" id="cv-out-tab-matrix-png" role="tab" aria-selected="false">Download PNG</button>
       </div>
       <div id="cv-out-panel-preview" class="cv-tab-panel">
         <div id="cv-preview-container"></div>
       </div>
       <div id="cv-out-panel-latex" class="cv-tab-panel" style="display:none">
         <pre id="cv-latex-output" class="contributions-latex-output"></pre>
+      </div>
+      <div id="cv-out-panel-statement" class="cv-tab-panel" style="display:none">
+        <p class="cv-statement-label">CRediT contribution statement</p>
+        <textarea id="cv-statement-output" class="contributions-statement-output" readonly></textarea>
+        <p class="cv-statement-label cv-statement-label-descriptions">Individual contribution descriptions</p>
+        <textarea id="cv-descriptions-output" class="contributions-statement-output contributions-descriptions-output" readonly></textarea>
+      </div>
+      <div id="cv-out-panel-matrix-png" class="cv-tab-panel" style="display:none">
+        <div class="cv-matrix-png-toolbar">
+          <button id="cv-matrix-png-download" class="btn-primary">Download PNG</button>
+        </div>
+        <div id="cv-matrix-png-preview" class="cv-matrix-png-preview"></div>
       </div>
     </section>
   `;
@@ -542,6 +720,10 @@ export function createContributionsView(options = {}) {
   const historySection    = root.querySelector('#cv-history-section');
   const historyBubbles    = root.querySelector('#cv-history-bubbles');
   const historyHint       = root.querySelector('#cv-history-hint');
+  const statementOutput   = root.querySelector('#cv-statement-output');
+  const descriptionsOutput = root.querySelector('#cv-descriptions-output');
+  const matrixPngPreview  = root.querySelector('#cv-matrix-png-preview');
+  const matrixPngDownload = root.querySelector('#cv-matrix-png-download');
 
   if (assetName)    assetInput.value    = assetName;
   if (projectName)  projectNameInput.value = projectName;
@@ -569,7 +751,7 @@ export function createContributionsView(options = {}) {
         assetNames: assetInput.value.trim(),
         projectName: projectNameInput.value.trim(),
         rows, authorSources, authorOrcids, authorAffIds, affiliations, loadedAssetNames,
-        sections, authorSectionIds,
+        sections, authorSectionIds, authorContribDescriptions,
       }));
     } catch (_) {}
   }
@@ -784,7 +966,7 @@ export function createContributionsView(options = {}) {
 
   function buildAuthorsTableHeader() {
     authorsTheadRow.innerHTML = '';
-    const cols = ['', 'Name', 'ORCID', 'Affiliations', 'Sections', ...CREDIT_CATEGORIES];
+    const cols = ['', 'Name', 'ORCID', 'Contribution Note', 'Affiliations', 'Sections', ...CREDIT_CATEGORIES];
     for (const col of cols) {
       const th = document.createElement('th');
       th.textContent = col;
@@ -843,6 +1025,25 @@ export function createContributionsView(options = {}) {
       });
       tdOrcid.appendChild(orcidInput);
       tr.appendChild(tdOrcid);
+
+      // Contribution description
+      const tdContrib = document.createElement('td');
+      const contribInput = document.createElement('input');
+      contribInput.type = 'text';
+      contribInput.value = authorContribDescriptions[row.name] || '';
+      contribInput.className = 'cv-contrib-desc-input';
+      contribInput.placeholder = 'e.g. Contributed to data collection.';
+      contribInput.addEventListener('change', () => {
+        authorContribDescriptions[row.name] = contribInput.value.trim();
+        if (activeOutputTab === 'statement') {
+          const { statement, descriptions } = generateContributionStatement(rows, authorContribDescriptions);
+          statementOutput.value = statement;
+          descriptionsOutput.value = descriptions;
+        }
+        saveDraft();
+      });
+      tdContrib.appendChild(contribInput);
+      tr.appendChild(tdContrib);
 
       // Affiliations chip-select
       const tdAff = document.createElement('td');
@@ -917,15 +1118,28 @@ export function createContributionsView(options = {}) {
 
   function switchOutputTab(tab) {
     activeOutputTab = tab;
-    root.querySelector('#cv-out-tab-preview').classList.toggle('cv-tab-active', tab === 'preview');
-    root.querySelector('#cv-out-tab-latex').classList.toggle('cv-tab-active', tab === 'latex');
-    root.querySelector('#cv-out-tab-preview').setAttribute('aria-selected', String(tab === 'preview'));
-    root.querySelector('#cv-out-tab-latex').setAttribute('aria-selected', String(tab === 'latex'));
-    root.querySelector('#cv-out-panel-preview').style.display = tab === 'preview' ? '' : 'none';
-    root.querySelector('#cv-out-panel-latex').style.display  = tab === 'latex'   ? '' : 'none';
+    for (const id of ['preview', 'latex', 'statement', 'matrix-png']) {
+      root.querySelector(`#cv-out-tab-${id}`).classList.toggle('cv-tab-active', tab === id);
+      root.querySelector(`#cv-out-tab-${id}`).setAttribute('aria-selected', String(tab === id));
+      root.querySelector(`#cv-out-panel-${id}`).style.display = tab === id ? '' : 'none';
+    }
     if (tab === 'latex' && rows.length > 0) {
       latexOutput.textContent = generateLatex(rows);
     }
+    if (tab === 'statement' && rows.length > 0) {
+      const { statement, descriptions } = generateContributionStatement(rows, authorContribDescriptions);
+      statementOutput.value = statement;
+      descriptionsOutput.value = descriptions;
+    }
+    if (tab === 'matrix-png' && rows.length > 0) {
+      renderMatrixPng();
+    }
+  }
+
+  function renderMatrixPng() {
+    matrixPngPreview.innerHTML = '';
+    const canvas = generateMatrixCanvas(rows);
+    matrixPngPreview.appendChild(canvas);
   }
 
   // -------------------------------------------------------------------------
@@ -943,6 +1157,12 @@ export function createContributionsView(options = {}) {
     if (hasRows) {
       updatePreview();
       if (activeOutputTab === 'latex') latexOutput.textContent = generateLatex(rows);
+      if (activeOutputTab === 'statement') {
+        const { statement, descriptions } = generateContributionStatement(rows, authorContribDescriptions);
+        statementOutput.value = statement;
+        descriptionsOutput.value = descriptions;
+      }
+      if (activeOutputTab === 'matrix-png') renderMatrixPng();
     }
     saveDraft();
   }
@@ -1123,6 +1343,15 @@ export function createContributionsView(options = {}) {
       }
       sections = newSections.length ? newSections : sections;
       authorSectionIds = newAuthorSectionIds;
+      // Extract contribution descriptions
+      const newContribDescsV = {};
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const desc = contributor.contribution_description;
+        if (desc) newContribDescsV[name] = desc;
+      }
+      authorContribDescriptions = newContribDescsV;
       // Extract assets
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
       loadedAssetNames = newAssets;
@@ -1208,6 +1437,15 @@ export function createContributionsView(options = {}) {
       }
       sections = newSections.length ? newSections : sections;
       authorSectionIds = newAuthorSectionIds;
+      // Extract contribution descriptions
+      const newContribDescs = {};
+      for (const contributor of data.contributors || []) {
+        const name = contributor.author?.name;
+        if (!name) continue;
+        const desc = contributor.contribution_description;
+        if (desc) newContribDescs[name] = desc;
+      }
+      authorContribDescriptions = newContribDescs;
       // Extract assets
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
       loadedAssetNames = newAssets;
@@ -1246,7 +1484,7 @@ export function createContributionsView(options = {}) {
     endpointStatus.textContent = `Saving \u201c${project}\u201d\u2026`;
     endpointStatus.className = 'contributions-endpoint-status status-loading';
     try {
-      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, authorSectionIds, assets: loadedAssetNames });
+      const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, authorSectionIds, assets: loadedAssetNames, authorContribDescriptions });
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -1336,6 +1574,23 @@ export function createContributionsView(options = {}) {
   // Output tabs
   root.querySelector('#cv-out-tab-preview').addEventListener('click', () => switchOutputTab('preview'));
   root.querySelector('#cv-out-tab-latex').addEventListener('click', () => switchOutputTab('latex'));
+  root.querySelector('#cv-out-tab-statement').addEventListener('click', () => switchOutputTab('statement'));
+  root.querySelector('#cv-out-tab-matrix-png').addEventListener('click', () => switchOutputTab('matrix-png'));
+
+  matrixPngDownload.addEventListener('click', () => {
+    if (rows.length === 0) return;
+    const canvas = generateMatrixCanvas(rows);
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href     = url;
+      const project = projectNameInput.value.trim() || 'contributions';
+      a.download = `${project}-matrix.png`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }, 'image/png');
+  });
 
   // -------------------------------------------------------------------------
   // Initial render
@@ -1359,6 +1614,7 @@ export function createContributionsView(options = {}) {
         if (draft.affiliations?.length) affiliations = draft.affiliations;
         if (draft.sections?.length) sections = draft.sections;
         authorSectionIds = draft.authorSectionIds || {};
+        authorContribDescriptions = draft.authorContribDescriptions || {};
         loadedAssetNames = draft.loadedAssetNames || [];
         renderAffiliationsTable();
         renderSectionsTable();

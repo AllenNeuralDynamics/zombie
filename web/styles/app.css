@@ -72,6 +72,7 @@
   --surface-bg:       #141414;
   --surface-card:     #1e1e1e;
   --surface-border:   #2e2e2e;
+  --surface-input:    #2a2a2a;
   --header-bg:        #0f0f0f;
   --header-border:    #2e2e2e;
   --text-primary:     #eeeeee;
@@ -1770,6 +1771,55 @@ body {
   font-size: 0.8rem;
   overflow-x: auto;
   white-space: pre;
+}
+
+.cv-statement-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #6b7280);
+  margin: var(--gap) 0 4px;
+}
+
+.cv-statement-label-descriptions {
+  margin-top: calc(var(--gap) * 1.5);
+}
+
+.contributions-statement-output {
+  display: block;
+  width: 100%;
+  padding: var(--gap);
+  background: var(--surface-card);
+  border: 1px solid var(--color-grey);
+  border-radius: var(--radius);
+  font-size: 0.85rem;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 4rem;
+  box-sizing: border-box;
+  color: inherit;
+}
+
+.contributions-descriptions-output {
+  min-height: 6rem;
+}
+
+.cv-matrix-png-toolbar {
+  margin-bottom: 12px;
+}
+
+.cv-matrix-png-preview {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--color-grey);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.cv-matrix-png-preview canvas {
+  display: block;
 }
 
 /* Project name / endpoint row */
