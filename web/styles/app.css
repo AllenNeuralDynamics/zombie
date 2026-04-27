@@ -2175,6 +2175,19 @@ body {
 .cv-aff-name-input:focus { outline: 1px solid #4338ca; border-radius: 2px; }
 
 /* Sections table */
+.cv-meta-columns {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 16px;
+}
+.cv-meta-columns .cv-affiliations-section,
+.cv-meta-columns .cv-sections-section {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
 .cv-sections-section { margin-top: 16px; }
 .cv-sections-table {
   border-collapse: collapse;
@@ -2220,6 +2233,104 @@ body {
 .cv-history-hint {
   font-size: 0.78rem;
   color: var(--color-muted, #6b7280);
+}
+
+/* Top bar: timeline (left) + project widget (right) */
+.cv-topbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.cv-topbar .cv-history-section {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  overflow: hidden;
+}
+
+/* Project widget */
+.cv-project-widget {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 260px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-pw-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cv-pw-name-row label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-muted, #6b7280);
+  white-space: nowrap;
+}
+.cv-pw-name-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--color-grey);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+
+.cv-pw-lock-row { display: flex; align-items: center; }
+.cv-pw-lock-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.cv-pw-password-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cv-pw-password-row label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-muted, #6b7280);
+  white-space: nowrap;
+}
+.cv-pw-password-row input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--color-grey);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+
+.cv-pw-btn-row {
+  display: flex;
+  gap: 6px;
+}
+.cv-pw-btn-row button { flex: 1; }
+
+[data-theme="dark"] .cv-pw-name-row input[type="text"],
+[data-theme="dark"] .cv-pw-password-row input[type="password"] {
+  background: var(--surface-input, #1f2937);
+  border-color: #4b5563;
 }
 
 /* Output section (Preview / LaTeX tabs) */

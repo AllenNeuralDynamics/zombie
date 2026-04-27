@@ -570,6 +570,9 @@ export function createContributionsView(options = {}) {
 
   let assetsOpen = true;
 
+  let projectLocked = false;
+  let projectPassword = '';
+
   /** @type {HTMLElement|null} Currently-selected history bubble. */
   let selectedHistoryBubble = null;
 
@@ -580,10 +583,43 @@ export function createContributionsView(options = {}) {
   const root = document.createElement('div');
   root.className = 'contributions-view';
   root.innerHTML = `
+    <!-- ── Top bar: timeline (left) + project widget (right) ────────── -->
+    <div class="cv-topbar">
+      <section class="cv-history-section" id="cv-history-section" style="display:none">
+        <div class="cv-history-header">
+          <span class="cv-section-title">Version History</span>
+          <span class="cv-history-hint" id="cv-history-hint"></span>
+        </div>
+        <div class="subject-timeline-bubbles" id="cv-history-bubbles"></div>
+      </section>
+
+      <div class="cv-project-widget">
+        <div class="cv-pw-name-row">
+          <label for="cv-project-name">Project</label>
+          <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024" />
+        </div>
+        <div class="cv-pw-lock-row">
+          <label class="cv-pw-lock-label">
+            <input type="checkbox" id="cv-project-locked" />
+            <span>Lock project</span>
+          </label>
+        </div>
+        <div class="cv-pw-password-row" id="cv-pw-password-row" style="display:none">
+          <label for="cv-project-password">Password</label>
+          <input id="cv-project-password" type="password" placeholder="Set a password" />
+        </div>
+        <div class="cv-pw-btn-row">
+          <button id="cv-get-btn" class="btn-secondary">Load</button>
+          <button id="cv-post-btn" class="btn-primary" disabled>Save</button>
+        </div>
+        <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
+      </div>
+    </div>
+
     <!-- ── Assets section ───────────────────────────────────────────── -->
     <section class="cv-section cv-assets-section">
       <button class="cv-section-toggle" id="cv-assets-toggle" aria-expanded="true">
-        <span class="cv-section-title">Assets</span>
+        <span class="cv-section-title">Data Assets</span>
         <span class="cv-toggle-icon">▲</span>
       </button>
       <div class="cv-section-body" id="cv-assets-body">
@@ -600,38 +636,18 @@ export function createContributionsView(options = {}) {
         <div id="cv-panel-query" class="cv-tab-panel" style="display:none">
           <p class="cv-placeholder">Query interface coming soon.</p>
         </div>
+        <div id="cv-assets-table-wrap" style="display:none">
+          <table class="cv-assets-table">
+            <thead><tr><th>Associated assets</th></tr></thead>
+            <tbody id="cv-assets-tbody"></tbody>
+          </table>
+        </div>
         <div id="cv-info" class="cv-info" aria-live="polite"></div>
       </div>
     </section>
 
-    <!-- ── Project / server sync ────────────────────────────────────── -->
-    <section class="cv-section cv-project-section">
-      <div class="cv-project-row">
-        <label for="cv-project-name">Project name</label>
-        <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024" />
-        <button id="cv-get-btn" class="btn-secondary">Load from server</button>
-        <button id="cv-post-btn" class="btn-primary" disabled>Save to server</button>
-      </div>
-      <div id="cv-endpoint-status" class="contributions-endpoint-status" aria-live="polite"></div>
-      <div id="cv-assets-table-wrap" style="display:none">
-        <table class="cv-assets-table">
-          <thead><tr><th>Associated assets</th></tr></thead>
-          <tbody id="cv-assets-tbody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- ── Version history timeline ────────────────────────────────── -->
-    <section class="cv-section cv-history-section" id="cv-history-section" style="display:none">
-      <div class="cv-history-header">
-        <span class="cv-section-title">Version History</span>
-        <span class="cv-history-hint" id="cv-history-hint"></span>
-      </div>
-      <div class="subject-timeline-bubbles" id="cv-history-bubbles"></div>
-    </section>
-
     <!-- ── Contributors section ─────────────────────────────────────── -->
-    <section class="cv-section cv-contributors-section" id="cv-contributors-section" style="display:none">
+    <section class="cv-section cv-contributors-section" id="cv-contributors-section">
       <h3 class="cv-section-heading">Contributors</h3>
 
       <div class="cv-authors-table-wrap">
@@ -646,27 +662,29 @@ export function createContributionsView(options = {}) {
         <button id="cv-add-author-btn" class="btn-secondary cv-add-row-btn">+ Add author</button>
       </div>
 
-      <div class="cv-affiliations-section">
-        <h4 class="cv-subsection-heading">Affiliations</h4>
-        <table class="cv-affiliations-table" id="cv-affiliations-table">
-          <thead><tr><th></th><th>Affiliation</th></tr></thead>
-          <tbody id="cv-affiliations-tbody"></tbody>
-        </table>
-        <button id="cv-add-affiliation-btn" class="btn-secondary cv-add-row-btn">+ Add affiliation</button>
-      </div>
+      <div class="cv-meta-columns">
+        <div class="cv-affiliations-section">
+          <h4 class="cv-subsection-heading">Affiliations</h4>
+          <table class="cv-affiliations-table" id="cv-affiliations-table">
+            <thead><tr><th></th><th>Affiliation</th></tr></thead>
+            <tbody id="cv-affiliations-tbody"></tbody>
+          </table>
+          <button id="cv-add-affiliation-btn" class="btn-secondary cv-add-row-btn">+ Add affiliation</button>
+        </div>
 
-      <div class="cv-sections-section">
-        <h4 class="cv-subsection-heading">Paper Sections</h4>
-        <table class="cv-sections-table" id="cv-sections-table">
-          <thead><tr><th></th><th>Title</th></tr></thead>
-          <tbody id="cv-sections-tbody"></tbody>
-        </table>
-        <button id="cv-add-section-btn" class="btn-secondary cv-add-row-btn">+ Add section</button>
+        <div class="cv-sections-section">
+          <h4 class="cv-subsection-heading">Paper Sections</h4>
+          <table class="cv-sections-table" id="cv-sections-table">
+            <thead><tr><th></th><th>Title</th></tr></thead>
+            <tbody id="cv-sections-tbody"></tbody>
+          </table>
+          <button id="cv-add-section-btn" class="btn-secondary cv-add-row-btn">+ Add section</button>
+        </div>
       </div>
     </section>
 
     <!-- ── Preview / LaTeX output tabs ──────────────────────────────── -->
-    <section class="cv-section cv-output-section" id="cv-output-section" style="display:none">
+    <section class="cv-section cv-output-section" id="cv-output-section">
       <div class="cv-tabs" role="tablist">
         <button class="cv-tab cv-tab-active" id="cv-out-tab-preview" role="tab" aria-selected="true">Preview</button>
         <button class="cv-tab" id="cv-out-tab-latex" role="tab" aria-selected="false">Generate LaTeX</button>
@@ -698,34 +716,36 @@ export function createContributionsView(options = {}) {
   // Element references
   // -------------------------------------------------------------------------
 
-  const assetInput        = root.querySelector('#cv-asset-names');
-  const loadBtn           = root.querySelector('#cv-load-btn');
-  const infoEl            = root.querySelector('#cv-info');
-  const assetsToggle      = root.querySelector('#cv-assets-toggle');
-  const assetsBody        = root.querySelector('#cv-assets-body');
-  const assetsTableWrap   = root.querySelector('#cv-assets-table-wrap');
-  const assetsTbody       = root.querySelector('#cv-assets-tbody');
-  const authorsTbody      = root.querySelector('#cv-authors-tbody');
-  const authorsTheadRow   = root.querySelector('#cv-authors-thead-row');
-  const contributorsSection = root.querySelector('#cv-contributors-section');
-  const outputSection     = root.querySelector('#cv-output-section');
-  const previewContainer  = root.querySelector('#cv-preview-container');
-  const latexOutput       = root.querySelector('#cv-latex-output');
-  const projectNameInput  = root.querySelector('#cv-project-name');
-  const getBtn            = root.querySelector('#cv-get-btn');
-  const postBtn           = root.querySelector('#cv-post-btn');
-  const endpointStatus    = root.querySelector('#cv-endpoint-status');
-  const affiliationsTbody = root.querySelector('#cv-affiliations-tbody');
-  const sectionsTbody     = root.querySelector('#cv-sections-tbody');
-  const historySection    = root.querySelector('#cv-history-section');
-  const historyBubbles    = root.querySelector('#cv-history-bubbles');
-  const historyHint       = root.querySelector('#cv-history-hint');
-  const statementOutput   = root.querySelector('#cv-statement-output');
-  const descriptionsOutput = root.querySelector('#cv-descriptions-output');
-  const matrixPngPreview  = root.querySelector('#cv-matrix-png-preview');
-  const matrixPngDownload = root.querySelector('#cv-matrix-png-download');
+  const assetInput          = root.querySelector('#cv-asset-names');
+  const loadBtn             = root.querySelector('#cv-load-btn');
+  const infoEl              = root.querySelector('#cv-info');
+  const assetsToggle        = root.querySelector('#cv-assets-toggle');
+  const assetsBody          = root.querySelector('#cv-assets-body');
+  const assetsTableWrap     = root.querySelector('#cv-assets-table-wrap');
+  const assetsTbody         = root.querySelector('#cv-assets-tbody');
+  const authorsTbody        = root.querySelector('#cv-authors-tbody');
+  const authorsTheadRow     = root.querySelector('#cv-authors-thead-row');
+  const outputSection       = root.querySelector('#cv-output-section');
+  const previewContainer    = root.querySelector('#cv-preview-container');
+  const latexOutput         = root.querySelector('#cv-latex-output');
+  const projectNameInput    = root.querySelector('#cv-project-name');
+  const projectLockedCheckbox = root.querySelector('#cv-project-locked');
+  const projectPasswordInput  = root.querySelector('#cv-project-password');
+  const pwPasswordRow         = root.querySelector('#cv-pw-password-row');
+  const getBtn              = root.querySelector('#cv-get-btn');
+  const postBtn             = root.querySelector('#cv-post-btn');
+  const endpointStatus      = root.querySelector('#cv-endpoint-status');
+  const affiliationsTbody   = root.querySelector('#cv-affiliations-tbody');
+  const sectionsTbody       = root.querySelector('#cv-sections-tbody');
+  const historySection      = root.querySelector('#cv-history-section');
+  const historyBubbles      = root.querySelector('#cv-history-bubbles');
+  const historyHint         = root.querySelector('#cv-history-hint');
+  const statementOutput     = root.querySelector('#cv-statement-output');
+  const descriptionsOutput  = root.querySelector('#cv-descriptions-output');
+  const matrixPngPreview    = root.querySelector('#cv-matrix-png-preview');
+  const matrixPngDownload   = root.querySelector('#cv-matrix-png-download');
 
-  if (assetName)    assetInput.value    = assetName;
+  if (assetName)    assetInput.value       = assetName;
   if (projectName)  projectNameInput.value = projectName;
 
   // -------------------------------------------------------------------------
@@ -750,6 +770,8 @@ export function createContributionsView(options = {}) {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         assetNames: assetInput.value.trim(),
         projectName: projectNameInput.value.trim(),
+        projectLocked,
+        projectPassword,
         rows, authorSources, authorOrcids, authorAffIds, affiliations, loadedAssetNames,
         sections, authorSectionIds, authorContribDescriptions,
       }));
@@ -1150,11 +1172,8 @@ export function createContributionsView(options = {}) {
     rows = newRows;
     buildAuthorsTableHeader();
     renderAuthorsTable();
-    const hasRows = rows.length > 0;
-    contributorsSection.style.display = hasRows ? '' : 'none';
-    outputSection.style.display       = hasRows ? '' : 'none';
     updateProjectButtons();
-    if (hasRows) {
+    if (rows.length > 0) {
       updatePreview();
       if (activeOutputTab === 'latex') latexOutput.textContent = generateLatex(rows);
       if (activeOutputTab === 'statement') {
@@ -1192,20 +1211,34 @@ export function createContributionsView(options = {}) {
     loadBtn.disabled = true;
     loadedAssetNames = names;
     renderAssetsTable();
-    projectNameInput.value = '';
     syncUrl();
-    updateProjectButtons();
     infoEl.textContent = `Loading ${names.length} asset(s)\u2026`;
 
     try {
       const records = await fetchDocDbRecordsByName(names, docdbOptions);
       const { authors, authorSources: sources, authorOrcids: orcids } = extractAuthorsWithOrcids(records);
-      authorSources = sources;
-      authorOrcids = { ...orcids };
 
-      infoEl.textContent = `${records.length} record(s) loaded — ${authors.length} author(s) found.`;
+      // Merge sources (add new sources without overwriting existing)
+      for (const [name, srcs] of Object.entries(sources)) {
+        if (!authorSources[name]) authorSources[name] = [];
+        for (const src of srcs) {
+          if (!authorSources[name].includes(src)) authorSources[name].push(src);
+        }
+      }
 
-      setRows(initMatrix(authors));
+      // Merge orcids (don't overwrite existing entries)
+      for (const [name, orcid] of Object.entries(orcids)) {
+        if (!authorOrcids[name]) authorOrcids[name] = orcid;
+      }
+
+      // Add only authors not already present — never remove existing rows
+      const existingNames = new Set(rows.map(r => r.name));
+      const newAuthors = authors.filter(a => !existingNames.has(a));
+      const addedRows = initMatrix(newAuthors);
+
+      infoEl.textContent = `${records.length} record(s) loaded \u2014 ${newAuthors.length} new author(s) added.`;
+
+      setRows([...rows, ...addedRows]);
       syncUrl();
     } catch (err) {
       infoEl.textContent = `Error: ${err.message}`;
@@ -1547,6 +1580,17 @@ export function createContributionsView(options = {}) {
   projectNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadFromServer(); });
   projectNameInput.addEventListener('input', () => { syncUrl(); updateProjectButtons(); });
 
+  // Lock toggle + password
+  projectLockedCheckbox.addEventListener('change', () => {
+    projectLocked = projectLockedCheckbox.checked;
+    pwPasswordRow.style.display = projectLocked ? '' : 'none';
+    saveDraft();
+  });
+  projectPasswordInput.addEventListener('input', () => {
+    projectPassword = projectPasswordInput.value;
+    saveDraft();
+  });
+
   // Add author
   root.querySelector('#cv-add-author-btn').addEventListener('click', () => {
     const newRow = { name: 'New Author', isFirst: false };
@@ -1598,6 +1642,7 @@ export function createContributionsView(options = {}) {
 
   renderAffiliationsTable();
   renderSectionsTable();
+  buildAuthorsTableHeader();
 
   // Restore draft or auto-load
   let draftRestored = false;
@@ -1608,6 +1653,15 @@ export function createContributionsView(options = {}) {
       if (draft.rows?.length > 0) {
         assetInput.value = draft.assetNames || '';
         projectNameInput.value = draft.projectName || '';
+        if (draft.projectLocked) {
+          projectLocked = true;
+          projectLockedCheckbox.checked = true;
+          pwPasswordRow.style.display = '';
+        }
+        if (draft.projectPassword) {
+          projectPassword = draft.projectPassword;
+          projectPasswordInput.value = draft.projectPassword;
+        }
         authorSources = draft.authorSources || {};
         authorOrcids  = draft.authorOrcids  || {};
         authorAffIds  = draft.authorAffIds  || {};
