@@ -1630,6 +1630,10 @@ export function createContributionsView(options = {}) {
     Promise.resolve().then(loadRecords);
   }
 
+  if (projectName && !draftRestored) {
+    Promise.resolve().then(loadFromServer);
+  }
+
   updateProjectButtons();
   return root;
 }

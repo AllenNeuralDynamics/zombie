@@ -5,7 +5,17 @@
  * network-dependent loading is not tested here.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/docdb.js', () => ({
+  fetchDocDbRecordsByName: vi.fn(),
+}));
+
+vi.mock('../contributions/preview.js', () => ({
+  createPreview: vi.fn(() => document.createElement('div')),
+}));
+
+import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -19,6 +29,7 @@ import {
   toEndpointPayload,
   fromEndpointPayload,
   rowsToWidgetAuthors,
+  createContributionsView,
 } from '../contributions/view.js';
 
 // ---------------------------------------------------------------------------
@@ -414,5 +425,44 @@ describe('rowsToWidgetAuthors', () => {
     // All None
     const authors = rowsToWidgetAuthors(rows);
     expect(authors[0].credit_levels).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createContributionsView — projectName auto-load
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — projectName auto-load', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ project_name: 'my-project', contributors: [], sections: [] }),
+    });
+  });
+
+  it('populates the project name input when projectName option is provided', () => {
+    const root = createContributionsView({ projectName: 'my-project' });
+    const input = root.querySelector('#cv-project-name');
+    expect(input.value).toBe('my-project');
+  });
+
+  it('calls fetch to load the project when projectName is provided and no draft exists', async () => {
+    createContributionsView({ projectName: 'my-project' });
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('my-project'),
+    );
+  });
+
+  it('does not auto-fetch when no projectName is provided', async () => {
+    createContributionsView({});
+    await Promise.resolve();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 });
