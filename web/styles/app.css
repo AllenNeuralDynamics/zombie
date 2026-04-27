@@ -11,7 +11,7 @@
  * ------------------------------------------------------------------------ */
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
 
   /* Accent */
   --color-red:        #c0392b;
@@ -52,6 +52,7 @@
 /* System dark mode (no explicit override) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --surface-bg:       #141414;
     --surface-card:     #1e1e1e;
     --surface-border:   #2e2e2e;
@@ -69,6 +70,7 @@
 
 /* Explicit dark mode */
 [data-theme="dark"] {
+  color-scheme: dark;
   --surface-bg:       #141414;
   --surface-card:     #1e1e1e;
   --surface-border:   #2e2e2e;
