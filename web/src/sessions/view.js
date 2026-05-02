@@ -301,15 +301,64 @@ export function createSessionsView(coord, metadata) {
   // -------------------------------------------------------------------------
 
   function buildPage(allRows) {
-    // -- Filter state --------------------------------------------------------
-    const selectedProjects = new Set();
-    const selectedInstruments = new Set();
-    const selectedQuarters = new Set();
+    // -- URL state helpers ---------------------------------------------------
+    function readUrlState() {
+      const p = new URLSearchParams(window.location.search);
+      const split = (key) => {
+        const v = p.get(key);
+        return v ? v.split('|').map(decodeURIComponent).filter(Boolean) : [];
+      };
+      return {
+        projects:    split('projects'),
+        instruments: split('instruments'),
+        quarter:     p.get('quarter') ?? null,
+        sort:        p.get('sort') ?? 'acquisition_start_time',
+        dir:         p.get('dir') === 'asc' ? 'asc' : 'desc',
+        page:        Math.max(0, parseInt(p.get('page') ?? '0', 10) || 0),
+      };
+    }
+
+    function writeUrlState() {
+      const p = new URLSearchParams();
+      const encode = (set) =>
+        Array.from(set).map(encodeURIComponent).join('|');
+      if (selectedProjects.size)    p.set('projects',    encode(selectedProjects));
+      if (selectedInstruments.size) p.set('instruments', encode(selectedInstruments));
+      if (selectedQuarter)          p.set('quarter',     encodeURIComponent(selectedQuarter));
+      if (sortCol !== 'acquisition_start_time') p.set('sort', sortCol);
+      if (sortDir !== 'desc')                   p.set('dir',  sortDir);
+      if (page > 0)                             p.set('page', String(page));
+      const qs = p.toString();
+      history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    // -- Filter state (restored from URL) ------------------------------------
+    const initial = readUrlState();
+    const selectedProjects    = new Set(initial.projects);
+    const selectedInstruments = new Set(initial.instruments);
+    // Quarters ascending (oldest first) for carousel navigation
+    const allQuarters = collectQuarters(allRows).slice().reverse();
+
+    // Last complete quarter: back up one quarter from today
+    function lastCompleteQuarter() {
+      const now = new Date();
+      let year = now.getUTCFullYear();
+      let q = Math.floor(now.getUTCMonth() / 3) + 1 - 1; // previous quarter
+      if (q === 0) { q = 4; year -= 1; }
+      return `${year}-Q${q}`;
+    }
+
+    // Default to last complete quarter; fall back to newest available
+    const defaultQuarter = allQuarters.includes(lastCompleteQuarter())
+      ? lastCompleteQuarter()
+      : (allQuarters[allQuarters.length - 1] ?? null);
+    let selectedQuarter = (initial.quarter && allQuarters.includes(initial.quarter))
+      ? initial.quarter
+      : defaultQuarter;
 
     // Unique option lists from all rows
     const allProjects = uniqueValues(allRows, 'project_name');
     const allInstruments = uniqueValues(allRows, 'instrument_id');
-    const allQuarters = collectQuarters(allRows);
 
     // -- Layout --------------------------------------------------------------
     const layout = document.createElement('div');
@@ -380,21 +429,90 @@ export function createSessionsView(coord, metadata) {
       });
       wrapper.appendChild(clearBtn);
 
+      return { wrapper, select };
+    }
+
+    const projectGroup    = buildMultiSelect('Project',       allProjects,    selectedProjects,    onFilterChange);
+    const instrumentGroup = buildMultiSelect('Instrument ID', allInstruments, selectedInstruments, onFilterChange);
+    // Restore multi-select DOM selections from URL state
+    function restoreMultiSelect(selectEl, selectedSet) {
+      for (const opt of selectEl.options) {
+        opt.selected = selectedSet.has(opt.value);
+      }
+    }
+    restoreMultiSelect(projectGroup.select,    selectedProjects);
+    restoreMultiSelect(instrumentGroup.select, selectedInstruments);
+
+    // Quarter carousel
+    function buildQuarterCarousel() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'sessions-filter-group';
+
+      const labelEl = document.createElement('label');
+      labelEl.className = 'sessions-filter-label';
+      labelEl.textContent = 'Quarter';
+      wrapper.appendChild(labelEl);
+
+      const carousel = document.createElement('div');
+      carousel.className = 'sessions-quarter-carousel';
+
+      const prevBtn = document.createElement('button');
+      prevBtn.className = 'sessions-carousel-btn';
+      prevBtn.textContent = '<';
+      prevBtn.setAttribute('aria-label', 'Previous (older) quarter');
+
+      const display = document.createElement('span');
+      display.className = 'sessions-carousel-label';
+
+      const nextBtn = document.createElement('button');
+      nextBtn.className = 'sessions-carousel-btn';
+      nextBtn.textContent = '>';
+      nextBtn.setAttribute('aria-label', 'Next (newer) quarter');
+
+      carousel.appendChild(prevBtn);
+      carousel.appendChild(display);
+      carousel.appendChild(nextBtn);
+      wrapper.appendChild(carousel);
+
+      function currentIdx() {
+        return selectedQuarter ? allQuarters.indexOf(selectedQuarter) : allQuarters.length - 1;
+      }
+
+      function updateCarousel() {
+        const idx = currentIdx();
+        display.textContent = allQuarters[idx]?.replace('-Q', ' Q') ?? '';
+        prevBtn.disabled = idx <= 0;
+        nextBtn.disabled = idx >= allQuarters.length - 1;
+      }
+
+      prevBtn.addEventListener('click', () => {
+        const idx = currentIdx();
+        if (idx > 0) selectedQuarter = allQuarters[idx - 1];
+        updateCarousel();
+        onFilterChange();
+      });
+
+      nextBtn.addEventListener('click', () => {
+        const idx = currentIdx();
+        if (idx < allQuarters.length - 1) selectedQuarter = allQuarters[idx + 1];
+        updateCarousel();
+        onFilterChange();
+      });
+
+      updateCarousel();
       return wrapper;
     }
 
-    filterPanel.appendChild(
-      buildMultiSelect('Project', allProjects, selectedProjects, onFilterChange),
-    );
-    filterPanel.appendChild(
-      buildMultiSelect('Instrument ID', allInstruments, selectedInstruments, onFilterChange),
-    );
-    filterPanel.appendChild(
-      buildMultiSelect('Quarter', allQuarters, selectedQuarters, onFilterChange),
-    );
+    filterPanel.appendChild(projectGroup.wrapper);
+    filterPanel.appendChild(instrumentGroup.wrapper);
+    filterPanel.appendChild(buildQuarterCarousel());
 
     // -- Stats panel ---------------------------------------------------------
     statsPanel.innerHTML = `<h3 class="sessions-panel-title">Summary</h3>`;
+
+    const statsWarningEl = document.createElement('div');
+    statsWarningEl.className = 'sessions-stat-warning';
+    statsPanel.appendChild(statsWarningEl);
 
     const statsTotalEl = document.createElement('div');
     statsTotalEl.className = 'sessions-stat-block';
@@ -409,10 +527,10 @@ export function createSessionsView(coord, metadata) {
     statsPanel.appendChild(statsProjectEl);
 
     // -- Table ---------------------------------------------------------------
-    let sortCol = 'acquisition_start_time';
-    let sortDir = 'desc';
+    let sortCol = initial.sort;
+    let sortDir = initial.dir;
     let columnFilters = Object.fromEntries(DISPLAY_COLUMNS.map((c) => [c, '']));
-    let page = 0;
+    let page = initial.page;
 
     const uniques = {};
     for (const col of DISPLAY_COLUMNS) {
@@ -481,7 +599,8 @@ export function createSessionsView(coord, metadata) {
     // -- Render loop ---------------------------------------------------------
 
     function getFilteredRows() {
-      let rows = applyFilters(allRows, selectedProjects, selectedInstruments, selectedQuarters);
+      const quarterSet = selectedQuarter ? new Set([selectedQuarter]) : new Set();
+      let rows = applyFilters(allRows, selectedProjects, selectedInstruments, quarterSet);
       // Apply column text/select filters
       const colEntries = Object.entries(columnFilters).filter(([, v]) => v !== '');
       if (colEntries.length > 0) {
@@ -496,6 +615,15 @@ export function createSessionsView(coord, metadata) {
     }
 
     function updateStats(filteredRows) {
+      // In-progress quarter warning
+      const currentQ = getQuarterLabel(new Date().toISOString());
+      if (selectedQuarter === currentQ) {
+        statsWarningEl.textContent = 'Warning: this quarter is in progress!';
+        statsWarningEl.hidden = false;
+      } else {
+        statsWarningEl.hidden = true;
+      }
+
       // Total
       statsTotalEl.innerHTML = `
         <div class="sessions-stat-title">Total Sessions</div>
@@ -564,6 +692,7 @@ export function createSessionsView(coord, metadata) {
 
       updateSortIndicators();
       updateStats(filtered);
+      writeUrlState();
     }
 
     function onFilterChange() {

@@ -3016,6 +3016,53 @@ body {
   border-color: var(--text-primary);
 }
 
+/* ---- Quarter carousel ---- */
+
+.sessions-quarter-carousel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.sessions-carousel-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sessions-carousel-btn:hover:not(:disabled) {
+  background: var(--text-primary);
+  color: var(--surface-bg);
+  border-color: var(--text-primary);
+}
+
+.sessions-carousel-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sessions-carousel-label {
+  flex: 1;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 80px;
+  white-space: nowrap;
+}
+
 /* ---- Stats panel ---- */
 
 .sessions-stats-panel {
@@ -3041,6 +3088,16 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
+}
+
+.sessions-stat-warning {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--color-red);
+  padding: 6px 8px;
+  border: 1px solid var(--color-red);
+  border-radius: var(--radius);
+  background: rgba(192, 57, 43, 0.07);
 }
 
 .sessions-stat-value {
