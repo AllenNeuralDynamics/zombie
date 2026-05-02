@@ -71,15 +71,26 @@ export function getQuarterLabel(iso) {
  *  4. Re-capitalize the first letter of each word (title case)
  *
  * @param {string} name
- * @returns {string}
+ * @returns {string} Display name (may contain spaces)
  */
 export function normalizeName(name) {
   return String(name)
-    .replace(/[^a-zA-Z0-9 ]/g, ' ')   // special chars → space
+    .replace(/[^a-zA-Z0-9 ]/g, ' ')   // special chars -> space
     .replace(/\s+/g, ' ')              // collapse whitespace
     .trim()
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase()); // title case
+}
+
+/**
+ * Merge key for deduplication: lowercase with all spaces removed.
+ * "John Doe" and "JohnDoe" both produce "johndoe".
+ *
+ * @param {string} displayName - Already normalized display name.
+ * @returns {string}
+ */
+export function mergeKey(displayName) {
+  return displayName.toLowerCase().replace(/ /g, '');
 }
 
 export function parseExperimenters(val) {
@@ -88,8 +99,8 @@ export function parseExperimenters(val) {
   const result = [];
   for (const part of String(val).split(',')) {
     const normalized = normalizeName(part);
-    if (normalized && !seen.has(normalized.toLowerCase())) {
-      seen.add(normalized.toLowerCase());
+    if (normalized && !seen.has(mergeKey(normalized))) {
+      seen.add(mergeKey(normalized));
       result.push(normalized);
     }
   }
@@ -149,24 +160,57 @@ export function applyFilters(rows, selectedProjects, selectedInstruments, select
 }
 
 /**
- * Build experimenter → count map from filtered rows.
+/**
+ * Format a duration in milliseconds to a human-readable string like "4h 23m".
+ * Returns null if ms is 0 or negative.
+ *
+ * @param {number} ms
+ * @returns {string|null}
+ */
+export function formatDuration(ms) {
+  if (!ms || ms <= 0) return null;
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Build experimenter -> count + duration map from filtered rows.
  *
  * @param {object[]} rows
- * @returns {Array<{experimenter: string, count: number}>} sorted desc by count
+ * @returns {Array<{experimenter: string, count: number, knownMs: number, unknownCount: number}>}
  */
 export function countByExperimenter(rows) {
-  // Use lowercase as the merge key, store display name (title-cased) separately
-  const counts = new Map();   // lowercase key → count
-  const display = new Map();  // lowercase key → display name
+  // Merge key strips spaces so "John Doe" and "JohnDoe" collapse together.
+  // Prefer the display name that contains a space (more readable).
+  const counts       = new Map();  // mergeKey -> count
+  const display      = new Map();  // mergeKey -> display name
+  const knownMs      = new Map();  // mergeKey -> total ms (sessions with end time)
+  const unknownCount = new Map();  // mergeKey -> sessions missing end time
   for (const row of rows) {
+    const start = row.acquisition_start_time ? new Date(row.acquisition_start_time).getTime() : null;
+    const end   = row.acquisition_end_time   ? new Date(row.acquisition_end_time).getTime()   : null;
+    const durMs = (start && end && end > start) ? (end - start) : null;
     for (const name of parseExperimenters(row.experimenters)) {
-      const key = name.toLowerCase();
+      const key = mergeKey(name);
       counts.set(key, (counts.get(key) ?? 0) + 1);
-      if (!display.has(key)) display.set(key, name);
+      if (!display.has(key) || !display.get(key).includes(' ')) display.set(key, name);
+      if (durMs !== null) {
+        knownMs.set(key, (knownMs.get(key) ?? 0) + durMs);
+      } else {
+        unknownCount.set(key, (unknownCount.get(key) ?? 0) + 1);
+      }
     }
   }
   return Array.from(counts.entries())
-    .map(([key, count]) => ({ experimenter: display.get(key), count }))
+    .map(([key, count]) => ({
+      experimenter: display.get(key),
+      count,
+      knownMs:      knownMs.get(key) ?? 0,
+      unknownCount: unknownCount.get(key) ?? 0,
+    }))
     .sort((a, b) => a.experimenter.localeCompare(b.experimenter));
 }
 
@@ -276,7 +320,7 @@ export function createSessionsView(coord, metadata) {
   registerPromise
     .then(() =>
       coord.query(
-        `SELECT subject_id, acquisition_start_time, project_name, instrument_id,
+        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name, instrument_id,
                 experimenters, modalities, genotype, name, location
          FROM asset_basics
          WHERE lower(modalities) LIKE '%behavior%'
@@ -633,15 +677,18 @@ export function createSessionsView(coord, metadata) {
       // By experimenter
       const byExp = countByExperimenter(filteredRows);
       const expRows = byExp
-        .map(({ experimenter, count }) =>
-          `<tr><td>${escHtml(experimenter)}</td><td class="stat-count">${count.toLocaleString()}</td></tr>`,
-        )
+        .map(({ experimenter, count, knownMs, unknownCount }) => {
+          const known = formatDuration(knownMs);
+          let timeCell = known ?? '—';
+          if (unknownCount > 0) timeCell += `<span class="stat-unknown"> +${unknownCount} unknown</span>`;
+          return `<tr><td>${escHtml(experimenter)}</td><td class="stat-count">${count.toLocaleString()}</td><td class="stat-duration">${timeCell}</td></tr>`;
+        })
         .join('');
       statsExperimenterEl.innerHTML = `
         <div class="sessions-stat-title">Sessions by Experimenter</div>
         <table class="sessions-stat-table">
-          <thead><tr><th>Experimenter</th><th>Count</th></tr></thead>
-          <tbody>${expRows || '<tr><td colspan="2">No data</td></tr>'}</tbody>
+          <thead><tr><th>Experimenter</th><th>Count</th><th>Total Time</th></tr></thead>
+          <tbody>${expRows || '<tr><td colspan="3">No data</td></tr>'}</tbody>
         </table>
       `;
 

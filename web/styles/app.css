@@ -3138,6 +3138,19 @@ body {
   white-space: nowrap;
 }
 
+.sessions-stat-table tbody td.stat-duration {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.stat-unknown {
+  font-size: 0.75em;
+  color: var(--color-yellow);
+  font-style: italic;
+}
+
 /* ---- Table area ---- */
 
 .sessions-table-area {
