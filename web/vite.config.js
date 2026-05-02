@@ -31,6 +31,7 @@ export default defineConfig({
         contributions: resolve(__dirname, 'contributions.html'),
         subject: resolve(__dirname, 'subject.html'),
         smartspim: resolve(__dirname, 'smartspim.html'),
+        sessions: resolve(__dirname, 'sessions.html'),
       },
     },
   },
