@@ -303,7 +303,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     const affIds = authorAffIds[row.name] || [];
     const affNames = affIds.map(id => affiliations.find(a => a.id === id)?.name).filter(Boolean);
     if (affNames.length) author.affiliation = affNames;
-    return { author, credit_levels };
+    return { author, author_level: row.author_level ?? null, credit_levels };
   });
   const topSections = sections.map(s => s.title).filter(Boolean);
   const topAssets = assets.filter(Boolean);
@@ -325,7 +325,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
  */
 export function fromEndpointPayload(data) {
   return (data.contributors || []).map((contributor) => {
-    const row = { name: contributor.author?.name ?? '', isFirst: false };
+    const row = { name: contributor.author?.name ?? '', isFirst: false, author_level: contributor.author_level ?? null };
     for (const cat of CREDIT_CATEGORIES) row[cat] = 'None';
     for (const cl of contributor.credit_levels || []) {
       const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
@@ -399,7 +399,7 @@ export function rowsToWidgetAuthors(rows) {
         credit_levels.push({ role: displayRole, level: level.toLowerCase() });
       }
     }
-    return { name: row.name, credit_levels };
+    return { name: row.name, author_level: row.author_level ?? null, credit_levels };
   });
 }
 
@@ -639,7 +639,7 @@ export function createContributionsView(options = {}) {
         <div id="cv-panel-asset-names" class="cv-tab-panel">
           <div class="cv-asset-input-row">
             <input id="cv-asset-names" type="text" placeholder="e.g. my_project_2024-01-01, another_asset" />
-            <button id="cv-load-btn" class="btn-primary">Load assets</button>
+            <button id="cv-load-btn" class="btn-primary">Add assets</button>
           </div>
         </div>
         <div id="cv-panel-query" class="cv-tab-panel" style="display:none">
@@ -725,6 +725,14 @@ export function createContributionsView(options = {}) {
             <input id="cv-detail-orcid" type="text" class="cv-orcid-input" placeholder="0000-0000-0000-0000" />
             <button type="button" id="cv-orcid-search-btn" class="btn-secondary cv-orcid-search-btn">Search</button>
           </div>
+        </div>
+        <div class="cv-detail-meta-item">
+          <label class="cv-detail-label" for="cv-detail-author-level">Author level</label>
+          <select id="cv-detail-author-level" class="cv-author-level-select">
+            <option value="">None</option>
+            <option value="first">first</option>
+            <option value="senior">senior</option>
+          </select>
         </div>
         <div class="cv-detail-meta-item cv-detail-aff-item">
           <label class="cv-detail-label">Affiliations</label>
@@ -815,10 +823,10 @@ export function createContributionsView(options = {}) {
 
   function syncUrl() {
     const params = new URLSearchParams(window.location.search);
-    const names = assetInput.value.trim();
-    if (names) params.set('asset_name', names); else params.delete('asset_name');
     const project = projectNameInput.value.trim();
     if (project) params.set('project', project); else params.delete('project');
+    // asset_name is never written back to the URL — the input is ephemeral
+    params.delete('asset_name');
     const qs = params.toString();
     history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }
@@ -1163,6 +1171,15 @@ export function createContributionsView(options = {}) {
       saveDraft();
     };
 
+    // Author level
+    const authorLevelSel = root.querySelector('#cv-detail-author-level');
+    authorLevelSel.value = row.author_level || '';
+    authorLevelSel.onchange = () => {
+      row.author_level = authorLevelSel.value || null;
+      updatePreview();
+      saveDraft();
+    };
+
     // ORCID public-API search
     const orcidSearchBtn = root.querySelector('#cv-orcid-search-btn');
     let orcidDropdownEl = null;
@@ -1399,9 +1416,11 @@ export function createContributionsView(options = {}) {
     if (names.length === 0) { infoEl.textContent = 'Enter at least one asset name.'; return; }
 
     loadBtn.disabled = true;
-    loadedAssetNames = names;
+    // Merge the new names into loadedAssetNames (dedup)
+    const existingAssetSet = new Set(loadedAssetNames);
+    const newAssetNames = names.filter(n => !existingAssetSet.has(n));
+    loadedAssetNames = [...loadedAssetNames, ...newAssetNames];
     renderAssetsTable();
-    syncUrl();
     infoEl.textContent = `Loading ${names.length} asset(s)\u2026`;
 
     try {
@@ -1427,9 +1446,9 @@ export function createContributionsView(options = {}) {
       const addedRows = initMatrix(newAuthors);
 
       infoEl.textContent = `${records.length} record(s) loaded \u2014 ${newAuthors.length} new author(s) added.`;
+      assetInput.value = '';
 
       setRows([...rows, ...addedRows]);
-      syncUrl();
     } catch (err) {
       infoEl.textContent = `Error: ${err.message}`;
       console.error('[contributions-view] load failed', err);
@@ -1596,7 +1615,6 @@ export function createContributionsView(options = {}) {
       creditLinkedSections = newCreditLinkedSections;
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
       loadedAssetNames = newAssets;
-      assetInput.value = newAssets.join(', ');
       renderAssetsTable();
       renderAffiliationsTable();
       renderSectionsTable();
@@ -1643,7 +1661,6 @@ export function createContributionsView(options = {}) {
       doiInput.value = doi;
       const newAssets = Array.isArray(data.assets) ? data.assets.filter(Boolean) : [];
       loadedAssetNames = newAssets;
-      assetInput.value = newAssets.join(', ');
       renderAssetsTable();
       renderAffiliationsTable();
       renderSectionsTable();
@@ -1744,7 +1761,6 @@ export function createContributionsView(options = {}) {
   // Load
   loadBtn.addEventListener('click', loadRecords);
   assetInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') loadRecords(); });
-  assetInput.addEventListener('input', syncUrl);
 
   // Project
   getBtn.addEventListener('click', loadFromServer);

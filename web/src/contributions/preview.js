@@ -10,7 +10,11 @@
  *   - CRediT matrix is transposed: authors are rows, roles are columns
  *   - No dataset-switcher (single data source from the page state)
  *   - Exported as createPreview(container, authors) rather than anywidget render()
+ *   - Added "Explore" tab: force-directed network via explore.js
  */
+
+// To disable the Explore tab: comment out the line below and the 'explore' tab case in buildWidget().
+import { createExploreView } from './explore.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -210,6 +214,82 @@ function ensureWidgetCSS() {
     .ae-dark .ae-legend-word-lead { color: #a5b4fc; }
     .ae-dark .ae-legend-word-equal { color: #818cf8; }
     .ae-dark .ae-legend-word-supporting { color: #6b7280; }
+    /* Author-level group labels */
+    .ae-level-group-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ae-level-group-sep {
+      font-size: 12px;
+      color: #d1d5db;
+      margin: 0 4px;
+    }
+    .ae-dark .ae-level-group-label { color: #9ca3af; }
+    .ae-dark .ae-level-group-sep { color: #4b5563; }
+    /* Author levels toggle switch */
+    .ae-author-levels-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .ae-toggle-track {
+      width: 32px;
+      height: 18px;
+      border-radius: 9px;
+      background: #d1d5db;
+      position: relative;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .ae-toggle-track.ae-toggle-on {
+      background: #4338ca;
+    }
+    .ae-toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+    .ae-toggle-track.ae-toggle-on .ae-toggle-thumb {
+      transform: translateX(14px);
+    }
+    .ae-toggle-label {
+      font-size: 12px;
+      color: #374151;
+      white-space: nowrap;
+    }
+    .ae-dark .ae-toggle-track { background: #4b5563; }
+    .ae-dark .ae-toggle-track.ae-toggle-on { background: #4338ca; }
+    .ae-dark .ae-toggle-label { color: #d1d5db; }
+    /* Shared authorship symbols */
+    .ae-author-level-sym {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      margin-left: 1px;
+    }
+    .ae-dark .ae-author-level-sym { color: #9ca3af; }
+    /* Author level legend */
+    .ae-author-level-legend {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #6b7280;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .ae-dark .ae-author-level-legend { color: #9ca3af; }
   `;
   document.head.appendChild(style);
 }
@@ -473,9 +553,14 @@ export function createPreview(container, authors) {
   // State
   let sortKey = 'alpha';
   let expanded = true;
-  let activeTab = container.dataset.cvTab || 'matrix';
+  let activeTab = container.dataset.cvTab || 'explore';
   let showCreditMenu = false;
   let searchQuery = '';
+  let useAuthorLevels = container.dataset.cvUseAuthorLevels === 'true';
+  // Cleanup function for the Explore tab's network view (cancelled on tab switch)
+  let exploreCleanup  = null;
+  // Persists zoom/pan across tab switches; reset to null only when authors change entirely
+  let exploreZoomState = null;
 
   function matchesSearch(author, query) {
     if (!query) return true;
@@ -505,6 +590,8 @@ export function createPreview(container, authors) {
   }
 
   function rerender() {
+    // Tear down Explore network view before replacing the widget DOM
+    if (exploreCleanup) { exploreCleanup(); exploreCleanup = null; }
     const newWidget = buildWidget();
     const oldWidget = container.querySelector('.ae-widget');
     if (oldWidget) {
@@ -603,16 +690,18 @@ export function createPreview(container, authors) {
     const chips = el('div', { className: 'ae-chips' });
 
     chips.appendChild(el('button', {
+      type: 'button',
       className: `ae-chip ${sortKey === 'alpha' ? 'ae-chip-active' : ''}`,
       onClick: () => { sortKey = 'alpha'; rerender(); },
-    }, '🔤 A → Z'));
+    }, 'A → Z'));
 
     // CRediT Role dropdown
     const creditWrap = el('div', { className: 'ae-credit-wrap' });
     const creditBtn = el('button', {
+      type: 'button',
       className: `ae-chip ${isCreditSort ? 'ae-chip-active' : ''}`,
       onClick: () => { showCreditMenu = !showCreditMenu; rerender(); },
-    }, '🏷️ CRediT Role ▾');
+    }, 'CRediT Role ▾');
     creditWrap.appendChild(creditBtn);
 
     if (showCreditMenu) {
@@ -642,9 +731,29 @@ export function createPreview(container, authors) {
     chips.appendChild(creditWrap);
 
     chips.appendChild(el('button', {
+      type: 'button',
       className: `ae-chip ${sortKey === 'most-roles' ? 'ae-chip-active' : ''}`,
       onClick: () => { sortKey = 'most-roles'; rerender(); },
-    }, '🏷️ Most roles'));
+    }, 'Most roles'));
+
+    // Author levels toggle switch
+    const levelsWrap = el('label', {
+      className: 'ae-author-levels-wrap',
+      title: 'Group authors into first / (none) / senior based on author_level field',
+    });
+    const levelsInput = el('input', { type: 'checkbox', style: { display: 'none' } });
+    if (useAuthorLevels) levelsInput.checked = true;
+    levelsInput.addEventListener('change', () => {
+      useAuthorLevels = levelsInput.checked;
+      container.dataset.cvUseAuthorLevels = String(useAuthorLevels);
+      rerender();
+    });
+    const track = el('span', { className: `ae-toggle-track${useAuthorLevels ? ' ae-toggle-on' : ''}` });
+    track.appendChild(el('span', { className: 'ae-toggle-thumb' }));
+    levelsWrap.appendChild(levelsInput);
+    levelsWrap.appendChild(track);
+    levelsWrap.appendChild(el('span', { className: 'ae-toggle-label' }, 'Author levels'));
+    chips.appendChild(levelsWrap);
 
     sortBar.appendChild(chips);
 
@@ -683,40 +792,93 @@ export function createPreview(container, authors) {
       });
     });
 
+    // When author levels are on, split into groups and render each group
+    const AUTHOR_LEVEL_ORDER = ['first', null, 'senior'];
+
+    function renderAuthorList(authorsToRender) {
+      const namesList = el('div', { className: 'ae-names' });
+
+      if (useAuthorLevels) {
+        const grpFirst = [], grpMiddle = [], grpSenior = [];
+        for (const author of authorsToRender) {
+          const lvl = author.author_level ?? null;
+          if (lvl === 'first') grpFirst.push(author);
+          else if (lvl === 'senior') grpSenior.push(author);
+          else grpMiddle.push(author);
+        }
+        const nonEmptyGroups = [];
+        if (grpFirst.length) nonEmptyGroups.push({ key: 'first', authors: grpFirst });
+        if (grpMiddle.length) nonEmptyGroups.push({ key: 'middle', authors: grpMiddle });
+        if (grpSenior.length) nonEmptyGroups.push({ key: 'senior', authors: grpSenior });
+
+        nonEmptyGroups.forEach((group, groupIndex) => {
+          if (groupIndex > 0) {
+            namesList.appendChild(el('span', { className: 'ae-level-group-sep' }, ' | '));
+          }
+          group.authors.forEach((author, gi) => {
+            const isLastInGroup = gi === group.authors.length - 1;
+            const isLastOverall = groupIndex === nonEmptyGroups.length - 1 && isLastInGroup;
+            const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
+            const span = el('span', { className: 'ae-name-wrap' });
+            if (isDimmed) span.style.opacity = '0.3';
+            const nameBtn = el('button', { className: 'ae-name' }, author.name);
+            attachAuthorPopover(nameBtn, author);
+            span.appendChild(nameBtn);
+            if (author.affiliations?.length && affList.length > 0) {
+              const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
+              const sym = (group.key === 'first' && multiFirst) ? '*'
+                        : (group.key === 'senior' && multiSenior) ? '§'
+                        : '';
+              if (indices.length) span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',') + sym));
+              else if (sym) span.appendChild(el('sup', { className: 'ae-aff-sup' }, sym));
+            } else {
+              const sym = (group.key === 'first' && multiFirst) ? '*'
+                        : (group.key === 'senior' && multiSenior) ? '§'
+                        : '';
+              if (sym) span.appendChild(el('sup', { className: 'ae-aff-sup' }, sym));
+            }
+            if (isCreditSort) {
+              const level = findCreditLevel(author, sortKey.slice(7));
+              if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+            }
+            if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
+            if (!isLastOverall) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
+            namesList.appendChild(span);
+          });
+        });
+      } else {
+        authorsToRender.forEach((author, i) => {
+          const isLast = i === authorsToRender.length - 1;
+          const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
+          const span = el('span', { className: 'ae-name-wrap' });
+          if (isDimmed) span.style.opacity = '0.3';
+          const nameBtn = el('button', { className: 'ae-name' }, author.name);
+          attachAuthorPopover(nameBtn, author);
+          span.appendChild(nameBtn);
+          if (author.affiliations?.length && affList.length > 0) {
+            const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
+            if (indices.length) span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',')));
+          }
+          if (isCreditSort) {
+            const level = findCreditLevel(author, sortKey.slice(7));
+            if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+          }
+          if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
+          if (!isLast) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
+          namesList.appendChild(span);
+        });
+      }
+      return namesList;
+    }
+
+    // Pre-compute shared authorship flags for legend
+    const _firstCount = useAuthorLevels ? resorted.filter(a => a.author_level === 'first').length : 0;
+    const _seniorCount = useAuthorLevels ? resorted.filter(a => a.author_level === 'senior').length : 0;
+    const multiFirst = _firstCount > 1;
+    const multiSenior = _seniorCount > 1;
+
     // Names with superscript affiliation indices
-    const namesList = el('div', { className: 'ae-names' });
-    resorted.forEach((author, i) => {
-      const isLast = i === resorted.length - 1;
-      const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
-      const span = el('span', { className: 'ae-name-wrap' });
-      if (isDimmed) span.style.opacity = '0.3';
-
-      const nameBtn = el('button', { className: 'ae-name' }, author.name);
-      attachAuthorPopover(nameBtn, author);
-      span.appendChild(nameBtn);
-
-      if (author.affiliations?.length && affList.length > 0) {
-        const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
-        if (indices.length) {
-          span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',')));
-        }
-      }
-
-      if (isCreditSort) {
-        const level = findCreditLevel(author, sortKey.slice(7));
-        if (level) {
-          span.appendChild(el('span', {
-            className: `ae-level-badge ae-level-${level}`,
-          }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
-        }
-      }
-
-      if (author.corresponding) {
-        span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
-      }
-      if (!isLast) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
-      namesList.appendChild(span);
-    });
+    const namesList = renderAuthorList(resorted);
 
     const byline = el('div', { className: 'ae-byline' });
     byline.appendChild(namesList);
@@ -741,6 +903,13 @@ export function createPreview(container, authors) {
       legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-supporting' }));
       legend.appendChild(document.createTextNode('Supporting'));
       byline.appendChild(legend);
+    }
+
+    if (useAuthorLevels && (multiFirst || multiSenior)) {
+      const lvlLegend = el('div', { className: 'ae-author-level-legend' });
+      if (multiFirst) lvlLegend.appendChild(el('span', {}, '* Shared first authorship'));
+      if (multiSenior) lvlLegend.appendChild(el('span', {}, '§ Shared senior authorship'));
+      byline.appendChild(lvlLegend);
     }
 
     wrap.appendChild(byline);
@@ -909,14 +1078,15 @@ export function createPreview(container, authors) {
 
     const container2 = el('div', { className: `ae-widget ${isDark ? 'ae-dark' : ''}` });
 
-    // Tabs: matrix, sections, authors, profiles (no network, no timeline)
+    // Tabs: matrix, sections, authors, profiles, explore (no timeline)
     const panel = el('div', { className: 'ae-panel' });
     const tabs = el('div', { className: 'ae-tabs', role: 'tablist', 'aria-label': 'Authorship views' });
     const tabDefs = [
-      { id: 'matrix', label: 'CRediT' },
-      { id: 'sections', label: 'Sections' },
-      { id: 'authors', label: 'Sorted List' },
+      { id: 'explore',  label: 'Explore' },
+      { id: 'matrix',   label: 'CRediT' },
+      { id: 'authors',  label: 'Sorted List' },
       { id: 'profiles', label: 'Profiles' },
+      { id: 'sections', label: 'Sections' },
     ];
     for (let ti = 0; ti < tabDefs.length; ti++) {
       const t = tabDefs[ti];
@@ -992,6 +1162,10 @@ export function createPreview(container, authors) {
       content.appendChild(buildAuthorListTab());
     } else if (activeTab === 'profiles') {
       content.appendChild(buildProfilesTab(sorted));
+    } else if (activeTab === 'explore') {
+      // createExploreView appends directly into content and returns a cleanup fn
+      if (!exploreZoomState) exploreZoomState = {};
+      exploreCleanup = createExploreView(content, sorted, exploreZoomState);
     }
     panel.appendChild(content);
     container2.appendChild(panel);

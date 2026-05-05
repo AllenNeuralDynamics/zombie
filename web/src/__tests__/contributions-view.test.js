@@ -395,6 +395,21 @@ describe('fromEndpointPayload', () => {
     expect(fromEndpointPayload({ project_name: 'p', contributors: [] })).toEqual([]);
   });
 
+  it('preserves author_level from endpoint payload', () => {
+    const data = {
+      project_name: 'proj',
+      contributors: [
+        { author: { name: 'Alice Smith' }, author_level: 'first', credit_levels: [] },
+        { author: { name: 'Bob Jones' }, author_level: null, credit_levels: [] },
+        { author: { name: 'Carol Lee' }, author_level: 'senior', credit_levels: [] },
+      ],
+    };
+    const rows = fromEndpointPayload(data);
+    expect(rows[0].author_level).toBe('first');
+    expect(rows[1].author_level).toBeNull();
+    expect(rows[2].author_level).toBe('senior');
+  });
+
   it('round-trips through toEndpointPayload → fromEndpointPayload', () => {
     const original = initMatrix(['Alice Smith', 'Bob Jones']);
     original[0]['Conceptualization'] = 'Lead';
@@ -404,6 +419,21 @@ describe('fromEndpointPayload', () => {
     expect(restored[0]['Conceptualization']).toBe('Lead');
     expect(restored[1]['Software']).toBe('Equal');
     expect(restored[0]['Software']).toBe('None');
+  });
+
+  it('round-trips author_level through toEndpointPayload → fromEndpointPayload', () => {
+    const data = {
+      project_name: 'proj',
+      contributors: [
+        { author: { name: 'Alice Smith' }, author_level: 'first', credit_levels: [] },
+        { author: { name: 'Bob Jones' }, author_level: 'senior', credit_levels: [] },
+      ],
+    };
+    const rows = fromEndpointPayload(data);
+    const payload = toEndpointPayload(rows, 'proj');
+    const restored = fromEndpointPayload(payload);
+    expect(restored[0].author_level).toBe('first');
+    expect(restored[1].author_level).toBe('senior');
   });
 });
 
@@ -425,6 +455,15 @@ describe('rowsToWidgetAuthors', () => {
     // All None
     const authors = rowsToWidgetAuthors(rows);
     expect(authors[0].credit_levels).toHaveLength(0);
+  });
+
+  it('preserves author_level in widget author objects', () => {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[0].author_level = 'first';
+    rows[1].author_level = 'senior';
+    const authors = rowsToWidgetAuthors(rows);
+    expect(authors[0].author_level).toBe('first');
+    expect(authors[1].author_level).toBe('senior');
   });
 });
 
