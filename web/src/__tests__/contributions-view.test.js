@@ -504,4 +504,49 @@ describe('createContributionsView — projectName auto-load', () => {
     await Promise.resolve();
     expect(global.fetch).not.toHaveBeenCalled();
   });
+
+  it('fetches history when a draft with a project name is restored (no full reload)', async () => {
+    const draftRows = [{ name: 'Alice Smith', isFirst: false, ...Object.fromEntries(
+      ['Conceptualization','Methodology','Software','Validation','Formal analysis',
+       'Investigation','Resources','Data curation','Writing \u2013 original draft',
+       'Writing \u2013 review & editing','Visualization','Supervision',
+       'Project Administration','Funding Acquisition'].map(c => [c, 'None'])
+    ) }];
+    sessionStorage.setItem('contributions:draft', JSON.stringify({
+      rows: draftRows,
+      projectName: 'my-project',
+      assetNames: '',
+      projectLocked: false,
+      projectPassword: '',
+      authorSources: {},
+      authorOrcids: {},
+      authorAffIds: {},
+      affiliations: [],
+      loadedAssetNames: [],
+      sections: [],
+      creditDescriptions: {},
+      creditLinkedSections: {},
+      selectedAuthor: null,
+      doi: '',
+    }));
+
+    // history=true fetch should be called; full project GET should not
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+
+    createContributionsView({ projectName: 'my-project' });
+    await Promise.resolve();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('history=true'),
+    );
+    // Should NOT re-fetch the full project data
+    const fullProjectCalls = global.fetch.mock.calls.filter(
+      ([url]) => !url.includes('history=true'),
+    );
+    expect(fullProjectCalls).toHaveLength(0);
+  });
 });

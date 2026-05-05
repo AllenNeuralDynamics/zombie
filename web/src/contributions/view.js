@@ -581,6 +581,8 @@ export function createContributionsView(options = {}) {
 
   let projectLocked = false;
   let projectPassword = '';
+  /** True when the server-side model has a password set (loaded via GET). */
+  let serverLocked = false;
 
   /** @type {HTMLElement|null} Currently-selected history bubble. */
   let selectedHistoryBubble = null;
@@ -840,7 +842,7 @@ export function createContributionsView(options = {}) {
         projectLocked,
         projectPassword,
         rows, authorSources, authorOrcids, authorAffIds, affiliations, loadedAssetNames,
-        sections, creditDescriptions, creditLinkedSections, selectedAuthor, doi,
+        sections, creditDescriptions, creditLinkedSections, selectedAuthor, doi, serverLocked,
       }));
     } catch (_) {}
   }
@@ -1668,6 +1670,22 @@ export function createContributionsView(options = {}) {
       syncUrl();
       endpointStatus.textContent = `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`;
       endpointStatus.className = 'contributions-endpoint-status status-success';
+
+      // Apply server-side locked state
+      serverLocked = data.locked === true;
+      if (serverLocked) {
+        projectLocked = true;
+        projectLockedCheckbox.checked = true;
+        projectLockedCheckbox.disabled = true;
+        pwPasswordRow.style.display = '';
+        projectPasswordInput.placeholder = 'Password required to save';
+        projectPassword = '';
+        projectPasswordInput.value = '';
+      } else {
+        projectLockedCheckbox.disabled = false;
+        projectPasswordInput.placeholder = 'Set a password';
+      }
+
       // Collapse assets section \u2014 irrelevant when working with a loaded project
       assetsOpen = false;
       assetsBody.style.display = 'none';
@@ -1683,6 +1701,21 @@ export function createContributionsView(options = {}) {
     }
   }
 
+  /**
+   * Hash a plaintext password with SHA-256 and return a hex string.
+   * Passwords are never sent in plaintext over the wire.
+   *
+   * @param {string} password
+   * @returns {Promise<string>}
+   */
+  async function hashPassword(password) {
+    const encoded = new TextEncoder().encode(password);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
   async function saveToServer() {
     const project = projectNameInput.value.trim();
     if (!project) {
@@ -1696,7 +1729,11 @@ export function createContributionsView(options = {}) {
     endpointStatus.className = 'contributions-endpoint-status status-loading';
     try {
       const payload = toEndpointPayload(rows, project, { authorOrcids, authorAffIds, affiliations, sections, creditDescriptions, creditLinkedSections, assets: loadedAssetNames, doi });
-      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
+      let url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
+      if (projectPassword) {
+        const hashed = await hashPassword(projectPassword);
+        url += `&password=${encodeURIComponent(hashed)}`;
+      }
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1728,7 +1765,11 @@ export function createContributionsView(options = {}) {
   function updateProjectButtons() {
     const hasProject = projectNameInput.value.trim().length > 0;
     getBtn.disabled = !hasProject;
-    postBtn.disabled = !hasProject || rows.length === 0;
+    const hasRows = rows.length > 0;
+    // When server has a password, require the user to enter one before saving
+    const passwordRequired = serverLocked;
+    const hasPassword = projectPasswordInput.value.trim().length > 0;
+    postBtn.disabled = !hasProject || !hasRows || (passwordRequired && !hasPassword);
   }
 
   // -------------------------------------------------------------------------
@@ -1776,6 +1817,7 @@ export function createContributionsView(options = {}) {
   });
   projectPasswordInput.addEventListener('input', () => {
     projectPassword = projectPasswordInput.value;
+    updateProjectButtons();
     saveDraft();
   });
 
@@ -1846,13 +1888,23 @@ export function createContributionsView(options = {}) {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     if (raw) {
       const draft = JSON.parse(raw);
-      if (draft.rows?.length > 0) {
+      // If the URL specifies a project that differs from the draft, discard the
+      // draft and treat the URL as ground truth.
+      const draftProject = (draft.projectName || '').trim();
+      if (projectName && draftProject && projectName !== draftProject) {
+        sessionStorage.removeItem(DRAFT_KEY);
+      } else if (draft.rows?.length > 0) {
         assetInput.value = draft.assetNames || '';
         projectNameInput.value = draft.projectName || '';
         if (draft.projectLocked) {
           projectLocked = true;
           projectLockedCheckbox.checked = true;
           pwPasswordRow.style.display = '';
+        }
+        if (draft.serverLocked) {
+          serverLocked = true;
+          projectLockedCheckbox.disabled = true;
+          projectPasswordInput.placeholder = 'Password required to save';
         }
         if (draft.projectPassword) {
           projectPassword = draft.projectPassword;
@@ -1887,6 +1939,11 @@ export function createContributionsView(options = {}) {
 
   if (projectName && !draftRestored) {
     Promise.resolve().then(loadFromServer);
+  } else if (draftRestored) {
+    const draftProject = projectNameInput.value.trim();
+    if (draftProject) {
+      Promise.resolve().then(() => fetchHistory(draftProject));
+    }
   }
 
   updateProjectButtons();

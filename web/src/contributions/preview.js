@@ -544,7 +544,9 @@ export function createPreview(container, authors) {
   function detectDarkMode() {
     const html = document.documentElement;
     if (html.getAttribute('data-theme') === 'dark') return true;
+    if (html.getAttribute('data-theme') === 'light') return false;
     if (html.classList.contains('dark')) return true;
+    if (html.classList.contains('light')) return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
