@@ -35,10 +35,32 @@ const ROLE_ICONS = {
   'Supervision': '👥', 'Project Administration': '📋', 'Funding Acquisition': '💰',
 };
 
-const AVATAR_COLORS = [
-  '#4f46e5', '#0d9488', '#7c3aed', '#d97706',
-  '#e11d48', '#059669', '#1e40af', '#4338ca',
-];
+// Maps each CRediT role to a semantic color group.
+// Initialized after normalizeRole() hoists as a function declaration.
+const ROLE_GROUP = (() => {
+  const m = {};
+  for (const r of ['Conceptualization', 'Supervision', 'Project Administration', 'Funding Acquisition'])
+    m[normalizeRole(r)] = 'leadership';   // blue / purple
+  for (const r of ['Methodology', 'Resources'])
+    m[normalizeRole(r)] = 'methods';      // ochre
+  for (const r of ['Validation', 'Investigation', 'Data curation'])
+    m[normalizeRole(r)] = 'data';         // green / teal
+  for (const r of ['Formal analysis', 'Software', 'Writing \u2013 original draft', 'Writing \u2013 review & editing', 'Visualization'])
+    m[normalizeRole(r)] = 'analysis';     // red / pink / magenta
+  return m;
+})();
+
+// Hue [center, halfSpread] for each group (degrees)
+const GROUP_HUE = {
+  leadership: [252, 32],  // ~220–284  blue-violet → violet-purple
+  methods:    [ 41, 22],  // ~19–63    ochre → amber  (Methodology, Resources)
+  data:       [165, 28],  // ~137–193  green → teal
+  analysis:   [340, 22],  // ~318–362  pink → magenta  (wraps through 0°)
+};
+
+// Module-level cache of all authors from the most recent createPreview() call.
+// Used by getColor() to incorporate co-contributor network weighting.
+let _allAuthors = [];
 
 const LEVEL_RANK = { lead: 3, equal: 2, supporting: 1 };
 
@@ -302,8 +324,60 @@ function hashStr(s) {
   return Math.abs(h);
 }
 
-function getColor(name) {
-  return AVATAR_COLORS[hashStr(name) % AVATAR_COLORS.length];
+/**
+ * Assign an author a color derived from their majority CRediT group:
+ *   leadership → blue/purple, data → green/teal, analysis → red/pink.
+ * Within that group the hue, saturation, and lightness are randomized
+ * deterministically from the author's name so the same author always
+ * gets the same color regardless of sort order.
+ *
+ * @param {{ name: string, credit_levels?: Array<{role:string,level:string}> }} author
+ */
+function getColor(author) {
+  const counts = { leadership: 0, methods: 0, data: 0, analysis: 0 };
+
+  // Own contributions (weight 1.0 each)
+  const ownRoles = new Set();
+  if (author.credit_levels) {
+    for (const cl of author.credit_levels) {
+      const norm = normalizeRole(cl.role);
+      ownRoles.add(norm);
+      const grp = ROLE_GROUP[norm];
+      if (grp) counts[grp]++;
+    }
+  }
+
+  // Co-contributor influence: authors who share ≥1 role each add 0.1 per role
+  if (_allAuthors.length > 0 && ownRoles.size > 0) {
+    for (const other of _allAuthors) {
+      if (other.name === author.name || !other.credit_levels) continue;
+      const shares = other.credit_levels.some(cl => ownRoles.has(normalizeRole(cl.role)));
+      if (!shares) continue;
+      for (const cl of other.credit_levels) {
+        const grp = ROLE_GROUP[normalizeRole(cl.role)];
+        if (grp) counts[grp] += 0.1;
+      }
+    }
+  }
+
+  // Find the majority group; break ties with the name hash.
+  const best = Math.max(counts.leadership, counts.methods, counts.data, counts.analysis);
+  let group;
+  if (best === 0) {
+    group = ['leadership', 'methods', 'data', 'analysis'][hashStr(author.name) % 4];
+  } else {
+    const tied = Object.entries(counts).filter(([, v]) => v === best).map(([k]) => k);
+    group = tied.length === 1 ? tied[0] : tied[hashStr(author.name) % tied.length];
+  }
+
+  // Two independent pseudo-random streams seeded by name.
+  const h1 = hashStr(author.name);
+  const h2 = hashStr(author.name + '~');
+  const [hCenter, hHalf] = GROUP_HUE[group];
+  const hue = ((hCenter - hHalf + (h1 % (hHalf * 2 + 1))) + 360) % 360;
+  const sat  = 62 + (h2 % 18);           // 62–79 %
+  const lgt  = 40 + ((h1 >> 6) % 14);    // 40–53 %
+  return `hsl(${hue},${sat}%,${lgt}%)`;
 }
 
 function getInitials(name) {
@@ -419,7 +493,7 @@ function attachAuthorPopover(element, author) {
 function showPopover(anchor, author) {
   hidePopover();
   ensurePopoverStyles();
-  const color = getColor(author.name);
+  const color = getColor(author);
   const pop = el('div', { className: 'ae-popover' });
   pop.addEventListener('mouseenter', () => clearTimeout(_popoverTimeout));
   pop.addEventListener('mouseleave', () => {
@@ -527,6 +601,7 @@ function sortAuthors(authors, sortKey) {
  */
 export function createPreview(container, authors) {
   ensureWidgetCSS();
+  _allAuthors = authors || [];
 
   // Remove previous widget if any
   const prev = container.querySelector('.ae-widget');
@@ -924,7 +999,7 @@ export function createPreview(container, authors) {
     for (let ai = 0; ai < sorted.length; ai++) {
       const author = sorted[ai];
       const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
-      const color = getColor(author.name);
+      const color = getColor(author);
       const card = el('div', { className: 'ae-profile-card' });
       card.style.setProperty('--i', String(ai));
       if (isDimmed) card.style.opacity = '0.3';
@@ -1042,7 +1117,7 @@ export function createPreview(container, authors) {
 
       const contributors = el('div', { className: 'ae-section-contributors' });
       for (const c of contribs) {
-        const color = getColor(c.author.name);
+        const color = getColor(c.author);
         const isDimmed = searchQuery && !matchesSearch(c.author, searchQuery);
         const chip = el('div', { className: 'ae-section-chip' });
         if (isDimmed) chip.style.opacity = '0.3';

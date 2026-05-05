@@ -57,10 +57,10 @@ const _ROLE_COLOR = {
   'Funding Acquisition':              '#4455BB',  // darker indigo-blue
 
   // ── Group 2: Data acquisition (green → teal-cyan) ───────────────────────
-  'Methodology':                      '#00BB55',  // vibrant green
+  'Methodology':                      '#DB9500',  // ochre (CMYK 0/32/100/14)
   'Validation':                       '#009950',  // medium-dark green
   'Investigation':                    '#00AA88',  // teal-green
-  'Resources':                        '#0099BB',  // teal-blue
+  'Resources':                        '#c38a0e',  // ochre (CMYK 0/32/100/14)
   'Data curation':                    '#00BBCC',  // cyan-teal
 
   // ── Group 3: Analysis & writing (pink → red-pink / magenta) ────────────
@@ -77,11 +77,29 @@ const _ROLE_ABBREV = (r) => r
   .replace('Writing \u2013 ', 'W: ')
   .replace('Formal analysis', 'Formal anal.');
 
-const _PALETTE = [
-  '#4f46e5', '#0d9488', '#7c3aed', '#d97706',
-  '#e11d48', '#059669', '#1e40af', '#4338ca',
-  '#be185d', '#0891b2', '#65a30d', '#9333ea',
-];
+// ── Author node color — semantic group derived from majority CRediT roles ──
+//
+// Group → hue band  [center°, halfSpread°]
+const _NODE_HUE = {
+  leadership: [252, 32],   // blue-violet → violet-purple  (~220–284°)
+  methods:    [ 41, 22],   // ochre → amber                (~19–63°)  (Methodology, Resources)
+  data:       [165, 28],   // green → teal                 (~137–193°)
+  analysis:   [340, 22],   // pink → magenta               (~318–362°)
+};
+
+// Derived from _ROLE_COLOR comment groups above.
+const _NODE_ROLE_GROUP = (() => {
+  const m = {};
+  for (const r of ['Conceptualization', 'Supervision', 'Project Administration', 'Funding Acquisition'])
+    m[r.toLowerCase()] = 'leadership';
+  for (const r of ['Methodology', 'Resources'])
+    m[r.toLowerCase()] = 'methods';
+  for (const r of ['Validation', 'Investigation', 'Data curation'])
+    m[r.toLowerCase()] = 'data';
+  for (const r of ['Formal analysis', 'Software', 'Writing \u2013 original draft', 'Writing \u2013 review & editing', 'Visualization'])
+    m[r.toLowerCase()] = 'analysis';
+  return m;
+})();
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -91,7 +109,55 @@ function _hash(s) {
   return Math.abs(h);
 }
 
-function _nodeColor(name) { return _PALETTE[_hash(name) % _PALETTE.length]; }
+function _nodeColor(author, allAuthors) {
+  const counts = { leadership: 0, methods: 0, data: 0, analysis: 0 };
+
+  // Own contributions (weight 1.0 each)
+  const ownRoles = new Set();
+  if (author.credit_levels) {
+    for (const cl of author.credit_levels) {
+      if (!cl.role) continue;
+      const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
+      ownRoles.add(key);
+      const grp = _NODE_ROLE_GROUP[key];
+      if (grp) counts[grp]++;
+    }
+  }
+
+  // Co-contributor influence: authors who share ≥1 role each add 0.1 per role
+  if (allAuthors && ownRoles.size > 0) {
+    for (const other of allAuthors) {
+      if (other.name === author.name || !other.credit_levels) continue;
+      const shares = other.credit_levels.some(cl => {
+        const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
+        return ownRoles.has(key);
+      });
+      if (!shares) continue;
+      for (const cl of other.credit_levels) {
+        if (!cl.role) continue;
+        const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
+        const grp = _NODE_ROLE_GROUP[key];
+        if (grp) counts[grp] += 0.1;
+      }
+    }
+  }
+
+  const best = Math.max(counts.leadership, counts.methods, counts.data, counts.analysis);
+  let group;
+  if (best === 0) {
+    group = ['leadership', 'methods', 'data', 'analysis'][_hash(author.name) % 4];
+  } else {
+    const tied = Object.entries(counts).filter(([, v]) => v === best).map(([k]) => k);
+    group = tied.length === 1 ? tied[0] : tied[_hash(author.name) % tied.length];
+  }
+  const h1 = _hash(author.name);
+  const h2 = _hash(author.name + '~');
+  const [hCenter, hHalf] = _NODE_HUE[group];
+  const hue = ((hCenter - hHalf + (h1 % (hHalf * 2 + 1))) + 360) % 360;
+  const sat  = 62 + (h2 % 18);        // 62–79 %
+  const lgt  = 40 + ((h1 >> 6) % 14); // 40–53 %
+  return `hsl(${hue},${sat}%,${lgt}%)`;
+}
 
 function _initials(name) {
   const p = name.trim().split(/\s+/);
@@ -333,6 +399,7 @@ function _injectCSS() {
 
 let _xpopEl  = null;
 let _xpopTid = null;
+let _xAllAuthors = [];  // set by createExploreView for use in _showXpop
 
 function _showXpop(anchorEl, author) {
   _hideXpop();
@@ -358,7 +425,7 @@ function _showXpop(anchorEl, author) {
   const header = document.createElement('div');
   header.style.cssText = 'display:flex;align-items:center;gap:9px;margin-bottom:7px;';
   const avEl = document.createElement('div');
-  const avColor = _nodeColor(author.name);
+  const avColor = _nodeColor(author, _xAllAuthors);
   avEl.style.cssText = [
     `background:${avColor}`, 'border-radius:50%',
     'width:30px', 'height:30px', 'flex-shrink:0',
@@ -648,7 +715,7 @@ function _renderGraph(svgEl, nodes, edges, width, height) {
 
   for (const node of nodes) {
     const { author, i } = node;
-    const color = _nodeColor(author.name);
+    const color = _nodeColor(author, _xAllAuthors);
 
     const g = _svg('g', {
       class: 'ae-explore-node',
@@ -913,6 +980,7 @@ function _buildRightLegend(el, clusterMap, onHover, onLeave) {
  * @returns {Function}            - Cleanup function; call when unmounting.
  */
 export function createExploreView(container, authors, zoomState) {
+  _xAllAuthors = authors || [];
   _injectCSS();
   if (!authors || authors.length === 0) return () => {};
 
