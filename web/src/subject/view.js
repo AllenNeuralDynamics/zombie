@@ -79,7 +79,7 @@ export function generateInfoHtml(subject, projects = []) {
 export function organizeSubjectData(records, subjectId) {
   const bundle = {
     subject: {},
-    procedures: { subject_procedures: [], specimen_procedures: [] },
+    procedures: { subject_procedures: [], specimen_procedures: [], coordinate_system: null },
     acquisitions: [],
   };
 
@@ -94,6 +94,9 @@ export function organizeSubjectData(records, subjectId) {
 
     // Procedures — deduplicate across records by type + dates
     if (rec.procedures) {
+      if (!bundle.procedures.coordinate_system && rec.procedures.coordinate_system) {
+        bundle.procedures.coordinate_system = rec.procedures.coordinate_system;
+      }
       for (const proc of (rec.procedures.subject_procedures ?? [])) {
         const key = `${proc.object_type ?? ''}|${proc.start_date ?? ''}`;
         if (!subjectProcKeys.has(key)) {
@@ -285,7 +288,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     const timelineSvg = createSubjectTimeline(events, {
       onSelect: (ev) => {
-        renderEventDetail(ev, detailContainer, { subjectId });
+        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system });
         if (assetsTableEl) {
           const targetName = ev?.type === 'Acquisition' ? (ev.data?._assetName ?? '') : '';
           assetsTableEl.querySelectorAll('tr[data-asset-name]').forEach((r) => {

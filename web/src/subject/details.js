@@ -305,9 +305,9 @@ function createInjectionVizPanel(surgeryData, subjectId) {
   return container;
 }
 
-function createFiberVizPanel(surgeryData, subjectId) {
+function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) {
   const container = document.createElement('div');
-  const fibers = extractFibersFromSurgery(surgeryData).sort(
+  const fibers = extractFibersFromSurgery(surgeryData, proceduresCoordSys).sort(
     (a, b) => a.name.localeCompare(b.name),
   );
 
@@ -341,6 +341,7 @@ function createFiberVizPanel(surgeryData, subjectId) {
   });
 
   // Side-by-side layout: 2D canvas on left, 3D viewer on right
+  // (proceduresCoordSys drives the coordinate parsing in the 3D viewer)
   const vizRow = document.createElement('div');
   vizRow.style.cssText = 'display:flex;gap:12px;align-items:flex-start;margin-top:8px';
 
@@ -349,7 +350,7 @@ function createFiberVizPanel(surgeryData, subjectId) {
   canvas2dWrap.appendChild(canvas);
   vizRow.appendChild(canvas2dWrap);
 
-  const viz3d = createBrainViz3D(surgeryData);
+  const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
   viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
   vizRow.appendChild(viz3d);
 
@@ -357,7 +358,7 @@ function createFiberVizPanel(surgeryData, subjectId) {
   return container;
 }
 
-function renderSurgeryDetail(event, container, { subjectId = 'Unknown' } = {}) {
+function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
 
@@ -383,7 +384,7 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown' } = {}) {
 
   // Fiber locations tab (2D top-down)
   if (hasFiberImplants(data)) {
-    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId) });
+    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys) });
   }
 
   container.innerHTML = '';

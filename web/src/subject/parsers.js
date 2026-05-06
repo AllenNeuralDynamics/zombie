@@ -10,6 +10,8 @@
  * in a Node environment without DOM.
  */
 
+import { parseTranslation } from '../lib/coord-systems.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -472,14 +474,12 @@ export function hasBrainInjections(surgeryData) {
  * @param {object} deviceConfig
  * @returns {object}
  */
-export function extractFiberMetadata(deviceConfig) {
-  let ap = 0, ml = 0, dv = null, depth = null, angle = 0;
+export function extractFiberMetadata(deviceConfig, proceduresCoordSys = null) {
+  const translation = (deviceConfig?.transform ?? []).find(t => t?.object_type === 'Translation')?.translation ?? [];
+  const { ap, ml, dv, depth } = parseTranslation(proceduresCoordSys, translation);
+  let angle = 0;
   for (const t of deviceConfig?.transform ?? []) {
-    if (t?.object_type === 'Translation') {
-      const vals = t.translation ?? [];
-      if (vals.length >= 3) { ap = safeFloat(vals[0]); ml = safeFloat(vals[1]); dv = safeFloat(vals[2]); }
-      if (vals.length >= 4) { depth = Math.abs(safeFloat(vals[3])); }
-    } else if (t?.object_type === 'Rotation') {
+    if (t?.object_type === 'Rotation') {
       const r = t.rotation ?? [];
       if (r.length >= 1) angle = safeFloat(r[0]);
     }
@@ -504,10 +504,10 @@ export function extractFiberMetadata(deviceConfig) {
  * @param {object} surgeryData
  * @returns {Array<object>}
  */
-export function extractFibersFromSurgery(surgeryData) {
+export function extractFibersFromSurgery(surgeryData, proceduresCoordSys = null) {
   return (surgeryData?.procedures ?? [])
     .filter((p) => p?.object_type === 'Probe implant' && p.device_config)
-    .map((p) => extractFiberMetadata(p.device_config));
+    .map((p) => extractFiberMetadata(p.device_config, proceduresCoordSys));
 }
 
 /**

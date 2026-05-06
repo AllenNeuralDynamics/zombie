@@ -26,6 +26,7 @@ import * as THREE from 'three';
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import structuresData from './allen_mouse_100um_v1.2/structures.json';
 import surfaceDepthData from './allen_mouse_100um_v1.2/surface_depth.json';
+import { parseTranslation } from '../lib/coord-systems.js';
 import { ITEM_COLORS } from './brain-viz.js';
 
 // ── Surface depth lookup ──────────────────────────────────────────────────
@@ -87,23 +88,16 @@ function makeCCFMatrix(THREE) {
  * Extract all fiber probes from a Surgery procedure record.
  * Returns objects with { name, AP, ML, Depth, length, diameterMm, structureId, structureAcronym, structureName }.
  */
-function extractProbes(surgeryData) {
+function extractProbes(surgeryData, proceduresCoordSys = null) {
   const probes = [];
   for (const proc of (surgeryData?.procedures ?? [])) {
     if (proc?.object_type !== 'Probe implant' || !proc.device_config) continue;
     const cfg     = proc.device_config;
     const implant = proc.implanted_device ?? {};
 
-    let AP = 0, ML = 0, Depth = 0;
-    for (const t of (cfg.transform ?? [])) {
-      if (t?.object_type === 'Translation') {
-        const v = t.translation ?? [];
-        AP    = Number(v[0]) || 0;
-        ML    = Number(v[1]) || 0;
-        // v[2] = SI (lateral tilt), v[3] = Depth (down into brain)
-        Depth = Math.abs(Number(v[3]) || 0);
-      }
-    }
+    // Use the procedures-level coordinate system (not device_config.coordinate_system)
+    const translation = (cfg.transform ?? []).find(t => t?.object_type === 'Translation')?.translation ?? [];
+    const { ap: AP, ml: ML, depth: Depth } = parseTranslation(proceduresCoordSys, translation);
 
     const length     = Number(implant.total_length) || 5.0;      // mm
     const diameterMm = (Number(implant.core_diameter) || 200) / 1000; // µm → mm
@@ -111,7 +105,7 @@ function extractProbes(surgeryData) {
     const structure = cfg.primary_targeted_structure ?? {};
     probes.push({
       name: cfg.device_name ?? 'Unknown',
-      AP, ML, Depth,
+      AP, ML, Depth: Depth ?? 0,
       length,
       diameterMm,
       structureId:     String(structure.id ?? ''),
@@ -145,7 +139,7 @@ function probeHexColor(probe) {
  * @param {object} surgeryData - The raw Surgery `data` object from a timeline event.
  * @returns {HTMLElement}
  */
-export function createBrainViz3D(surgeryData) {
+export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
   const container = document.createElement('div');
   container.className = 'brain-viz-3d-container';
   container.style.cssText =
@@ -164,7 +158,7 @@ export function createBrainViz3D(surgeryData) {
     'pointer-events:none;z-index:10;text-align:right;line-height:1.6';
   container.appendChild(infoEl);
 
-  _init3D(container, statusEl, infoEl, surgeryData).catch((err) => {
+  _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys).catch((err) => {
     statusEl.textContent = '3D viewer failed: ' + (err.message ?? err);
     console.error('[BrainViz3D]', err);
   });
@@ -174,7 +168,7 @@ export function createBrainViz3D(surgeryData) {
 
 // ── Internal initialiser ─────────────────────────────────────────────────
 
-async function _init3D(container, statusEl, infoEl, surgeryData) {
+async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys) {
   const CCF_MATRIX = makeCCFMatrix(THREE);
 
   // ── Scene ──────────────────────────────────────────────────────────────
@@ -212,7 +206,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData) {
   ));
 
   // ── Fiber probes (colored by index to match 2D brain-viz) ────────────────
-  const probes = extractProbes(surgeryData);
+  const probes = extractProbes(surgeryData, proceduresCoordSys);
   _buildProbes(THREE, scene, probes);
 
   // ── Legend ────────────────────────────────────────────────────
