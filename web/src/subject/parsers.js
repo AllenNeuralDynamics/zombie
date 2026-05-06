@@ -473,11 +473,12 @@ export function hasBrainInjections(surgeryData) {
  * @returns {object}
  */
 export function extractFiberMetadata(deviceConfig) {
-  let ap = 0, ml = 0, dv = null, angle = 0;
+  let ap = 0, ml = 0, dv = null, depth = null, angle = 0;
   for (const t of deviceConfig?.transform ?? []) {
     if (t?.object_type === 'Translation') {
       const vals = t.translation ?? [];
       if (vals.length >= 3) { ap = safeFloat(vals[0]); ml = safeFloat(vals[1]); dv = safeFloat(vals[2]); }
+      if (vals.length >= 4) { depth = Math.abs(safeFloat(vals[3])); }
     } else if (t?.object_type === 'Rotation') {
       const r = t.rotation ?? [];
       if (r.length >= 1) angle = safeFloat(r[0]);
@@ -488,6 +489,7 @@ export function extractFiberMetadata(deviceConfig) {
     ap,
     ml,
     dv,
+    depth,
     angle,
     unit: 'millimeter',
     reference: (deviceConfig?.coordinate_system ?? {}).origin ?? 'Bregma',

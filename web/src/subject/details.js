@@ -15,6 +15,7 @@ import {
   extractFibersFromSurgery,
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
+import { createBrainViz3D } from './brain-viz-3d.js';
 import { buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 
 // ---------------------------------------------------------------------------
@@ -319,13 +320,14 @@ function createFiberVizPanel(surgeryData, subjectId) {
     <table class="detail-table">
       <thead><tr>
         <th>Fiber</th><th>AP (mm)</th><th>ML (mm)</th><th>DV (mm)</th>
-        <th>Angle (°)</th><th>Target</th>
+        <th>Depth (mm)</th><th>Angle (°)</th><th>Target</th>
       </tr></thead>
       <tbody>${fibers.map((f) => `<tr>
         <td>${f.name}</td>
         <td>${f.ap.toFixed(2)}</td>
         <td>${f.ml.toFixed(2)}</td>
         <td>${f.dv != null ? f.dv.toFixed(2) : 'N/A'}</td>
+        <td>${f.depth != null ? f.depth.toFixed(2) : 'N/A'}</td>
         <td>${Math.abs(f.angle) > 0.1 ? f.angle.toFixed(1) : '0'}</td>
         <td>${f.targetedStructure}</td>
       </tr>`).join('')}</tbody>
@@ -337,7 +339,21 @@ function createFiberVizPanel(surgeryData, subjectId) {
   const { canvas } = createBrainVizCanvas(points, labels, {
     title: 'Fiber Implant Locations (Top View)',
   });
-  container.appendChild(canvas);
+
+  // Side-by-side layout: 2D canvas on left, 3D viewer on right
+  const vizRow = document.createElement('div');
+  vizRow.style.cssText = 'display:flex;gap:12px;align-items:flex-start;margin-top:8px';
+
+  const canvas2dWrap = document.createElement('div');
+  canvas2dWrap.style.cssText = 'flex:0 0 auto';
+  canvas2dWrap.appendChild(canvas);
+  vizRow.appendChild(canvas2dWrap);
+
+  const viz3d = createBrainViz3D(surgeryData);
+  viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
+  vizRow.appendChild(viz3d);
+
+  container.appendChild(vizRow);
   return container;
 }
 
@@ -365,7 +381,7 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown' } = {}) {
     tabDefs.push({ label: 'Brain Injections', content: createInjectionVizPanel(data, subjectId) });
   }
 
-  // Fiber locations tab
+  // Fiber locations tab (2D top-down)
   if (hasFiberImplants(data)) {
     tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId) });
   }

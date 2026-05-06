@@ -153,3 +153,4 @@ data/*
 # JS
 web/node_modules/
 web/.vite/
+example_metadata.json

@@ -30,14 +30,15 @@ export const LAMBDA_PIXEL = [412, 1020];
 
 /** Default color palette for multiple scatter items. */
 export const ITEM_COLORS = [
-  '#FF6B6B', // Red
-  '#4CAF50', // Green
-  '#2196F3', // Blue
-  '#FF9800', // Orange
-  '#9C27B0', // Purple
-  '#00BCD4', // Cyan
-  '#FFC107', // Amber
-  '#795548', // Brown
+  '#6464FF', // RGB 100/100/255
+  '#CD0F55', // RGB 205/15/85
+  '#00A59B', // RGB 0/165/155
+  '#8246FF', // RGB 130/70/255
+  '#CDEB05', // RGB 205/235/5
+  '#FF00FF', // RGB 255/0/255
+  '#FF6E00', // RGB 255/110/0
+  '#DC9600', // RGB 220/150/0
+  '#FFEB23', // RGB 255/235/35
 ];
 
 // ---------------------------------------------------------------------------
