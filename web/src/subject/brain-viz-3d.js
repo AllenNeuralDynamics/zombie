@@ -40,7 +40,7 @@ const _SURF_MAP = surfaceDepthData.depth_um;
  * (AP_mm, ML_mm) in BREGMA_ARID space (origin = bregma, anterior/right positive).
  * Returns null if outside the atlas volume.
  */
-function surfaceY(AP_mm, ML_mm) {
+export function surfaceY(AP_mm, ML_mm) {
   // CCF µm: AP = 5400 - AP_mm*1000 (anterior → smaller CCF AP)
   //         ML = 5700 - ML_mm*1000 (right-positive ML_mm; atlas axis-2 is Right→Left so right = smaller CCF ML)
   const ccfAP = 5400 - AP_mm * 1000;
@@ -56,24 +56,24 @@ function surfaceY(AP_mm, ML_mm) {
 }
 
 // ── Structure colour lookup (id → [r, g, b]) ──────────────────────────────
-const STRUCTURE_COLORS = Object.fromEntries(
+export const STRUCTURE_COLORS = Object.fromEntries(
   structuresData.map(s => [String(s.id), s.rgb_triplet]).filter(([, v]) => v),
 );
 
 /** Convert a CSS hex color string like '#FF6B6B' to a three.js hex number. */
-function cssHexToThree(cssHex) {
+export function cssHexToThree(cssHex) {
   return parseInt(cssHex.replace('#', ''), 16);
 }
 
 // ── Physical CCF box centre in three.js coords ────────────────────────────
 // CCF box: AP 0–13200, DV 0–8000, ML 0–11400 µm; Bregma at (5400, 332, 5700)
 // Centre AP=6600 → z=(5400-6600)/1000=-1.2; DV=4000 → y=(332-4000)/1000≈-3.668; ML=5700 → x=0
-const TARGET_X = 0, TARGET_Y = -3.668, TARGET_Z = -1.2;
+export const TARGET_X = 0, TARGET_Y = -3.668, TARGET_Z = -1.2;
 
 // ── CCF → three.js affine matrix (µm → mm, origin = Bregma) ─────────────
 //  row-major: [ x_out = (ccf_z - 5700)/1000, y_out = (332 - ccf_y)/1000,
 //               z_out = (5400 - ccf_x)/1000 ]
-function makeCCFMatrix(THREE) {
+export function makeCCFMatrix(THREE) {
   return new THREE.Matrix4().set(
      0,        0,     1/1000, -5.7,
      0,    -1/1000,   0,       0.332,
@@ -391,4 +391,9 @@ function _loadOBJ(loader, url, onLoad) {
     // Silently skip missing mesh files (not all structures may have meshes)
     console.warn('[BrainViz3D] Could not load mesh:', url, err?.message ?? err);
   });
+}
+
+/** Load a brain OBJ mesh from the CDN, silently ignoring missing files. */
+export function loadBrainMesh(loader, url, onLoad) {
+  return _loadOBJ(loader, url, onLoad);
 }

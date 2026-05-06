@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTranslation, parseDeviceConfigCoords } from '../lib/coord-systems.js';
+import { parseTranslation, parseDeviceConfigCoords, computeProbeDirection } from '../lib/coord-systems.js';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -218,5 +218,116 @@ describe('parseDeviceConfigCoords', () => {
     expect(result.ap).toBe(0);
     expect(result.ml).toBe(0);
     expect(result.depth).toBeNull();
+  });
+});
+
+// ── computeProbeDirection ───────────────────────────────────────────────────
+
+describe('computeProbeDirection', () => {
+  it('returns +Z unit vector when no transforms are given (probe points anterior)', () => {
+    const [x, y, z] = computeProbeDirection([]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('returns +Z when only a zero rotation is given', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [0, 0, 0] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('ignores Translation objects (only rotations affect direction)', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Translation', translation: [10, 20, 30] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('Rx(90°) rotates +Z to -Y (ventral)', () => {
+    // Rx: y1 = cos(90)*z_y - sin(90)*z_z = 0 - 1 = -1, z1 = sin(90)*0 + cos(90)*1 = 0
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [90, 0, 0] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(-1);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('Rx(-90°) rotates +Z to +Y (dorsal)', () => {
+    // Rx(-90): y1 = cos(-90)*0 - sin(-90)*1 = 1, z1 = sin(-90)*0 + cos(-90)*1 = 0
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [-90, 0, 0] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(1);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('Ry(90°) rotates +Z to +X (right/ML)', () => {
+    // Ry: x2 = cos(90)*0 + sin(90)*1 = 1, z2 = -sin(90)*0 + cos(90)*1 = 0
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [0, 90, 0] },
+    ]);
+    expect(x).toBeCloseTo(1);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('Rz(90°) does not affect +Z (Rz only rotates the XY plane)', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [0, 0, 90] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('Rz(-90°) does not affect +Z', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [0, 0, -90] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('result is a unit vector', () => {
+    const dir = computeProbeDirection([
+      { object_type: 'Rotation', angles: [30, 45, -20] },
+    ]);
+    const len = Math.sqrt(dir[0] ** 2 + dir[1] ** 2 + dir[2] ** 2);
+    expect(len).toBeCloseTo(1, 6);
+  });
+
+  it('applies multiple rotations in sequence (extrinsic)', () => {
+    // Rx(-90) makes +Z → +Y (dorsal), then Ry(90) rotates +Y unchanged → +Y
+    // because Ry only rotates the XZ plane.
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [-90, 0, 0] }, // +Z → +Y
+      { object_type: 'Rotation', angles: [0, 90, 0] },  // Ry on (0,1,0): Y unaffected
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(1);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('handles null transforms array gracefully', () => {
+    const [x, y, z] = computeProbeDirection(null);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('handles missing angles array gracefully', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation' }, // no angles property — defaults to [0,0,0]
+    ]);
+    expect(z).toBeCloseTo(1); // unchanged
   });
 });

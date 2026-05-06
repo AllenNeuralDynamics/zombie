@@ -16,6 +16,7 @@ import {
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
 import { createBrainViz3D } from './brain-viz-3d.js';
+import { createEphysViz3D, extractEphysProbes } from './ephys-viz-3d.js';
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 
 // ---------------------------------------------------------------------------
@@ -54,7 +55,21 @@ export function buildBirthDetail(event) {
 }
 
 /**
- * Build an HTML string for an Acquisition event detail card.
+ * Check whether an acquisition data object contains at least one Ephys assembly config.
+ * @param {object} acquisitionData
+ * @returns {boolean}
+ */
+export function hasEphysAssemblies(acquisitionData) {
+  for (const stream of (acquisitionData?.data_streams ?? [])) {
+    for (const cfg of (stream?.configurations ?? [])) {
+      if (cfg?.object_type === 'Ephys assembly config') return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Build an HTML string for the overview card of an Acquisition event.
  *
  * @param {object} event
  * @returns {string}
@@ -360,6 +375,103 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
   return container;
 }
 
+// ---------------------------------------------------------------------------
+// Ephys assembly panel (for Acquisition events with ecephys data)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an HTML string for a single ephys probe info card.
+ * Pure function, Node-testable.
+ *
+ * @param {object} probe - Probe object from extractEphysProbes().
+ * @param {number} index - Probe index (for color reference).
+ * @returns {string}
+ */
+export function buildEphysProbeCard(probe, index) {
+  const primary = probe.primaryStructure
+    ? `${probe.primaryStructure.name} (${probe.primaryStructure.acronym})`
+    : 'Not specified';
+  const others = probe.otherStructures.length
+    ? probe.otherStructures.map((s) => `${s.name} (${s.acronym})`).join(', ')
+    : null;
+  const moduleAngles = probe.modules
+    .filter((m) => m && (m.arc_angle != null || m.module_angle != null))
+    .map((m) => {
+      const parts = [];
+      if (m.arc_angle != null) parts.push(`arc ${m.arc_angle}°`);
+      if (m.module_angle != null) parts.push(`module ${m.module_angle}°`);
+      if (m.rotation_angle != null) parts.push(`rotation ${m.rotation_angle}°`);
+      return parts.join(', ');
+    })
+    .join('; ');
+
+  return `
+    <div class="detail-card">
+      <h4>Probe ${index + 1}: ${probe.name}</h4>
+      <dl>
+        <dt>Primary target</dt><dd>${primary}</dd>
+        ${others ? `<dt>Other targets</dt><dd>${others}</dd>` : ''}
+        ${probe.dye ? `<dt>Dye</dt><dd>${probe.dye}</dd>` : ''}
+        ${moduleAngles ? `<dt>Module angles</dt><dd>${moduleAngles}</dd>` : ''}
+        <dt>Position (AP, ML)</dt><dd>${probe.ap.toFixed(2)} mm, ${probe.ml.toFixed(2)} mm</dd>
+        <dt>Depth</dt><dd>${probe.depth.toFixed(2)} mm</dd>
+        ${probe.notes ? `<dt>Notes</dt><dd>${probe.notes}</dd>` : ''}
+      </dl>
+    </div>`;
+}
+
+/**
+ * Create the ephys details panel (info cards + 3D viewer).
+ * @param {object} acquisitionData - Raw acquisition object.
+ * @returns {HTMLElement}
+ */
+function createEphysPanel(acquisitionData) {
+  const container = document.createElement('div');
+  const probes = extractEphysProbes(acquisitionData);
+
+  if (!probes.length) {
+    container.innerHTML = '<p class="detail-empty">No ephys probe data found.</p>';
+    return container;
+  }
+
+  // Info cards for each probe
+  const cardsHtml = probes.map((p, i) => buildEphysProbeCard(p, i)).join('');
+  container.innerHTML = cardsHtml;
+
+  // 3D viewer below the cards
+  const viz3d = createEphysViz3D(acquisitionData);
+  viz3d.style.cssText += ';margin-top:12px';
+  container.appendChild(viz3d);
+
+  return container;
+}
+
+/**
+ * Render an Acquisition event detail: overview card, with an optional
+ * "Ephys Assembly" tab when ephys data is present.
+ */
+function renderAcquisitionDetail(event, container) {
+  const { data = {} } = event;
+
+  if (!hasEphysAssemblies(data)) {
+    // Simple case: just the overview card
+    container.innerHTML = buildAcquisitionDetail(event);
+    return;
+  }
+
+  // Tab layout: Overview + Ephys Assembly
+  const overviewEl = document.createElement('div');
+  overviewEl.innerHTML = buildAcquisitionDetail(event);
+
+  const tabDefs = [
+    { label: 'Overview',        content: overviewEl },
+    { label: 'Ephys Assembly',  content: createEphysPanel(data) },
+  ];
+
+  container.innerHTML = '';
+  container.appendChild(createTabWidget(tabDefs));
+}
+
 function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
@@ -423,7 +535,7 @@ export function renderEventDetail(event, container, context = {}) {
       break;
 
     case 'Acquisition':
-      container.innerHTML = buildAcquisitionDetail(event);
+      renderAcquisitionDetail(event, container);
       break;
 
     case 'Session':
