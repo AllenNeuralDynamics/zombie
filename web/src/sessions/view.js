@@ -123,6 +123,25 @@ export function collectQuarters(rows) {
 }
 
 /**
+ * Normalize a raw instrument_id by extracting just the <name> portion from
+ * legacy naming patterns:
+ *   <location>_<name>_<date>
+ *   <location>-<name>_<date>
+ *   <location>-<name>_<morename>_<date>
+ *
+ * where <date> is YYYYMMDD or YYYY-MM-DD.
+ * IDs that don't match these patterns are returned unchanged.
+ *
+ * @param {string|null} id
+ * @returns {string}
+ */
+export function normalizeInstrumentId(id) {
+  if (!id) return id ?? '';
+  const m = String(id).match(/^[^_-]+[_-](.+)_(\d{8}|\d{4}-\d{2}-\d{2}|(?:2[3-6])\d{4})$/);
+  return m ? m[1] : String(id);
+}
+
+/**
  * Collect unique non-null, non-empty values for a column, sorted.
  *
  * @param {object[]} rows
@@ -299,6 +318,34 @@ const COLUMN_LABELS = {
 const PAGE_SIZE = 100;
 const SELECT_THRESHOLD = 50;
 
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger a CSV file download in the browser.
+ *
+ * @param {string} filename
+ * @param {string[]} headers
+ * @param {string[][]} dataRows
+ */
+export function downloadCsv(filename, headers, dataRows) {
+  const escape = (v) => {
+    const s = String(v ?? '');
+    return s.includes(',') || s.includes('"') || s.includes('\n')
+      ? `"${s.replace(/"/g, '""')}"`
+      : s;
+  };
+  const lines = [headers, ...dataRows].map((row) => row.map(escape).join(','));
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /**
  * Render one table row.
  *
@@ -372,6 +419,9 @@ export function createSessionsView(coord, metadata) {
   // -------------------------------------------------------------------------
 
   function buildPage(allRows) {
+    // Normalize instrument_ids once so all downstream filtering and display
+    // sees clean names rather than <location>_<name>_<date> variants.
+    allRows = allRows.map((r) => ({ ...r, instrument_id: normalizeInstrumentId(r.instrument_id) }));
     // -- URL state helpers ---------------------------------------------------
     function readUrlState() {
       const p = new URLSearchParams(window.location.search);
@@ -666,6 +716,27 @@ export function createSessionsView(coord, metadata) {
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
 
+    const tableExportBtn = document.createElement('button');
+    tableExportBtn.className = 'sessions-export-btn sessions-table-export-btn';
+    tableExportBtn.textContent = 'Export CSV';
+    tableExportBtn.addEventListener('click', () => {
+      const filtered = getFilteredRows();
+      const sorted = sortRows([...filtered], sortCol, sortDir);
+      downloadCsv('sessions.csv',
+        DISPLAY_COLUMNS.map((c) => COLUMN_LABELS[c] ?? c),
+        sorted.map((row) => [
+          row.subject_id ?? '',
+          formatDate(row.acquisition_start_time ?? null),
+          row.project_name ?? '',
+          row.instrument_id ?? '',
+          row.experimenters ?? '',
+          row.modalities ?? '',
+          row.genotype ?? '',
+        ]),
+      );
+    });
+
+    tableArea.appendChild(tableExportBtn);
     tableArea.appendChild(table);
     tableArea.appendChild(pagingBar);
 
@@ -731,10 +802,13 @@ export function createSessionsView(coord, metadata) {
         statsWarningEl.hidden = true;
       }
 
+      const total = filteredRows.length;
+      const pct = (n) => total > 0 ? `${((n / total) * 100).toFixed(1)}%` : '—';
+
       // Total
       statsTotalEl.innerHTML = `
         <div class="sessions-stat-title">Total Sessions</div>
-        <div class="sessions-stat-value">${filteredRows.length.toLocaleString()}</div>
+        <div class="sessions-stat-value">${total.toLocaleString()}</div>
       `;
 
       // By experimenter
@@ -744,31 +818,73 @@ export function createSessionsView(coord, metadata) {
           const known = formatDuration(knownMs);
           let timeCell = known ?? '—';
           if (unknownCount > 0) timeCell += `<span class="stat-unknown"> +${unknownCount} unknown</span>`;
-          return `<tr><td>${escHtml(experimenter)}</td><td class="stat-count">${count.toLocaleString()}</td><td class="stat-duration">${timeCell}</td></tr>`;
+          return `<tr><td>${escHtml(experimenter)}</td><td class="stat-count">${count.toLocaleString()}</td><td class="stat-pct">${pct(count)}</td><td class="stat-duration">${timeCell}</td></tr>`;
         })
         .join('');
       statsExperimenterEl.innerHTML = `
-        <div class="sessions-stat-title">Sessions by Experimenter</div>
+        <div class="sessions-stat-title-row">
+          <div class="sessions-stat-title">Sessions by Experimenter</div>
+          <button class="sessions-export-btn" data-export="experimenter">Export CSV</button>
+        </div>
         <table class="sessions-stat-table">
-          <thead><tr><th>Experimenter</th><th>Count</th><th>Total Time</th></tr></thead>
-          <tbody>${expRows || '<tr><td colspan="3">No data</td></tr>'}</tbody>
+          <thead><tr><th>Experimenter</th><th>Count</th><th>%</th><th>Total Time</th></tr></thead>
+          <tbody>${expRows || '<tr><td colspan="4">No data</td></tr>'}</tbody>
         </table>
       `;
+      statsExperimenterEl.querySelector('[data-export="experimenter"]').addEventListener('click', () => {
+        downloadCsv(`${selectedQuarter ?? 'all'}_experimenter-summary.csv`,
+          ['Experimenter', 'Count', 'Percent', 'Total Time'],
+          byExp.map(({ experimenter, count, knownMs, unknownCount }) => {
+            const known = formatDuration(knownMs) ?? '';
+            const timeVal = unknownCount > 0 ? `${known} (+${unknownCount} unknown)`.trim() : known;
+            return [experimenter, count, pct(count), timeVal];
+          }),
+        );
+      });
 
-      // By project
+      // By project — also compute total time per project
       const byProj = countByProject(filteredRows);
+      // Build a project → total ms map
+      const projMs = new Map();
+      const projUnknown = new Map();
+      for (const row of filteredRows) {
+        const p = String(row.project_name ?? 'Unknown');
+        const start = row.acquisition_start_time ? new Date(row.acquisition_start_time).getTime() : null;
+        const end   = row.acquisition_end_time   ? new Date(row.acquisition_end_time).getTime()   : null;
+        const durMs = (start && end && end > start) ? (end - start) : null;
+        if (durMs !== null) projMs.set(p, (projMs.get(p) ?? 0) + durMs);
+        else projUnknown.set(p, (projUnknown.get(p) ?? 0) + 1);
+      }
       const projRows = byProj
-        .map(({ project, count }) =>
-          `<tr><td>${escHtml(project)}</td><td class="stat-count">${count.toLocaleString()}</td></tr>`,
-        )
+        .map(({ project, count }) => {
+          const known = formatDuration(projMs.get(project) ?? 0);
+          const unk = projUnknown.get(project) ?? 0;
+          let timeCell = known ?? '—';
+          if (unk > 0) timeCell += `<span class="stat-unknown"> +${unk} unknown</span>`;
+          return `<tr><td>${escHtml(project)}</td><td class="stat-count">${count.toLocaleString()}</td><td class="stat-pct">${pct(count)}</td><td class="stat-duration">${timeCell}</td></tr>`;
+        })
         .join('');
       statsProjectEl.innerHTML = `
-        <div class="sessions-stat-title">Sessions by Project</div>
+        <div class="sessions-stat-title-row">
+          <div class="sessions-stat-title">Sessions by Project</div>
+          <button class="sessions-export-btn" data-export="project">Export CSV</button>
+        </div>
         <table class="sessions-stat-table">
-          <thead><tr><th>Project</th><th>Count</th></tr></thead>
-          <tbody>${projRows || '<tr><td colspan="2">No data</td></tr>'}</tbody>
+          <thead><tr><th>Project</th><th>Count</th><th>%</th><th>Total Time</th></tr></thead>
+          <tbody>${projRows || '<tr><td colspan="4">No data</td></tr>'}</tbody>
         </table>
       `;
+      statsProjectEl.querySelector('[data-export="project"]').addEventListener('click', () => {
+        downloadCsv(`${selectedQuarter ?? 'all'}_project-summary.csv`,
+          ['Project', 'Count', 'Percent', 'Total Time'],
+          byProj.map(({ project, count }) => {
+            const known = formatDuration(projMs.get(project) ?? 0) ?? '';
+            const unk = projUnknown.get(project) ?? 0;
+            const timeVal = unk > 0 ? `${known} (+${unk} unknown)`.trim() : known;
+            return [project, count, pct(count), timeVal];
+          }),
+        );
+      });
     }
 
     function updateSortIndicators() {

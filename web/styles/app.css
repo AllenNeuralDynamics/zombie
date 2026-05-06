@@ -3152,7 +3152,45 @@ body {
   padding: 4px 6px;
 }
 
-.sessions-filter-clear {
+.sessions-stat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sessions-export-btn {
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 3px;
+  background: var(--surface-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sessions-export-btn:hover {
+  background: var(--text-primary);
+  color: var(--surface-bg);
+  border-color: var(--text-primary);
+}
+
+.sessions-table-export-btn {
+  align-self: flex-end;
+  margin-bottom: 6px;
+  display: block;
+}
+
+.sessions-stat-table tbody td.stat-pct {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+
   align-self: flex-start;
   padding: 2px 8px;
   font-size: 0.76rem;
@@ -3273,6 +3311,10 @@ body {
   font-weight: 600;
   border-bottom: 1px solid var(--surface-border);
   color: var(--text-secondary);
+}
+
+.sessions-stat-table thead th:not(:first-child) {
+  text-align: right;
 }
 
 .sessions-stat-table tbody td {
