@@ -139,21 +139,48 @@ export function uniqueValues(rows, col) {
 }
 
 /**
+ * Collect unique experimenter display names from rows, deduplicated by mergeKey, sorted.
+ *
+ * @param {object[]} rows
+ * @returns {string[]}
+ */
+export function uniqueExperimenters(rows) {
+  const seen = new Set();
+  const result = [];
+  for (const row of rows) {
+    for (const name of parseExperimenters(row.experimenters)) {
+      const key = mergeKey(name);
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(name);
+      }
+    }
+  }
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Apply the active filters to the full row set.
  *
  * @param {object[]} rows
  * @param {Set<string>} selectedProjects - empty = all
  * @param {Set<string>} selectedInstruments - empty = all
  * @param {Set<string>} selectedQuarters - empty = all
+ * @param {Set<string>} [selectedExperimenters] - display names; empty = all
  * @returns {object[]}
  */
-export function applyFilters(rows, selectedProjects, selectedInstruments, selectedQuarters) {
+export function applyFilters(rows, selectedProjects, selectedInstruments, selectedQuarters, selectedExperimenters) {
   return rows.filter((row) => {
     if (selectedProjects.size > 0 && !selectedProjects.has(String(row.project_name ?? ''))) return false;
     if (selectedInstruments.size > 0 && !selectedInstruments.has(String(row.instrument_id ?? ''))) return false;
     if (selectedQuarters.size > 0) {
       const q = getQuarterLabel(row.acquisition_start_time);
       if (!selectedQuarters.has(q)) return false;
+    }
+    if (selectedExperimenters && selectedExperimenters.size > 0) {
+      const rowExpKeys = new Set(parseExperimenters(row.experimenters).map(mergeKey));
+      const anyMatch = [...selectedExperimenters].some((name) => rowExpKeys.has(mergeKey(name)));
+      if (!anyMatch) return false;
     }
     return true;
   });
@@ -353,12 +380,13 @@ export function createSessionsView(coord, metadata) {
         return v ? v.split('|').map(decodeURIComponent).filter(Boolean) : [];
       };
       return {
-        projects:    split('projects'),
-        instruments: split('instruments'),
-        quarter:     p.get('quarter') ?? null,
-        sort:        p.get('sort') ?? 'acquisition_start_time',
-        dir:         p.get('dir') === 'asc' ? 'asc' : 'desc',
-        page:        Math.max(0, parseInt(p.get('page') ?? '0', 10) || 0),
+        projects:      split('projects'),
+        instruments:   split('instruments'),
+        experimenters: split('experimenters'),
+        quarter:       p.get('quarter') ?? null,
+        sort:          p.get('sort') ?? 'acquisition_start_time',
+        dir:           p.get('dir') === 'asc' ? 'asc' : 'desc',
+        page:          Math.max(0, parseInt(p.get('page') ?? '0', 10) || 0),
       };
     }
 
@@ -366,9 +394,10 @@ export function createSessionsView(coord, metadata) {
       const p = new URLSearchParams();
       const encode = (set) =>
         Array.from(set).map(encodeURIComponent).join('|');
-      if (selectedProjects.size)    p.set('projects',    encode(selectedProjects));
-      if (selectedInstruments.size) p.set('instruments', encode(selectedInstruments));
-      if (selectedQuarter)          p.set('quarter',     encodeURIComponent(selectedQuarter));
+      if (selectedProjects.size)      p.set('projects',      encode(selectedProjects));
+      if (selectedInstruments.size)   p.set('instruments',   encode(selectedInstruments));
+      if (selectedExperimenters.size) p.set('experimenters', encode(selectedExperimenters));
+      if (selectedQuarter)            p.set('quarter',       encodeURIComponent(selectedQuarter));
       if (sortCol !== 'acquisition_start_time') p.set('sort', sortCol);
       if (sortDir !== 'desc')                   p.set('dir',  sortDir);
       if (page > 0)                             p.set('page', String(page));
@@ -378,8 +407,9 @@ export function createSessionsView(coord, metadata) {
 
     // -- Filter state (restored from URL) ------------------------------------
     const initial = readUrlState();
-    const selectedProjects    = new Set(initial.projects);
-    const selectedInstruments = new Set(initial.instruments);
+    const selectedProjects      = new Set(initial.projects);
+    const selectedInstruments   = new Set(initial.instruments);
+    const selectedExperimenters = new Set(initial.experimenters);
     // Quarters ascending (oldest first) for carousel navigation
     const allQuarters = collectQuarters(allRows).slice().reverse();
 
@@ -402,7 +432,6 @@ export function createSessionsView(coord, metadata) {
 
     // Unique option lists from all rows
     const allProjects = uniqueValues(allRows, 'project_name');
-    const allInstruments = uniqueValues(allRows, 'instrument_id');
 
     // -- Layout --------------------------------------------------------------
     const layout = document.createElement('div');
@@ -428,64 +457,97 @@ export function createSessionsView(coord, metadata) {
     // -- Filter panel --------------------------------------------------------
     filterPanel.innerHTML = `<h3 class="sessions-panel-title">Filters</h3>`;
 
-    function buildMultiSelect(title, options, selectedSet, onChange) {
+    function buildCheckboxGroup(title, options, selectedSet, onChange) {
       const wrapper = document.createElement('div');
       wrapper.className = 'sessions-filter-group';
 
-      const label = document.createElement('label');
-      label.className = 'sessions-filter-label';
-      label.textContent = title;
-      wrapper.appendChild(label);
+      const labelEl = document.createElement('div');
+      labelEl.className = 'sessions-filter-label';
+      labelEl.textContent = title;
+      wrapper.appendChild(labelEl);
 
-      const select = document.createElement('select');
-      select.multiple = true;
-      select.size = Math.min(options.length, 8);
-      select.className = 'sessions-multiselect';
+      const list = document.createElement('div');
+      list.className = 'sessions-checkbox-list';
+      wrapper.appendChild(list);
 
-      for (const opt of options) {
-        const el = document.createElement('option');
-        el.value = opt;
-        el.textContent = opt;
-        select.appendChild(el);
+      function renderOptions(opts) {
+        // Drop stale selections that are no longer in the option set
+        for (const v of [...selectedSet]) {
+          if (!opts.includes(v)) selectedSet.delete(v);
+        }
+        list.innerHTML = '';
+        if (opts.length === 0) {
+          const empty = document.createElement('span');
+          empty.className = 'sessions-filter-empty';
+          empty.textContent = 'No options';
+          list.appendChild(empty);
+          return;
+        }
+        for (const opt of opts) {
+          const item = document.createElement('label');
+          item.className = 'sessions-checkbox-item';
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.value = opt;
+          cb.checked = selectedSet.has(opt);
+          cb.addEventListener('change', () => {
+            if (cb.checked) selectedSet.add(opt);
+            else selectedSet.delete(opt);
+            onChange();
+          });
+          item.appendChild(cb);
+          item.appendChild(document.createTextNode('\u00a0' + opt));
+          list.appendChild(item);
+        }
       }
 
-      select.addEventListener('change', () => {
-        selectedSet.clear();
-        for (const opt of select.selectedOptions) {
-          selectedSet.add(opt.value);
-        }
-        onChange();
-      });
-
-      const hint = document.createElement('span');
-      hint.className = 'sessions-filter-hint';
-      hint.textContent = 'Cmd/Ctrl+click to multi-select';
-      wrapper.appendChild(select);
-      wrapper.appendChild(hint);
+      renderOptions(options);
 
       const clearBtn = document.createElement('button');
       clearBtn.className = 'sessions-filter-clear';
       clearBtn.textContent = 'Clear';
       clearBtn.addEventListener('click', () => {
-        for (const opt of select.options) opt.selected = false;
         selectedSet.clear();
+        for (const cb of list.querySelectorAll('input[type=checkbox]')) cb.checked = false;
         onChange();
       });
       wrapper.appendChild(clearBtn);
 
-      return { wrapper, select };
+      return { wrapper, renderOptions };
     }
 
-    const projectGroup    = buildMultiSelect('Project',       allProjects,    selectedProjects,    onFilterChange);
-    const instrumentGroup = buildMultiSelect('Instrument ID', allInstruments, selectedInstruments, onFilterChange);
-    // Restore multi-select DOM selections from URL state
-    function restoreMultiSelect(selectEl, selectedSet) {
-      for (const opt of selectEl.options) {
-        opt.selected = selectedSet.has(opt.value);
-      }
+    // Progressive options: instruments and experimenters narrow as upstream filters change
+    function getProjectFilteredRows() {
+      return selectedProjects.size === 0
+        ? allRows
+        : allRows.filter((r) => selectedProjects.has(String(r.project_name ?? '')));
     }
-    restoreMultiSelect(projectGroup.select,    selectedProjects);
-    restoreMultiSelect(instrumentGroup.select, selectedInstruments);
+    function getProjInstFilteredRows() {
+      return getProjectFilteredRows().filter((r) =>
+        selectedInstruments.size === 0 || selectedInstruments.has(String(r.instrument_id ?? '')),
+      );
+    }
+
+    const projectGroup = buildCheckboxGroup(
+      'Project',
+      allProjects,
+      selectedProjects,
+      onProjectChange,
+    );
+
+    const instrumentGroup = buildCheckboxGroup(
+      'Instrument ID',
+      uniqueValues(getProjectFilteredRows(), 'instrument_id'),
+      selectedInstruments,
+      onInstrumentChange,
+    );
+
+    const experimenterGroup = buildCheckboxGroup(
+      'Experimenter',
+      uniqueExperimenters(getProjInstFilteredRows()),
+      selectedExperimenters,
+      onFilterChange,
+    );
 
     // Quarter carousel
     function buildQuarterCarousel() {
@@ -549,6 +611,7 @@ export function createSessionsView(coord, metadata) {
 
     filterPanel.appendChild(projectGroup.wrapper);
     filterPanel.appendChild(instrumentGroup.wrapper);
+    filterPanel.appendChild(experimenterGroup.wrapper);
     filterPanel.appendChild(buildQuarterCarousel());
 
     // -- Stats panel ---------------------------------------------------------
@@ -644,7 +707,7 @@ export function createSessionsView(coord, metadata) {
 
     function getFilteredRows() {
       const quarterSet = selectedQuarter ? new Set([selectedQuarter]) : new Set();
-      let rows = applyFilters(allRows, selectedProjects, selectedInstruments, quarterSet);
+      let rows = applyFilters(allRows, selectedProjects, selectedInstruments, quarterSet, selectedExperimenters);
       // Apply column text/select filters
       const colEntries = Object.entries(columnFilters).filter(([, v]) => v !== '');
       if (colEntries.length > 0) {
@@ -740,6 +803,19 @@ export function createSessionsView(coord, metadata) {
       updateSortIndicators();
       updateStats(filtered);
       writeUrlState();
+    }
+
+    function onProjectChange() {
+      instrumentGroup.renderOptions(uniqueValues(getProjectFilteredRows(), 'instrument_id'));
+      experimenterGroup.renderOptions(uniqueExperimenters(getProjInstFilteredRows()));
+      page = 0;
+      refresh();
+    }
+
+    function onInstrumentChange() {
+      experimenterGroup.renderOptions(uniqueExperimenters(getProjInstFilteredRows()));
+      page = 0;
+      refresh();
     }
 
     function onFilterChange() {

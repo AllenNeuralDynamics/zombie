@@ -3107,6 +3107,51 @@ body {
   font-style: italic;
 }
 
+/* ---- Checkbox filter list ---- */
+
+.sessions-checkbox-list {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  padding: 4px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sessions-checkbox-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 3px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+}
+
+.sessions-checkbox-item:hover {
+  background: var(--surface-border);
+}
+
+.sessions-checkbox-item input[type="checkbox"] {
+  accent-color: var(--color-red);
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+}
+
+.sessions-filter-empty {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 4px 6px;
+}
+
 .sessions-filter-clear {
   align-self: flex-start;
   padding: 2px 8px;
@@ -3268,11 +3313,11 @@ body {
 
 /* Dark mode overrides for sessions */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .sessions-multiselect {
+  :root:not([data-theme="light"]) .sessions-checkbox-list {
     background: var(--surface-bg);
   }
 }
 
-[data-theme="dark"] .sessions-multiselect {
+[data-theme="dark"] .sessions-checkbox-list {
   background: var(--surface-bg);
 }
