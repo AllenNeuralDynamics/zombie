@@ -64,7 +64,7 @@ describe('buildS3ConsoleUrl', () => {
 describe('buildQcLink', () => {
   it('returns the QC portal URL with encoded asset name', () => {
     const url = buildQcLink('my_asset_2024-01-01');
-    expect(url).toBe('https://qc.allenneuraldynamics-test.org/view?name=my_asset_2024-01-01');
+    expect(url).toBe('https://qc.allenneuraldynamics.org/view?name=my_asset_2024-01-01');
   });
 
   it('percent-encodes spaces in asset names', () => {
@@ -85,7 +85,7 @@ describe('buildQcLink', () => {
 describe('buildMetadataLink', () => {
   it('returns the metadata portal URL with encoded asset name', () => {
     const url = buildMetadataLink('my-asset');
-    expect(url).toBe('https://metadata-portal.allenneuraldynamics-test.org/view?name=my-asset');
+    expect(url).toBe('https://metadata-portal.allenneuraldynamics.org/view?name=my-asset');
   });
 
   it('returns null for falsy input', () => {
@@ -180,8 +180,8 @@ describe('renderAssetRow', () => {
 
   it('includes QC, metadata, and CO links', () => {
     const html = renderAssetRow(row);
-    expect(html).toContain('qc.allenneuraldynamics-test.org');
-    expect(html).toContain('metadata-portal.allenneuraldynamics-test.org');
+    expect(html).toContain('qc.allenneuraldynamics.org');
+    expect(html).toContain('metadata-portal.allenneuraldynamics.org');
     expect(html).toContain('codeocean.allenneuraldynamics.org');
   });
 
