@@ -560,7 +560,12 @@ function _buildSimData(authors) {
 
 // ── Force simulation ──────────────────────────────────────────────────────────
 
-function _runSimulation(nodes, edges, clusterMap, width, height) {
+function _runSimulation(nodes, edges, clusterMap, width, height, opts = {}) {
+  const sk       = opts.sk            ?? _SK;
+  const ck       = opts.ck            ?? _CK;
+  const gk       = opts.gk            ?? _GK;
+  const simSteps = opts.steps         ?? _SIM;
+  const keepPos  = opts.keepPositions ?? false;
   // Run in world-space coordinates (_WW × _WH), not viewport coordinates
   const cx = width / 2, cy = height / 2;
 
@@ -578,20 +583,22 @@ function _runSimulation(nodes, edges, clusterMap, width, height) {
     });
   }
 
-  // Seed node positions near their cluster center
-  for (const n of nodes) {
-    const cl = clusterMap[n.clusterKey];
-    const jitter = _NR * 2.8;
-    n.x = cl.cx + (Math.random() - 0.5) * jitter * 2;
-    n.y = cl.cy + (Math.random() - 0.5) * jitter * 2;
-    n.vx = 0; n.vy = 0;
+  // Seed node positions near their cluster center (skip when keeping current positions)
+  if (!keepPos) {
+    for (const n of nodes) {
+      const cl = clusterMap[n.clusterKey];
+      const jitter = _NR * 2.8;
+      n.x = cl.cx + (Math.random() - 0.5) * jitter * 2;
+      n.y = cl.cy + (Math.random() - 0.5) * jitter * 2;
+      n.vx = 0; n.vy = 0;
+    }
   }
 
   const N = nodes.length;
   const fx = new Float64Array(N);
   const fy = new Float64Array(N);
 
-  for (let step = 0; step < _SIM; step++) {
+  for (let step = 0; step < simSteps; step++) {
     fx.fill(0); fy.fill(0);
 
     // Charge repulsion (O(n²) — fine for small author lists)
@@ -615,7 +622,7 @@ function _runSimulation(nodes, edges, clusterMap, width, height) {
       const d  = Math.sqrt(dx * dx + dy * dy) || 0.01;
       const restLen = _SR + (e.roles.length - 1) * 12;
       const stretch = d - restLen;
-      const f  = _SK * stretch;
+      const f  = sk * stretch;
       const nx = dx / d, ny = dy / d;
       fx[e.source] += nx * f; fy[e.source] += ny * f;
       fx[e.target] -= nx * f; fy[e.target] -= ny * f;
@@ -624,14 +631,14 @@ function _runSimulation(nodes, edges, clusterMap, width, height) {
     // Cluster gravity (toward institution centroid)
     for (const n of nodes) {
       const cl = clusterMap[n.clusterKey];
-      fx[n.i] += (cl.cx - n.x) * _CK;
-      fy[n.i] += (cl.cy - n.y) * _CK;
+      fx[n.i] += (cl.cx - n.x) * ck;
+      fy[n.i] += (cl.cy - n.y) * ck;
     }
 
     // Global center gravity
     for (const n of nodes) {
-      fx[n.i] += (cx - n.x) * _GK;
-      fy[n.i] += (cy - n.y) * _GK;
+      fx[n.i] += (cx - n.x) * gk;
+      fy[n.i] += (cy - n.y) * gk;
     }
 
     // Integrate
@@ -1042,8 +1049,9 @@ export function createExploreView(container, authors, zoomState) {
     // The viewport is _CH px tall — we use a CSS transform on the <g> for zoom/pan.
     const w = _WW;
     const h = _WH;
+    let simSk = _SK, simCk = _CK;
 
-    _runSimulation(nodes, edges, clusterMap, w, h);
+    _runSimulation(nodes, edges, clusterMap, w, h, { sk: simSk, ck: simCk });
 
     const result = _renderGraph(svgEl, nodes, edges, w, h);
     nodeData = result.nodeData;
@@ -1073,7 +1081,7 @@ export function createExploreView(container, authors, zoomState) {
     svgEl.setAttribute('height', String(vh));
 
     // Wrap all rendered children in a transform group
-    const worldG = svgEl.querySelector('g.ae-explore-edges')?.parentNode === svgEl
+    let worldG = svgEl.querySelector('g.ae-explore-edges')?.parentNode === svgEl
       ? (() => {
           const g = document.createElementNS(_NS, 'g');
           g.setAttribute('class', 'ae-explore-world');
@@ -1206,27 +1214,137 @@ export function createExploreView(container, authors, zoomState) {
     setTimeout(() => { hint.style.transition = 'opacity 0.8s'; hint.style.opacity = '0'; }, 4000);
     setTimeout(() => { hint.remove(); }, 5000);
 
-    // Node hover interactions
-    for (const { node, g } of nodeData) {
-      let enterTid = null;
-      g.addEventListener('mouseenter', () => {
-        if (dragging) return;
-        clearTimeout(enterTid);
-        enterTid = setTimeout(() => {
-          hoverState = { type: 'node', index: node.i };
-          applyHover();
-          _showXpop(g, node.author);
-        }, 180);
-      });
-      g.addEventListener('mouseleave', () => {
-        clearTimeout(enterTid);
-        _xpopTid = setTimeout(() => {
-          hoverState = { type: null };
-          applyHover();
-          _hideXpop();
-        }, 120);
-      });
+    // ── Node hover interactions (extracted so reSimulate can re-wire) ──
+    function wireNodeHovers() {
+      for (const { node, g } of nodeData) {
+        let enterTid = null;
+        g.addEventListener('mouseenter', () => {
+          if (dragging) return;
+          clearTimeout(enterTid);
+          enterTid = setTimeout(() => {
+            hoverState = { type: 'node', index: node.i };
+            applyHover();
+            _showXpop(g, node.author);
+          }, 180);
+        });
+        g.addEventListener('mouseleave', () => {
+          clearTimeout(enterTid);
+          _xpopTid = setTimeout(() => {
+            hoverState = { type: null };
+            applyHover();
+            _hideXpop();
+          }, 120);
+        });
+      }
     }
+    wireNodeHovers();
+
+    // ── Re-simulate with updated layout weights ──
+    function reSimulate() {
+      _runSimulation(nodes, edges, clusterMap, w, h, {
+        sk: simSk, ck: simCk, steps: 300, keepPositions: true,
+      });
+      const newResult = _renderGraph(svgEl, nodes, edges, w, h);
+      // _renderGraph resets viewBox to world space; restore to viewport dimensions
+      svgEl.setAttribute('viewBox', `0 0 ${vw} ${vh}`);
+      svgEl.setAttribute('width',  String(vw));
+      svgEl.setAttribute('height', String(vh));
+      nodeData = newResult.nodeData;
+      edgeData = newResult.edgeData;
+      // Re-wrap rendered children in the world transform group
+      const newG = document.createElementNS(_NS, 'g');
+      newG.setAttribute('class', 'ae-explore-world');
+      while (svgEl.firstChild) newG.appendChild(svgEl.firstChild);
+      svgEl.appendChild(newG);
+      worldG = newG;
+      applyTransform();
+      wireNodeHovers();
+      applyHover();
+    }
+
+    // ── Gear button + settings panel ──
+    let settingsOpen = false;
+
+    const settingsPanel = document.createElement('div');
+    {
+      const dark = _isDark();
+      settingsPanel.style.cssText = [
+        'position:absolute', 'top:44px', 'right:10px', 'width:210px',
+        dark ? 'background:rgba(31,41,55,0.97)' : 'background:rgba(255,255,255,0.97)',
+        'backdrop-filter:blur(10px)',
+        dark ? 'border:1px solid #4b5563' : 'border:1px solid #e5e7eb',
+        'border-radius:10px',
+        'box-shadow:0 4px 16px rgba(0,0,0,0.12)',
+        'padding:12px 14px', 'z-index:11', 'display:none',
+        "font-family:'Inter',-apple-system,sans-serif",
+        dark ? 'color:#d1d5db' : 'color:#374151',
+      ].join(';');
+
+      const panelTitle = document.createElement('div');
+      panelTitle.style.cssText = 'font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:#9ca3af;margin-bottom:10px;';
+      panelTitle.textContent = 'Layout Weights';
+      settingsPanel.appendChild(panelTitle);
+
+      const _SK_MIN = 0.001, _SK_MAX = 0.070;
+      const _CK_MIN = 0.005, _CK_MAX = 0.090;
+      const toPct   = (v, lo, hi) => Math.round((v - lo) / (hi - lo) * 100);
+      const fromPct = (p, lo, hi) => lo + (p / 100) * (hi - lo);
+
+      function makeSlider(labelText, descText, initPct, onChange) {
+        const row = document.createElement('div');
+        row.style.cssText = 'margin-bottom:12px;';
+        const lbl = document.createElement('div');
+        lbl.style.cssText = `font-size:11px;font-weight:600;margin-bottom:2px;${dark ? 'color:#d1d5db;' : 'color:#374151;'}`;
+        lbl.textContent = labelText;
+        row.appendChild(lbl);
+        if (descText) {
+          const desc = document.createElement('div');
+          desc.style.cssText = 'font-size:10px;color:#9ca3af;margin-bottom:4px;line-height:1.3;';
+          desc.textContent = descText;
+          row.appendChild(desc);
+        }
+        const slider = document.createElement('input');
+        slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '1';
+        slider.value = String(initPct);
+        slider.style.cssText = 'width:100%;accent-color:#4338ca;cursor:pointer;margin:0;';
+        slider.addEventListener('input', () => onChange(parseInt(slider.value, 10)));
+        row.appendChild(slider);
+        return row;
+      }
+
+      settingsPanel.appendChild(makeSlider(
+        'Role connections',
+        'Pull between authors sharing a CRediT role',
+        toPct(simSk, _SK_MIN, _SK_MAX),
+        (pct) => { simSk = fromPct(pct, _SK_MIN, _SK_MAX); reSimulate(); },
+      ));
+      settingsPanel.appendChild(makeSlider(
+        'Institution pull',
+        'Gravity toward shared-institution cluster',
+        toPct(simCk, _CK_MIN, _CK_MAX),
+        (pct) => { simCk = fromPct(pct, _CK_MIN, _CK_MAX); reSimulate(); },
+      ));
+    }
+    svgWrap.appendChild(settingsPanel);
+
+    const gearBtn = document.createElement('button');
+    gearBtn.className = 'ae-explore-zoom-btn';
+    gearBtn.title = 'Layout settings';
+    gearBtn.textContent = '⚙';
+    gearBtn.style.fontSize = '14px';
+    gearBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      settingsOpen = !settingsOpen;
+      settingsPanel.style.display = settingsOpen ? 'block' : 'none';
+      gearBtn.style.background = settingsOpen
+        ? (_isDark() ? 'rgba(55,65,81,0.95)' : 'rgba(230,230,255,0.95)')
+        : '';
+    });
+
+    const gearWrap = document.createElement('div');
+    gearWrap.style.cssText = 'position:absolute;top:10px;right:10px;z-index:10;';
+    gearWrap.appendChild(gearBtn);
+    svgWrap.appendChild(gearWrap);
 
     // Stats bar
     const totalStrands = edges.reduce((s, e) => s + e.roles.length, 0);

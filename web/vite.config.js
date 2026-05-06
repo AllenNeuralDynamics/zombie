@@ -27,6 +27,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        explore: resolve(__dirname, 'explore.html'),
         assets: resolve(__dirname, 'assets.html'),
         contributions: resolve(__dirname, 'contributions.html'),
         subject: resolve(__dirname, 'subject.html'),

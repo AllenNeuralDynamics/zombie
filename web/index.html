@@ -2,38 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Data Explorer</title>
-    <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
-    <link rel="stylesheet" href="/styles/app.css" />
+    <meta http-equiv="refresh" content="0; url=/assets" />
+    <title>Allen Institute</title>
   </head>
   <body>
-    <header class="app-header">
-      <div class="app-header-brand">
-        <h1 class="app-title">Data Explorer</h1>
-      </div>
-      <nav class="app-nav" aria-label="Main navigation">
-        <a href="/" aria-current="page">Explorer</a>
-        <a href="/assets">Assets</a>
-        <a href="/contributions">Contributions</a>
-        <a href="/subject">Subject</a>
-        <a href="/smartspim">SmartSPIM</a>
-        <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark/light mode"></button>
-      </nav>
-    </header>
-
-    <div id="settings-bar" class="settings-bar">
-      <!-- Project selector and data type toggles mount here -->
-    </div>
-
-    <main id="app" class="app-main">
-      <!-- TimeView, DataViews, and SpaceView mount here -->
-      <div id="loading-message" class="loading-message">
-        Initializing DuckDB-WASM…
-      </div>
-    </main>
-
-    <script type="module" src="/src/app.js"></script>
-    <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'\u2600':'\u263e';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
+    <p>Redirecting to <a href="/assets">/assets</a>…</p>
   </body>
 </html>
