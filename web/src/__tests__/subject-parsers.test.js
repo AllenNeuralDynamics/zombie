@@ -142,7 +142,7 @@ describe('parseAcquisition', () => {
     });
     expect(ev.type).toBe('Acquisition');
     expect(ev.event).toContain('Ephys');
-    expect(ev.details).toContain('4.0');
+    expect(Array.isArray(ev.modalities)).toBe(true);
   });
 
   it('includes protocol in label when present', () => {

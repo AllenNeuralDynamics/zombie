@@ -16,7 +16,7 @@ import {
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
 import { createBrainViz3D } from './brain-viz-3d.js';
-import { buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -60,13 +60,15 @@ export function buildBirthDetail(event) {
  * @returns {string}
  */
 export function buildAcquisitionDetail(event) {
-  const { start, end, event: label, details, data = {} } = event;
+  const { start, end, event: label, modalities, data = {} } = event;
   const durationHrs = start && end ? ((end - start) / 3_600_000).toFixed(2) : 'N/A';
   const assetName = data._assetName ?? null;
   const qcHref = buildQcLink(assetName);
   const metaHref = buildMetadataLink(assetName);
   const coHref = buildCoLink(data._codeOcean ?? null);
+  const s3Href = buildS3ConsoleUrl(data._location ?? null);
   const linkParts = [
+    s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
     coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">Code Ocean</a>` : '',
     metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Metadata</a>` : '',
     qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC Portal</a>` : '',
@@ -81,6 +83,7 @@ export function buildAcquisitionDetail(event) {
     data.reward_consumed_total != null
       ? `<dt>Reward consumed</dt><dd>${data.reward_consumed_total} ${data.reward_consumed_unit ?? ''}</dd>`
       : '',
+    modalities?.length ? `<dt>Modalities</dt><dd>${modalities.join(', ')}</dd>` : '',
     linkParts ? `<dt>Links</dt><dd>${linkParts}</dd>` : '',
   ].join('');
   return `
@@ -90,7 +93,6 @@ export function buildAcquisitionDetail(event) {
         <dt>Start</dt><dd>${fmtDateTime(start)}</dd>
         <dt>End</dt><dd>${fmtDateTime(end)}</dd>
         <dt>Duration</dt><dd>${durationHrs} hours</dd>
-        <dt>Details</dt><dd>${details ?? ''}</dd>
         ${extra}
       </dl>
     </div>`;

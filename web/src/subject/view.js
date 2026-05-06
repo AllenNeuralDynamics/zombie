@@ -120,7 +120,7 @@ export function organizeSubjectData(records, subjectId) {
       rec.acquisition?.acquisition_start_time &&
       rec.data_description?.data_level !== 'derived'
     ) {
-      bundle.acquisitions.push({ ...rec.acquisition, _assetName: rec.name ?? '' });
+      bundle.acquisitions.push({ ...rec.acquisition, _assetName: rec.name ?? '', _modalities: rec.data_description?.modalities ?? [] });
     }
   }
 
@@ -294,7 +294,6 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
           assetsTableEl.querySelectorAll('tr[data-asset-name]').forEach((r) => {
             const isTarget = targetName && r.dataset.assetName === targetName;
             r.classList.toggle('asset-highlighted', isTarget);
-            if (isTarget) r.scrollIntoView({ block: 'nearest' });
           });
         }
       },
@@ -310,8 +309,21 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     // Async: fetch DuckDB asset data (projects + grouped assets table)
     if (coordinator) {
-      _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then((tableEl) => {
+      _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then(({ tableEl, assets }) => {
         assetsTableEl = tableEl;
+        // Enrich acquisition event data with S3 location and Code Ocean from DuckDB
+        if (assets?.length) {
+          const assetByName = new Map(assets.map((a) => [a.name, a]));
+          for (const ev of events) {
+            if (ev.type === 'Acquisition' && ev.data?._assetName) {
+              const asset = assetByName.get(ev.data._assetName);
+              if (asset) {
+                ev.data._codeOcean = asset.code_ocean ?? null;
+                ev.data._location = asset.location ?? null;
+              }
+            }
+          }
+        }
       }).catch((err) => {
         console.error('[SubjectView] Asset fetch failed:', err);
         assetsSection.innerHTML = `<h3>Assets</h3><p class="error-banner">Failed to load assets: ${err.message}</p>`;
@@ -388,7 +400,7 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   assetsSection.innerHTML = '<h3>Assets</h3>';
   const tableEl = _buildAssetsTable(assets, sourceMap);
   assetsSection.appendChild(tableEl);
-  return tableEl;
+  return { tableEl, assets };
 }
 
 function _buildAssetsTable(assets, sourceMap) {

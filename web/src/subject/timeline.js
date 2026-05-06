@@ -220,6 +220,13 @@ export function createSubjectTimeline(events, opts = {}) {
     bubble.appendChild(typeEl);
     bubble.appendChild(dateEl);
 
+    if (ev.type === 'Acquisition' && ev.modalities?.length) {
+      const modEl = document.createElement('span');
+      modEl.className = 'tl-bubble-modalities';
+      modEl.textContent = ev.modalities.join(', ');
+      bubble.appendChild(modEl);
+    }
+
     bubble.addEventListener('click', () => {
       if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
       bubble.classList.add('tl-bubble--selected');

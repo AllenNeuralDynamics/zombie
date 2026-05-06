@@ -141,12 +141,16 @@ export function parseAcquisition(acquisition) {
   const label = protocol ? `${acqType} (${protocol})` : acqType;
   const durationHrs = (end - start) / 3_600_000;
 
+  const modalities = (acquisition._modalities ?? [])
+    .map((m) => m.abbreviation ?? m.name)
+    .filter(Boolean);
+
   return {
     start,
     end,
     event: label,
     type: 'Acquisition',
-    details: `Duration: ${durationHrs.toFixed(1)} hours`,
+    modalities,
     data: acquisition,
   };
 }
