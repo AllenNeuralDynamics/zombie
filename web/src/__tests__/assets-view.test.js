@@ -159,41 +159,54 @@ describe('renderAssetRow', () => {
     process_date: null,
   };
 
+  const visibleColumns = [
+    'subject_id',
+    'acquisition_start_time',
+    'project_name',
+    'modalities',
+    'data_level',
+    'genotype',
+    'links',
+  ];
+
   it('returns a <tr> string', () => {
-    const html = renderAssetRow(row);
+    const html = renderAssetRow(row, visibleColumns);
     expect(html).toMatch(/^<tr>/);
     expect(html).toMatch(/<\/tr>$/);
   });
 
-  it('includes the subject_id', () => {
-    expect(renderAssetRow(row)).toContain('12345');
+  it('includes the subject_id as a link', () => {
+    const html = renderAssetRow(row, visibleColumns);
+    expect(html).toContain('/subject?subject_id=12345');
+    expect(html).toContain('12345');
   });
 
   it('includes formatted acquisition time', () => {
-    expect(renderAssetRow(row)).toContain('2024-01-01 10:00');
+    expect(renderAssetRow(row, visibleColumns)).toContain('2024-01-01 10:00');
   });
 
   it('includes S3 console link', () => {
-    const html = renderAssetRow(row);
+    const html = renderAssetRow(row, visibleColumns);
     expect(html).toContain('s3.console.aws.amazon.com');
   });
 
   it('includes QC, metadata, and CO links', () => {
-    const html = renderAssetRow(row);
+    const html = renderAssetRow(row, visibleColumns);
     expect(html).toContain('qc.allenneuraldynamics.org');
     expect(html).toContain('metadata-portal.allenneuraldynamics.org');
     expect(html).toContain('codeocean.allenneuraldynamics.org');
   });
 
   it('renders fallback "—" when code_ocean is missing', () => {
-    const html = renderAssetRow({ ...row, code_ocean: null });
+    const html = renderAssetRow({ ...row, code_ocean: null }, visibleColumns);
     expect(html).toContain('no-link');
   });
 
   it('handles missing optional fields without throwing', () => {
-    expect(() => renderAssetRow({})).not.toThrow();
+    expect(() => renderAssetRow({}, visibleColumns)).not.toThrow();
   });
 });
+
 
 // ---------------------------------------------------------------------------
 // sortRows

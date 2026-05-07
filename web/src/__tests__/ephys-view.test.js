@@ -6,11 +6,9 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-// Mock Three.js and OBJLoader so the ephys-viz-3d import doesn't fail in Node
 vi.mock('three', () => ({ default: {} }));
 vi.mock('three/addons/loaders/OBJLoader.js', () => ({ OBJLoader: class {} }));
 
-// Mock brain-viz-3d exports needed by ephys-viz-3d
 vi.mock('../subject/brain-viz-3d.js', () => ({
   STRUCTURE_COLORS: {},
   TARGET_X: 0, TARGET_Y: -3.668, TARGET_Z: -1.2,
@@ -21,13 +19,11 @@ vi.mock('../subject/brain-viz-3d.js', () => ({
   createBrainViz3D: () => document.createElement('div'),
 }));
 
-// Mock brain-viz for ITEM_COLORS
 vi.mock('../subject/brain-viz.js', () => ({
   ITEM_COLORS: ['#FF6B6B', '#4ECDC4', '#45B7D1'],
   createBrainVizCanvas: () => ({ canvas: document.createElement('canvas') }),
 }));
 
-// Mock assets/view.js
 vi.mock('../assets/view.js', () => ({
   buildQcLink: () => null,
   buildMetadataLink: () => null,
@@ -35,11 +31,12 @@ vi.mock('../assets/view.js', () => ({
   buildS3ConsoleUrl: () => null,
 }));
 
-import { hasEphysAssemblies, buildEphysProbeCard } from '../subject/details.js';
-
-// ---------------------------------------------------------------------------
-// Fixtures
-// ---------------------------------------------------------------------------
+import {
+  hasEphysAssemblies,
+  buildEphysProbeCard,
+  buildCraniotomySubProcHtml,
+  buildHeadframeSubProcHtml,
+} from '../subject/details.js';
 
 const EPHYS_CONFIG = {
   object_type: 'Ephys assembly config',
@@ -93,10 +90,6 @@ const ACQUISITION_WITHOUT_EPHYS = {
   ],
 };
 
-// ---------------------------------------------------------------------------
-// hasEphysAssemblies
-// ---------------------------------------------------------------------------
-
 describe('hasEphysAssemblies', () => {
   it('returns true when acquisition has at least one Ephys assembly config', () => {
     expect(hasEphysAssemblies(ACQUISITION_WITH_EPHYS)).toBe(true);
@@ -132,10 +125,6 @@ describe('hasEphysAssemblies', () => {
     expect(hasEphysAssemblies(mixed)).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
-// buildEphysProbeCard
-// ---------------------------------------------------------------------------
 
 describe('buildEphysProbeCard', () => {
   const probe = {
@@ -227,5 +216,51 @@ describe('buildEphysProbeCard', () => {
   it('index 2 shows "Probe 3:"', () => {
     const html = buildEphysProbeCard(probe, 2);
     expect(html).toContain('Probe 3:');
+  });
+});
+
+describe('buildCraniotomySubProcHtml', () => {
+  it('renders craniotomy-specific fields', () => {
+    const html = buildCraniotomySubProcHtml({
+      object_type: 'Craniotomy',
+      protocol_id: null,
+      craniotomy_type: 'Circle',
+      coordinate_system_name: 'BREGMA_ARID',
+      position: ['Origin'],
+      size: 5,
+      size_unit: 'millimeter',
+      protective_material: null,
+      implant_part_number: '5mm stacked coverslip',
+      dura_removed: null,
+    });
+
+    expect(html).toContain('Craniotomy');
+    expect(html).toContain('Circle');
+    expect(html).toContain('BREGMA_ARID');
+    expect(html).toContain('Origin');
+    expect(html).toContain('5 millimeter');
+    expect(html).toContain('5mm stacked coverslip');
+    expect(html).toContain('Unknown');
+  });
+});
+
+describe('buildHeadframeSubProcHtml', () => {
+  it('renders headframe-specific fields', () => {
+    const html = buildHeadframeSubProcHtml({
+      object_type: 'Headframe',
+      protocol_id: null,
+      headframe_type: 'Visual Ctx',
+      headframe_part_number: '0160-100-10',
+      headframe_material: null,
+      well_part_number: '0160-200-20',
+      well_type: 'Mesoscope',
+    });
+
+    expect(html).toContain('Headframe');
+    expect(html).toContain('Visual Ctx');
+    expect(html).toContain('0160-100-10');
+    expect(html).toContain('0160-200-20');
+    expect(html).toContain('Mesoscope');
+    expect(html).toContain('Unknown');
   });
 });

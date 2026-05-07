@@ -261,6 +261,50 @@ function buildSurgeryOverviewHtml(event) {
     </div>`;
 }
 
+function fmtDetailValue(value) {
+  if (value == null || value === '') return 'Unknown';
+  return String(value);
+}
+
+function fmtDetailList(value) {
+  const vals = Array.isArray(value)
+    ? value.filter((v) => v != null && v !== '')
+    : [];
+  return vals.length ? vals.join(', ') : 'Unknown';
+}
+
+function fmtDetailBoolean(value) {
+  if (value == null) return 'Unknown';
+  return value ? 'Yes' : 'No';
+}
+
+export function buildCraniotomySubProcHtml(subProc) {
+  const size = subProc.size != null
+    ? `${subProc.size} ${subProc.size_unit ?? ''}`.trim()
+    : 'Unknown';
+  return `<div class="detail-card"><h4>Craniotomy</h4><dl>
+    <dt>Type</dt><dd>${fmtDetailValue(subProc.craniotomy_type)}</dd>
+    <dt>Coordinate system</dt><dd>${fmtDetailValue(subProc.coordinate_system_name)}</dd>
+    <dt>Position</dt><dd>${fmtDetailList(subProc.position)}</dd>
+    <dt>Size</dt><dd>${size}</dd>
+    <dt>Protective material</dt><dd>${fmtDetailValue(subProc.protective_material)}</dd>
+    <dt>Implant part number</dt><dd>${fmtDetailValue(subProc.implant_part_number)}</dd>
+    <dt>Dura removed</dt><dd>${fmtDetailBoolean(subProc.dura_removed)}</dd>
+    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+  </dl></div>`;
+}
+
+export function buildHeadframeSubProcHtml(subProc) {
+  return `<div class="detail-card"><h4>Headframe</h4><dl>
+    <dt>Headframe type</dt><dd>${fmtDetailValue(subProc.headframe_type)}</dd>
+    <dt>Headframe part number</dt><dd>${fmtDetailValue(subProc.headframe_part_number)}</dd>
+    <dt>Headframe material</dt><dd>${fmtDetailValue(subProc.headframe_material)}</dd>
+    <dt>Well type</dt><dd>${fmtDetailValue(subProc.well_type)}</dd>
+    <dt>Well part number</dt><dd>${fmtDetailValue(subProc.well_part_number)}</dd>
+    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+  </dl></div>`;
+}
+
 function buildSubProcHtml(subProc) {
   const type = subProc.object_type ?? 'Unknown';
   if (type === 'Perfusion') {
@@ -275,6 +319,12 @@ function buildSubProcHtml(subProc) {
       <dt>Description</dt><dd>${subProc.description ?? 'No description'}</dd>
       ${subProc.notes ? `<dt>Notes</dt><dd>${subProc.notes}</dd>` : ''}
     </dl></div>`;
+  }
+  if (type === 'Craniotomy') {
+    return buildCraniotomySubProcHtml(subProc);
+  }
+  if (type === 'Headframe') {
+    return buildHeadframeSubProcHtml(subProc);
   }
   return `<div class="detail-card"><h4>${type}</h4><p>No additional details available.</p></div>`;
 }
