@@ -199,7 +199,7 @@ export function createSubjectTimeline(events, opts = {}) {
 
     const typeEl = document.createElement('span');
     typeEl.className = 'tl-bubble-type';
-    typeEl.textContent = ev.type;
+    typeEl.textContent = ev.type === 'Surgery' ? (ev.event ?? ev.type) : ev.type;
 
     const dateEl = document.createElement('span');
     dateEl.className = 'tl-bubble-date';

@@ -100,6 +100,40 @@ describe('createSubjectView — timeline click', () => {
     expect(bubbles[0].classList.contains('tl-bubble--selected')).toBe(false);
     expect(bubbles[1].classList.contains('tl-bubble--selected')).toBe(true);
   });
+
+  it('shows Terminal Surgery label when surgery contains perfusion', async () => {
+    queryDocDb.mockResolvedValue([
+      {
+        ...MINIMAL_RECORD('42', 'my-asset_42'),
+        procedures: {
+          subject_procedures: [
+            {
+              object_type: 'Surgery',
+              start_date: '2024-01-02',
+              procedures: [{ object_type: 'Perfusion' }],
+            },
+          ],
+          specimen_procedures: [],
+        },
+      },
+    ]);
+
+    const view = createSubjectView({ subjectId: '42' });
+    document.body.appendChild(view);
+    await flushPromises();
+
+    const labels = [...view.querySelectorAll('.tl-bubble-type')].map((el) => el.textContent);
+    expect(labels).toContain('Terminal Surgery');
+
+    const surgeryBubble = [...view.querySelectorAll('.tl-bubble')].find((el) =>
+      el.querySelector('.tl-bubble-type')?.textContent === 'Terminal Surgery'
+    );
+    expect(surgeryBubble).toBeDefined();
+
+    surgeryBubble.click();
+    const heading = view.querySelector('.subject-detail-container .detail-card h4');
+    expect(heading?.textContent).toBe('Terminal Surgery');
+  });
 });
 
 describe('organizeSubjectData — unique procedures', () => {

@@ -113,15 +113,19 @@ export function parseProcedure(proc) {
     : new Date(start.getTime() + NO_END_DATE_DURATION_MS);
 
   let detailStr;
+  let eventLabel = procType;
   if (procType === 'Surgery') {
     const subProcs = (proc.procedures ?? []).filter(Boolean);
     const parts = subProcs.map((sp) => sp.object_type ?? 'Unknown');
+    if (subProcs.some((sp) => sp?.object_type === 'Perfusion')) {
+      eventLabel = 'Terminal Surgery';
+    }
     detailStr = parts.length ? parts.join(', ') : 'Surgery';
   } else {
     detailStr = procType;
   }
 
-  return { start, end, event: procType, type: procType, details: detailStr, data: proc, dateOnly: true };
+  return { start, end, event: eventLabel, type: procType, details: detailStr, data: proc, dateOnly: true };
 }
 
 /**

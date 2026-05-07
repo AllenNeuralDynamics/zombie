@@ -114,6 +114,18 @@ describe('parseProcedure', () => {
     expect(ev.details).toContain('Brain injection');
   });
 
+  it('labels surgery as Terminal Surgery when perfusion is present', () => {
+    const ev = parseProcedure({
+      object_type: 'Surgery',
+      start_date: '2025-03-01',
+      procedures: [
+        { object_type: 'Perfusion' },
+      ],
+    });
+    expect(ev.type).toBe('Surgery');
+    expect(ev.event).toBe('Terminal Surgery');
+  });
+
   it('uses end_date when provided', () => {
     const ev = parseProcedure({
       object_type: 'Headframe',

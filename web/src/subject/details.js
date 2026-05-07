@@ -232,6 +232,7 @@ function createTabWidget(tabs) {
 
 function buildSurgeryOverviewHtml(event) {
   const { start, details, data = {} } = event;
+  const title = event.event === 'Terminal Surgery' ? 'Terminal Surgery' : 'Surgery Overview';
   const anaes = data.anaesthesia;
   const extra = [
     anaes
@@ -252,7 +253,7 @@ function buildSurgeryOverviewHtml(event) {
   ].join('');
   return `
     <div class="detail-card">
-      <h4>Surgery Overview</h4>
+      <h4>${title}</h4>
       <dl>
         <dt>Date</dt><dd>${fmtDate(start)}</dd>
         <dt>Procedures</dt><dd>${details ?? ''}</dd>
