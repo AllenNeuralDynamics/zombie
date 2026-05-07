@@ -9,7 +9,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseTranslation, parseDeviceConfigCoords, computeProbeDirection } from '../lib/coord-systems.js';
+import {
+  parseTranslation,
+  parseDeviceConfigCoords,
+  directionToThreeJS,
+  buildCoordBasis,
+  applyExtrinsicRotation,
+  applyTranslation,
+  computeProbeDirection,
+  computeProbeDirectionSteps,
+} from '../lib/coord-systems.js';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -221,7 +230,158 @@ describe('parseDeviceConfigCoords', () => {
   });
 });
 
+// ── directionToThreeJS ──────────────────────────────────────────────────────
+
+describe('directionToThreeJS', () => {
+  it('Left_to_right → +R → three.js (−1, 0, 0)', () => {
+    expect(directionToThreeJS('Left_to_right')).toEqual([-1, 0, 0]);
+  });
+
+  it('Right_to_left → −R → three.js (+1, 0, 0)', () => {
+    expect(directionToThreeJS('Right_to_left')).toEqual([1, 0, 0]);
+  });
+
+  it('Posterior_to_anterior → +A → three.js (0, 0, +1)', () => {
+    expect(directionToThreeJS('Posterior_to_anterior')).toEqual([0, 0, 1]);
+  });
+
+  it('Anterior_to_posterior → −A → three.js (0, 0, −1)', () => {
+    expect(directionToThreeJS('Anterior_to_posterior')).toEqual([0, 0, -1]);
+  });
+
+  it('Inferior_to_superior → +S → three.js (0, +1, 0)', () => {
+    expect(directionToThreeJS('Inferior_to_superior')).toEqual([0, 1, 0]);
+  });
+
+  it('Superior_to_inferior → −S → three.js (0, −1, 0)', () => {
+    expect(directionToThreeJS('Superior_to_inferior')).toEqual([0, -1, 0]);
+  });
+
+  it('is case-insensitive', () => {
+    expect(directionToThreeJS('left_to_right')).toEqual([-1, 0, 0]);
+    expect(directionToThreeJS('LEFT_TO_RIGHT')).toEqual([-1, 0, 0]);
+  });
+
+  it('returns null for unrecognised direction', () => {
+    expect(directionToThreeJS('bogus')).toBeNull();
+    expect(directionToThreeJS(null)).toBeNull();
+  });
+});
+
+// ── buildCoordBasis ─────────────────────────────────────────────────────────
+
+describe('buildCoordBasis', () => {
+  it('returns default BREGMA_RAS basis when no coordinate system provided', () => {
+    const { columns } = buildCoordBasis(null);
+    expect(columns[0]).toEqual([-1, 0, 0]); // R
+    expect(columns[1]).toEqual([0, 0, 1]);  // A
+    expect(columns[2]).toEqual([0, 1, 0]);  // S
+  });
+
+  it('builds correct basis from BREGMA_ARID axes', () => {
+    const cs = {
+      axes: [
+        { direction: 'Posterior_to_anterior' }, // AP → +A
+        { direction: 'Left_to_right' },         // ML → +R
+        { direction: 'Superior_to_inferior' },  // SI → −S
+      ],
+    };
+    const { columns } = buildCoordBasis(cs);
+    expect(columns[0]).toEqual([0, 0, 1]);  // AP axis → three.js +Z
+    expect(columns[1]).toEqual([-1, 0, 0]); // ML axis → three.js −X
+    expect(columns[2]).toEqual([0, -1, 0]); // SI axis → three.js −Y
+  });
+
+  it('falls back to default on unrecognised direction', () => {
+    const cs = { axes: [{ direction: 'Posterior_to_anterior' }, { direction: 'bogus' }] };
+    const { columns } = buildCoordBasis(cs);
+    expect(columns[0]).toEqual([-1, 0, 0]); // default R
+  });
+});
+
+// ── applyExtrinsicRotation ──────────────────────────────────────────────────
+
+describe('applyExtrinsicRotation', () => {
+  const RAS = buildCoordBasis(null).columns;
+
+  it('zero angles leave vector unchanged', () => {
+    const v = applyExtrinsicRotation([0, 0, 1], [0, 0, 0], RAS);
+    expect(v[0]).toBeCloseTo(0);
+    expect(v[1]).toBeCloseTo(0);
+    expect(v[2]).toBeCloseTo(1);
+  });
+
+  it('90° around R axis (axis 0) rotates A toward S', () => {
+    // +A = (0,0,1) → +S = (0,1,0)
+    const v = applyExtrinsicRotation([0, 0, 1], [90, 0, 0], RAS);
+    expect(v[0]).toBeCloseTo(0);
+    expect(v[1]).toBeCloseTo(1);
+    expect(v[2]).toBeCloseTo(0);
+  });
+
+  it('90° around A axis (axis 1) rotates R toward −S', () => {
+    // +R in three.js = (-1,0,0). After 90° around A: should become −S = (0,−1,0).
+    // RAS: Ry(90°) takes R(1,0,0) → −S(0,0,−1). In three.js: R(-1,0,0) → −S(0,−1,0).
+    const v = applyExtrinsicRotation([-1, 0, 0], [0, 90, 0], RAS);
+    expect(v[0]).toBeCloseTo(0);
+    expect(v[1]).toBeCloseTo(-1);
+    expect(v[2]).toBeCloseTo(0);
+  });
+
+  it('90° around S axis (axis 2) rotates R toward A', () => {
+    // +R = (-1,0,0) → +A = (0,0,1)
+    const v = applyExtrinsicRotation([-1, 0, 0], [0, 0, 90], RAS);
+    expect(v[0]).toBeCloseTo(0);
+    expect(v[1]).toBeCloseTo(0);
+    expect(v[2]).toBeCloseTo(1);
+  });
+});
+
+// ── applyTranslation ────────────────────────────────────────────────────────
+
+describe('applyTranslation', () => {
+  const RAS = buildCoordBasis(null).columns;
+
+  it('+R translation moves to three.js −X', () => {
+    const pos = applyTranslation([0, 0, 0], [5, 0, 0], RAS);
+    expect(pos[0]).toBeCloseTo(-5);
+    expect(pos[1]).toBeCloseTo(0);
+    expect(pos[2]).toBeCloseTo(0);
+  });
+
+  it('+A translation moves to three.js +Z', () => {
+    const pos = applyTranslation([0, 0, 0], [0, 5, 0], RAS);
+    expect(pos[0]).toBeCloseTo(0);
+    expect(pos[1]).toBeCloseTo(0);
+    expect(pos[2]).toBeCloseTo(5);
+  });
+
+  it('+S translation moves to three.js +Y', () => {
+    const pos = applyTranslation([0, 0, 0], [0, 0, 5], RAS);
+    expect(pos[0]).toBeCloseTo(0);
+    expect(pos[1]).toBeCloseTo(5);
+    expect(pos[2]).toBeCloseTo(0);
+  });
+
+  it('works with BREGMA_ARID basis', () => {
+    const cs = {
+      axes: [
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Left_to_right' },
+        { direction: 'Superior_to_inferior' },
+      ],
+    };
+    const cols = buildCoordBasis(cs).columns;
+    // v[0]=AP(+anterior) → three.js +Z; v[1]=ML(+right) → three.js −X
+    const pos = applyTranslation([0, 0, 0], [3, 2, 1], cols);
+    expect(pos[0]).toBeCloseTo(-2); // ML=2 → −2 in X
+    expect(pos[1]).toBeCloseTo(-1); // SI=1 (S→I) → −1 in Y
+    expect(pos[2]).toBeCloseTo(3);  // AP=3 → +3 in Z
+  });
+});
+
 // ── computeProbeDirection ───────────────────────────────────────────────────
+// Three.js: X = −R, Y = +S, Z = +A.  Probe at rest = +A = (0, 0, 1).
 
 describe('computeProbeDirection', () => {
   it('returns +Z unit vector when no transforms are given (probe points anterior)', () => {
@@ -249,52 +409,55 @@ describe('computeProbeDirection', () => {
     expect(z).toBeCloseTo(1);
   });
 
-  it('Rx(90°) rotates +Z to -Y (ventral)', () => {
-    // Rx: y1 = cos(90)*z_y - sin(90)*z_z = 0 - 1 = -1, z1 = sin(90)*0 + cos(90)*1 = 0
+  it('Rx(90°) rotates anterior probe to point superior (dorsal)', () => {
+    // RAS Rx(90°) around R axis: A→S.  three.js: (0,0,1)→(0,1,0).
     const [x, y, z] = computeProbeDirection([
       { object_type: 'Rotation', angles: [90, 0, 0] },
-    ]);
-    expect(x).toBeCloseTo(0);
-    expect(y).toBeCloseTo(-1);
-    expect(z).toBeCloseTo(0);
-  });
-
-  it('Rx(-90°) rotates +Z to +Y (dorsal)', () => {
-    // Rx(-90): y1 = cos(-90)*0 - sin(-90)*1 = 1, z1 = sin(-90)*0 + cos(-90)*1 = 0
-    const [x, y, z] = computeProbeDirection([
-      { object_type: 'Rotation', angles: [-90, 0, 0] },
     ]);
     expect(x).toBeCloseTo(0);
     expect(y).toBeCloseTo(1);
     expect(z).toBeCloseTo(0);
   });
 
-  it('Ry(90°) rotates +Z to +X (right/ML)', () => {
-    // Ry: x2 = cos(90)*0 + sin(90)*1 = 1, z2 = -sin(90)*0 + cos(90)*1 = 0
+  it('Rx(-90°) rotates anterior probe to point inferior (ventral)', () => {
+    // RAS Rx(-90°): A→−S.  three.js: (0,0,1)→(0,−1,0).
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [-90, 0, 0] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(-1);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('Ry(90°) leaves anterior probe unchanged (A axis is the probe direction at rest)', () => {
     const [x, y, z] = computeProbeDirection([
       { object_type: 'Rotation', angles: [0, 90, 0] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('Rz(90°) rotates anterior probe to point left (−R)', () => {
+    // RAS Rz(90°) around S axis: A→−R.
+    // −R in three.js = −(−1,0,0) = (+1,0,0).
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [0, 0, 90] },
     ]);
     expect(x).toBeCloseTo(1);
     expect(y).toBeCloseTo(0);
     expect(z).toBeCloseTo(0);
   });
 
-  it('Rz(90°) does not affect +Z (Rz only rotates the XY plane)', () => {
-    const [x, y, z] = computeProbeDirection([
-      { object_type: 'Rotation', angles: [0, 0, 90] },
-    ]);
-    expect(x).toBeCloseTo(0);
-    expect(y).toBeCloseTo(0);
-    expect(z).toBeCloseTo(1);
-  });
-
-  it('Rz(-90°) does not affect +Z', () => {
+  it('Rz(-90°) rotates anterior probe to point right (+R)', () => {
+    // RAS Rz(-90°) around S axis: A→+R.
+    // +R in three.js = (−1,0,0).
     const [x, y, z] = computeProbeDirection([
       { object_type: 'Rotation', angles: [0, 0, -90] },
     ]);
-    expect(x).toBeCloseTo(0);
+    expect(x).toBeCloseTo(-1);
     expect(y).toBeCloseTo(0);
-    expect(z).toBeCloseTo(1);
+    expect(z).toBeCloseTo(0);
   });
 
   it('result is a unit vector', () => {
@@ -305,15 +468,16 @@ describe('computeProbeDirection', () => {
     expect(len).toBeCloseTo(1, 6);
   });
 
-  it('applies multiple rotations in sequence (extrinsic)', () => {
-    // Rx(-90) makes +Z → +Y (dorsal), then Ry(90) rotates +Y unchanged → +Y
-    // because Ry only rotates the XZ plane.
+  it('applies multiple rotations in sequence (extrinsic, around fixed world axes)', () => {
+    // Rx(-90°): A → −S.  three.js: (0,0,1) → (0,−1,0).
+    // Ry(90°): rotate around A axis; −S → −R (RAS Ry(90°): S → R, so −S → −R).
+    //          −R in three.js = (+1,0,0).
     const [x, y, z] = computeProbeDirection([
-      { object_type: 'Rotation', angles: [-90, 0, 0] }, // +Z → +Y
-      { object_type: 'Rotation', angles: [0, 90, 0] },  // Ry on (0,1,0): Y unaffected
+      { object_type: 'Rotation', angles: [-90, 0, 0] },
+      { object_type: 'Rotation', angles: [0, 90, 0] },
     ]);
-    expect(x).toBeCloseTo(0);
-    expect(y).toBeCloseTo(1);
+    expect(x).toBeCloseTo(1);
+    expect(y).toBeCloseTo(0);
     expect(z).toBeCloseTo(0);
   });
 
@@ -326,8 +490,85 @@ describe('computeProbeDirection', () => {
 
   it('handles missing angles array gracefully', () => {
     const [x, y, z] = computeProbeDirection([
-      { object_type: 'Rotation' }, // no angles property — defaults to [0,0,0]
+      { object_type: 'Rotation' },
     ]);
-    expect(z).toBeCloseTo(1); // unchanged
+    expect(z).toBeCloseTo(1);
+  });
+
+  it('compound [90, 0, -90]: Rx(90) makes probe vertical, Rz(-90) around S leaves it vertical', () => {
+    const [x, y, z] = computeProbeDirection([
+      { object_type: 'Rotation', angles: [90, 0, -90] },
+    ]);
+    expect(x).toBeCloseTo(0);
+    expect(y).toBeCloseTo(1);
+    expect(z).toBeCloseTo(0);
+  });
+
+  it('accepts a custom coordinate system', () => {
+    // BREGMA_ARID: axis-0=AP, axis-1=ML, axis-2=SI.
+    // Probe at rest along axis 1 = ML = +R → three.js (−1,0,0).
+    const cs = {
+      axes: [
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Left_to_right' },
+        { direction: 'Superior_to_inferior' },
+      ],
+    };
+    const [x, y, z] = computeProbeDirection([], cs);
+    expect(x).toBeCloseTo(-1);
+    expect(y).toBeCloseTo(0);
+    expect(z).toBeCloseTo(0);
+  });
+});
+
+// ── computeProbeDirectionSteps ──────────────────────────────────────────────
+
+describe('computeProbeDirectionSteps', () => {
+  it('returns initial state when no transforms', () => {
+    const steps = computeProbeDirectionSteps([]);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].type).toBe('initial');
+    expect(steps[0].dir[2]).toBeCloseTo(1); // anterior
+    expect(steps[0].pos).toEqual([0, 0, 0]);
+  });
+
+  it('tracks direction and width through rotations', () => {
+    const steps = computeProbeDirectionSteps([
+      { object_type: 'Rotation', angles: [90, 0, 0] },
+    ]);
+    expect(steps).toHaveLength(2);
+    // After Rx(90°): dir was A=(0,0,1), now S=(0,1,0)
+    expect(steps[1].dir[1]).toBeCloseTo(1);
+    // wid was R=(-1,0,0), Rx around R leaves it unchanged
+    expect(steps[1].wid[0]).toBeCloseTo(-1);
+  });
+
+  it('tracks position through translations', () => {
+    const steps = computeProbeDirectionSteps([
+      { object_type: 'Translation', translation: [5, 3, 2] },
+    ]);
+    expect(steps).toHaveLength(2);
+    // Default RAS: v[0]=R→-X, v[1]=A→+Z, v[2]=S→+Y
+    expect(steps[1].pos[0]).toBeCloseTo(-5); // R → −X
+    expect(steps[1].pos[1]).toBeCloseTo(2);  // S → +Y
+    expect(steps[1].pos[2]).toBeCloseTo(3);  // A → +Z
+  });
+
+  it('accumulates position across multiple translations', () => {
+    const steps = computeProbeDirectionSteps([
+      { object_type: 'Translation', translation: [1, 0, 0] },
+      { object_type: 'Translation', translation: [1, 0, 0] },
+    ]);
+    expect(steps[2].pos[0]).toBeCloseTo(-2); // 2 × R → −2 in X
+  });
+
+  it('includes wid field for roll tracking', () => {
+    const steps = computeProbeDirectionSteps([
+      { object_type: 'Rotation', angles: [0, 90, 0] },
+    ]);
+    // Ry(90°) around A: wid was R=(-1,0,0), should rotate to −S=(0,−1,0)
+    expect(steps[1].wid[0]).toBeCloseTo(0);
+    expect(steps[1].wid[1]).toBeCloseTo(-1);
+    expect(steps[1].wid[2]).toBeCloseTo(0);
   });
 });

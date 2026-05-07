@@ -1,20 +1,24 @@
 /**
  * coord-systems.js — Coordinate system parsing for AIND procedure metadata.
  *
- * Converts a `coordinate_system` object (from a device_config or procedure) plus
- * a `translation` array into canonical brain coordinates:
+ * Two levels of coordinate conversion:
  *
- *   ap    — mm from bregma, positive = anterior
- *   ml    — mm from bregma, positive = right
- *   dv    — mm from bregma, positive = dorsal (up)
- *   depth — mm from brain surface, always positive
+ * 1. Semantic (ap / ml / dv / depth) — for display and data tables.
+ *    See: parseTranslation, parseDeviceConfigCoords.
  *
- * The translation array has up to 4 values: [v0, v1, v2, v3].
- *   v0..v2 correspond to coordinate_system.axes[0..2] in order.
- *   v3 is always depth-from-surface (axis-independent, sign is ignored).
+ * 2. Three.js space — for 3D rendering (rotations, translations, probe direction).
+ *    See: buildCoordBasis, applyExtrinsicRotation, applyTranslation,
+ *         computeProbeDirection, computeProbeDirectionSteps.
  *
- * If no coordinate_system is provided, falls back to the BREGMA_ARID convention:
- *   v0 = AP (positive anterior), v1 = ML (positive right), v2 = DV, v3 = depth.
+ * Canonical three.js layout (origin = Bregma, units = mm):
+ *   X = −R   (screen-right when viewing from behind the brain)
+ *   Y = +S   (superior / dorsal = up)
+ *   Z = +A   (anterior, into screen when viewing from behind)
+ *
+ * Any source coordinate system is described by a 3×3 basis whose columns
+ * map the system's axes [0, 1, 2] to three.js unit vectors.  Rotations and
+ * translations apply through this basis, so the math is coordinate-system-
+ * agnostic once the basis is built.
  */
 
 /**
@@ -110,51 +114,184 @@ export function parseDeviceConfigCoords(deviceConfig) {
   return parseTranslation(coordSys, translation ?? []);
 }
 
+// ── Three.js coordinate basis ───────────────────────────────────────────────
+//
+// Maps anatomical direction strings to three.js unit vectors.
+// Canonical three.js layout: X = −R, Y = +S, Z = +A.
+
+/**
+ * Map an anatomical direction string to its three.js unit vector.
+ *
+ * @param {string} direction - e.g. 'Left_to_right', 'Posterior_to_anterior'.
+ * @returns {[number,number,number]|null} Three.js unit vector, or null.
+ */
+export function directionToThreeJS(direction) {
+  if (!direction) return null;
+  const dir = direction.toLowerCase().trim();
+
+  if (dir === 'left_to_right')        return [-1,  0,  0]; // +R → three.js −X
+  if (dir === 'right_to_left')        return [ 1,  0,  0]; // −R → three.js +X
+  if (dir === 'posterior_to_anterior') return [ 0,  0,  1]; // +A → three.js +Z
+  if (dir === 'anterior_to_posterior') return [ 0,  0, -1]; // −A → three.js −Z
+  if (dir === 'inferior_to_superior') return [ 0,  1,  0]; // +S → three.js +Y
+  if (dir === 'superior_to_inferior') return [ 0, -1,  0]; // −S → three.js −Y
+
+  return null;
+}
+
+/**
+ * Default basis for BREGMA_RAS: axis-0 = R, axis-1 = A, axis-2 = S.
+ * Probe at rest points along axis 1 (anterior).
+ */
+const DEFAULT_BASIS = [
+  [-1, 0, 0], // R → three.js −X
+  [ 0, 0, 1], // A → three.js +Z
+  [ 0, 1, 0], // S → three.js +Y
+];
+
+/**
+ * Build a 3×3 orthogonal basis (as column vectors) that maps a source
+ * coordinate system's axes to three.js directions.
+ *
+ * @param {object|null} coordinateSystem - coordinate_system with axes[], or null.
+ * @returns {{ columns: Array<[number,number,number]> }}
+ *   columns[i] is the three.js unit vector for source axis i.
+ */
+export function buildCoordBasis(coordinateSystem) {
+  if (!coordinateSystem?.axes?.length) return { columns: DEFAULT_BASIS };
+
+  const columns = [];
+  for (let i = 0; i < 3 && i < coordinateSystem.axes.length; i++) {
+    const vec = directionToThreeJS(coordinateSystem.axes[i]?.direction);
+    if (!vec) {
+      console.warn('[coord-systems] Unrecognised axis direction, using default basis');
+      return { columns: DEFAULT_BASIS };
+    }
+    columns.push(vec);
+  }
+  if (columns.length < 3) return { columns: DEFAULT_BASIS };
+  return { columns };
+}
+
+/**
+ * Rotate a 3-vector around an arbitrary unit axis by an angle (right-hand rule).
+ * Uses Rodrigues' rotation formula.  Pure math — no Three.js dependency.
+ */
+function _axisAngleRotate(v, axis, angle) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const [ax, ay, az] = axis;
+  const [vx, vy, vz] = v;
+  const dot = ax * vx + ay * vy + az * vz;
+  return [
+    vx * c + (ay * vz - az * vy) * s + ax * dot * (1 - c),
+    vy * c + (az * vx - ax * vz) * s + ay * dot * (1 - c),
+    vz * c + (ax * vy - ay * vx) * s + az * dot * (1 - c),
+  ];
+}
+
+/**
+ * Apply extrinsic (fixed-axes) rotations to a vector.
+ *
+ * For each axis i, rotates by angles[i] degrees around basisColumns[i],
+ * applied in order i = 0, 1, 2.  Extrinsic means each rotation is around
+ * the fixed world axis, not the rotated body axis.
+ *
+ * @param {[number,number,number]} v - Input vector in three.js space.
+ * @param {number[]} angles - [a, b, c] rotation angles in degrees.
+ * @param {Array<[number,number,number]>} basisColumns - Three.js axis vectors.
+ * @returns {[number,number,number]} Rotated vector.
+ */
+export function applyExtrinsicRotation(v, angles, basisColumns) {
+  const deg = Math.PI / 180;
+  let result = [v[0], v[1], v[2]];
+  for (let i = 0; i < 3; i++) {
+    const a = (angles[i] ?? 0) * deg;
+    if (Math.abs(a) < 1e-12) continue;
+    result = _axisAngleRotate(result, basisColumns[i], a);
+  }
+  return result;
+}
+
+/**
+ * Translate a position using basis columns.
+ *
+ * @param {[number,number,number]} pos - Current position in three.js space.
+ * @param {number[]} translation - [v0, v1, v2, ...] in source coordinate system.
+ * @param {Array<[number,number,number]>} basisColumns - Three.js axis vectors.
+ * @returns {[number,number,number]} Updated position.
+ */
+export function applyTranslation(pos, translation, basisColumns) {
+  const result = [pos[0], pos[1], pos[2]];
+  for (let i = 0; i < 3 && i < translation.length; i++) {
+    const v = translation[i] ?? 0;
+    result[0] += v * basisColumns[i][0];
+    result[1] += v * basisColumns[i][1];
+    result[2] += v * basisColumns[i][2];
+  }
+  return result;
+}
+
 /**
  * Compute the probe direction unit vector after applying a sequence of extrinsic
- * right-hand-rule rotations from an ephys probe's transform list.
+ * rotations from a probe's transform list.
  *
- * The probe starts pointing in the +Y direction (vertical, tip down).
- * Each Rotation object with angles [a, b, c] applies an extrinsic XYZ rotation:
- * rotate around world X by `a` degrees, then world Y by `b`, then world Z by `c`.
- * The combined matrix for one step is Rz(c) · Ry(b) · Rx(a).
- * Translation objects are ignored (translations do not change direction).
- *
- * Result coordinates are in PROBE_RUFD space (X=ML right+, Y=DV dorsal+, Z=AP anterior+).
+ * The probe at rest points along basis axis 1 (anterior in BREGMA_RAS).
+ * Translation objects are ignored (they do not change direction).
  *
  * @param {Array} transforms - Array of Rotation/Translation objects from probe.transform.
- * @returns {[number, number, number]} Unit vector [x, y, z].
+ * @param {object|null} [coordinateSystem=null] - coordinate_system defining the axes.
+ * @returns {[number, number, number]} Unit vector [x, y, z] in three.js space.
  */
-export function computeProbeDirection(transforms) {
-  // Initial direction: probe points in +Z (anterior) before any rotations
-  let x = 0, y = 0, z = 1;
+export function computeProbeDirection(transforms, coordinateSystem = null) {
+  const { columns } = buildCoordBasis(coordinateSystem);
+  let dir = [columns[1][0], columns[1][1], columns[1][2]]; // at rest: axis 1
 
   for (const t of (transforms ?? [])) {
     if (t?.object_type !== 'Rotation') continue;
-    const [aDeg = 0, bDeg = 0, cDeg = 0] = t.angles ?? [];
-    const a = aDeg * (Math.PI / 180);
-    const b = bDeg * (Math.PI / 180);
-    const c = cDeg * (Math.PI / 180);
-
-    // Extrinsic XYZ: apply Rx(a), then Ry(b), then Rz(c) around world axes.
-    // Equivalent to combined matrix Rz(c) · Ry(b) · Rx(a) applied to column vector.
-
-    // Rx(a): rotates Y→Y·cos-Z·sin, Z→Y·sin+Z·cos  (X unchanged)
-    const y1 = Math.cos(a) * y - Math.sin(a) * z;
-    const z1 = Math.sin(a) * y + Math.cos(a) * z;
-    y = y1; z = z1;
-
-    // Ry(b): rotates X→X·cos+Z·sin, Z→-X·sin+Z·cos  (Y unchanged)
-    const x2 = Math.cos(b) * x + Math.sin(b) * z;
-    const z2 = -Math.sin(b) * x + Math.cos(b) * z;
-    x = x2; z = z2;
-
-    // Rz(c): rotates X→X·cos-Y·sin, Y→X·sin+Y·cos  (Z unchanged)
-    const x3 = Math.cos(c) * x - Math.sin(c) * y;
-    const y3 = Math.sin(c) * x + Math.cos(c) * y;
-    x = x3; y = y3;
+    dir = applyExtrinsicRotation(dir, t.angles ?? [], columns);
   }
 
-  const len = Math.sqrt(x * x + y * y + z * z) || 1;
-  return [x / len, y / len, z / len];
+  const len = Math.sqrt(dir[0] ** 2 + dir[1] ** 2 + dir[2] ** 2) || 1;
+  return [dir[0] / len, dir[1] / len, dir[2] / len];
+}
+
+/**
+ * Walk through a probe's transform chain and return a state snapshot after
+ * every step (Rotation OR Translation), including the initial at-rest state.
+ *
+ * Both rotations and translations are interpreted in the given coordinate
+ * system (default BREGMA_RAS).  The probe at rest points along axis 1 with
+ * its width along axis 0.
+ *
+ * @param {Array} transforms - Array of Rotation/Translation objects.
+ * @param {object|null} [coordinateSystem=null] - coordinate_system defining the axes.
+ * @returns {Array<{dir, wid, pos, type}>}
+ */
+export function computeProbeDirectionSteps(transforms, coordinateSystem = null) {
+  const { columns } = buildCoordBasis(coordinateSystem);
+  let dir = [columns[1][0], columns[1][1], columns[1][2]]; // axis 1
+  let wid = [columns[0][0], columns[0][1], columns[0][2]]; // axis 0
+  let pos = [0, 0, 0];
+
+  const norm = (v) => {
+    const l = Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) || 1;
+    return [v[0] / l, v[1] / l, v[2] / l];
+  };
+
+  const steps = [{ dir: norm(dir), wid: norm(wid), pos: [...pos], type: 'initial' }];
+
+  for (const t of (transforms ?? [])) {
+    const type = t?.object_type ?? 'Unknown';
+
+    if (type === 'Rotation') {
+      dir = applyExtrinsicRotation(dir, t.angles ?? [], columns);
+      wid = applyExtrinsicRotation(wid, t.angles ?? [], columns);
+    } else if (type === 'Translation') {
+      pos = applyTranslation(pos, t.translation ?? [], columns);
+    }
+
+    steps.push({ dir: norm(dir), wid: norm(wid), pos: [...pos], type });
+  }
+
+  return steps;
 }

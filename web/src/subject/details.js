@@ -464,8 +464,6 @@ export function buildEphysProbeCard(probe, index) {
         ${others ? `<dt>Other targets</dt><dd>${others}</dd>` : ''}
         ${probe.dye ? `<dt>Dye</dt><dd>${probe.dye}</dd>` : ''}
         ${moduleAngles ? `<dt>Module angles</dt><dd>${moduleAngles}</dd>` : ''}
-        <dt>Position (AP, ML)</dt><dd>${probe.ap.toFixed(2)} mm, ${probe.ml.toFixed(2)} mm</dd>
-        <dt>Depth</dt><dd>${probe.depth.toFixed(2)} mm</dd>
         ${probe.notes ? `<dt>Notes</dt><dd>${probe.notes}</dd>` : ''}
       </dl>
     </div>`;

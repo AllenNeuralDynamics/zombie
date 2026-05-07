@@ -163,13 +163,6 @@ describe('buildEphysProbeCard', () => {
     expect(html).toContain('module -15');
   });
 
-  it('renders position and depth', () => {
-    const html = buildEphysProbeCard(probe, 0);
-    expect(html).toContain('-4.04');
-    expect(html).toContain('3.96');
-    expect(html).toContain('3.61');
-  });
-
   it('renders notes', () => {
     const html = buildEphysProbeCard(probe, 0);
     expect(html).toContain('Probe notes.');

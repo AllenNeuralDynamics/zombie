@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Probe Transform Debugger</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/"
+    }
+  }
+  </script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; height: 100vh; font: 13px/1.5 system-ui, sans-serif; background: #f5f5f5; }
+
+    #sidebar {
+      width: 340px; flex-shrink: 0; overflow-y: auto;
+      background: #fff; border-right: 1px solid #ddd; padding: 12px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    h1 { font-size: 14px; font-weight: 700; color: #333; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+    h2 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #888; margin-bottom: 4px; }
+
+    .probe-block { border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
+    .probe-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; background: #fafafa;
+      border-bottom: 1px solid #e0e0e0; user-select: none;
+    }
+    .probe-header:hover { background: #f0f0f0; }
+    .probe-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .probe-title { font-weight: 600; font-size: 13px; }
+    .probe-subtitle { font-size: 11px; color: #888; margin-left: auto; }
+    .probe-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+
+    .xform-row {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 5px 6px; border-radius: 4px; cursor: pointer;
+      border: 1px solid transparent; transition: background .1s;
+    }
+    .xform-row:hover { background: #f5f5f5; }
+    .xform-row.disabled { opacity: .4; }
+    .xform-row input[type=checkbox] { margin-top: 2px; flex-shrink: 0; }
+    .xform-label { font-size: 12px; }
+    .xform-type {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 1px 5px; border-radius: 3px; margin-right: 4px; vertical-align: middle;
+    }
+    .xform-type.Rotation    { background: #e3f0ff; color: #1a6fc4; }
+    .xform-type.Translation { background: #e8f5e9; color: #2e7d32; }
+    .xform-vals { color: #555; font-family: monospace; font-size: 11px; }
+
+    .step-color-strip {
+      display: flex; gap: 2px; margin-top: 4px; align-items: center; flex-wrap: wrap;
+    }
+    .step-swatch { width: 14px; height: 14px; border-radius: 2px; border: 1px solid #ccc; }
+
+    #canvas-wrap { flex: 1; position: relative; overflow: hidden; background: #fff; }
+    canvas { display: block; }
+    #status {
+      position: absolute; bottom: 10px; left: 12px;
+      font: 11px monospace; color: #555; pointer-events: none;
+    }
+    #legend {
+      position: absolute; top: 10px; right: 12px;
+      font: 11px monospace; background: rgba(255,255,255,.85);
+      padding: 8px 10px; border-radius: 4px; line-height: 1.9;
+      border: 1px solid #ddd;
+    }
+  </style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div>
+    <h1>Probe Transform Debugger</h1>
+    <p style="font-size:11px;color:#888;margin-top:4px">
+      Toggle individual transforms to see their cumulative effect.
+      Each probe's steps are shown in white→probe-color progression.
+      <strong>Cylinders</strong> = rotations &nbsp;|&nbsp; <strong>Spheres</strong> = translations.
+    </p>
+  </div>
+  <div id="probe-list"></div>
+</div>
+
+<div id="canvas-wrap">
+  <div id="status">Loading brain mesh…</div>
+  <div id="legend"></div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+import {
+  buildCoordBasis,
+  applyExtrinsicRotation,
+  applyTranslation,
+} from './src/lib/coord-systems.js';
+
+// ── Probe examples ────────────────────────────────────────────────────────
+const EXAMPLES = [
+  // ── Axis sanity tests ────────────────────────────────────────────────
+  {
+    name: '① At rest (no transforms)',
+    color: '#aaaaaa',
+    target: 'expect: probe points anterior (+A, +Z three.js)',
+    transforms: [],
+  },
+  {
+    name: '② Rx(+90) — pitch forward',
+    color: '#e74c3c',
+    target: 'expect: probe points superior (+S, +Y three.js)',
+    transforms: [
+      { type: 'Rotation', angles: [90, 0, 0], label: 'Rx(+90°)' },
+    ],
+  },
+  {
+    name: '③ Rx(−90) — pitch backward',
+    color: '#e67e22',
+    target: 'expect: probe points inferior (−S, −Y three.js)',
+    transforms: [
+      { type: 'Rotation', angles: [-90, 0, 0], label: 'Rx(−90°)' },
+    ],
+  },
+  {
+    name: '④ Ry(+90) — rotate around A axis',
+    color: '#f1c40f',
+    target: 'expect: probe stays pointing anterior (A is probe at-rest axis)',
+    transforms: [
+      { type: 'Rotation', angles: [0, 90, 0], label: 'Ry(+90°) around A' },
+    ],
+  },
+  {
+    name: '⑤ Rz(+90) — yaw CCW from above',
+    color: '#2ecc71',
+    target: 'expect: probe points LEFT (−R, +X three.js); +S is up, CCW = A→−R',
+    transforms: [
+      { type: 'Rotation', angles: [0, 0, 90], label: 'Rz(+90°)' },
+    ],
+  },
+  {
+    name: '⑥ Rz(−90) — yaw CW from above',
+    color: '#27ae60',
+    target: 'expect: probe points RIGHT (+R, −X three.js)',
+    transforms: [
+      { type: 'Rotation', angles: [0, 0, -90], label: 'Rz(−90°)' },
+    ],
+  },
+  {
+    name: '⑦ Rx(+90) then Rz(−90)',
+    color: '#3498db',
+    target: 'expect: Rx pitches vertical (+S), Rz rotates around S CW → probe stays vertical (same axis)',
+    transforms: [
+      { type: 'Rotation', angles: [90,  0,   0], label: 'Rx(+90°) — pitch to vertical' },
+      { type: 'Rotation', angles: [0,   0, -90], label: 'Rz(−90°) — rotate around S' },
+    ],
+  },
+  {
+    name: '⑧ R1=[90,0,−90] compound',
+    color: '#9b59b6',
+    target: 'expect: Rx90 pitches vertical, Rz−90 is same-axis roll — probe = vertical (+S)',
+    transforms: [
+      { type: 'Rotation', angles: [90, 0, -90], label: 'R=[90,0,−90]' },
+    ],
+  },
+  // ── Translation axis tests ───────────────────────────────────────────
+  {
+    name: '⑨ T=[5,0,0] — translate +R',
+    color: '#ff8888',
+    target: 'expect: tip moves 5mm toward red +R arrow',
+    transforms: [
+      { type: 'Translation', translation: [5, 0, 0, 0], label: 'T=[5,0,0] — 5mm +R' },
+    ],
+  },
+  {
+    name: '⑩ T=[0,5,0] — translate +A',
+    color: '#88cc88',
+    target: 'expect: tip moves 5mm toward green +A arrow',
+    transforms: [
+      { type: 'Translation', translation: [0, 5, 0, 0], label: 'T=[0,5,0] — 5mm +A' },
+    ],
+  },
+  {
+    name: '⑪ T=[0,0,5] — translate +S',
+    color: '#88aaff',
+    target: 'expect: tip moves 5mm toward blue +S arrow',
+    transforms: [
+      { type: 'Translation', translation: [0, 0, 5, 0], label: 'T=[0,0,5] — 5mm +S' },
+    ],
+  },
+  // ── Real probe (disabled by default) ────────────────────────────────
+  {
+    name: 'Probe 46121 (real)',
+    color: '#FF6B6B',
+    target: 'Pallidum (PAL)',
+    transforms: [
+      { type: 'Rotation',    angles: [90, 0, -90],                    label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0, 0, 0],                       label: 'R2 — identity (no-op)' },
+      { type: 'Translation', translation: [7.502, 5.333, 11.386, 1],  label: 'T1 — manipulator position (mm)' },
+      { type: 'Rotation',    angles: [14.963, -4.141, -90],           label: 'R3 — fine-tune direction' },
+      { type: 'Translation', translation: [3.962, -12.102, -4.041, 3.611], label: 'T2 — tip position (mm)' },
+    ],
+  },
+];
+
+// ── State: probeEnabled[pi], enabled[pi][ti] ─────────────────────────────
+const probeEnabled = EXAMPLES.map(() => false);
+const enabled = EXAMPLES.map(e => e.transforms.map(() => true));
+
+// ── Coordinate basis from coord-systems.js ────────────────────────────────
+// Default BREGMA_RAS: axis-0=R, axis-1=A, axis-2=S.
+// Three.js: R→(−1,0,0), A→(0,0,1), S→(0,1,0).
+const { columns: BASIS } = buildCoordBasis(null);
+
+function norm(v) {
+  const [x, y, z] = v;
+  const l = Math.sqrt(x*x + y*y + z*z) || 1;
+  return [x/l, y/l, z/l];
+}
+
+/**
+ * Walk through a probe's transform chain (skipping disabled steps) and
+ * return one state snapshot per step including the initial state.
+ * All vectors are in three.js space, mapped through the coordinate basis.
+ */
+function computeSteps(probeIdx) {
+  const probe = EXAMPLES[probeIdx];
+  let pos = [0, 0, 0];
+  let dir = [...BASIS[1]]; // probe long axis: axis 1 (anterior) at rest
+  let wid = [...BASIS[0]]; // probe width axis: axis 0 (right) at rest
+  const steps = [{ pos: [...pos], dir: norm(dir), wid: norm(wid), type: 'initial', label: 'at rest', active: true }];
+
+  for (let i = 0; i < probe.transforms.length; i++) {
+    const t = probe.transforms[i];
+    const active = enabled[probeIdx][i];
+    if (active) {
+      if (t.type === 'Rotation') {
+        dir = applyExtrinsicRotation(dir, t.angles, BASIS);
+        wid = applyExtrinsicRotation(wid, t.angles, BASIS);
+      } else if (t.type === 'Translation') {
+        pos = applyTranslation(pos, t.translation ?? [], BASIS);
+      }
+    }
+    steps.push({ pos: [...pos], dir: norm(dir), wid: norm(wid), type: t.type, label: t.label, active });
+  }
+  return steps;
+}
+
+// ── Color helpers ─────────────────────────────────────────────────────────
+function cssToRgb(css) {
+  const h = css.replace('#', '');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+function lerpColor(t, [r2,g2,b2]) {
+  const r = Math.round(255 + (r2-255)*t);
+  const g = Math.round(255 + (g2-255)*t);
+  const b = Math.round(255 + (b2-255)*t);
+  return (r<<16)|(g<<8)|b;
+}
+function threeColor(t, rgb) { return new THREE.Color(lerpColor(t, rgb)); }
+
+// ── Three.js scene ────────────────────────────────────────────────────────
+const wrap = document.getElementById('canvas-wrap');
+const statusEl = document.getElementById('status');
+const legendEl = document.getElementById('legend');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+
+const camera = new THREE.PerspectiveCamera(38, wrap.clientWidth / wrap.clientHeight, 0.1, 300);
+camera.position.set(0, 18, -10);
+camera.up.set(0, 1, 0);
+camera.lookAt(0, -3.668, -1.2);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+wrap.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const key = new THREE.DirectionalLight(0xffffff, 0.6);
+key.position.set(4, 12, 14);
+scene.add(key);
+
+// Bregma marker
+scene.add(Object.assign(new THREE.Mesh(
+  new THREE.SphereGeometry(0.2, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0xaaa39f }),
+), {}));
+
+// World-axis arrows at bregma — drawn from the coordinate basis
+const ARROW_LEN = 6;
+const mkArrow = (dir, color, label) => {
+  try {
+    const normDir = dir.clone().normalize();
+    const arr = new THREE.ArrowHelper(normDir, new THREE.Vector3(0,0,0), ARROW_LEN, color, 0.8, 0.4);
+    scene.add(arr);
+    const labelCanvas = document.createElement('canvas');
+    labelCanvas.width = 64; labelCanvas.height = 32;
+    const ctx = labelCanvas.getContext('2d');
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillStyle = '#' + color.toString(16).padStart(6,'0');
+    ctx.fillText(label, 4, 26);
+    const tex = new THREE.CanvasTexture(labelCanvas);
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+    sp.scale.set(1.8, 0.9, 1);
+    sp.position.copy(normDir.clone().multiplyScalar(ARROW_LEN + 0.8));
+    scene.add(sp);
+  } catch(e) { console.warn('mkArrow failed:', e); }
+};
+mkArrow(new THREE.Vector3(...BASIS[0]), 0xff4444, '+R');  // axis 0 = R
+mkArrow(new THREE.Vector3(...BASIS[1]), 0x44aa44, '+A');  // axis 1 = A
+mkArrow(new THREE.Vector3(...BASIS[2]), 0x4488ff, '+S');  // axis 2 = S
+
+// CCF → three.js matrix (µm → mm, bregma origin)
+// Maps Allen CCF coordinates to three.js space consistent with the basis:
+//   three.js X = (ccf_ML - 5700)/1000   → right hemisphere at −X = +R direction ✓
+//   three.js Y = (332 - ccf_DV)/1000    → dorsal at +Y = +S direction ✓
+//   three.js Z = (5400 - ccf_AP)/1000   → anterior at +Z = +A direction ✓
+const CCF_MATRIX = new THREE.Matrix4().set(
+   0,        0,     1/1000, -5.7,
+   0,    -1/1000,   0,       0.332,
+  -1/1000,  0,      0,       5.4,
+   0,        0,     0,       1,
+);
+
+// Brain surface
+const loader = new OBJLoader();
+const MESH_BASE = 'https://allen-data-views.s3.amazonaws.com/data-asset-cache/meshes/';
+loader.load(MESH_BASE + '997.obj', (group) => {
+  group.traverse(c => {
+    if (!c.isMesh) return;
+    c.geometry.applyMatrix4(CCF_MATRIX);
+    c.material = new THREE.MeshPhongMaterial({ color:0x737373, transparent:true, opacity:0.12, side:THREE.DoubleSide, depthWrite:false });
+    c.renderOrder = 1;
+  });
+  scene.add(group);
+  statusEl.textContent = 'Drag to rotate · Scroll to zoom';
+}, undefined, () => { statusEl.textContent = 'Brain mesh unavailable (needs network)'; });
+
+// ── Probe + debug geometry ────────────────────────────────────────────────
+// Probe box: wide in X (ML), thin in Y (DV), long in Z (insertion/AP at rest)
+const PROBE_W = 0.7;   // mm ML
+const PROBE_T = 0.12;  // mm DV (thickness)
+const PROBE_L = 8;     // mm insertion length
+const DEBUG_L  = 6;    // mm debug cylinder length
+const DEBUG_R  = 0.12; // mm debug cylinder radius
+
+// zUp: BoxGeometry Z-axis as the "long" axis we orient to probeDir
+const zUp = new THREE.Vector3(0, 0, 1);
+const yUp = new THREE.Vector3(0, 1, 0); // CylinderGeometry default axis
+
+const probeGroup = new THREE.Group();
+scene.add(probeGroup);
+const debugGroup = new THREE.Group();
+scene.add(debugGroup);
+
+function rebuildScene() {
+  // Clear
+  probeGroup.clear();
+  debugGroup.clear();
+
+  const legendLines = [];
+
+  for (let pi = 0; pi < EXAMPLES.length; pi++) {
+    const probe = EXAMPLES[pi];
+    if (!probeEnabled[pi]) {
+      legendLines.push(`<span style="color:#ccc">■</span> <s style="color:#aaa">${probe.name}</s>`);
+      continue;
+    }
+    const rgb   = cssToRgb(probe.color);
+    const steps = computeSteps(pi);
+    const finalStep = steps[steps.length - 1];
+    const [px, py, pz] = finalStep.pos;
+    const [dx, dy, dz] = finalStep.dir;
+    const [wx, wy, wz] = finalStep.wid;
+    const probeDir = new THREE.Vector3(dx, dy, dz).normalize();
+    const probeWid = new THREE.Vector3(wx, wy, wz).normalize();
+    const probeUp  = new THREE.Vector3().crossVectors(probeDir, probeWid).normalize();
+
+    // Final probe box
+    const probeMat = new THREE.MeshPhongMaterial({
+      color: new THREE.Color(probe.color), transparent: true, opacity: 0.85, shininess: 40,
+    });
+    const probeBox = new THREE.Mesh(new THREE.BoxGeometry(PROBE_W, PROBE_T, PROBE_L), probeMat);
+    // Use a Matrix4 to set full orientation: X=wid, Y=up, Z=dir
+    probeBox.matrixAutoUpdate = false;
+    probeBox.matrix.makeBasis(probeWid, probeUp, probeDir);
+    // Position: tip at pos, probe extends in probeDir from there
+    probeBox.matrix.setPosition(new THREE.Vector3(px, py, pz).addScaledVector(probeDir, PROBE_L / 2));
+    probeGroup.add(probeBox);
+
+    // Tip sphere
+    const tipSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(PROBE_W * 0.6, 10, 10),
+      new THREE.MeshPhongMaterial({ color: new THREE.Color(probe.color) }),
+    );
+    tipSphere.position.set(px, py, pz);
+    probeGroup.add(tipSphere);
+
+    // Debug step lines (white → probe color)
+    const n = steps.length;
+    for (let s = 0; s < n; s++) {
+      const step = steps[s];
+      const t = Math.min(s * 0.15, 1.0);
+      const color = threeColor(t, rgb);
+      const [spx, spy, spz] = step.pos;
+      const [sdx, sdy, sdz] = step.dir;
+      const [swx, swy, swz] = step.wid ?? [1, 0, 0];
+      const origin = new THREE.Vector3(spx, spy, spz);
+      const sDir   = new THREE.Vector3(sdx, sdy, sdz);
+      const sWid   = new THREE.Vector3(swx, swy, swz).normalize();
+      const sUp    = new THREE.Vector3().crossVectors(sDir, sWid).normalize();
+
+      if (!step.active && s > 0) continue; // skip disabled (already halted)
+
+      if (step.type === 'Translation') {
+        // Sphere at the new position
+        const sp = new THREE.Mesh(
+          new THREE.SphereGeometry(0.28, 10, 10),
+          new THREE.MeshBasicMaterial({ color }),
+        );
+        sp.position.copy(origin);
+        debugGroup.add(sp);
+
+        // Short stub showing direction at this position
+        const stubMat = new THREE.MeshBasicMaterial({ color });
+        const stub = new THREE.Mesh(new THREE.CylinderGeometry(DEBUG_R, DEBUG_R, DEBUG_L * 0.4, 8, 1), stubMat);
+        stub.quaternion.setFromUnitVectors(yUp, sDir);
+        stub.position.copy(origin).addScaledVector(sDir, DEBUG_L * 0.2);
+        debugGroup.add(stub);
+      } else {
+        // Full-length flat debug box from current position in current direction
+        const dMat = new THREE.MeshBasicMaterial({ color });
+        const dBox = new THREE.Mesh(new THREE.BoxGeometry(PROBE_W * 0.8, PROBE_T * 0.8, DEBUG_L), dMat);
+        dBox.matrixAutoUpdate = false;
+        dBox.matrix.makeBasis(sWid, sUp, sDir);
+        dBox.matrix.setPosition(origin.clone().addScaledVector(sDir, DEBUG_L / 2));
+        debugGroup.add(dBox);
+      }
+    }
+
+    legendLines.push(`<span style="color:${probe.color}">■</span> ${probe.name} → ${probe.target}`);
+  }
+
+  legendLines.push(`<span style="color:#aaa39f">●</span> Bregma`);
+  legendEl.innerHTML = legendLines.join('<br>');
+}
+
+// ── Sidebar UI ────────────────────────────────────────────────────────────
+function buildSidebar() {
+  const list = document.getElementById('probe-list');
+  list.innerHTML = '';
+
+  EXAMPLES.forEach((probe, pi) => {
+    const block = document.createElement('div');
+    block.className = 'probe-block';
+
+    const header = document.createElement('div');
+    header.className = 'probe-header';
+    header.innerHTML = `
+      <input type="checkbox" ${probeEnabled[pi] ? 'checked' : ''} style="flex-shrink:0">
+      <span class="probe-dot" style="background:${probe.color}"></span>
+      <span class="probe-title">${probe.name}</span>`;
+    block.appendChild(header);
+    if (probe.target) {
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:10px;color:#777;padding:2px 10px 6px 34px;line-height:1.4;background:#fafafa;border-bottom:1px solid #eee';
+      sub.textContent = probe.target;
+      block.appendChild(sub);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'probe-body';
+    if (!probeEnabled[pi]) { body.style.display = 'none'; block.style.opacity = '0.45'; }
+
+    const probeCb = header.querySelector('input');
+    probeCb.addEventListener('change', () => {
+      probeEnabled[pi] = probeCb.checked;
+      body.style.display = probeCb.checked ? '' : 'none';
+      block.style.opacity = probeCb.checked ? '1' : '0.45';
+      rebuildScene();
+    });
+
+    probe.transforms.forEach((t, ti) => {
+      const row = document.createElement('label');
+      row.className = 'xform-row' + (enabled[pi][ti] ? '' : ' disabled');
+
+      const vals = t.type === 'Rotation'
+        ? `[${t.angles.map(x => x.toFixed(1)).join(', ')}]°`
+        : `[${(t.translation ?? []).map(x => x.toFixed(3)).join(', ')}]`;
+
+      row.innerHTML = `
+        <input type="checkbox" ${enabled[pi][ti] ? 'checked' : ''}>
+        <span class="xform-label">
+          <span class="xform-type ${t.type}">${t.type[0]}</span>
+          <span style="font-weight:600">${t.label}</span><br>
+          <span class="xform-vals">${vals}</span>
+        </span>`;
+
+      const cb = row.querySelector('input');
+      cb.addEventListener('change', () => {
+        enabled[pi][ti] = cb.checked;
+        row.classList.toggle('disabled', !cb.checked);
+        rebuildScene();
+      });
+
+      body.appendChild(row);
+    });
+
+    block.appendChild(body);
+    list.appendChild(block);
+  });
+}
+
+buildSidebar();
+rebuildScene();
+
+// ── Orbit controls ────────────────────────────────────────────────────────
+const TARGET = new THREE.Vector3(0, -3.668, -1.2);
+const SPEED  = 0.007;
+const axZ = new THREE.Vector3(0, 0, 1);
+const axX = new THREE.Vector3(1, 0, 0);
+let dragging = false, sx = 0, sy = 0;
+const camOff = new THREE.Vector3(), camUp = new THREE.Vector3();
+
+function startDrag(x, y) {
+  dragging = true; sx = x; sy = y;
+  camOff.copy(camera.position).sub(TARGET);
+  camUp.copy(camera.up);
+}
+function stopDrag() { dragging = false; }
+function doDrag(x, y) {
+  if (!dragging) return;
+  const q = new THREE.Quaternion()
+    .setFromAxisAngle(axZ, -(x-sx)*SPEED)
+    .multiply(new THREE.Quaternion().setFromAxisAngle(axX, (y-sy)*SPEED));
+  camera.position.copy(TARGET).add(camOff.clone().applyQuaternion(q));
+  camera.up.copy(camUp).applyQuaternion(q);
+  camera.lookAt(TARGET);
+}
+
+renderer.domElement.addEventListener('mousedown', e => startDrag(e.clientX, e.clientY));
+window.addEventListener('mouseup', stopDrag);
+window.addEventListener('mousemove', e => doDrag(e.clientX, e.clientY));
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  const dir = camera.position.clone().sub(TARGET).normalize();
+  const d   = Math.max(3, Math.min(80, camera.position.distanceTo(TARGET) + e.deltaY * 0.03));
+  camera.position.copy(TARGET).addScaledVector(dir, d);
+  camera.lookAt(TARGET);
+}, { passive: false });
+
+// Resize
+new ResizeObserver(() => {
+  camera.aspect = wrap.clientWidth / wrap.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+}).observe(wrap);
+
+// Render loop
+(function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); })();
+</script>
+</body>
+</html>
