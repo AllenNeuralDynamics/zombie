@@ -9,33 +9,11 @@
  */
 
 import { registerAcornTable } from '../lib/metadata.js';
+import { escHtml, formatDate, sortRows, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function escHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/**
- * Format an ISO datetime string to "YYYY-MM-DD" (UTC).
- */
-export function formatDate(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-  } catch {
-    return String(iso);
-  }
-}
 
 /**
  * Determine the fiscal quarter label for a date string.
@@ -139,22 +117,6 @@ export function normalizeInstrumentId(id) {
   if (!id) return id ?? '';
   const m = String(id).match(/^[^_-]+[_-](.+)_(\d{8}|\d{4}-\d{2}-\d{2}|(?:2[3-6])\d{4})$/);
   return m ? m[1] : String(id);
-}
-
-/**
- * Collect unique non-null, non-empty values for a column, sorted.
- *
- * @param {object[]} rows
- * @param {string} col
- * @returns {string[]}
- */
-export function uniqueValues(rows, col) {
-  const seen = new Set();
-  for (const row of rows) {
-    const v = row[col];
-    if (v != null && String(v).trim() !== '') seen.add(String(v).trim());
-  }
-  return Array.from(seen).sort();
 }
 
 /**
@@ -277,20 +239,6 @@ export function countByProject(rows) {
     .sort((a, b) => b.count - a.count);
 }
 
-/**
- * Sort rows by column in place.
- */
-export function sortRows(rows, col, dir) {
-  rows.sort((a, b) => {
-    const av = a[col] ?? '';
-    const bv = b[col] ?? '';
-    if (av < bv) return dir === 'asc' ? -1 : 1;
-    if (av > bv) return dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-  return rows;
-}
-
 // ---------------------------------------------------------------------------
 // Table rendering
 // ---------------------------------------------------------------------------
@@ -315,9 +263,6 @@ const COLUMN_LABELS = {
   genotype: 'Genotype',
 };
 
-const PAGE_SIZE = 100;
-const SELECT_THRESHOLD = 50;
-
 // ---------------------------------------------------------------------------
 // CSV export
 // ---------------------------------------------------------------------------
@@ -329,23 +274,6 @@ const SELECT_THRESHOLD = 50;
  * @param {string[]} headers
  * @param {string[][]} dataRows
  */
-export function downloadCsv(filename, headers, dataRows) {
-  const escape = (v) => {
-    const s = String(v ?? '');
-    return s.includes(',') || s.includes('"') || s.includes('\n')
-      ? `"${s.replace(/"/g, '""')}"`
-      : s;
-  };
-  const lines = [headers, ...dataRows].map((row) => row.map(escape).join(','));
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 /**
  * Render one table row.
  *

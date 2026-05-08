@@ -13,6 +13,18 @@
  * To disable: comment out the import and tab wiring in preview.js.
  */
 
+import {
+  CREDIT_ROLES,
+  ROLE_GROUP,
+  GROUP_HUE,
+  hashStr,
+  authorColor,
+  getInitials,
+  getLastName,
+  normalizeRole,
+  isDarkMode,
+} from './credit-helpers.js';
+
 // ── Simulation constants ──────────────────────────────────────────────────────
 
 const _NS  = 'http://www.w3.org/2000/svg';
@@ -36,12 +48,8 @@ const _ZOOM_BTN_FACTOR        = 1.30;   // multiply/divide scale per button clic
 
 // ── CRediT taxonomy ───────────────────────────────────────────────────────────
 
-const _ROLES = [
-  'Conceptualization', 'Methodology', 'Software', 'Validation',
-  'Formal analysis', 'Investigation', 'Resources', 'Data curation',
-  'Writing \u2013 original draft', 'Writing \u2013 review & editing',
-  'Visualization', 'Supervision', 'Project Administration', 'Funding Acquisition',
-];
+// Re-use CREDIT_ROLES from credit-helpers.js
+// (this maintains backward compatibility with existing code references)
 
 // ── CRediT role colors — Allen Institute palette, three semantic groups ─────
 //
@@ -88,89 +96,37 @@ const _NODE_HUE = {
 };
 
 // Derived from _ROLE_COLOR comment groups above.
-const _NODE_ROLE_GROUP = (() => {
-  const m = {};
-  for (const r of ['Conceptualization', 'Supervision', 'Project Administration', 'Funding Acquisition'])
-    m[r.toLowerCase()] = 'leadership';
-  for (const r of ['Methodology', 'Resources'])
-    m[r.toLowerCase()] = 'methods';
-  for (const r of ['Validation', 'Investigation', 'Data curation'])
-    m[r.toLowerCase()] = 'data';
-  for (const r of ['Formal analysis', 'Software', 'Writing \u2013 original draft', 'Writing \u2013 review & editing', 'Visualization'])
-    m[r.toLowerCase()] = 'analysis';
-  return m;
-})();
+// Re-use ROLE_GROUP mapping from credit-helpers.js
+const _NODE_ROLE_GROUP = ROLE_GROUP;
+
+// Re-use GROUP_HUE from credit-helpers.js
+const _NODE_HUE = GROUP_HUE;
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
+// Delegate to imported hashStr
 function _hash(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
-  return Math.abs(h);
+  return hashStr(s);
 }
 
+// Delegate to imported authorColor
 function _nodeColor(author, allAuthors) {
-  const counts = { leadership: 0, methods: 0, data: 0, analysis: 0 };
-
-  // Own contributions (weight 1.0 each)
-  const ownRoles = new Set();
-  if (author.credit_levels) {
-    for (const cl of author.credit_levels) {
-      if (!cl.role) continue;
-      const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
-      ownRoles.add(key);
-      const grp = _NODE_ROLE_GROUP[key];
-      if (grp) counts[grp]++;
-    }
-  }
-
-  // Co-contributor influence: authors who share ≥1 role each add 0.1 per role
-  if (allAuthors && ownRoles.size > 0) {
-    for (const other of allAuthors) {
-      if (other.name === author.name || !other.credit_levels) continue;
-      const shares = other.credit_levels.some(cl => {
-        const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
-        return ownRoles.has(key);
-      });
-      if (!shares) continue;
-      for (const cl of other.credit_levels) {
-        if (!cl.role) continue;
-        const key = cl.role.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
-        const grp = _NODE_ROLE_GROUP[key];
-        if (grp) counts[grp] += 0.1;
-      }
-    }
-  }
-
-  const best = Math.max(counts.leadership, counts.methods, counts.data, counts.analysis);
-  let group;
-  if (best === 0) {
-    group = ['leadership', 'methods', 'data', 'analysis'][_hash(author.name) % 4];
-  } else {
-    const tied = Object.entries(counts).filter(([, v]) => v === best).map(([k]) => k);
-    group = tied.length === 1 ? tied[0] : tied[_hash(author.name) % tied.length];
-  }
-  const h1 = _hash(author.name);
-  const h2 = _hash(author.name + '~');
-  const [hCenter, hHalf] = _NODE_HUE[group];
-  const hue = ((hCenter - hHalf + (h1 % (hHalf * 2 + 1))) + 360) % 360;
-  const sat  = 62 + (h2 % 18);        // 62–79 %
-  const lgt  = 40 + ((h1 >> 6) % 14); // 40–53 %
-  return `hsl(${hue},${sat}%,${lgt}%)`;
+  return authorColor(author, allAuthors || []);
 }
 
+// Delegate to imported getInitials
 function _initials(name) {
-  const p = name.trim().split(/\s+/);
-  return p.length === 1 ? p[0][0].toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
+  return getInitials(name);
 }
 
+// Delegate to imported getLastName
 function _lastName(name) {
-  const p = name.trim().split(/\s+/);
-  return p[p.length - 1];
+  return getLastName(name);
 }
 
+// Delegate to imported normalizeRole
 function _normalizeRole(r) {
-  return r.toLowerCase().replace(/\s+/g, ' ').replace(/\u2014/g, '\u2013').trim();
+  return normalizeRole(r);
 }
 
 function _hasRole(author, roleName) {
@@ -194,8 +150,7 @@ function _getAffLabel(aff) {
 }
 
 function _isDark() {
-  const t = document.documentElement.getAttribute('data-theme');
-  return t === 'dark' || (t !== 'light' && window.matchMedia('(prefers-color-scheme:dark)').matches);
+  return isDarkMode();
 }
 
 // ── SVG element factory ───────────────────────────────────────────────────────
@@ -533,7 +488,7 @@ function _buildSimData(authors) {
   const edges = [];
   for (let a = 0; a < nodes.length; a++) {
     for (let b = a + 1; b < nodes.length; b++) {
-      const shared = _ROLES.filter(
+      const shared = CREDIT_ROLES.filter(
         r => _hasRole(nodes[a].author, r) && _hasRole(nodes[b].author, r)
       );
       if (shared.length) edges.push({ source: a, target: b, roles: shared });
@@ -902,7 +857,7 @@ function _buildLeftLegend(el, nodes, onHover, onLeave) {
   el.appendChild(title);
 
   // Only show roles that at least one author holds
-  const activeRoles = _ROLES.filter(role => nodes.some(n => _hasRole(n.author, role)));
+  const activeRoles = CREDIT_ROLES.filter(role => nodes.some(n => _hasRole(n.author, role)));
 
   for (const role of activeRoles) {
     const item = document.createElement('div');

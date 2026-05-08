@@ -11,31 +11,14 @@
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
+import { CREDIT_ROLES } from './credit-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * All 14 CRediT taxonomy roles in widget display order.
- * These match ALL_CREDIT_ROLES in preview.js (and the upstream authorship widget).
- */
-export const CREDIT_CATEGORIES = [
-  'Conceptualization',
-  'Methodology',
-  'Software',
-  'Validation',
-  'Formal analysis',
-  'Investigation',
-  'Resources',
-  'Data curation',
-  'Writing \u2013 original draft',
-  'Writing \u2013 review & editing',
-  'Visualization',
-  'Supervision',
-  'Project Administration',
-  'Funding Acquisition',
-];
+/** All 14 CRediT taxonomy roles in widget display order. */
+export const CREDIT_CATEGORIES = CREDIT_ROLES;
 
 /** Contribution levels in ascending order. */
 export const CONTRIBUTION_LEVELS = ['None', 'Supporting', 'Equal', 'Lead'];

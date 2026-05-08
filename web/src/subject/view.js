@@ -12,7 +12,8 @@
  *   organizeSubjectData(records, subjectId) — Record organiser (exported for testing).
  */
 
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl, formatDatetime } from '../assets/view.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
+import { formatDatetime } from '../lib/utils.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { fetchAllSubjectIds } from '../lib/metadata.js';
 import { buildTimelineEvents } from './parsers.js';

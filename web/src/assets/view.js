@@ -8,6 +8,11 @@
  * formatAssetRow) are exported for unit testing.
  */
 
+import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+
+// Re-export for backward compatibility with tests
+export { formatDatetime, sortRows, uniqueValues, filterRows };
+
 // ---------------------------------------------------------------------------
 // Pure link builders
 // ---------------------------------------------------------------------------
@@ -66,29 +71,6 @@ export function buildCoLink(codeOcean) {
   if (!codeOcean) return null;
   return `https://codeocean.allenneuraldynamics.org/data-assets/${codeOcean}`;
 }
-
-/**
- * Format an ISO datetime string to "YYYY-MM-DD HH:MM" (UTC, no seconds).
- *
- * @param {string|null} iso
- * @returns {string}
- */
-export function formatDatetime(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-           `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-  } catch {
-    return String(iso);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Table rendering helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Build an anchor tag or a fallback text node.
@@ -183,71 +165,6 @@ export function renderAssetRow(row, visibleColumns) {
 // ---------------------------------------------------------------------------
 // Sort state
 // ---------------------------------------------------------------------------
-
-/**
- * Sort an array of row objects by a column.  Modifies the array in-place and
- * returns it.
- *
- * @param {object[]} rows
- * @param {string} col
- * @param {'asc'|'desc'} dir
- * @returns {object[]}
- */
-export function sortRows(rows, col, dir) {
-  rows.sort((a, b) => {
-    const av = a[col] ?? '';
-    const bv = b[col] ?? '';
-    if (av < bv) return dir === 'asc' ? -1 : 1;
-    if (av > bv) return dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-  return rows;
-}
-
-// ---------------------------------------------------------------------------
-// Filter helpers
-// ---------------------------------------------------------------------------
-
-const PAGE_SIZE = 100;
-
-/** Threshold for using a <select> instead of a text input in the filter row. */
-const SELECT_THRESHOLD = 40;
-
-/**
- * Collect unique non-null/non-empty values for a column, sorted lexicographically.
- *
- * @param {object[]} rows
- * @param {string} col
- * @returns {string[]}
- */
-export function uniqueValues(rows, col) {
-  const seen = new Set();
-  for (const row of rows) {
-    const v = row[col];
-    if (v != null && v !== '') seen.add(String(v));
-  }
-  return Array.from(seen).sort();
-}
-
-/**
- * Apply per-column filters to a row array.
- * Text filters use case-insensitive substring match.
- * Select filters use exact match (after coercion to string).
- *
- * @param {object[]} rows
- * @param {Record<string, string>} filters - { colName: filterValue }
- * @returns {object[]}
- */
-export function filterRows(rows, filters) {
-  const entries = Object.entries(filters).filter(([, v]) => v !== '');
-  if (entries.length === 0) return rows;
-  return rows.filter((row) =>
-    entries.every(([col, val]) => {
-      const cell = String(row[col] ?? '').toLowerCase();
-      return cell.includes(val.toLowerCase());
-    }),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // View factory
@@ -516,12 +433,3 @@ export function createAssetsView(coord) {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
-
-/** Escape a string for inclusion in HTML attribute values or text nodes. */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
