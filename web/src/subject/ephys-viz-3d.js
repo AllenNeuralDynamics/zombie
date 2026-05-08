@@ -31,7 +31,6 @@ import {
 import { ITEM_COLORS } from './brain-viz.js';
 import { parseTranslation, computeProbeDirection, computeProbeDirectionSteps } from '../lib/coord-systems.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
-import { createOrbitControls } from '../lib/orbit-controls.js';
 
 // Probe cylinder diameter: 70 µm = 0.07 mm
 const PROBE_DIAMETER_MM = 0.07;
@@ -39,15 +38,6 @@ const PROBE_RADIUS_MM   = PROBE_DIAMETER_MM / 2;
 
 // Default probe length drawn above the tip (mm).  Long enough to be visible.
 const PROBE_LENGTH_MM = 10;
-
-// Length of each debug direction line (mm)
-const DEBUG_LINE_LENGTH_MM = 8;
-
-// ── Debug toggle ─────────────────────────────────────────────────────────────
-// Set to true to draw transform-step debug lines anchored at bregma.
-// Each line shows the probe direction after one additional transform is applied;
-// white = at rest (no transforms), fading to black = after all transforms.
-const DEBUG_PROBE_TRANSFORMS = true;
 
 // CDN base for OBJ meshes
 const MESH_BASE = 'https://allen-data-views.s3.amazonaws.com/data-asset-cache/meshes/';
@@ -386,75 +376,7 @@ function _buildEphysProbes(THREE, scene, probes) {
     group.position.copy(tipPos);
 
     scene.add(group);
-
-    // ── Debug lines: one per transform step, all anchored at bregma ──────
-    if (DEBUG_PROBE_TRANSFORMS) {
-      _buildDebugLines(THREE, scene, p.transforms, ITEM_COLORS[i % ITEM_COLORS.length]);
-    }
   }
 }
 
-/**
- * Draw one cylinder per transform step, all anchored at bregma.
- * Color interpolates from white (step 0, at rest) toward the probe's own
- * color in 15% increments per step.
- * Three.js LineBasicMaterial ignores linewidth on WebGL, so thin cylinders
- * are used instead (radius = 0.1 mm).
- *
- * @param {THREE} THREE
- * @param {THREE.Scene} scene
- * @param {Array} transforms - Raw transform array from the probe config.
- * @param {string} cssColor  - Probe CSS hex color e.g. '#FF6B6B'.
- */
-function _buildDebugLines(THREE, scene, transforms, cssColor) {
-  // Parse target color from CSS hex
-  const hex = cssColor.replace('#', '');
-  const tr = parseInt(hex.substring(0, 2), 16);
-  const tg = parseInt(hex.substring(2, 4), 16);
-  const tb = parseInt(hex.substring(4, 6), 16);
 
-  const steps = computeProbeDirectionSteps(transforms);
-  const cylinderUp = new THREE.Vector3(0, 1, 0); // CylinderGeometry default axis
-
-  for (let s = 0; s < steps.length; s++) {
-    // 0% probe color at step 0 (white), +15% per step, capped at 100%
-    const t = Math.min(s * 0.15, 1.0);
-    const r = Math.round(255 + (tr - 255) * t);
-    const g = Math.round(255 + (tg - 255) * t);
-    const b = Math.round(255 + (tb - 255) * t);
-    const color = (r << 16) | (g << 8) | b;
-
-    const { dir, pos, type } = steps[s];
-    const [dx, dy, dz] = dir;
-    const [px, py, pz] = pos;
-    const origin = new THREE.Vector3(px, py, pz);
-    const direction = new THREE.Vector3(dx, dy, dz);
-    const tip = origin.clone().addScaledVector(direction, DEBUG_LINE_LENGTH_MM);
-
-    if (type === 'Translation') {
-      // Show translation as an arrow: sphere at new position + small cylinder along direction
-      const sphere = new THREE.Mesh(
-        new THREE.SphereGeometry(0.25, 10, 10),
-        new THREE.MeshBasicMaterial({ color }),
-      );
-      sphere.position.copy(origin);
-      scene.add(sphere);
-
-      // Short stub to show current direction at this position
-      const geo = new THREE.CylinderGeometry(0.1, 0.1, DEBUG_LINE_LENGTH_MM * 0.5, 6, 1);
-      const mat = new THREE.MeshBasicMaterial({ color });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(origin).addScaledVector(direction, DEBUG_LINE_LENGTH_MM * 0.25);
-      mesh.quaternion.setFromUnitVectors(cylinderUp, direction);
-      scene.add(mesh);
-    } else {
-      // Rotation or initial — full-length cylinder from current position in current direction
-      const geo = new THREE.CylinderGeometry(0.1, 0.1, DEBUG_LINE_LENGTH_MM, 6, 1);
-      const mat = new THREE.MeshBasicMaterial({ color });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(origin).addScaledVector(direction, DEBUG_LINE_LENGTH_MM / 2);
-      mesh.quaternion.setFromUnitVectors(cylinderUp, direction);
-      scene.add(mesh);
-    }
-  }
-}
