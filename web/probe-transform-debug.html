@@ -98,6 +98,7 @@ import {
   applyExtrinsicRotation,
   applyTranslation,
 } from './src/lib/coord-systems.js';
+import { createOrbitControls } from './src/lib/orbit-controls.js';
 
 // ── Probe examples ────────────────────────────────────────────────────────
 const EXAMPLES = [
@@ -190,23 +191,74 @@ const EXAMPLES = [
       { type: 'Translation', translation: [0, 0, 5, 0], label: 'T=[0,0,5] — 5mm +S' },
     ],
   },
-  // ── Real probe (disabled by default) ────────────────────────────────
+  // ── Depth (4th component) axis tests ────────────────────────────────
   {
-    name: 'Probe 46121 (real)',
-    color: '#FF6B6B',
-    target: 'Pallidum (PAL)',
+    name: '⑫ depth=+5 at rest — should move +A',
+    color: '#ff44ff',
+    target: 'expect: probe at rest points +A; depth=+5 moves tip 5mm AWAY from +A (−A / posterior)',
     transforms: [
-      { type: 'Rotation',    angles: [90, 0, -90],                    label: 'R1 — initial reorientation' },
-      { type: 'Rotation',    angles: [0, 0, 0],                       label: 'R2 — identity (no-op)' },
-      { type: 'Translation', translation: [7.502, 5.333, 11.386, 1],  label: 'T1 — manipulator position (mm)' },
-      { type: 'Rotation',    angles: [14.963, -4.141, -90],           label: 'R3 — fine-tune direction' },
-      { type: 'Translation', translation: [3.962, -12.102, -4.041, 3.611], label: 'T2 — tip position (mm)' },
+      { type: 'Translation', translation: [0, 0, 0, 5], label: 'depth=+5mm along dir (+A at rest)' },
+    ],
+  },
+  {
+    name: '⑬ depth=−5 at rest — should move −A',
+    color: '#aa00aa',
+    target: 'expect: depth=−5 moves tip 5mm TOWARD +A arrow (anterior)',
+    transforms: [
+      { type: 'Translation', translation: [0, 0, 0, -5], label: 'depth=−5mm along dir (−A at rest)' },
+    ],
+  },
+  {
+    name: '⑭ Rx(+90) then depth=+5 — should move +S',
+    color: '#ff88ff',
+    target: 'expect: Rx pitches probe to +S; depth=+5 moves tip AWAY from +S (−S / inferior)',
+    transforms: [
+      { type: 'Rotation', angles: [90, 0, 0], label: 'Rx(+90°) — pitch probe to +S' },
+      { type: 'Translation', translation: [0, 0, 0, 5], label: 'depth=+5mm along dir (now +S)' },
+    ],
+  },
+  // ── Real probes from example_metadata.json ──────────────────────────
+  {
+    name: 'Probe 46121 → PAL (Pallidum)',
+    color: '#FF6B6B',
+    target: 'target: Pallidum (PAL)',
+    transforms: [
+      { type: 'Rotation',    angles: [90, 0, -90],                                         label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0, 0, 0],                                            label: 'R2 — identity (no-op)' },
+      { type: 'Translation', translation: [7.502, 5.333, 11.386, 1],                       label: 'T1 — manipulator position (mm)', intrinsic: true },
+      { type: 'Rotation',    angles: [14.96260569495023, -4.140622262893658, -90],         label: 'R3 — rotate around bregma' },
+      { type: 'Translation', translation: [3.9618575437063566, -12.101629723550062, -4.040916212626378, 3.611], label: 'T2 — tip position (mm)' },
+    ],
+  },
+  {
+    name: 'Probe 46105 → MD (Mediodorsal thalamus)',
+    color: '#4ECDC4',
+    target: 'target: Mediodorsal nucleus of thalamus (MD)',
+    transforms: [
+      { type: 'Rotation',    angles: [90, 0, -90],                                              label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0, 0, 0],                                                 label: 'R2 — identity (no-op)' },
+      { type: 'Translation', translation: [8.754, 4.721, 11.133, 1],                            label: 'T1 — manipulator position (mm)', intrinsic: true },
+      { type: 'Rotation',    angles: [4.371791013219473, -29.092718819262377, -90],              label: 'R3 — rotate around bregma' },
+      { type: 'Translation', translation: [-3.2039830376214535, -9.58046494924959, -8.495415766802356, 3.862], label: 'T2 — tip position (mm)' },
+    ],
+  },
+  {
+    name: 'Probe 46811 → PIR (Piriform area)',
+    color: '#45B7D1',
+    target: 'target: Piriform area (PIR)',
+    transforms: [
+      { type: 'Rotation',    angles: [90, 0, -90],                                              label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0, 0, 0],                                                 label: 'R2 — identity (no-op)' },
+      { type: 'Translation', translation: [7.925, 0.227, 10.681, 1],                            label: 'T1 — manipulator position (mm)', intrinsic: true },
+      { type: 'Rotation',    angles: [-4.987789352538776, -4.015229468646872, -90],              label: 'R3 — rotate around bregma' },
+      { type: 'Translation', translation: [1.7128800425290023, -7.173946069818659, -7.053089943226251, 3.46], label: 'T2 — tip position (mm)' },
     ],
   },
 ];
 
 // ── State: probeEnabled[pi], enabled[pi][ti] ─────────────────────────────
-const probeEnabled = EXAMPLES.map(() => false);
+// Enable the last 3 entries (real probes from example_metadata.json) by default.
+const probeEnabled = EXAMPLES.map((_, i) => i >= EXAMPLES.length - 3);
 const enabled = EXAMPLES.map(e => e.transforms.map(() => true));
 
 // ── Coordinate basis from coord-systems.js ────────────────────────────────
@@ -239,8 +291,32 @@ function computeSteps(probeIdx) {
       if (t.type === 'Rotation') {
         dir = applyExtrinsicRotation(dir, t.angles, BASIS);
         wid = applyExtrinsicRotation(wid, t.angles, BASIS);
+        if (!t.intrinsic) {
+          // All rotations pivot around bregma (world origin) by default.
+          // Set intrinsic: true on a rotation to skip pivoting pos.
+          pos = applyExtrinsicRotation(pos, t.angles, BASIS);
+        }
       } else if (t.type === 'Translation') {
-        pos = applyTranslation(pos, t.translation ?? [], BASIS);
+        if (t.intrinsic) {
+          // Apply translation in the probe's current local frame.
+          // Local axes: wid = axis-0 (R), dir = axis-1 (A), wid×dir = axis-2 (S).
+          const localS = [
+            wid[1]*dir[2] - wid[2]*dir[1],
+            wid[2]*dir[0] - wid[0]*dir[2],
+            wid[0]*dir[1] - wid[1]*dir[0],
+          ];
+          pos = applyTranslation(pos, t.translation ?? [], [wid, dir, localS]);
+        } else {
+          pos = applyTranslation(pos, t.translation ?? [], BASIS);
+        }
+        // 4th component = depth: move tip along the probe's current long axis (dir).
+        // Negative sign: positive depth moves the tip in the −dir direction (insertion).
+        const depth = (t.translation ?? [])[3];
+        if (depth != null && depth !== 0) {
+          pos[0] -= depth * dir[0];
+          pos[1] -= depth * dir[1];
+          pos[2] -= depth * dir[2];
+        }
       }
     }
     steps.push({ pos: [...pos], dir: norm(dir), wid: norm(wid), type: t.type, label: t.label, active });
@@ -520,38 +596,10 @@ rebuildScene();
 
 // ── Orbit controls ────────────────────────────────────────────────────────
 const TARGET = new THREE.Vector3(0, -3.668, -1.2);
-const SPEED  = 0.007;
-const axZ = new THREE.Vector3(0, 0, 1);
-const axX = new THREE.Vector3(1, 0, 0);
-let dragging = false, sx = 0, sy = 0;
-const camOff = new THREE.Vector3(), camUp = new THREE.Vector3();
-
-function startDrag(x, y) {
-  dragging = true; sx = x; sy = y;
-  camOff.copy(camera.position).sub(TARGET);
-  camUp.copy(camera.up);
-}
-function stopDrag() { dragging = false; }
-function doDrag(x, y) {
-  if (!dragging) return;
-  const q = new THREE.Quaternion()
-    .setFromAxisAngle(axZ, -(x-sx)*SPEED)
-    .multiply(new THREE.Quaternion().setFromAxisAngle(axX, (y-sy)*SPEED));
-  camera.position.copy(TARGET).add(camOff.clone().applyQuaternion(q));
-  camera.up.copy(camUp).applyQuaternion(q);
-  camera.lookAt(TARGET);
-}
-
-renderer.domElement.addEventListener('mousedown', e => startDrag(e.clientX, e.clientY));
-window.addEventListener('mouseup', stopDrag);
-window.addEventListener('mousemove', e => doDrag(e.clientX, e.clientY));
-renderer.domElement.addEventListener('wheel', e => {
-  e.preventDefault();
-  const dir = camera.position.clone().sub(TARGET).normalize();
-  const d   = Math.max(3, Math.min(80, camera.position.distanceTo(TARGET) + e.deltaY * 0.03));
-  camera.position.copy(TARGET).addScaledVector(dir, d);
-  camera.lookAt(TARGET);
-}, { passive: false });
+const initCamUp = camera.up.clone();
+const orbitControls = createOrbitControls(camera, TARGET, initCamUp, renderer.domElement, {
+  rotateSpeed: 0.007,
+});
 
 // Resize
 new ResizeObserver(() => {

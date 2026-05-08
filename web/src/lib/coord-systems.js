@@ -286,8 +286,26 @@ export function computeProbeDirectionSteps(transforms, coordinateSystem = null) 
     if (type === 'Rotation') {
       dir = applyExtrinsicRotation(dir, t.angles ?? [], columns);
       wid = applyExtrinsicRotation(wid, t.angles ?? [], columns);
+      // All rotations pivot around Bregma (world origin) — rotate pos too.
+      pos = applyExtrinsicRotation(pos, t.angles ?? [], columns);
     } else if (type === 'Translation') {
-      pos = applyTranslation(pos, t.translation ?? [], columns);
+      if (t.intrinsic) {
+        // Apply translation in the probe's current local frame.
+        // Local axes: wid = axis-0 (R), dir = axis-1 (A), localS = wid × dir (S).
+        const localS = [
+          wid[1] * dir[2] - wid[2] * dir[1],
+          wid[2] * dir[0] - wid[0] * dir[2],
+          wid[0] * dir[1] - wid[1] * dir[0],
+        ];
+        pos = applyTranslation(pos, t.translation ?? [], [wid, dir, localS]);
+      } else {
+        pos = applyTranslation(pos, t.translation ?? [], columns);
+      }
+      // 4th component = depth: positive depth moves tip along −dir (insertion).
+      const depth = (t.translation ?? [])[3];
+      if (depth != null && depth !== 0) {
+        pos = [pos[0] - depth * dir[0], pos[1] - depth * dir[1], pos[2] - depth * dir[2]];
+      }
     }
 
     steps.push({ dir: norm(dir), wid: norm(wid), pos: [...pos], type });

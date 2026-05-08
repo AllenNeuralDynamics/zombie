@@ -30,6 +30,8 @@ import {
 } from './brain-viz-3d.js';
 import { ITEM_COLORS } from './brain-viz.js';
 import { parseTranslation, computeProbeDirection, computeProbeDirectionSteps } from '../lib/coord-systems.js';
+import { createOrbitControls } from '../lib/orbit-controls.js';
+import { createOrbitControls } from '../lib/orbit-controls.js';
 
 // Probe cylinder diameter: 70 µm = 0.07 mm
 const PROBE_DIAMETER_MM = 0.07;
@@ -72,14 +74,29 @@ export function extractEphysProbes(acquisitionData) {
 
     for (const cfg of cfgs) {
       for (const probe of (cfg?.probes ?? [])) {
-        const transforms = probe?.transform ?? [];
+        const rawTransforms = probe?.transform ?? [];
 
-        // Tip position: read from the last Translation in the transform chain.
-        // Translations are expressed in the outer acquisition coordinate system
-        // (BREGMA_ARID / procedures space, units inherited from there — typically mm).
-        // The probe's inner coordinate_system describes the device's own axes and
-        // must NOT be used here; pass null to use the BREGMA_ARID fallback
-        // (v[0]=AP anterior+, v[1]=ML right+, v[2]=DV dorsal+, v[3]=depth).
+        // Annotate the first Translation as intrinsic so it is applied in the
+        // probe's local frame (manipulator position) rather than the world frame.
+        // The metadata will carry this flag in the future; we inject it here in
+        // the meantime to stay ahead of that change.
+        let firstTranslationSeen = false;
+        const transforms = rawTransforms.map((t) => {
+          if (t?.object_type === 'Translation' && !firstTranslationSeen) {
+            firstTranslationSeen = true;
+            return { ...t, intrinsic: true };
+          }
+          return t;
+        });
+
+        // Full tip position in three.js space from the complete transform chain
+        // (rotations pivot around Bregma, first translation is intrinsic, depth
+        // moves the tip along −dir).
+        const steps = computeProbeDirectionSteps(transforms);
+        const tipPos = steps[steps.length - 1].pos;
+
+        // Canonical ap/ml/depth for display: read from the last Translation in
+        // the chain using the BREGMA_ARID index convention (v0=AP, v1=ML, v3=depth).
         const allTranslations = transforms.filter((t) => t?.object_type === 'Translation');
         const lastTranslation = allTranslations.at(-1) ?? null;
         const { ap, ml, depth } = parseTranslation(null, lastTranslation?.translation ?? []);
@@ -102,6 +119,7 @@ export function extractEphysProbes(acquisitionData) {
           ap,
           ml,
           depth:           depth ?? 0,
+          tipPos,
           probeDir,
           transforms,
           modules:         cfg?.modules ?? [],
@@ -274,56 +292,11 @@ async function _initEphys3D(container, statusEl, infoEl, acquisitionData) {
   }
 
   // ── Camera orbit controls ────────────────────────────────────────────────
-  const TARGET_V     = new THREE.Vector3(TARGET_X, TARGET_Y, TARGET_Z);
-  const ROTATE_SPEED = 0.007;
-  const axisZ = new THREE.Vector3(0, 0, 1);
-  const axisX = new THREE.Vector3(1, 0, 0);
-
-  let dragging = false;
-  let startDragX = 0, startDragY = 0;
-  const startCamOffset = new THREE.Vector3();
-  const startCamUp    = new THREE.Vector3();
-
-  function startDrag(cx, cy) {
-    dragging = true;
-    startDragX = cx; startDragY = cy;
-    startCamOffset.copy(camera.position).sub(TARGET_V);
-    startCamUp.copy(camera.up);
-  }
-  function stopDrag() { dragging = false; }
-  function moveDrag(cx, cy) {
-    if (!dragging) return;
-    const dx = cx - startDragX;
-    const dy = cy - startDragY;
-    const qRoll  = new THREE.Quaternion().setFromAxisAngle(axisZ, -dx * ROTATE_SPEED);
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(axisX,  dy * ROTATE_SPEED);
-    const q = qRoll.multiply(qPitch);
-    camera.position.copy(TARGET_V).add(startCamOffset.clone().applyQuaternion(q));
-    camera.up.copy(startCamUp).applyQuaternion(q);
-    camera.lookAt(TARGET_V);
-  }
-
-  renderer.domElement.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY));
-  window.addEventListener('mouseup', stopDrag);
-  window.addEventListener('mousemove', (e) => moveDrag(e.clientX, e.clientY));
-
-  renderer.domElement.addEventListener('touchstart', (e) => {
-    startDrag(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: true });
-  window.addEventListener('touchend', stopDrag);
-  window.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    moveDrag(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: false });
-
-  renderer.domElement.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const dir  = camera.position.clone().sub(TARGET_V).normalize();
-    const dist = camera.position.distanceTo(TARGET_V);
-    const nd   = Math.max(3, Math.min(80, dist + e.deltaY * 0.03));
-    camera.position.copy(TARGET_V).addScaledVector(dir, nd);
-    camera.lookAt(TARGET_V);
-  }, { passive: false });
+  const TARGET_V = new THREE.Vector3(TARGET_X, TARGET_Y, TARGET_Z);
+  const initCamUp = camera.up.clone();
+  createOrbitControls(camera, TARGET_V, initCamUp, renderer.domElement, {
+    rotateSpeed: 0.007,
+  });
 
   // ── Resize ───────────────────────────────────────────────────────────────
   const ro = new ResizeObserver(() => {
@@ -377,15 +350,10 @@ function _buildEphysProbes(THREE, scene, probes) {
     const p     = probes[i];
     const color = cssHexToThree(ITEM_COLORS[i % ITEM_COLORS.length]);
 
-    // Tip position in three.js space:
-    // PROBE_RUFD X(ML) maps to three.js X; Y(DV) maps to three.js Y; Z(AP) maps to three.js Z.
-    // Use the brain surface DV for the tip, then go down by depth.
-    const threeX = p.ml;   // ML right+ matches three.js X
-    const threeZ = p.ap;   // AP anterior+ matches three.js Z
-    const sY     = surfaceY(p.ap, p.ml);
-    const tipY   = (sY !== null ? sY : 0) - p.depth;
-
-    const tipPos = new THREE.Vector3(threeX, tipY, threeZ);
+    // Tip position in three.js space: computed from the full transform chain
+    // (intrinsic first translation + pivot rotations + depth along probe direction).
+    const [px, py, pz] = p.tipPos;
+    const tipPos = new THREE.Vector3(px, py, pz);
 
     // Probe direction (from PROBE_RUFD rotations — same axes as three.js)
     const [dirX, dirY, dirZ] = p.probeDir;

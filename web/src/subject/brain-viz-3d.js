@@ -28,6 +28,7 @@ import structuresData from './allen_mouse_100um_v1.2/structures.json';
 import surfaceDepthData from './allen_mouse_100um_v1.2/surface_depth.json';
 import { parseTranslation } from '../lib/coord-systems.js';
 import { ITEM_COLORS } from './brain-viz.js';
+import { createOrbitControls } from '../lib/orbit-controls.js';
 
 // ── Surface depth lookup ──────────────────────────────────────────────────
 // surface_depth.json: depth_um[AP_idx][ML_idx] = DV µm of first brain voxel
@@ -269,55 +270,10 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 
   // ── Camera orbit controls ─────────────────────────────────────────────
   const TARGET_V = new THREE.Vector3(TARGET_X, TARGET_Y, TARGET_Z);
-  const ROTATE_SPEED = 0.007;
-  const axisZ = new THREE.Vector3(0, 0, 1); // AP / roll
-  const axisX = new THREE.Vector3(1, 0, 0); // ML / pitch
-
-  let dragging = false;
-  let startDragX = 0, startDragY = 0;
-  const startCamOffset = new THREE.Vector3();
-  const startCamUp    = new THREE.Vector3();
-
-  function startDrag(cx, cy) {
-    dragging = true;
-    startDragX = cx; startDragY = cy;
-    startCamOffset.copy(camera.position).sub(TARGET_V);
-    startCamUp.copy(camera.up);
-  }
-  function stopDrag() { dragging = false; }
-  function moveDrag(cx, cy) {
-    if (!dragging) return;
-    const dx = cx - startDragX;
-    const dy = cy - startDragY;
-    const qRoll  = new THREE.Quaternion().setFromAxisAngle(axisZ, -dx * ROTATE_SPEED);
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(axisX,  dy * ROTATE_SPEED);
-    const q = qRoll.multiply(qPitch);
-    camera.position.copy(TARGET_V).add(startCamOffset.clone().applyQuaternion(q));
-    camera.up.copy(startCamUp).applyQuaternion(q);
-    camera.lookAt(TARGET_V);
-  }
-
-  renderer.domElement.addEventListener('mousedown', e => startDrag(e.clientX, e.clientY));
-  window.addEventListener('mouseup', stopDrag);
-  window.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
-
-  renderer.domElement.addEventListener('touchstart', e => {
-    startDrag(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: true });
-  window.addEventListener('touchend', stopDrag);
-  window.addEventListener('touchmove', e => {
-    e.preventDefault();
-    moveDrag(e.touches[0].clientX, e.touches[0].clientY);
-  }, { passive: false });
-
-  renderer.domElement.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const dir  = camera.position.clone().sub(TARGET_V).normalize();
-    const dist = camera.position.distanceTo(TARGET_V);
-    const nd   = Math.max(3, Math.min(80, dist + e.deltaY * 0.03));
-    camera.position.copy(TARGET_V).addScaledVector(dir, nd);
-    camera.lookAt(TARGET_V);
-  }, { passive: false });
+  const initCamUp = camera.up.clone();
+  createOrbitControls(camera, TARGET_V, initCamUp, renderer.domElement, {
+    rotateSpeed: 0.007,
+  });
 
   // ── Resize ────────────────────────────────────────────────────────────
   const ro = new ResizeObserver(() => {
