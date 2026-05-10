@@ -188,9 +188,9 @@ export function createAssetsView(coord) {
   header.innerHTML = '<h2>Data Assets</h2>';
   
   const settingsBtn = document.createElement('button');
-  settingsBtn.className = 'assets-settings-btn';
+  settingsBtn.className = 'assets-settings-btn icon-btn';
   settingsBtn.setAttribute('aria-label', 'Column settings');
-  settingsBtn.innerHTML = '⚙️';
+  settingsBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
   header.appendChild(settingsBtn);
   
   container.appendChild(header);

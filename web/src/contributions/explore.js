@@ -1283,10 +1283,9 @@ export function createExploreView(container, authors, zoomState) {
     svgWrap.appendChild(settingsPanel);
 
     const gearBtn = document.createElement('button');
-    gearBtn.className = 'ae-explore-zoom-btn';
+    gearBtn.className = 'ae-explore-zoom-btn icon-btn';
     gearBtn.title = 'Layout settings';
-    gearBtn.textContent = '⚙';
-    gearBtn.style.fontSize = '14px';
+    gearBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
     gearBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       settingsOpen = !settingsOpen;

@@ -47,6 +47,9 @@
 
   /* Shadow */
   --shadow:           0 1px 3px rgba(0, 0, 0, 0.07);
+
+  /* Icons */
+  --icon-filter: brightness(0.2);
 }
 
 /* System dark mode (no explicit override) */
@@ -65,6 +68,7 @@
     --color-dark-blue:  #dddddd;
     --color-light-blue: #aaaaaa;
     --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+    --icon-filter: brightness(0.9);
   }
 }
 
@@ -84,6 +88,7 @@
   --color-dark-blue:  #dddddd;
   --color-light-blue: #aaaaaa;
   --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+  --icon-filter: brightness(0.9);
 }
 
 /* ---------------------------------------------------------------------------
@@ -321,6 +326,13 @@ body {
   padding: 4px 8px;
   border-radius: 4px;
   transition: background 0.15s;
+}
+
+.icon-btn img {
+  width: 1.2rem;
+  height: 1.2rem;
+  display: block;
+  filter: var(--icon-filter);
 }
 
 .assets-settings-btn:hover {
