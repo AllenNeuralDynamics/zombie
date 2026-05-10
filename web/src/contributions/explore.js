@@ -87,11 +87,6 @@ const _ROLE_ABBREV = (r) => r
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
-// Delegate to imported hashStr
-function _hash(s) {
-  return hashStr(s);
-}
-
 // Delegate to imported authorColor
 function _nodeColor(author, allAuthors) {
   return authorColor(author, allAuthors || []);
