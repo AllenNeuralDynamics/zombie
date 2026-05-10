@@ -85,23 +85,6 @@ const _ROLE_ABBREV = (r) => r
   .replace('Writing \u2013 ', 'W: ')
   .replace('Formal analysis', 'Formal anal.');
 
-// ── Author node color — semantic group derived from majority CRediT roles ──
-//
-// Group → hue band  [center°, halfSpread°]
-const _NODE_HUE = {
-  leadership: [252, 32],   // blue-violet → violet-purple  (~220–284°)
-  methods:    [ 41, 22],   // ochre → amber                (~19–63°)  (Methodology, Resources)
-  data:       [165, 28],   // green → teal                 (~137–193°)
-  analysis:   [340, 22],   // pink → magenta               (~318–362°)
-};
-
-// Derived from _ROLE_COLOR comment groups above.
-// Re-use ROLE_GROUP mapping from credit-helpers.js
-const _NODE_ROLE_GROUP = ROLE_GROUP;
-
-// Re-use GROUP_HUE from credit-helpers.js
-const _NODE_HUE = GROUP_HUE;
-
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 // Delegate to imported hashStr
