@@ -7,6 +7,32 @@
  */
 
 /* ---------------------------------------------------------------------------
+ * Web fonts
+ * ------------------------------------------------------------------------ */
+
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Light.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-MediumItalic.woff2') format('woff2'); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Semibold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-SemiboldItalic.woff2') format('woff2'); font-weight: 600; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; font-display: swap; }
+
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Light.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-MediumItalic.woff2') format('woff2'); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Semibold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-SemiboldItalic.woff2') format('woff2'); font-weight: 600; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; font-display: swap; }
+
+/* ---------------------------------------------------------------------------
  * CSS custom properties (design tokens)
  * ------------------------------------------------------------------------ */
 
@@ -106,7 +132,7 @@
 html,
 body {
   height: 100%;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'AllenInstitutePlusText', Arial;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -168,7 +194,7 @@ body {
 }
 
 .app-brand-top {
-  font-family: Arial, 'Helvetica Neue', sans-serif;
+  font-family: 'AllenInstitutePlusHeadline', Arial;
   font-size: 0.80rem;
   font-weight: 500;
   color: rgb(170, 163, 159);
@@ -180,7 +206,7 @@ body {
 }
 
 .app-brand-sub {
-  font-family: Arial, 'Helvetica Neue', sans-serif;
+  font-family: 'AllenInstitutePlusHeadline', Arial;
   font-size: 0.80rem;
   font-weight: 700;
   color: var(--text-primary);
@@ -3318,6 +3344,7 @@ body {
 }
 
 
+.sessions-filter-clear {
   align-self: flex-start;
   padding: 2px 8px;
   font-size: 0.76rem;
