@@ -568,6 +568,22 @@ function mkArrow(dir3, color, label, group) {
   group.add(sp);
 }
 
+function mkArrowAt(origin, dir3, color, label, len, group) {
+  const normDir = new THREE.Vector3(...dir3).normalize();
+  const arr = new THREE.ArrowHelper(normDir, origin, len, color, len * 0.13, len * 0.07);
+  group.add(arr);
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 32;
+  const ctx = c.getContext('2d');
+  ctx.font = 'bold 24px sans-serif';
+  ctx.fillStyle = '#' + color.toString(16).padStart(6,'0');
+  ctx.fillText(label, 4, 26);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false }));
+  sp.scale.set(1.8, 0.9, 1);
+  sp.position.copy(origin.clone().addScaledVector(normDir, len * 1.15));
+  group.add(sp);
+}
+
 // Brain group (loaded once, fixed in anatomical position)
 const brainGroup = new THREE.Group();
 scene.add(brainGroup);
@@ -731,7 +747,6 @@ function rebuildScene() {
   const mat = new THREE.MeshPhongMaterial({ color: devColor, transparent: true, opacity: 0.85 });
 
   if (state.device.type === 'probe') {
-    // Probe: long axis = dir (Z of box), width = wid (X), thickness = up (Y)
     const PROBE_W = 0.7, PROBE_T = 0.12, PROBE_L = 8;
     const box = new THREE.Mesh(new THREE.BoxGeometry(PROBE_W, PROBE_T, PROBE_L), mat);
     box.matrixAutoUpdate = false;
@@ -741,15 +756,23 @@ function rebuildScene() {
     const tip = new THREE.Mesh(new THREE.SphereGeometry(0.25, 10, 10), new THREE.MeshPhongMaterial({ color: devColor }));
     tip.position.set(px, py, pz);
     devGroup.add(tip);
+    // Device CS axis arrows at tip: X=width, Y=long/insertion, Z=normal
+    const tipPos = new THREE.Vector3(px, py, pz);
+    mkArrowAt(tipPos, [probeWid.x, probeWid.y, probeWid.z],   0x000000, '+X', 2.5, devGroup);
+    mkArrowAt(tipPos, [probeDir.x, probeDir.y, probeDir.z],   0x000000, '+Y', 2.5, devGroup);
+    mkArrowAt(tipPos, [probeUp.x,  probeUp.y,  probeUp.z],    0x000000, '+Z', 2.5, devGroup);
   } else {
-    // Monitor: facing = dir (thin Z axis), width = wid (X), height/up = probeUp (Y)
-    // BoxGeometry(W, H, T): X=width(8mm), Y=height(6mm), Z=depth/facing(0.15mm)
     const W = 8, H = 6, T = 0.15;
     const box = new THREE.Mesh(new THREE.BoxGeometry(W, H, T), mat);
     box.matrixAutoUpdate = false;
     box.matrix.makeBasis(probeWid, probeUp, probeDir);
     box.matrix.setPosition(new THREE.Vector3(px, py, pz));
     devGroup.add(box);
+    // Device CS axis arrows at center: X=width, Y=up/height, Z=facing
+    const ctrPos = new THREE.Vector3(px, py, pz);
+    mkArrowAt(ctrPos, [probeWid.x, probeWid.y, probeWid.z],  0x000000, '+X', 4, devGroup);
+    mkArrowAt(ctrPos, [probeUp.x,  probeUp.y,  probeUp.z],   0x000000, '+Y', 4, devGroup);
+    mkArrowAt(ctrPos, [probeDir.x, probeDir.y, probeDir.z],  0x000000, '+Z', 4, devGroup);
   }
 
   // Step markers
