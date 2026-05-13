@@ -33,6 +33,7 @@ export default defineConfig({
         subject: resolve(__dirname, 'subject.html'),
         smartspim: resolve(__dirname, 'smartspim.html'),
         sessions: resolve(__dirname, 'sessions.html'),
+        quality_control: resolve(__dirname, 'quality_control.html'),
       },
     },
   },

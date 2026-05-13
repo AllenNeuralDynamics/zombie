@@ -64,7 +64,7 @@ describe('buildS3ConsoleUrl', () => {
 describe('buildQcLink', () => {
   it('returns the QC portal URL with encoded asset name', () => {
     const url = buildQcLink('my_asset_2024-01-01');
-    expect(url).toBe('https://qc.allenneuraldynamics.org/view?name=my_asset_2024-01-01');
+    expect(url).toBe('/quality_control?name=my_asset_2024-01-01');
   });
 
   it('percent-encodes spaces in asset names', () => {
@@ -192,7 +192,7 @@ describe('renderAssetRow', () => {
 
   it('includes QC, metadata, and CO links', () => {
     const html = renderAssetRow(row, visibleColumns);
-    expect(html).toContain('qc.allenneuraldynamics.org');
+    expect(html).toContain('/quality_control');
     expect(html).toContain('metadata-portal.allenneuraldynamics.org');
     expect(html).toContain('codeocean.allenneuraldynamics.org');
   });
