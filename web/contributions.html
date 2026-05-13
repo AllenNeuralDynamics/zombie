@@ -3,21 +3,31 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Data Explorer — Contributions</title>
+    <title>Contributions</title>
+    <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
     <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
     <link rel="stylesheet" href="/styles/app.css" />
   </head>
   <body>
     <header class="app-header">
-      <div class="app-header-brand">
-        <h1 class="app-title">Data Explorer</h1>
-      </div>
+      <a href="/assets" class="app-header-brand">
+        <img src="/images/logo.svg" class="app-logo" alt="Allen Institute" width="26" height="32">
+        <div class="app-brand-text">
+          <span class="app-brand-top">allen institute / <span class="app-brand-dept">neural dynamics /</span></span>
+          <span class="app-brand-sub">contributions</span>
+        </div>
+      </a>
       <nav class="app-nav" aria-label="Main navigation">
-        <a href="/">Explorer</a>
         <a href="/assets">Assets</a>
+        <a href="/subject">Subjects</a>
         <a href="/contributions" aria-current="page">Contributions</a>
-        <a href="/subject">Subject</a>
-        <a href="/smartspim">SmartSPIM</a>
+        <div class="app-nav-dropdown">
+          <button class="app-nav-dropdown-btn">Dashboards &#x25BE;</button>
+          <div class="app-nav-dropdown-menu">
+            <a href="/sessions">Sessions</a>
+            <a href="/smartspim">SmartSPIM</a>
+          </div>
+        </div>
         <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark/light mode"></button>
       </nav>
     </header>
@@ -26,6 +36,6 @@
     </main>
 
     <script type="module" src="/src/contributions-entry.js"></script>
-    <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'\u2600':'\u263e';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
+    <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'☀':'☾';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
   </body>
 </html>

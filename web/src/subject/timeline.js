@@ -199,7 +199,7 @@ export function createSubjectTimeline(events, opts = {}) {
 
     const typeEl = document.createElement('span');
     typeEl.className = 'tl-bubble-type';
-    typeEl.textContent = ev.type;
+    typeEl.textContent = ev.type === 'Surgery' ? (ev.event ?? ev.type) : ev.type;
 
     const dateEl = document.createElement('span');
     dateEl.className = 'tl-bubble-date';
@@ -219,6 +219,13 @@ export function createSubjectTimeline(events, opts = {}) {
     bubble.appendChild(dot);
     bubble.appendChild(typeEl);
     bubble.appendChild(dateEl);
+
+    if (ev.type === 'Acquisition' && ev.modalities?.length) {
+      const modEl = document.createElement('span');
+      modEl.className = 'tl-bubble-modalities';
+      modEl.textContent = ev.modalities.join(', ');
+      bubble.appendChild(modEl);
+    }
 
     bubble.addEventListener('click', () => {
       if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');

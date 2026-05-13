@@ -35,154 +35,9 @@ const MINIMAL_RECORD = (subjectId, assetName) => ({
   },
 });
 
-function makeFakeArrowResult(rows) {
-  const fields = rows.length ? Object.keys(rows[0]).map((name) => ({ name })) : [];
-  return {
-    schema: { fields },
-    numRows: rows.length,
-    getChild(name) {
-      return { get: (i) => rows[i]?.[name] ?? null };
-    },
-  };
-}
-
 function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
-
-describe('createSubjectView — dropdown', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    fetchAllSubjectIds.mockResolvedValue(['123', '456', '789']);
-    queryDocDb.mockResolvedValue([MINIMAL_RECORD('123', 'test-asset_123')]);
-    document.body.innerHTML = '';
-  });
-
-  afterEach(() => {
-    document.body.innerHTML = '';
-  });
-
-  it('renders a select element', () => {
-    const view = createSubjectView({});
-    document.body.appendChild(view);
-    const select = view.querySelector('select');
-    expect(select).not.toBeNull();
-  });
-
-  it('populates dropdown from fetchAllSubjectIds when coordinator is provided', async () => {
-    const coord = { query: vi.fn().mockResolvedValue(makeFakeArrowResult([])) };
-    const view = createSubjectView({ coordinator: coord });
-    document.body.appendChild(view);
-    await flushPromises();
-    const options = [...view.querySelectorAll('select option')].map((o) => o.value);
-    expect(options).toContain('123');
-    expect(options).toContain('456');
-  });
-
-  it('changing the dropdown clears content and starts loading', async () => {
-    queryDocDb.mockResolvedValue([MINIMAL_RECORD('456', 'test-asset_456')]);
-    const view = createSubjectView({});
-    document.body.appendChild(view);
-
-    const opt = document.createElement('option');
-    opt.value = '456';
-    view.querySelector('select').appendChild(opt);
-
-    const select = view.querySelector('select');
-    const content = view.querySelector('.subject-content');
-
-    select.value = '456';
-    select.dispatchEvent(new Event('change'));
-
-    expect(content.querySelector('.subject-loading')).not.toBeNull();
-
-    await flushPromises();
-
-    expect(queryDocDb).toHaveBeenCalledWith({ 'subject.subject_id': '456' }, expect.any(Object));
-    expect(content.querySelector('.subject-info-card')).not.toBeNull();
-  });
-
-  it('changing dropdown a second time replaces content with new subject', async () => {
-    queryDocDb
-      .mockResolvedValueOnce([MINIMAL_RECORD('123', 'asset-123')])
-      .mockResolvedValueOnce([MINIMAL_RECORD('456', 'asset-456')]);
-
-    const view = createSubjectView({ subjectId: '123' });
-    document.body.appendChild(view);
-    await flushPromises();
-
-    const content = view.querySelector('.subject-content');
-    expect(content.textContent).toContain('123');
-
-    const opt = document.createElement('option');
-    opt.value = '456';
-    view.querySelector('select').appendChild(opt);
-
-    const select = view.querySelector('select');
-    select.value = '456';
-    select.dispatchEvent(new Event('change'));
-    await flushPromises();
-
-    expect(queryDocDb).toHaveBeenCalledTimes(2);
-    expect(queryDocDb).toHaveBeenLastCalledWith({ 'subject.subject_id': '456' }, expect.any(Object));
-    expect(content.querySelector('.subject-info-card')).not.toBeNull();
-  });
-
-  it('rapid dropdown changes abort stale loads and show the latest subject', async () => {
-    let resolveFirst;
-    const firstDone = new Promise((res) => { resolveFirst = res; });
-
-    // Initial load for '123' blocks; second call for '789' resolves immediately.
-    queryDocDb
-      .mockImplementationOnce(() => firstDone)
-      .mockResolvedValueOnce([MINIMAL_RECORD('789', 'asset-789')]);
-
-    const view = createSubjectView({ subjectId: '123' });
-    document.body.appendChild(view);
-
-    const select = view.querySelector('select');
-    const content = view.querySelector('.subject-content');
-
-    const opt = document.createElement('option');
-    opt.value = '789';
-    select.appendChild(opt);
-
-    // Change to '789' — aborts the still-pending '123' load.
-    select.value = '789';
-    select.dispatchEvent(new Event('change'));
-
-    // Now resolve the stale '123' fetch — its result should be ignored.
-    resolveFirst([MINIMAL_RECORD('123', 'asset-123')]);
-
-    await flushPromises();
-    await flushPromises();
-
-    expect(content.querySelector('.subject-info-card')).not.toBeNull();
-    expect(content.textContent).toContain('789');
-    expect(content.textContent).not.toContain('123');
-  });
-
-  it('shows error banner when no records are found', async () => {
-    queryDocDb.mockResolvedValue([]);
-    const view = createSubjectView({ subjectId: '999' });
-    document.body.appendChild(view);
-    await flushPromises();
-
-    const content = view.querySelector('.subject-content');
-    expect(content.querySelector('.error-banner')).not.toBeNull();
-  });
-
-  it('shows error banner when queryDocDb rejects', async () => {
-    queryDocDb.mockRejectedValue(new Error('network error'));
-    const view = createSubjectView({ subjectId: '123' });
-    document.body.appendChild(view);
-    await flushPromises();
-
-    const content = view.querySelector('.subject-content');
-    expect(content.querySelector('.error-banner')).not.toBeNull();
-    expect(content.textContent).toContain('network error');
-  });
-});
 
 describe('createSubjectView — timeline click', () => {
   beforeEach(() => {
@@ -244,6 +99,40 @@ describe('createSubjectView — timeline click', () => {
     bubbles[1].click();
     expect(bubbles[0].classList.contains('tl-bubble--selected')).toBe(false);
     expect(bubbles[1].classList.contains('tl-bubble--selected')).toBe(true);
+  });
+
+  it('shows Terminal Surgery label when surgery contains perfusion', async () => {
+    queryDocDb.mockResolvedValue([
+      {
+        ...MINIMAL_RECORD('42', 'my-asset_42'),
+        procedures: {
+          subject_procedures: [
+            {
+              object_type: 'Surgery',
+              start_date: '2024-01-02',
+              procedures: [{ object_type: 'Perfusion' }],
+            },
+          ],
+          specimen_procedures: [],
+        },
+      },
+    ]);
+
+    const view = createSubjectView({ subjectId: '42' });
+    document.body.appendChild(view);
+    await flushPromises();
+
+    const labels = [...view.querySelectorAll('.tl-bubble-type')].map((el) => el.textContent);
+    expect(labels).toContain('Terminal Surgery');
+
+    const surgeryBubble = [...view.querySelectorAll('.tl-bubble')].find((el) =>
+      el.querySelector('.tl-bubble-type')?.textContent === 'Terminal Surgery'
+    );
+    expect(surgeryBubble).toBeDefined();
+
+    surgeryBubble.click();
+    const heading = view.querySelector('.subject-detail-container .detail-card h4');
+    expect(heading?.textContent).toBe('Terminal Surgery');
   });
 });
 

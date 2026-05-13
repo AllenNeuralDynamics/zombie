@@ -268,9 +268,9 @@ export function createTimeView($queryFilter) {
 
   const gearBtn = document.createElement('button');
   gearBtn.type = 'button';
-  gearBtn.className = 'dv-gear-btn';
+  gearBtn.className = 'dv-gear-btn icon-btn';
   gearBtn.title = 'Timeline appearance settings';
-  gearBtn.innerHTML = '&#9881;'; // ⚙
+  gearBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
   headerRow.appendChild(gearBtn);
 
   const collapseBtn = document.createElement('button');

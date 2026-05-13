@@ -62,9 +62,11 @@ export const DEFAULT_PROJECT = null;
 
 /**
  * Base URL for the aind-metadata-viz contributions REST API.
- * Proxied via Vite in dev (→ localhost:8000) and nginx in prod.
+ * In production (and local dev) this hits the production server directly.
  */
-export const CONTRIBUTIONS_API_BASE = '/metadata-viz';
+export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
+  ? 'https://metadata-portal.allenneuraldynamics.org'
+  : '/metadata-viz';
 
 // ---------------------------------------------------------------------------
 // DuckDB server connector

@@ -5,7 +5,17 @@
  * network-dependent loading is not tested here.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/docdb.js', () => ({
+  fetchDocDbRecordsByName: vi.fn(),
+}));
+
+vi.mock('../contributions/preview.js', () => ({
+  createPreview: vi.fn(() => document.createElement('div')),
+}));
+
+import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -19,6 +29,7 @@ import {
   toEndpointPayload,
   fromEndpointPayload,
   rowsToWidgetAuthors,
+  createContributionsView,
 } from '../contributions/view.js';
 
 // ---------------------------------------------------------------------------
@@ -384,6 +395,21 @@ describe('fromEndpointPayload', () => {
     expect(fromEndpointPayload({ project_name: 'p', contributors: [] })).toEqual([]);
   });
 
+  it('preserves author_level from endpoint payload', () => {
+    const data = {
+      project_name: 'proj',
+      contributors: [
+        { author: { name: 'Alice Smith' }, author_level: 'first', credit_levels: [] },
+        { author: { name: 'Bob Jones' }, author_level: null, credit_levels: [] },
+        { author: { name: 'Carol Lee' }, author_level: 'senior', credit_levels: [] },
+      ],
+    };
+    const rows = fromEndpointPayload(data);
+    expect(rows[0].author_level).toBe('first');
+    expect(rows[1].author_level).toBeNull();
+    expect(rows[2].author_level).toBe('senior');
+  });
+
   it('round-trips through toEndpointPayload → fromEndpointPayload', () => {
     const original = initMatrix(['Alice Smith', 'Bob Jones']);
     original[0]['Conceptualization'] = 'Lead';
@@ -393,6 +419,21 @@ describe('fromEndpointPayload', () => {
     expect(restored[0]['Conceptualization']).toBe('Lead');
     expect(restored[1]['Software']).toBe('Equal');
     expect(restored[0]['Software']).toBe('None');
+  });
+
+  it('round-trips author_level through toEndpointPayload → fromEndpointPayload', () => {
+    const data = {
+      project_name: 'proj',
+      contributors: [
+        { author: { name: 'Alice Smith' }, author_level: 'first', credit_levels: [] },
+        { author: { name: 'Bob Jones' }, author_level: 'senior', credit_levels: [] },
+      ],
+    };
+    const rows = fromEndpointPayload(data);
+    const payload = toEndpointPayload(rows, 'proj');
+    const restored = fromEndpointPayload(payload);
+    expect(restored[0].author_level).toBe('first');
+    expect(restored[1].author_level).toBe('senior');
   });
 });
 
@@ -414,5 +455,98 @@ describe('rowsToWidgetAuthors', () => {
     // All None
     const authors = rowsToWidgetAuthors(rows);
     expect(authors[0].credit_levels).toHaveLength(0);
+  });
+
+  it('preserves author_level in widget author objects', () => {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[0].author_level = 'first';
+    rows[1].author_level = 'senior';
+    const authors = rowsToWidgetAuthors(rows);
+    expect(authors[0].author_level).toBe('first');
+    expect(authors[1].author_level).toBe('senior');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createContributionsView — projectName auto-load
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — projectName auto-load', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ project_name: 'my-project', contributors: [], sections: [] }),
+    });
+  });
+
+  it('populates the project name input when projectName option is provided', () => {
+    const root = createContributionsView({ projectName: 'my-project' });
+    const input = root.querySelector('#cv-project-name');
+    expect(input.value).toBe('my-project');
+  });
+
+  it('calls fetch to load the project when projectName is provided and no draft exists', async () => {
+    createContributionsView({ projectName: 'my-project' });
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('my-project'),
+    );
+  });
+
+  it('does not auto-fetch when no projectName is provided', async () => {
+    createContributionsView({});
+    await Promise.resolve();
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fetches history when a draft with a project name is restored (no full reload)', async () => {
+    const draftRows = [{ name: 'Alice Smith', isFirst: false, ...Object.fromEntries(
+      ['Conceptualization','Methodology','Software','Validation','Formal analysis',
+       'Investigation','Resources','Data curation','Writing \u2013 original draft',
+       'Writing \u2013 review & editing','Visualization','Supervision',
+       'Project Administration','Funding Acquisition'].map(c => [c, 'None'])
+    ) }];
+    sessionStorage.setItem('contributions:draft', JSON.stringify({
+      rows: draftRows,
+      projectName: 'my-project',
+      assetNames: '',
+      projectLocked: false,
+      projectPassword: '',
+      authorSources: {},
+      authorOrcids: {},
+      authorAffIds: {},
+      affiliations: [],
+      loadedAssetNames: [],
+      sections: [],
+      creditDescriptions: {},
+      creditLinkedSections: {},
+      selectedAuthor: null,
+      doi: '',
+    }));
+
+    // history=true fetch should be called; full project GET should not
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [],
+    });
+
+    createContributionsView({ projectName: 'my-project' });
+    await Promise.resolve();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('history=true'),
+    );
+    // Should NOT re-fetch the full project data
+    const fullProjectCalls = global.fetch.mock.calls.filter(
+      ([url]) => !url.includes('history=true'),
+    );
+    expect(fullProjectCalls).toHaveLength(0);
   });
 });

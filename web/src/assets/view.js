@@ -8,6 +8,11 @@
  * formatAssetRow) are exported for unit testing.
  */
 
+import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+
+// Re-export for backward compatibility with tests
+export { formatDatetime, sortRows, uniqueValues, filterRows };
+
 // ---------------------------------------------------------------------------
 // Pure link builders
 // ---------------------------------------------------------------------------
@@ -42,7 +47,7 @@ export function buildS3ConsoleUrl(location) {
  */
 export function buildQcLink(name) {
   if (!name) return null;
-  return `https://qc.allenneuraldynamics-test.org/view?name=${encodeURIComponent(name)}`;
+  return `https://qc.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`;
 }
 
 /**
@@ -53,7 +58,7 @@ export function buildQcLink(name) {
  */
 export function buildMetadataLink(name) {
   if (!name) return null;
-  return `https://metadata-portal.allenneuraldynamics-test.org/view?name=${encodeURIComponent(name)}`;
+  return `https://metadata-portal.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`;
 }
 
 /**
@@ -68,29 +73,6 @@ export function buildCoLink(codeOcean) {
 }
 
 /**
- * Format an ISO datetime string to "YYYY-MM-DD HH:MM" (UTC, no seconds).
- *
- * @param {string|null} iso
- * @returns {string}
- */
-export function formatDatetime(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return String(iso);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
-           `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
-  } catch {
-    return String(iso);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Table rendering helpers
-// ---------------------------------------------------------------------------
-
-/**
  * Build an anchor tag or a fallback text node.
  *
  * @param {string|null} href
@@ -102,8 +84,22 @@ function linkHtml(href, label) {
   return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
-/** Columns displayed in the table, in order. */
-const DISPLAY_COLUMNS = [
+const ALL_AVAILABLE_COLUMNS = [
+  '_id',
+  'name',
+  'subject_id',
+  'acquisition_start_time',
+  'acquisition_end_time',
+  'project_name',
+  'modalities',
+  'data_level',
+  'genotype',
+  'location',
+  'code_ocean',
+  'process_date',
+];
+
+const DEFAULT_DISPLAY_COLUMNS = [
   'subject_id',
   'acquisition_start_time',
   'project_name',
@@ -112,43 +108,56 @@ const DISPLAY_COLUMNS = [
   'genotype',
 ];
 
-/** Column header labels. */
 const COLUMN_LABELS = {
+  _id: 'ID',
+  name: 'Asset Name',
   subject_id: 'Subject',
   acquisition_start_time: 'Acquired (UTC)',
+  acquisition_end_time: 'Acquisition End (UTC)',
   project_name: 'Project',
   modalities: 'Modalities',
   data_level: 'Level',
   genotype: 'Genotype',
+  location: 'Location',
+  code_ocean: 'Code Ocean',
+  process_date: 'Processed',
 };
 
-/**
- * Render one table row as an HTML string.
- *
- * @param {object} row - Plain object with asset_basics columns.
- * @returns {string} `<tr>…</tr>` HTML
- */
-export function renderAssetRow(row) {
+export function renderAssetRow(row, visibleColumns) {
   const s3Href = buildS3ConsoleUrl(row.location ?? null);
   const qcHref = buildQcLink(row.name ?? null);
   const metaHref = buildMetadataLink(row.name ?? null);
   const coHref = buildCoLink(row.code_ocean ?? null);
   const acqTime = formatDatetime(row.acquisition_start_time ?? null);
+  const acqEndTime = formatDatetime(row.acquisition_end_time ?? null);
+  const procDate = formatDatetime(row.process_date ?? null);
 
-  const cells = [
-    `<td>${row.subject_id ?? ''}</td>`,
-    `<td>${acqTime}</td>`,
-    `<td>${row.project_name ?? ''}</td>`,
-    `<td>${row.modalities ?? ''}</td>`,
-    `<td>${row.data_level ?? ''}</td>`,
-    `<td>${row.genotype ?? ''}</td>`,
-    `<td class="link-cell">` +
-      `${linkHtml(s3Href, 'S3')} ` +
-      `${linkHtml(coHref, 'CO')} ` +
-      `${linkHtml(metaHref, 'Meta')} ` +
-      `${linkHtml(qcHref, 'QC')}` +
-      `</td>`,
-  ];
+  const cellValues = {
+    _id: row._id ?? '',
+    name: row.name ?? '',
+    subject_id: `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
+    acquisition_start_time: acqTime,
+    acquisition_end_time: acqEndTime,
+    project_name: row.project_name ?? '',
+    modalities: row.modalities ?? '',
+    data_level: row.data_level ?? '',
+    genotype: row.genotype ?? '',
+    location: row.location ?? '',
+    code_ocean: row.code_ocean ?? '',
+    process_date: procDate,
+  };
+
+  const cells = visibleColumns.map((col) => {
+    if (col === 'links') {
+      return `<td class="link-cell">` +
+        `${linkHtml(s3Href, 'S3')} ` +
+        `${linkHtml(coHref, 'CO')} ` +
+        `${linkHtml(metaHref, 'Meta')} ` +
+        `${linkHtml(qcHref, 'QC')}` +
+        `</td>`;
+    }
+    return `<td>${cellValues[col]}</td>`;
+  });
 
   return `<tr>${cells.join('')}</tr>`;
 }
@@ -156,71 +165,6 @@ export function renderAssetRow(row) {
 // ---------------------------------------------------------------------------
 // Sort state
 // ---------------------------------------------------------------------------
-
-/**
- * Sort an array of row objects by a column.  Modifies the array in-place and
- * returns it.
- *
- * @param {object[]} rows
- * @param {string} col
- * @param {'asc'|'desc'} dir
- * @returns {object[]}
- */
-export function sortRows(rows, col, dir) {
-  rows.sort((a, b) => {
-    const av = a[col] ?? '';
-    const bv = b[col] ?? '';
-    if (av < bv) return dir === 'asc' ? -1 : 1;
-    if (av > bv) return dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-  return rows;
-}
-
-// ---------------------------------------------------------------------------
-// Filter helpers
-// ---------------------------------------------------------------------------
-
-const PAGE_SIZE = 100;
-
-/** Threshold for using a <select> instead of a text input in the filter row. */
-const SELECT_THRESHOLD = 40;
-
-/**
- * Collect unique non-null/non-empty values for a column, sorted lexicographically.
- *
- * @param {object[]} rows
- * @param {string} col
- * @returns {string[]}
- */
-export function uniqueValues(rows, col) {
-  const seen = new Set();
-  for (const row of rows) {
-    const v = row[col];
-    if (v != null && v !== '') seen.add(String(v));
-  }
-  return Array.from(seen).sort();
-}
-
-/**
- * Apply per-column filters to a row array.
- * Text filters use case-insensitive substring match.
- * Select filters use exact match (after coercion to string).
- *
- * @param {object[]} rows
- * @param {Record<string, string>} filters - { colName: filterValue }
- * @returns {object[]}
- */
-export function filterRows(rows, filters) {
-  const entries = Object.entries(filters).filter(([, v]) => v !== '');
-  if (entries.length === 0) return rows;
-  return rows.filter((row) =>
-    entries.every(([col, val]) => {
-      const cell = String(row[col] ?? '').toLowerCase();
-      return cell.includes(val.toLowerCase());
-    }),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // View factory
@@ -242,6 +186,13 @@ export function createAssetsView(coord) {
   const header = document.createElement('div');
   header.className = 'assets-header';
   header.innerHTML = '<h2>Data Assets</h2>';
+  
+  const settingsBtn = document.createElement('button');
+  settingsBtn.className = 'assets-settings-btn icon-btn';
+  settingsBtn.setAttribute('aria-label', 'Column settings');
+  settingsBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
+  header.appendChild(settingsBtn);
+  
   container.appendChild(header);
 
   const loadingEl = document.createElement('p');
@@ -264,104 +215,123 @@ export function createAssetsView(coord) {
       const rows = Array.isArray(result) ? result
         : Array.isArray(result?.data) ? result.data
         : Array.from(result ?? []);
-      buildTable(rows);
+      buildTable(rows, settingsBtn);
     })
     .catch((err) => {
       loadingEl.textContent = `Failed to load assets: ${err?.message ?? err}`;
       loadingEl.className = 'loading-message error';
     });
 
-  /**
-   * Build the full table DOM once data is available.  All subsequent state
-   * changes (sort / filter / page) only update the <tbody> and pagination bar.
-   */
-  function buildTable(allRows) {
-    // ── state ──────────────────────────────────────────────────────────────
+  function buildTable(allRows, settingsBtn) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
-    let filters = Object.fromEntries(DISPLAY_COLUMNS.map((c) => [c, '']));
-    let page = 0; // 0-indexed
+    let visibleColumns = [...DEFAULT_DISPLAY_COLUMNS, 'links'];
+    let filters = Object.fromEntries(DEFAULT_DISPLAY_COLUMNS.map((c) => [c, '']));
+    let page = 0;
 
-    // ── pre-compute unique values for each display column ──────────────────
     const uniques = {};
-    for (const col of DISPLAY_COLUMNS) {
+    for (const col of DEFAULT_DISPLAY_COLUMNS) {
       uniques[col] = uniqueValues(allRows, col);
     }
 
-    // ── column config: should this column use a <select> filter? ──────────
     const useSelect = {};
-    for (const col of DISPLAY_COLUMNS) {
+    for (const col of DEFAULT_DISPLAY_COLUMNS) {
       useSelect[col] = uniques[col].length > 0 && uniques[col].length <= SELECT_THRESHOLD;
     }
 
-    // ── build static skeleton ──────────────────────────────────────────────
-    const allHeaders = [...DISPLAY_COLUMNS, 'links'];
-    const allLabels = { ...COLUMN_LABELS, links: 'Links' };
-
-    // Single header row: label (sortable) + filter control stacked in each <th>
-    const headerRowHtml = allHeaders.map((col) => {
-      const label = allLabels[col] ?? col;
-      if (col === 'links') {
-        return `<th class="col-links"><span class="col-label">${label}</span></th>`;
-      }
-      let filterEl;
-      if (useSelect[col]) {
-        const options = uniques[col]
-          .map((v) => `<option value="${escHtml(v)}">${escHtml(v)}</option>`)
-          .join('');
-        filterEl = `<select class="col-filter" data-col="${col}"><option value="">— all —</option>${options}</select>`;
-      } else {
-        filterEl = `<input class="col-filter" type="text" data-col="${col}" placeholder="filter…" />`;
-      }
-      return `<th class="sortable" data-col="${col}"><span class="col-label">${label}</span>${filterEl}</th>`;
-    }).join('');
-
     const table = document.createElement('table');
     table.className = 'assets-table';
-    table.innerHTML = `
-      <thead><tr>${headerRowHtml}</tr></thead>
-      <tbody></tbody>
-    `;
+    
+    const tbody = document.createElement('tbody');
+    const thead = document.createElement('thead');
+    table.appendChild(thead);
+    table.appendChild(tbody);
 
-    const tbody = table.querySelector('tbody');
-
-    // Pagination bar
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
 
     container.appendChild(table);
     container.appendChild(pagingBar);
 
-    // ── helpers ────────────────────────────────────────────────────────────
+    let settingsModalOpen = false;
 
-    /** Update sort-arrow indicators in the header row. */
+    function renderHeader() {
+      const headerRowHtml = visibleColumns.map((col) => {
+        const label = COLUMN_LABELS[col] ?? col;
+        if (col === 'links') {
+          return `<th class="col-links"><span class="col-label">${label}</span></th>`;
+        }
+        let filterEl;
+        if (useSelect[col]) {
+          const options = uniques[col]
+            .map((v) => `<option value="${escHtml(v)}">${escHtml(v)}</option>`)
+            .join('');
+          filterEl = `<select class="col-filter" data-col="${col}"><option value="">— all —</option>${options}</select>`;
+        } else {
+          filterEl = `<input class="col-filter" type="text" data-col="${col}" placeholder="filter…" />`;
+        }
+        return `<th class="sortable" data-col="${col}"><span class="col-label">${label}</span>${filterEl}</th>`;
+      }).join('');
+
+      thead.innerHTML = `<tr>${headerRowHtml}</tr>`;
+
+      thead.addEventListener('click', (e) => {
+        if (!e.target.closest('.col-label')) return;
+        const th = e.target.closest('th.sortable');
+        if (!th) return;
+        const col = th.dataset.col;
+        if (sortCol === col) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortCol = col;
+          sortDir = 'asc';
+        }
+        page = 0;
+        refresh();
+      });
+
+      thead.addEventListener('input', (e) => {
+        const el = e.target.closest('.col-filter');
+        if (!el) return;
+        filters[el.dataset.col] = el.value;
+        page = 0;
+        refresh();
+      });
+      thead.addEventListener('change', (e) => {
+        const el = e.target.closest('.col-filter');
+        if (!el) return;
+        filters[el.dataset.col] = el.value;
+        page = 0;
+        refresh();
+      });
+
+      updateSortIndicators();
+    }
+
     function updateSortIndicators() {
-      table.querySelectorAll('th.sortable').forEach((th) => {
+      thead.querySelectorAll('th.sortable').forEach((th) => {
         const col = th.dataset.col;
         th.dataset.sortDir = col === sortCol ? sortDir : '';
-        const label = allLabels[col] ?? col;
+        const label = COLUMN_LABELS[col] ?? col;
         const arrow = col === sortCol ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
         th.querySelector('.col-label').textContent = label + arrow;
       });
     }
 
-    /** Derive visible rows from full dataset and current state. */
     function visibleRows() {
       const filtered = filterRows(allRows, filters);
       const sorted = sortRows(filtered, sortCol, sortDir);
       return sorted;
     }
 
-    /** Re-render tbody and paging bar. */
     function refresh() {
       const rows = visibleRows();
       const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
       if (page >= totalPages) page = totalPages - 1;
 
       const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map(renderAssetRow).join('');
+      tbody.innerHTML = pageRows.map((row) => renderAssetRow(row, visibleColumns)).join('');
 
-      // Pagination bar
       const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
       const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
       pagingBar.innerHTML = `
@@ -375,41 +345,85 @@ export function createAssetsView(coord) {
       updateSortIndicators();
     }
 
-    // ── event listeners ───────────────────────────────────────────────────
-
-    // Sort: click on the label span (not the filter input)
-    table.querySelector('thead').addEventListener('click', (e) => {
-      // Only trigger sort when clicking the label, not the filter control
-      if (!e.target.closest('.col-label')) return;
-      const th = e.target.closest('th.sortable');
-      if (!th) return;
-      const col = th.dataset.col;
-      if (sortCol === col) {
-        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        sortCol = col;
-        sortDir = 'asc';
+    function openSettingsModal() {
+      if (settingsModalOpen) {
+        settingsModal.remove();
+        settingsModalOpen = false;
+        return;
       }
-      page = 0;
-      refresh();
-    });
 
-    // Filter input / select changes
-    table.querySelector('thead').addEventListener('input', (e) => {
-      const el = e.target.closest('.col-filter');
-      if (!el) return;
-      filters[el.dataset.col] = el.value;
-      page = 0;
-      refresh();
-    });
-    table.querySelector('thead').addEventListener('change', (e) => {
-      const el = e.target.closest('.col-filter');
-      if (!el) return;
-      filters[el.dataset.col] = el.value;
-      page = 0;
-      refresh();
-    });
+      const settingsModal = document.createElement('div');
+      settingsModal.className = 'assets-settings-modal';
 
+      const listHtml = ALL_AVAILABLE_COLUMNS
+        .map((col) => {
+          const isChecked = visibleColumns.includes(col);
+          return `
+            <label class="settings-checkbox-label">
+              <input type="checkbox" class="settings-col-checkbox" data-col="${col}" ${isChecked ? 'checked' : ''} />
+              <span>${COLUMN_LABELS[col] ?? col}</span>
+            </label>
+          `;
+        })
+        .join('');
+
+      settingsModal.innerHTML = `
+        <div class="settings-modal-content">
+          <h3>Visible Columns</h3>
+          <div class="settings-checkbox-list">
+            ${listHtml}
+          </div>
+          <div class="settings-modal-actions">
+            <button class="settings-reset-btn">Reset to Defaults</button>
+            <button class="settings-close-btn">Close</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(settingsModal);
+      settingsModalOpen = true;
+
+      settingsModal.querySelectorAll('.settings-col-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          const col = checkbox.dataset.col;
+          if (checkbox.checked) {
+            if (!visibleColumns.includes(col) && col !== 'links') {
+              visibleColumns.splice(visibleColumns.length - 1, 0, col);
+            }
+          } else {
+            visibleColumns = visibleColumns.filter((c) => c !== col);
+          }
+          renderHeader();
+          refresh();
+        });
+      });
+
+      settingsModal.querySelector('.settings-close-btn').addEventListener('click', () => {
+        settingsModal.remove();
+        settingsModalOpen = false;
+      });
+
+      settingsModal.querySelector('.settings-reset-btn').addEventListener('click', () => {
+        visibleColumns = [...DEFAULT_DISPLAY_COLUMNS, 'links'];
+        renderHeader();
+        refresh();
+        settingsModal.querySelectorAll('.settings-col-checkbox').forEach((checkbox) => {
+          const col = checkbox.dataset.col;
+          checkbox.checked = DEFAULT_DISPLAY_COLUMNS.includes(col);
+        });
+      });
+
+      settingsModal.addEventListener('click', (e) => {
+        if (e.target === settingsModal) {
+          settingsModal.remove();
+          settingsModalOpen = false;
+        }
+      });
+    }
+
+    settingsBtn.addEventListener('click', openSettingsModal);
+
+    renderHeader();
     refresh();
   }
 
@@ -419,12 +433,3 @@ export function createAssetsView(coord) {
 // ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
-
-/** Escape a string for inclusion in HTML attribute values or text nodes. */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}

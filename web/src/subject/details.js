@@ -15,7 +15,9 @@ import {
   extractFibersFromSurgery,
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
-import { buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
+import { createBrainViz3D } from './brain-viz-3d.js';
+import { createEphysViz3D, extractEphysProbes } from './ephys-viz-3d.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -53,19 +55,35 @@ export function buildBirthDetail(event) {
 }
 
 /**
- * Build an HTML string for an Acquisition event detail card.
+ * Check whether an acquisition data object contains at least one Ephys assembly config.
+ * @param {object} acquisitionData
+ * @returns {boolean}
+ */
+export function hasEphysAssemblies(acquisitionData) {
+  for (const stream of (acquisitionData?.data_streams ?? [])) {
+    for (const cfg of (stream?.configurations ?? [])) {
+      if (cfg?.object_type === 'Ephys assembly config') return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Build an HTML string for the overview card of an Acquisition event.
  *
  * @param {object} event
  * @returns {string}
  */
 export function buildAcquisitionDetail(event) {
-  const { start, end, event: label, details, data = {} } = event;
+  const { start, end, event: label, modalities, data = {} } = event;
   const durationHrs = start && end ? ((end - start) / 3_600_000).toFixed(2) : 'N/A';
   const assetName = data._assetName ?? null;
   const qcHref = buildQcLink(assetName);
   const metaHref = buildMetadataLink(assetName);
   const coHref = buildCoLink(data._codeOcean ?? null);
+  const s3Href = buildS3ConsoleUrl(data._location ?? null);
   const linkParts = [
+    s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
     coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">Code Ocean</a>` : '',
     metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Metadata</a>` : '',
     qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC Portal</a>` : '',
@@ -80,6 +98,7 @@ export function buildAcquisitionDetail(event) {
     data.reward_consumed_total != null
       ? `<dt>Reward consumed</dt><dd>${data.reward_consumed_total} ${data.reward_consumed_unit ?? ''}</dd>`
       : '',
+    modalities?.length ? `<dt>Modalities</dt><dd>${modalities.join(', ')}</dd>` : '',
     linkParts ? `<dt>Links</dt><dd>${linkParts}</dd>` : '',
   ].join('');
   return `
@@ -89,7 +108,6 @@ export function buildAcquisitionDetail(event) {
         <dt>Start</dt><dd>${fmtDateTime(start)}</dd>
         <dt>End</dt><dd>${fmtDateTime(end)}</dd>
         <dt>Duration</dt><dd>${durationHrs} hours</dd>
-        <dt>Details</dt><dd>${details ?? ''}</dd>
         ${extra}
       </dl>
     </div>`;
@@ -214,6 +232,7 @@ function createTabWidget(tabs) {
 
 function buildSurgeryOverviewHtml(event) {
   const { start, details, data = {} } = event;
+  const title = event.event === 'Terminal Surgery' ? 'Terminal Surgery' : 'Surgery Overview';
   const anaes = data.anaesthesia;
   const extra = [
     anaes
@@ -234,13 +253,57 @@ function buildSurgeryOverviewHtml(event) {
   ].join('');
   return `
     <div class="detail-card">
-      <h4>Surgery Overview</h4>
+      <h4>${title}</h4>
       <dl>
         <dt>Date</dt><dd>${fmtDate(start)}</dd>
         <dt>Procedures</dt><dd>${details ?? ''}</dd>
         ${extra}
       </dl>
     </div>`;
+}
+
+function fmtDetailValue(value) {
+  if (value == null || value === '') return 'Unknown';
+  return String(value);
+}
+
+function fmtDetailList(value) {
+  const vals = Array.isArray(value)
+    ? value.filter((v) => v != null && v !== '')
+    : [];
+  return vals.length ? vals.join(', ') : 'Unknown';
+}
+
+function fmtDetailBoolean(value) {
+  if (value == null) return 'Unknown';
+  return value ? 'Yes' : 'No';
+}
+
+export function buildCraniotomySubProcHtml(subProc) {
+  const size = subProc.size != null
+    ? `${subProc.size} ${subProc.size_unit ?? ''}`.trim()
+    : 'Unknown';
+  return `<div class="detail-card"><h4>Craniotomy</h4><dl>
+    <dt>Type</dt><dd>${fmtDetailValue(subProc.craniotomy_type)}</dd>
+    <dt>Coordinate system</dt><dd>${fmtDetailValue(subProc.coordinate_system_name)}</dd>
+    <dt>Position</dt><dd>${fmtDetailList(subProc.position)}</dd>
+    <dt>Size</dt><dd>${size}</dd>
+    <dt>Protective material</dt><dd>${fmtDetailValue(subProc.protective_material)}</dd>
+    <dt>Implant part number</dt><dd>${fmtDetailValue(subProc.implant_part_number)}</dd>
+    <dt>Dura removed</dt><dd>${fmtDetailBoolean(subProc.dura_removed)}</dd>
+    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+  </dl></div>`;
+}
+
+export function buildHeadframeSubProcHtml(subProc) {
+  return `<div class="detail-card"><h4>Headframe</h4><dl>
+    <dt>Headframe type</dt><dd>${fmtDetailValue(subProc.headframe_type)}</dd>
+    <dt>Headframe part number</dt><dd>${fmtDetailValue(subProc.headframe_part_number)}</dd>
+    <dt>Headframe material</dt><dd>${fmtDetailValue(subProc.headframe_material)}</dd>
+    <dt>Well type</dt><dd>${fmtDetailValue(subProc.well_type)}</dd>
+    <dt>Well part number</dt><dd>${fmtDetailValue(subProc.well_part_number)}</dd>
+    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+  </dl></div>`;
 }
 
 function buildSubProcHtml(subProc) {
@@ -257,6 +320,12 @@ function buildSubProcHtml(subProc) {
       <dt>Description</dt><dd>${subProc.description ?? 'No description'}</dd>
       ${subProc.notes ? `<dt>Notes</dt><dd>${subProc.notes}</dd>` : ''}
     </dl></div>`;
+  }
+  if (type === 'Craniotomy') {
+    return buildCraniotomySubProcHtml(subProc);
+  }
+  if (type === 'Headframe') {
+    return buildHeadframeSubProcHtml(subProc);
   }
   return `<div class="detail-card"><h4>${type}</h4><p>No additional details available.</p></div>`;
 }
@@ -304,9 +373,9 @@ function createInjectionVizPanel(surgeryData, subjectId) {
   return container;
 }
 
-function createFiberVizPanel(surgeryData, subjectId) {
+function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) {
   const container = document.createElement('div');
-  const fibers = extractFibersFromSurgery(surgeryData).sort(
+  const fibers = extractFibersFromSurgery(surgeryData, proceduresCoordSys).sort(
     (a, b) => a.name.localeCompare(b.name),
   );
 
@@ -319,13 +388,14 @@ function createFiberVizPanel(surgeryData, subjectId) {
     <table class="detail-table">
       <thead><tr>
         <th>Fiber</th><th>AP (mm)</th><th>ML (mm)</th><th>DV (mm)</th>
-        <th>Angle (°)</th><th>Target</th>
+        <th>Depth (mm)</th><th>Angle (°)</th><th>Target</th>
       </tr></thead>
       <tbody>${fibers.map((f) => `<tr>
         <td>${f.name}</td>
         <td>${f.ap.toFixed(2)}</td>
         <td>${f.ml.toFixed(2)}</td>
         <td>${f.dv != null ? f.dv.toFixed(2) : 'N/A'}</td>
+        <td>${f.depth != null ? f.depth.toFixed(2) : 'N/A'}</td>
         <td>${Math.abs(f.angle) > 0.1 ? f.angle.toFixed(1) : '0'}</td>
         <td>${f.targetedStructure}</td>
       </tr>`).join('')}</tbody>
@@ -337,11 +407,121 @@ function createFiberVizPanel(surgeryData, subjectId) {
   const { canvas } = createBrainVizCanvas(points, labels, {
     title: 'Fiber Implant Locations (Top View)',
   });
-  container.appendChild(canvas);
+
+  // Side-by-side layout: 2D canvas on left, 3D viewer on right
+  // (proceduresCoordSys drives the coordinate parsing in the 3D viewer)
+  const vizRow = document.createElement('div');
+  vizRow.style.cssText = 'display:flex;gap:12px;align-items:flex-start;margin-top:8px';
+
+  const canvas2dWrap = document.createElement('div');
+  canvas2dWrap.style.cssText = 'flex:0 0 auto';
+  canvas2dWrap.appendChild(canvas);
+  vizRow.appendChild(canvas2dWrap);
+
+  const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
+  viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
+  vizRow.appendChild(viz3d);
+
+  container.appendChild(vizRow);
   return container;
 }
 
-function renderSurgeryDetail(event, container, { subjectId = 'Unknown' } = {}) {
+// ---------------------------------------------------------------------------
+// Ephys assembly panel (for Acquisition events with ecephys data)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build an HTML string for a single ephys probe info card.
+ * Pure function, Node-testable.
+ *
+ * @param {object} probe - Probe object from extractEphysProbes().
+ * @param {number} index - Probe index (for color reference).
+ * @returns {string}
+ */
+export function buildEphysProbeCard(probe, index) {
+  const primary = probe.primaryStructure
+    ? `${probe.primaryStructure.name} (${probe.primaryStructure.acronym})`
+    : 'Not specified';
+  const others = probe.otherStructures.length
+    ? probe.otherStructures.map((s) => `${s.name} (${s.acronym})`).join(', ')
+    : null;
+  const moduleAngles = probe.modules
+    .filter((m) => m && (m.arc_angle != null || m.module_angle != null))
+    .map((m) => {
+      const parts = [];
+      if (m.arc_angle != null) parts.push(`arc ${m.arc_angle}°`);
+      if (m.module_angle != null) parts.push(`module ${m.module_angle}°`);
+      if (m.rotation_angle != null) parts.push(`rotation ${m.rotation_angle}°`);
+      return parts.join(', ');
+    })
+    .join('; ');
+
+  return `
+    <div class="detail-card">
+      <h4>Probe ${index + 1}: ${probe.name}</h4>
+      <dl>
+        <dt>Primary target</dt><dd>${primary}</dd>
+        ${others ? `<dt>Other targets</dt><dd>${others}</dd>` : ''}
+        ${probe.dye ? `<dt>Dye</dt><dd>${probe.dye}</dd>` : ''}
+        ${moduleAngles ? `<dt>Module angles</dt><dd>${moduleAngles}</dd>` : ''}
+        ${probe.notes ? `<dt>Notes</dt><dd>${probe.notes}</dd>` : ''}
+      </dl>
+    </div>`;
+}
+
+/**
+ * Create the ephys details panel (info cards + 3D viewer).
+ * @param {object} acquisitionData - Raw acquisition object.
+ * @returns {HTMLElement}
+ */
+function createEphysPanel(acquisitionData) {
+  const container = document.createElement('div');
+  const probes = extractEphysProbes(acquisitionData);
+
+  if (!probes.length) {
+    container.innerHTML = '<p class="detail-empty">No ephys probe data found.</p>';
+    return container;
+  }
+
+  // Info cards for each probe
+  const cardsHtml = probes.map((p, i) => buildEphysProbeCard(p, i)).join('');
+  container.innerHTML = cardsHtml;
+
+  // 3D viewer below the cards
+  const viz3d = createEphysViz3D(acquisitionData);
+  viz3d.style.cssText += ';margin-top:12px';
+  container.appendChild(viz3d);
+
+  return container;
+}
+
+/**
+ * Render an Acquisition event detail: overview card, with an optional
+ * "Ephys Assembly" tab when ephys data is present.
+ */
+function renderAcquisitionDetail(event, container) {
+  const { data = {} } = event;
+
+  if (!hasEphysAssemblies(data)) {
+    // Simple case: just the overview card
+    container.innerHTML = buildAcquisitionDetail(event);
+    return;
+  }
+
+  // Tab layout: Overview + Ephys Assembly
+  const overviewEl = document.createElement('div');
+  overviewEl.innerHTML = buildAcquisitionDetail(event);
+
+  const tabDefs = [
+    { label: 'Overview',        content: overviewEl },
+    { label: 'Ephys Assembly',  content: createEphysPanel(data) },
+  ];
+
+  container.innerHTML = '';
+  container.appendChild(createTabWidget(tabDefs));
+}
+
+function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
 
@@ -365,9 +545,9 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown' } = {}) {
     tabDefs.push({ label: 'Brain Injections', content: createInjectionVizPanel(data, subjectId) });
   }
 
-  // Fiber locations tab
+  // Fiber locations tab (2D top-down)
   if (hasFiberImplants(data)) {
-    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId) });
+    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys) });
   }
 
   container.innerHTML = '';
@@ -404,7 +584,7 @@ export function renderEventDetail(event, container, context = {}) {
       break;
 
     case 'Acquisition':
-      container.innerHTML = buildAcquisitionDetail(event);
+      renderAcquisitionDetail(event, container);
       break;
 
     case 'Session':

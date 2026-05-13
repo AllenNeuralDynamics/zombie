@@ -10,16 +10,24 @@
  *   - CRediT matrix is transposed: authors are rows, roles are columns
  *   - No dataset-switcher (single data source from the page state)
  *   - Exported as createPreview(container, authors) rather than anywidget render()
+ *   - Added "Explore" tab: force-directed network via explore.js
  */
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// To disable the Explore tab: comment out the line below and the 'explore' tab case in buildWidget().
+import { createExploreView } from './explore.js';
+import {
+  CREDIT_ROLES,
+  ROLE_GROUP,
+  GROUP_HUE,
+  hashStr,
+  authorColor,
+  getInitials,
+  getLastName,
+  getFirstName,
+  normalizeRole,
+} from './credit-helpers.js';
 
-const ALL_CREDIT_ROLES = [
-  'Conceptualization', 'Methodology', 'Software', 'Validation',
-  'Formal analysis', 'Investigation', 'Resources', 'Data curation',
-  'Writing – original draft', 'Writing – review & editing',
-  'Visualization', 'Supervision', 'Project Administration', 'Funding Acquisition',
-];
+// ─── Constants ──────────────────────────────────────────────────────────────
 
 const ROLE_ICONS = {
   'Conceptualization': '💡', 'Methodology': '🔬', 'Software': '💻',
@@ -31,10 +39,9 @@ const ROLE_ICONS = {
   'Supervision': '👥', 'Project Administration': '📋', 'Funding Acquisition': '💰',
 };
 
-const AVATAR_COLORS = [
-  '#4f46e5', '#0d9488', '#7c3aed', '#d97706',
-  '#e11d48', '#059669', '#1e40af', '#4338ca',
-];
+// Module-level cache of all authors from the most recent createPreview() call.
+// Used by authorColor() to incorporate co-contributor network weighting.
+let _allAuthors = [];
 
 const LEVEL_RANK = { lead: 3, equal: 2, supporting: 1 };
 
@@ -166,6 +173,10 @@ function ensureWidgetCSS() {
     .ae-profile-aff { font-size: 12px; color: #6b7280; margin: 0 0 6px; }
     .ae-dark .ae-profile-aff { color: #9ca3af; }
     .ae-profile-roles { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+    .ae-profile-sections { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+    .ae-profile-sections-label { font-size: 11px; color: #6b7280; margin-right: 2px; }
+    .ae-section-badge { padding: 2px 7px; border-radius: 8px; font-size: 10px; font-weight: 500; background: #e0f2fe; color: #0369a1; white-space: nowrap; }
+    .ae-dark .ae-section-badge { background: #075985; color: #bae6fd; }
     .ae-avatar {
       width: 44px; height: 44px; border-radius: 50%;
       color: #fff; font-size: 14px; font-weight: 700;
@@ -206,41 +217,87 @@ function ensureWidgetCSS() {
     .ae-dark .ae-legend-word-lead { color: #a5b4fc; }
     .ae-dark .ae-legend-word-equal { color: #818cf8; }
     .ae-dark .ae-legend-word-supporting { color: #6b7280; }
+    /* Author-level group labels */
+    .ae-level-group-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .ae-level-group-sep {
+      font-size: 12px;
+      color: #d1d5db;
+      margin: 0 4px;
+    }
+    .ae-dark .ae-level-group-label { color: #9ca3af; }
+    .ae-dark .ae-level-group-sep { color: #4b5563; }
+    /* Author levels toggle switch */
+    .ae-author-levels-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: 8px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .ae-toggle-track {
+      width: 32px;
+      height: 18px;
+      border-radius: 9px;
+      background: #d1d5db;
+      position: relative;
+      transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .ae-toggle-track.ae-toggle-on {
+      background: #4338ca;
+    }
+    .ae-toggle-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+      transition: transform 0.2s;
+    }
+    .ae-toggle-track.ae-toggle-on .ae-toggle-thumb {
+      transform: translateX(14px);
+    }
+    .ae-toggle-label {
+      font-size: 12px;
+      color: #374151;
+      white-space: nowrap;
+    }
+    .ae-dark .ae-toggle-track { background: #4b5563; }
+    .ae-dark .ae-toggle-track.ae-toggle-on { background: #4338ca; }
+    .ae-dark .ae-toggle-label { color: #d1d5db; }
+    /* Shared authorship symbols */
+    .ae-author-level-sym {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      margin-left: 1px;
+    }
+    .ae-dark .ae-author-level-sym { color: #9ca3af; }
+    /* Author level legend */
+    .ae-author-level-legend {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #6b7280;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .ae-dark .ae-author-level-legend { color: #9ca3af; }
   `;
   document.head.appendChild(style);
 }
 
 // ─── Utilities ──────────────────────────────────────────────────────────────
-
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = s.charCodeAt(i) + ((h << 5) - h);
-  return Math.abs(h);
-}
-
-function getColor(name) {
-  return AVATAR_COLORS[hashStr(name) % AVATAR_COLORS.length];
-}
-
-function getInitials(name) {
-  const parts = name.split(/\s+/);
-  if (parts.length === 1) return parts[0][0].toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function getLastName(name) {
-  const parts = name.split(/\s+/);
-  return parts[parts.length - 1];
-}
-
-function getFirstName(name) {
-  const parts = name.split(/\s+/);
-  return parts[0];
-}
-
-function normalizeRole(r) {
-  return r.toLowerCase().replace(/\s+/g, ' ').replace(/—/g, '–').trim();
-}
 
 function rolesMatch(a, b) {
   return normalizeRole(a) === normalizeRole(b);
@@ -335,7 +392,7 @@ function attachAuthorPopover(element, author) {
 function showPopover(anchor, author) {
   hidePopover();
   ensurePopoverStyles();
-  const color = getColor(author.name);
+  const color = authorColor(author, _allAuthors);
   const pop = el('div', { className: 'ae-popover' });
   pop.addEventListener('mouseenter', () => clearTimeout(_popoverTimeout));
   pop.addEventListener('mouseleave', () => {
@@ -443,6 +500,7 @@ function sortAuthors(authors, sortKey) {
  */
 export function createPreview(container, authors) {
   ensureWidgetCSS();
+  _allAuthors = authors || [];
 
   // Remove previous widget if any
   const prev = container.querySelector('.ae-widget');
@@ -460,7 +518,9 @@ export function createPreview(container, authors) {
   function detectDarkMode() {
     const html = document.documentElement;
     if (html.getAttribute('data-theme') === 'dark') return true;
+    if (html.getAttribute('data-theme') === 'light') return false;
     if (html.classList.contains('dark')) return true;
+    if (html.classList.contains('light')) return false;
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   }
 
@@ -469,9 +529,14 @@ export function createPreview(container, authors) {
   // State
   let sortKey = 'alpha';
   let expanded = true;
-  let activeTab = container.dataset.cvTab || 'matrix';
+  let activeTab = container.dataset.cvTab || 'explore';
   let showCreditMenu = false;
   let searchQuery = '';
+  let useAuthorLevels = container.dataset.cvUseAuthorLevels === 'true';
+  // Cleanup function for the Explore tab's network view (cancelled on tab switch)
+  let exploreCleanup  = null;
+  // Persists zoom/pan across tab switches; reset to null only when authors change entirely
+  let exploreZoomState = null;
 
   function matchesSearch(author, query) {
     if (!query) return true;
@@ -501,6 +566,8 @@ export function createPreview(container, authors) {
   }
 
   function rerender() {
+    // Tear down Explore network view before replacing the widget DOM
+    if (exploreCleanup) { exploreCleanup(); exploreCleanup = null; }
     const newWidget = buildWidget();
     const oldWidget = container.querySelector('.ae-widget');
     if (oldWidget) {
@@ -526,7 +593,7 @@ export function createPreview(container, authors) {
     const thead = el('thead');
     const headerRow = el('tr');
     headerRow.appendChild(el('th', { className: 'ae-matrix-corner-cell' }));
-    for (const role of ALL_CREDIT_ROLES) {
+    for (const role of CREDIT_ROLES) {
       const th = el('th', { className: 'ae-matrix-role-col-th' });
       const inner = el('div', { className: 'ae-matrix-role-col-header' });
       inner.appendChild(el('span', { className: 'ae-matrix-role-col-label' }, role));
@@ -552,7 +619,7 @@ export function createPreview(container, authors) {
       row.appendChild(tdAuthor);
 
       // Role cells
-      for (const role of ALL_CREDIT_ROLES) {
+      for (const role of CREDIT_ROLES) {
         const level = findCreditLevel(author, role);
         const td = el('td', { className: 'ae-matrix-cell' });
         if (level) {
@@ -599,22 +666,24 @@ export function createPreview(container, authors) {
     const chips = el('div', { className: 'ae-chips' });
 
     chips.appendChild(el('button', {
+      type: 'button',
       className: `ae-chip ${sortKey === 'alpha' ? 'ae-chip-active' : ''}`,
       onClick: () => { sortKey = 'alpha'; rerender(); },
-    }, '🔤 A → Z'));
+    }, 'A → Z'));
 
     // CRediT Role dropdown
     const creditWrap = el('div', { className: 'ae-credit-wrap' });
     const creditBtn = el('button', {
+      type: 'button',
       className: `ae-chip ${isCreditSort ? 'ae-chip-active' : ''}`,
       onClick: () => { showCreditMenu = !showCreditMenu; rerender(); },
-    }, '🏷️ CRediT Role ▾');
+    }, 'CRediT Role ▾');
     creditWrap.appendChild(creditBtn);
 
     if (showCreditMenu) {
       const menu = el('div', { className: 'ae-credit-menu ae-credit-menu-fixed' });
       menu.appendChild(el('div', { className: 'ae-credit-menu-title' }, 'Sort by specific CRediT role'));
-      for (const role of ALL_CREDIT_ROLES) {
+      for (const role of CREDIT_ROLES) {
         const key = `credit:${role}`;
         const isActive = sortKey === key;
         const item = el('button', {
@@ -638,9 +707,29 @@ export function createPreview(container, authors) {
     chips.appendChild(creditWrap);
 
     chips.appendChild(el('button', {
+      type: 'button',
       className: `ae-chip ${sortKey === 'most-roles' ? 'ae-chip-active' : ''}`,
       onClick: () => { sortKey = 'most-roles'; rerender(); },
-    }, '🏷️ Most roles'));
+    }, 'Most roles'));
+
+    // Author levels toggle switch
+    const levelsWrap = el('label', {
+      className: 'ae-author-levels-wrap',
+      title: 'Group authors into first / (none) / senior based on author_level field',
+    });
+    const levelsInput = el('input', { type: 'checkbox', style: { display: 'none' } });
+    if (useAuthorLevels) levelsInput.checked = true;
+    levelsInput.addEventListener('change', () => {
+      useAuthorLevels = levelsInput.checked;
+      container.dataset.cvUseAuthorLevels = String(useAuthorLevels);
+      rerender();
+    });
+    const track = el('span', { className: `ae-toggle-track${useAuthorLevels ? ' ae-toggle-on' : ''}` });
+    track.appendChild(el('span', { className: 'ae-toggle-thumb' }));
+    levelsWrap.appendChild(levelsInput);
+    levelsWrap.appendChild(track);
+    levelsWrap.appendChild(el('span', { className: 'ae-toggle-label' }, 'Author levels'));
+    chips.appendChild(levelsWrap);
 
     sortBar.appendChild(chips);
 
@@ -679,40 +768,93 @@ export function createPreview(container, authors) {
       });
     });
 
+    // When author levels are on, split into groups and render each group
+    const AUTHOR_LEVEL_ORDER = ['first', null, 'senior'];
+
+    function renderAuthorList(authorsToRender) {
+      const namesList = el('div', { className: 'ae-names' });
+
+      if (useAuthorLevels) {
+        const grpFirst = [], grpMiddle = [], grpSenior = [];
+        for (const author of authorsToRender) {
+          const lvl = author.author_level ?? null;
+          if (lvl === 'first') grpFirst.push(author);
+          else if (lvl === 'senior') grpSenior.push(author);
+          else grpMiddle.push(author);
+        }
+        const nonEmptyGroups = [];
+        if (grpFirst.length) nonEmptyGroups.push({ key: 'first', authors: grpFirst });
+        if (grpMiddle.length) nonEmptyGroups.push({ key: 'middle', authors: grpMiddle });
+        if (grpSenior.length) nonEmptyGroups.push({ key: 'senior', authors: grpSenior });
+
+        nonEmptyGroups.forEach((group, groupIndex) => {
+          if (groupIndex > 0) {
+            namesList.appendChild(el('span', { className: 'ae-level-group-sep' }, ' | '));
+          }
+          group.authors.forEach((author, gi) => {
+            const isLastInGroup = gi === group.authors.length - 1;
+            const isLastOverall = groupIndex === nonEmptyGroups.length - 1 && isLastInGroup;
+            const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
+            const span = el('span', { className: 'ae-name-wrap' });
+            if (isDimmed) span.style.opacity = '0.3';
+            const nameBtn = el('button', { className: 'ae-name' }, author.name);
+            attachAuthorPopover(nameBtn, author);
+            span.appendChild(nameBtn);
+            if (author.affiliations?.length && affList.length > 0) {
+              const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
+              const sym = (group.key === 'first' && multiFirst) ? '*'
+                        : (group.key === 'senior' && multiSenior) ? '§'
+                        : '';
+              if (indices.length) span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',') + sym));
+              else if (sym) span.appendChild(el('sup', { className: 'ae-aff-sup' }, sym));
+            } else {
+              const sym = (group.key === 'first' && multiFirst) ? '*'
+                        : (group.key === 'senior' && multiSenior) ? '§'
+                        : '';
+              if (sym) span.appendChild(el('sup', { className: 'ae-aff-sup' }, sym));
+            }
+            if (isCreditSort) {
+              const level = findCreditLevel(author, sortKey.slice(7));
+              if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+            }
+            if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
+            if (!isLastOverall) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
+            namesList.appendChild(span);
+          });
+        });
+      } else {
+        authorsToRender.forEach((author, i) => {
+          const isLast = i === authorsToRender.length - 1;
+          const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
+          const span = el('span', { className: 'ae-name-wrap' });
+          if (isDimmed) span.style.opacity = '0.3';
+          const nameBtn = el('button', { className: 'ae-name' }, author.name);
+          attachAuthorPopover(nameBtn, author);
+          span.appendChild(nameBtn);
+          if (author.affiliations?.length && affList.length > 0) {
+            const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
+            if (indices.length) span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',')));
+          }
+          if (isCreditSort) {
+            const level = findCreditLevel(author, sortKey.slice(7));
+            if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+          }
+          if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
+          if (!isLast) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
+          namesList.appendChild(span);
+        });
+      }
+      return namesList;
+    }
+
+    // Pre-compute shared authorship flags for legend
+    const _firstCount = useAuthorLevels ? resorted.filter(a => a.author_level === 'first').length : 0;
+    const _seniorCount = useAuthorLevels ? resorted.filter(a => a.author_level === 'senior').length : 0;
+    const multiFirst = _firstCount > 1;
+    const multiSenior = _seniorCount > 1;
+
     // Names with superscript affiliation indices
-    const namesList = el('div', { className: 'ae-names' });
-    resorted.forEach((author, i) => {
-      const isLast = i === resorted.length - 1;
-      const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
-      const span = el('span', { className: 'ae-name-wrap' });
-      if (isDimmed) span.style.opacity = '0.3';
-
-      const nameBtn = el('button', { className: 'ae-name' }, author.name);
-      attachAuthorPopover(nameBtn, author);
-      span.appendChild(nameBtn);
-
-      if (author.affiliations?.length && affList.length > 0) {
-        const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
-        if (indices.length) {
-          span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',')));
-        }
-      }
-
-      if (isCreditSort) {
-        const level = findCreditLevel(author, sortKey.slice(7));
-        if (level) {
-          span.appendChild(el('span', {
-            className: `ae-level-badge ae-level-${level}`,
-          }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
-        }
-      }
-
-      if (author.corresponding) {
-        span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
-      }
-      if (!isLast) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
-      namesList.appendChild(span);
-    });
+    const namesList = renderAuthorList(resorted);
 
     const byline = el('div', { className: 'ae-byline' });
     byline.appendChild(namesList);
@@ -739,6 +881,13 @@ export function createPreview(container, authors) {
       byline.appendChild(legend);
     }
 
+    if (useAuthorLevels && (multiFirst || multiSenior)) {
+      const lvlLegend = el('div', { className: 'ae-author-level-legend' });
+      if (multiFirst) lvlLegend.appendChild(el('span', {}, '* Shared first authorship'));
+      if (multiSenior) lvlLegend.appendChild(el('span', {}, '§ Shared senior authorship'));
+      byline.appendChild(lvlLegend);
+    }
+
     wrap.appendChild(byline);
     return wrap;
   }
@@ -749,7 +898,7 @@ export function createPreview(container, authors) {
     for (let ai = 0; ai < sorted.length; ai++) {
       const author = sorted[ai];
       const isDimmed = searchQuery && !matchesSearch(author, searchQuery);
-      const color = getColor(author.name);
+      const color = authorColor(author, _allAuthors);
       const card = el('div', { className: 'ae-profile-card' });
       card.style.setProperty('--i', String(ai));
       if (isDimmed) card.style.opacity = '0.3';
@@ -826,6 +975,18 @@ export function createPreview(container, authors) {
         card.appendChild(roles);
       }
 
+      // Section contributions
+      const sectionContribs = author.section_contributions || [];
+      if (sectionContribs.length) {
+        const secRow = el('div', { className: 'ae-profile-sections' });
+        secRow.appendChild(el('span', { className: 'ae-profile-sections-label' }, 'Sections:'));
+        for (const sc of sectionContribs) {
+          const title = typeof sc === 'string' ? sc : sc.section;
+          if (title) secRow.appendChild(el('span', { className: 'ae-section-badge' }, title));
+        }
+        card.appendChild(secRow);
+      }
+
       wrap.appendChild(card);
     }
     return wrap;
@@ -855,7 +1016,7 @@ export function createPreview(container, authors) {
 
       const contributors = el('div', { className: 'ae-section-contributors' });
       for (const c of contribs) {
-        const color = getColor(c.author.name);
+        const color = authorColor(c.author, _allAuthors);
         const isDimmed = searchQuery && !matchesSearch(c.author, searchQuery);
         const chip = el('div', { className: 'ae-section-chip' });
         if (isDimmed) chip.style.opacity = '0.3';
@@ -893,14 +1054,15 @@ export function createPreview(container, authors) {
 
     const container2 = el('div', { className: `ae-widget ${isDark ? 'ae-dark' : ''}` });
 
-    // Tabs: matrix, sections, authors, profiles (no network, no timeline)
+    // Tabs: matrix, sections, authors, profiles, explore (no timeline)
     const panel = el('div', { className: 'ae-panel' });
     const tabs = el('div', { className: 'ae-tabs', role: 'tablist', 'aria-label': 'Authorship views' });
     const tabDefs = [
-      { id: 'matrix', label: 'CRediT' },
-      { id: 'sections', label: 'Sections' },
-      { id: 'authors', label: 'Sorted List' },
+      { id: 'explore',  label: 'Explore' },
+      { id: 'matrix',   label: 'CRediT' },
+      { id: 'authors',  label: 'Sorted List' },
       { id: 'profiles', label: 'Profiles' },
+      { id: 'sections', label: 'Sections' },
     ];
     for (let ti = 0; ti < tabDefs.length; ti++) {
       const t = tabDefs[ti];
@@ -976,6 +1138,10 @@ export function createPreview(container, authors) {
       content.appendChild(buildAuthorListTab());
     } else if (activeTab === 'profiles') {
       content.appendChild(buildProfilesTab(sorted));
+    } else if (activeTab === 'explore') {
+      // createExploreView appends directly into content and returns a cleanup fn
+      if (!exploreZoomState) exploreZoomState = {};
+      exploreCleanup = createExploreView(content, sorted, exploreZoomState);
     }
     panel.appendChild(content);
     container2.appendChild(panel);

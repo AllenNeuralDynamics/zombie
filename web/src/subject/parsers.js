@@ -10,6 +10,8 @@
  * in a Node environment without DOM.
  */
 
+import { parseTranslation } from '../lib/coord-systems.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -111,15 +113,19 @@ export function parseProcedure(proc) {
     : new Date(start.getTime() + NO_END_DATE_DURATION_MS);
 
   let detailStr;
+  let eventLabel = procType;
   if (procType === 'Surgery') {
     const subProcs = (proc.procedures ?? []).filter(Boolean);
     const parts = subProcs.map((sp) => sp.object_type ?? 'Unknown');
+    if (subProcs.some((sp) => sp?.object_type === 'Perfusion')) {
+      eventLabel = 'Terminal Surgery';
+    }
     detailStr = parts.length ? parts.join(', ') : 'Surgery';
   } else {
     detailStr = procType;
   }
 
-  return { start, end, event: procType, type: procType, details: detailStr, data: proc, dateOnly: true };
+  return { start, end, event: eventLabel, type: procType, details: detailStr, data: proc, dateOnly: true };
 }
 
 /**
@@ -139,12 +145,16 @@ export function parseAcquisition(acquisition) {
   const label = protocol ? `${acqType} (${protocol})` : acqType;
   const durationHrs = (end - start) / 3_600_000;
 
+  const modalities = (acquisition._modalities ?? [])
+    .map((m) => m.abbreviation ?? m.name)
+    .filter(Boolean);
+
   return {
     start,
     end,
     event: label,
     type: 'Acquisition',
-    details: `Duration: ${durationHrs.toFixed(1)} hours`,
+    modalities,
     data: acquisition,
   };
 }
@@ -472,13 +482,12 @@ export function hasBrainInjections(surgeryData) {
  * @param {object} deviceConfig
  * @returns {object}
  */
-export function extractFiberMetadata(deviceConfig) {
-  let ap = 0, ml = 0, dv = null, angle = 0;
+export function extractFiberMetadata(deviceConfig, proceduresCoordSys = null) {
+  const translation = (deviceConfig?.transform ?? []).find(t => t?.object_type === 'Translation')?.translation ?? [];
+  const { ap, ml, dv, depth } = parseTranslation(proceduresCoordSys, translation);
+  let angle = 0;
   for (const t of deviceConfig?.transform ?? []) {
-    if (t?.object_type === 'Translation') {
-      const vals = t.translation ?? [];
-      if (vals.length >= 3) { ap = safeFloat(vals[0]); ml = safeFloat(vals[1]); dv = safeFloat(vals[2]); }
-    } else if (t?.object_type === 'Rotation') {
+    if (t?.object_type === 'Rotation') {
       const r = t.rotation ?? [];
       if (r.length >= 1) angle = safeFloat(r[0]);
     }
@@ -488,6 +497,7 @@ export function extractFiberMetadata(deviceConfig) {
     ap,
     ml,
     dv,
+    depth,
     angle,
     unit: 'millimeter',
     reference: (deviceConfig?.coordinate_system ?? {}).origin ?? 'Bregma',
@@ -502,10 +512,10 @@ export function extractFiberMetadata(deviceConfig) {
  * @param {object} surgeryData
  * @returns {Array<object>}
  */
-export function extractFibersFromSurgery(surgeryData) {
+export function extractFibersFromSurgery(surgeryData, proceduresCoordSys = null) {
   return (surgeryData?.procedures ?? [])
     .filter((p) => p?.object_type === 'Probe implant' && p.device_config)
-    .map((p) => extractFiberMetadata(p.device_config));
+    .map((p) => extractFiberMetadata(p.device_config, proceduresCoordSys));
 }
 
 /**

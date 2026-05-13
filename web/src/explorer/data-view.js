@@ -389,9 +389,9 @@ export function createDataView(id, $timeSelection, metadata) {
 
   const gearBtn = document.createElement('button');
   gearBtn.type = 'button';
-  gearBtn.className = 'dv-gear-btn';
+  gearBtn.className = 'dv-gear-btn icon-btn';
   gearBtn.title = 'Plot appearance settings';
-  gearBtn.innerHTML = '&#9881;'; // ⚙ gear
+  gearBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
 
   const removeBtn = document.createElement('button');
   removeBtn.type = 'button';
