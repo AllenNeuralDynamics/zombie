@@ -31,6 +31,7 @@ export default defineConfig({
         contributions: resolve(__dirname, 'contributions.html'),
         subject: resolve(__dirname, 'subject.html'),
         smartspim: resolve(__dirname, 'smartspim.html'),
+        coordinate_system_builder: resolve(__dirname, 'coordinate_system_builder.html'),
       },
     },
   },
