@@ -13,6 +13,11 @@ export default defineConfig({
         target: 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/docdb/, ''),
       },
+      '/qc-presign': {
+        target: 'https://qc.allenneuraldynamics.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/qc-presign/, ''),
+      },
       // Forward /metadata-viz/* to the aind-metadata-viz Tornado server on :8000.
       '/metadata-viz': {
         target: 'http://localhost:8000',
@@ -34,6 +39,7 @@ export default defineConfig({
         smartspim: resolve(__dirname, 'smartspim.html'),
         coordinate_system_builder: resolve(__dirname, 'coordinate_system_builder.html'),
         sessions: resolve(__dirname, 'sessions.html'),
+        quality_control: resolve(__dirname, 'quality_control.html'),
       },
     },
   },

@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Explorer</title>
+    <title>Quality Control</title>
     <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
     <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
     <link rel="stylesheet" href="/styles/app.css" />
@@ -14,7 +14,7 @@
         <img src="/images/logo.svg" class="app-logo" alt="Allen Institute" width="26" height="32">
         <div class="app-brand-text">
           <span class="app-brand-top">allen institute / <span class="app-brand-dept">neural dynamics /</span></span>
-          <span class="app-brand-sub">explorer</span>
+          <span class="app-brand-sub">quality control</span>
         </div>
       </a>
       <nav class="app-nav" aria-label="Main navigation">
@@ -26,24 +26,17 @@
           <div class="app-nav-dropdown-menu">
             <a href="/sessions">Behavior sessions</a>
             <a href="/smartspim">SmartSPIM</a>
-            <a href="/quality_control">Quality Control</a>
+            <a href="/quality_control" aria-current="page">Quality Control</a>
           </div>
         </div>
         <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark/light mode"></button>
       </nav>
     </header>
 
-    <div id="settings-bar" class="settings-bar">
-      <!-- Project selector and data type toggles mount here -->
-    </div>
-
     <main id="app" class="app-main">
-      <div id="loading-message" class="loading-message">
-        Initializing DuckDB-WASM…
-      </div>
     </main>
 
-    <script type="module" src="/src/app.js"></script>
+    <script type="module" src="/src/qc-entry.js"></script>
     <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'☀':'☾';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
   </body>
 </html>

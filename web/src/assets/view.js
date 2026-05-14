@@ -47,7 +47,7 @@ export function buildS3ConsoleUrl(location) {
  */
 export function buildQcLink(name) {
   if (!name) return null;
-  return `https://qc.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`;
+  return `/quality_control?name=${encodeURIComponent(name)}`;
 }
 
 /**
