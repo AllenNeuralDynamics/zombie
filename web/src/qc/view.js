@@ -30,6 +30,11 @@ export function createQCView(record) {
 
   if (metrics.length) {
     contentArea.appendChild(renderMetrics(metrics, s3Bucket, s3Prefix, name));
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'qc-empty';
+    empty.textContent = 'No QC data available for this asset.';
+    contentArea.appendChild(empty);
   }
 
   root.appendChild(body);
