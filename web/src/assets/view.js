@@ -226,18 +226,53 @@ export function createAssetsView(coord) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
     let visibleColumns = [...DEFAULT_DISPLAY_COLUMNS, 'links'];
-    let filters = Object.fromEntries(DEFAULT_DISPLAY_COLUMNS.map((c) => [c, '']));
+    let filters = Object.fromEntries(ALL_AVAILABLE_COLUMNS.map((c) => [c, '']));
     let page = 0;
 
     const uniques = {};
-    for (const col of DEFAULT_DISPLAY_COLUMNS) {
+    for (const col of ALL_AVAILABLE_COLUMNS) {
       uniques[col] = uniqueValues(allRows, col);
     }
 
     const useSelect = {};
-    for (const col of DEFAULT_DISPLAY_COLUMNS) {
+    for (const col of ALL_AVAILABLE_COLUMNS) {
       useSelect[col] = uniques[col].length > 0 && uniques[col].length <= SELECT_THRESHOLD;
     }
+
+    function readFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('sort') && ALL_AVAILABLE_COLUMNS.includes(params.get('sort'))) sortCol = params.get('sort');
+      if (params.has('dir') && ['asc', 'desc'].includes(params.get('dir'))) sortDir = params.get('dir');
+      if (params.has('page')) {
+        const p = parseInt(params.get('page'), 10);
+        if (!isNaN(p) && p >= 0) page = p;
+      }
+      if (params.has('cols')) {
+        const cols = params.get('cols').split(',').filter((c) => ALL_AVAILABLE_COLUMNS.includes(c));
+        if (cols.length > 0) visibleColumns = [...cols, 'links'];
+      }
+      for (const col of ALL_AVAILABLE_COLUMNS) {
+        if (params.has(`f_${col}`)) filters[col] = params.get(`f_${col}`);
+      }
+    }
+
+    function writeToUrl() {
+      const params = new URLSearchParams();
+      if (sortCol !== 'acquisition_start_time') params.set('sort', sortCol);
+      if (sortDir !== 'desc') params.set('dir', sortDir);
+      if (page !== 0) params.set('page', String(page));
+      const dataCols = visibleColumns.filter((c) => c !== 'links');
+      if (JSON.stringify(dataCols) !== JSON.stringify(DEFAULT_DISPLAY_COLUMNS)) {
+        params.set('cols', dataCols.join(','));
+      }
+      for (const col of ALL_AVAILABLE_COLUMNS) {
+        if (filters[col]) params.set(`f_${col}`, filters[col]);
+      }
+      const qs = params.toString();
+      history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    }
+
+    readFromUrl();
 
     const table = document.createElement('table');
     table.className = 'assets-table';
@@ -305,7 +340,15 @@ export function createAssetsView(coord) {
         refresh();
       });
 
+      restoreFilterInputs();
       updateSortIndicators();
+    }
+
+    function restoreFilterInputs() {
+      thead.querySelectorAll('.col-filter').forEach((el) => {
+        const col = el.dataset.col;
+        if (filters[col]) el.value = filters[col];
+      });
     }
 
     function updateSortIndicators() {
@@ -325,6 +368,7 @@ export function createAssetsView(coord) {
     }
 
     function refresh() {
+      writeToUrl();
       const rows = visibleRows();
       const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
       if (page >= totalPages) page = totalPages - 1;
