@@ -14,8 +14,14 @@ async function fetchPresignedUrl(assetName, reference) {
   const url = `${PRESIGN_BASE}/${encodeURIComponent(assetName)}?reference=${encodeURIComponent(reference)}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`Presign failed: ${resp.status}`);
-  const data = await resp.json();
-  return data.url;
+  const text = await resp.text();
+  try {
+    const data = JSON.parse(text);
+    if (!data.url) throw new Error('No url in response');
+    return data.url;
+  } catch (e) {
+    throw new Error(`Presign returned invalid response: ${text.slice(0, 100)}`);
+  }
 }
 
 function applyPresignedUrl(el, tagName, assetName, reference) {
