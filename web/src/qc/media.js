@@ -1,7 +1,7 @@
 import { resolveReference } from './data.js';
 
 const PUBLIC_BUCKET = 'aind-open-data';
-const PRESIGN_BASE = '/qc-presign/get-signed-reference';
+const PRESIGN_BASE = 'https://qc.allenneuraldynamics.org/get-signed-reference';
 
 function needsPresign(reference, s3Bucket, type) {
   if (s3Bucket === PUBLIC_BUCKET) return false;
