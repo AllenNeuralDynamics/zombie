@@ -104,8 +104,13 @@ export function renderSmartSpimRow(row) {
     ? '<span class="badge badge-yes">Yes</span>'
     : '<span class="badge badge-no">No</span>';
 
+  const subjectId = escHtml(String(row.subject_id ?? ''));
+  const subjectLink = row.subject_id
+    ? `<a href="/subject?id=${encodeURIComponent(row.subject_id)}">${subjectId}</a>`
+    : subjectId;
+
   const cells = [
-    `<td>${escHtml(String(row.subject_id ?? ''))}</td>`,
+    `<td>${subjectLink}</td>`,
     `<td>${escHtml(String(row.genotype ?? ''))}</td>`,
     `<td>${escHtml(String(row.institution ?? ''))}</td>`,
     `<td>${escHtml(formatDatetime(row.acquisition_start_time ?? null))}</td>`,
