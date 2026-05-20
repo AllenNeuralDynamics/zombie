@@ -36,6 +36,7 @@ export default defineConfig({
         assets: resolve(__dirname, 'assets.html'),
         contributions: resolve(__dirname, 'contributions.html'),
         subject: resolve(__dirname, 'subject.html'),
+        project: resolve(__dirname, 'project.html'),
         smartspim: resolve(__dirname, 'smartspim.html'),
         coordinate_system_builder: resolve(__dirname, 'coordinate_system_builder.html'),
         sessions: resolve(__dirname, 'sessions.html'),

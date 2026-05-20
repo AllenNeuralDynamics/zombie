@@ -12,8 +12,7 @@
  *   organizeSubjectData(records, subjectId) — Record organiser (exported for testing).
  */
 
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
-import { formatDatetime } from '../lib/utils.js';
+import { buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { fetchAllSubjectIds } from '../lib/metadata.js';
 import { buildTimelineEvents } from './parsers.js';
@@ -55,7 +54,7 @@ export function generateInfoHtml(subject, projects = []) {
         <dt>Strain</dt>     <dd>${strain}</dd>
         <dt>Genotype</dt>   <dd>${genotype}</dd>
         <dt>Housing</dt>    <dd>Cage ${cageId}, Room ${roomId}</dd>
-        ${projects.length ? `<dt>Projects</dt><dd>${projects.join(', ')}</dd>` : ''}
+        ${projects.length ? `<dt>Projects</dt><dd>${projects.map((p) => `<a href="/project?project=${encodeURIComponent(p)}">${p}</a>`).join(', ')}</dd>` : ''}
       </dl>
     </div>`;
 }
@@ -290,12 +289,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
     const timelineSvg = createSubjectTimeline(events, {
       onSelect: (ev) => {
         renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system });
-        if (assetsTableEl) {
-          const targetName = ev?.type === 'Acquisition' ? (ev.data?._assetName ?? '') : '';
-          assetsTableEl.querySelectorAll('tr[data-asset-name]').forEach((r) => {
-            const isTarget = targetName && r.dataset.assetName === targetName;
-            r.classList.toggle('asset-highlighted', isTarget);
-          });
+        if (assetsTableEl && ev?.type === 'Acquisition') {
+          const targetName = ev.data?._assetName ?? '';
+          if (targetName) assetsTableEl.goToAsset?.(targetName);
         }
       },
     });
@@ -343,33 +339,13 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
   }
 }
 
-function _arrowTableToRows(result) {
-  const rows = [];
-  const fields = result.schema.fields.map((f) => f.name);
-  for (let i = 0; i < result.numRows; i++) {
-    const row = {};
-    for (const f of fields) {
-      const col = result.getChild(f);
-      row[f] = col ? col.get(i) : null;
-    }
-    rows.push(row);
-  }
-  return rows;
-}
-
 async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, subject) {
   const safeId = subjectId.replace(/'/g, "''");
   let assets = [];
   let sourceMap = null;
 
   try {
-    const result = await coordinator.query(
-      `SELECT name, acquisition_start_time::VARCHAR AS acquisition_start_time, project_name, modalities, data_level, code_ocean, location
-       FROM asset_basics
-       WHERE subject_id = '${safeId}'
-       ORDER BY acquisition_start_time`,
-    );
-    assets = _arrowTableToRows(result);
+    ({ assets, sourceMap } = await fetchAssetsWithSources(coordinator, `subject_id = '${safeId}'`));
   } catch (err) {
     assetsSection.innerHTML = `<h3>Assets</h3><p class="error-banner">Failed to load assets: ${err.message}</p>`;
     return null;
@@ -379,114 +355,10 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   const projects = [...new Set(assets.map((r) => r.project_name).filter(Boolean))].sort();
   infoEl.innerHTML = generateInfoHtml(subject, projects);
 
-  // Try to get source_data grouping
-  if (assets.length) {
-    const quotedNames = assets.map((r) => `'${String(r.name ?? '').replace(/'/g, "''")}'`).join(', ');
-    try {
-      const sdResult = await coordinator.query(
-        `SELECT name, source_data
-         FROM source_data
-         WHERE name IN (${quotedNames}) AND source_data IS NOT NULL AND source_data != ''`,
-      );
-      sourceMap = {};
-      const sdRows = _arrowTableToRows(sdResult);
-      for (const row of sdRows) {
-        sourceMap[row.name] = String(row.source_data).split(', ').filter(Boolean);
-      }
-    } catch {
-      sourceMap = null;
-    }
-  }
-
   assetsSection.innerHTML = '<h3>Assets</h3>';
-  const tableEl = _buildAssetsTable(assets, sourceMap);
+  const tableEl = buildAssetsTable(assets, sourceMap);
   assetsSection.appendChild(tableEl);
   return { tableEl, assets };
-}
-
-function _buildAssetsTable(assets, sourceMap) {
-  const assetNames = new Set(assets.map((r) => r.name));
-
-  // Determine raw vs derived
-  const rawAssets = [];
-  const derivedByRaw = {};
-
-  for (const asset of assets) {
-    const sources = sourceMap?.[asset.name];
-    const knownSources = sources ? sources.filter((s) => assetNames.has(s)) : [];
-    if (!sources || sources.length === 0 || knownSources.length === 0) {
-      rawAssets.push(asset);
-    } else {
-      for (const src of knownSources) {
-        if (!derivedByRaw[src]) derivedByRaw[src] = [];
-        derivedByRaw[src].push(asset);
-      }
-    }
-  }
-
-  // Assets not assigned to any raw group (derived from out-of-subject assets)
-  const assignedDerived = new Set(Object.values(derivedByRaw).flat().map((r) => r.name));
-  const orphanDerived = assets.filter(
-    (r) => !assetNames.has(r.name) || (!rawAssets.includes(r) && !assignedDerived.has(r.name)),
-  );
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'subject-assets-table-wrapper';
-
-  const table = document.createElement('table');
-  table.className = 'subject-assets-table detail-table';
-
-  table.innerHTML = `<thead><tr>
-    <th>Name</th>
-    <th>Acquired (UTC)</th>
-    <th>Project</th>
-    <th>Modalities</th>
-    <th>Level</th>
-    <th>Links</th>
-  </tr></thead>`;
-
-  const tbody = document.createElement('tbody');
-
-  function _assetRow(asset, isChild) {
-    const tr = document.createElement('tr');
-    tr.dataset.assetName = asset.name ?? '';
-    if (isChild) tr.classList.add('asset-derived-row');
-
-    const qcHref = buildQcLink(asset.name);
-    const metaHref = buildMetadataLink(asset.name);
-    const coHref = buildCoLink(asset.code_ocean);
-    const s3Href = buildS3ConsoleUrl(asset.location);
-    const linkParts = [
-      s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
-      coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">CO</a>` : '',
-      metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Meta</a>` : '',
-      qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC</a>` : '',
-    ].filter(Boolean).join(' ');
-
-    tr.innerHTML = `
-      <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${asset.name ?? ''}</td>
-      <td>${formatDatetime(asset.acquisition_start_time)}</td>
-      <td>${asset.project_name ?? ''}</td>
-      <td>${asset.modalities ?? ''}</td>
-      <td>${asset.data_level ?? ''}</td>
-      <td class="link-cell">${linkParts}</td>`;
-    return tr;
-  }
-
-  for (const raw of rawAssets) {
-    tbody.appendChild(_assetRow(raw, false));
-    for (const derived of (derivedByRaw[raw.name] ?? [])) {
-      tbody.appendChild(_assetRow(derived, true));
-    }
-  }
-
-  for (const orphan of orphanDerived) {
-    tbody.appendChild(_assetRow(orphan, false));
-  }
-
-  table.appendChild(tbody);
-  wrapper.appendChild(table);
-  return wrapper;
 }
 
 function _errorEl(msg) {
