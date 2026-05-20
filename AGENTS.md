@@ -34,6 +34,7 @@ A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. Brow
 4. Add `<a href="/<page>">` to **every** `*.html` nav in the correct position: Assets | Subjects | Projects | Contributions | Dashboards▾.
 5. Add the entry to `web/vite.config.js` `rollupOptions.input`.
 6. Add CSS at the end of `web/styles/app.css`.
+7. **⚠️ Add the route to `deploy/nginx.conf`** — add `location = /<page> { try_files /<page>.html =404; }` and update the routes comment at the top. This is required for Docker deployment.
 
 **Nav order (canonical):** Assets → Subjects → Projects → Contributions → Dashboards (dropdown: Behavior sessions, SmartSPIM, Quality Control)
 
