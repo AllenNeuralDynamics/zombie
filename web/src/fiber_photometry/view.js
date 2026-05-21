@@ -1,15 +1,10 @@
 /**
  * fiber_photometry/view.js — Fiber Photometry Platform dashboard.
  *
- * Registers `platform_fib` from S3, joins with `asset_basics`.
- * Schema is wide: one row per asset, columns fiber_N_targeted_structure and
- * fiber_N_intended_measurement for N = 0, 1, 2, … (detected dynamically).
- *
- * Top section: alert table of subjects (with investigators) that have any
- * fiber missing targeted_structure or intended_measurement.
- *
- * Main section: sortable/filterable/paginated table with S3/CO/Meta/QC links
- * and a settings button to toggle optional asset_basics columns.
+ * Loads `zs_platform_fib.pqt` (long-form: one row per asset+channel) from S3,
+ * joins with `asset_basics`, then pivots to one row per asset.
+ * Channel columns are named Fiber_N/Color (e.g. Fiber_0/Green).
+ * Only channels with at least one non-"missing" intended_measurement are shown.
  */
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
@@ -17,10 +12,7 @@ import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE,
 
 const FIB_S3_PATH = `s3://allen-data-views/data-asset-cache/zs_platform_fib.pqt`;
 
-// asset_basics columns always shown
 const ALWAYS_SHOWN_BASICS = ['subject_id', 'project_name'];
-
-// asset_basics columns hidden behind settings
 const OPTIONAL_BASICS = ['acquisition_start_time', 'data_level', 'modalities', 'genotype'];
 
 const BASICS_LABELS = {
@@ -32,35 +24,99 @@ const BASICS_LABELS = {
   genotype: 'Genotype',
 };
 
+const BASICS_KEYS_FROM_JOIN = [
+  'subject_id', 'project_name', 'acquisition_start_time',
+  'data_level', 'modalities', 'genotype', 'location',
+  'code_ocean', 'experimenters',
+];
+
 // ---------------------------------------------------------------------------
-// Dynamic fiber column detection
+// Long-form → wide-form pivot
 // ---------------------------------------------------------------------------
 
-/** Extract sorted fiber indices from the keys of any data row. */
-function detectFiberIndices(rows) {
-  if (!rows.length) return [];
+/**
+ * Normalize a raw channel string to "Fiber_N/Color" format.
+ * Returns null for unrecognised formats (e.g. "Fiber channel").
+ */
+function normChannel(ch) {
+  const m = String(ch).match(/^Fiber[ _](\d+)[ _](\w+)$/i);
+  if (!m) return null;
+  const color = m[2].charAt(0).toUpperCase() + m[2].slice(1).toLowerCase();
+  return `Fiber_${m[1]}/${color}`;
+}
+
+/** Extract fiber index from a fiber field like "Fiber_0", "Fiber 0", "Fiber_1". */
+function normFiberIndex(fiberField) {
+  const m = String(fiberField).match(/^Fiber[ _](\d+)$/i);
+  return m ? m[1] : null;
+}
+
+/**
+ * Pivot long-form rows (one per asset+channel) to wide-form (one per asset).
+ * Each channel becomes a column (intended_measurement) and each fiber gets a
+ * Fiber_N/Target column (targeted_structure).
+ * Asset-basics fields are copied from the first long-form row for each asset.
+ */
+export function pivotLongFormRows(longRows) {
+  const assetMap = new Map();
+  for (const row of longRows) {
+    const assetName = row.asset_name;
+    if (!assetMap.has(assetName)) {
+      const wideRow = { asset_name: assetName };
+      for (const k of BASICS_KEYS_FROM_JOIN) {
+        wideRow[k] = row[k];
+      }
+      assetMap.set(assetName, wideRow);
+    }
+    const wideRow = assetMap.get(assetName);
+
+    // targeted_structure: one value per fiber (same across all channels of that fiber)
+    const fiberIdx = normFiberIndex(row.fiber);
+    if (fiberIdx !== null) {
+      const targetCol = `Fiber_${fiberIdx}/Target`;
+      const ts = row.targeted_structure;
+      if (wideRow[targetCol] === undefined || wideRow[targetCol] === '') {
+        wideRow[targetCol] = (ts === 'missing' || ts == null) ? '' : ts;
+      }
+    }
+
+    // intended_measurement: one value per channel
+    const col = normChannel(row.channel);
+    if (!col) continue;
+    const val = row.intended_measurement;
+    if (wideRow[col] === undefined || wideRow[col] === '') {
+      wideRow[col] = (val === 'missing' || val == null) ? '' : val;
+    }
+  }
+  return Array.from(assetMap.values());
+}
+
+/**
+ * Return fiber column names (Target + channels) that have at least one
+ * non-empty value, grouped per fiber and sorted: Fiber_N/Target first,
+ * then channels alphabetically within each fiber index.
+ */
+export function detectChannelColumns(wideRows) {
   const seen = new Set();
-  for (const key of Object.keys(rows[0])) {
-    const m = key.match(/^fiber_(\d+)_/);
-    if (m) seen.add(parseInt(m[1], 10));
+  for (const row of wideRows) {
+    for (const [k, v] of Object.entries(row)) {
+      if (k.startsWith('Fiber_') && v != null && v !== '') {
+        seen.add(k);
+      }
+    }
   }
-  return [...seen].sort((a, b) => a - b);
-}
-
-function fiberColumns(indices) {
-  return indices.flatMap((i) => [
-    `fiber_${i}_targeted_structure`,
-    `fiber_${i}_intended_measurement`,
-  ]);
-}
-
-function fiberLabels(indices) {
-  const out = {};
-  for (const i of indices) {
-    out[`fiber_${i}_targeted_structure`] = `Fiber ${i} Target`;
-    out[`fiber_${i}_intended_measurement`] = `Fiber ${i} Measurement`;
-  }
-  return out;
+  // Sort: by fiber index, then Target before channel colors
+  return [...seen].sort((a, b) => {
+    const mA = a.match(/^Fiber_(\d+)\/(.+)$/);
+    const mB = b.match(/^Fiber_(\d+)\/(.+)$/);
+    if (!mA || !mB) return a.localeCompare(b);
+    const idxDiff = parseInt(mA[1]) - parseInt(mB[1]);
+    if (idxDiff !== 0) return idxDiff;
+    // Within same fiber: Target first, then alphabetical
+    if (mA[2] === 'Target') return -1;
+    if (mB[2] === 'Target') return 1;
+    return mA[2].localeCompare(mB[2]);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +132,7 @@ function linkHtml(href, label) {
 // Row renderer
 // ---------------------------------------------------------------------------
 
-export function renderFibRow(row, visibleColumns, fiberIdx, columnLabels) {
+export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
   const s3Href = buildS3ConsoleUrl(row.location ?? null);
   const qcHref = buildQcLink(row.asset_name ?? null);
   const metaHref = buildMetadataLink(row.asset_name ?? null);
@@ -95,9 +151,8 @@ export function renderFibRow(row, visibleColumns, fiberIdx, columnLabels) {
     genotype: escHtml(String(row.genotype ?? '')),
   };
 
-  for (const i of fiberIdx) {
-    cellValues[`fiber_${i}_targeted_structure`] = escHtml(String(row[`fiber_${i}_targeted_structure`] ?? ''));
-    cellValues[`fiber_${i}_intended_measurement`] = escHtml(String(row[`fiber_${i}_intended_measurement`] ?? ''));
+  for (const col of channelCols) {
+    cellValues[col] = escHtml(String(row[col] ?? ''));
   }
 
   const cells = visibleColumns.map((col) => {
@@ -120,33 +175,32 @@ export function renderFibRow(row, visibleColumns, fiberIdx, columnLabels) {
 // ---------------------------------------------------------------------------
 
 /**
- * Find subjects where any fiber has a target but no measurement, or vice versa.
- * Returns [{subject_id, investigators, count}] sorted by subject_id.
+ * For each subject, collect unique "channel: no intended measurement" problems
+ * across all their assets. Returns [{subject_id, investigators, assetCount, incompleteInfo}].
  */
-export function buildMissingTable(rows, fiberIdx) {
+export function buildMissingTable(wideRows) {
   const subjectMap = new Map();
 
-  for (const row of rows) {
+  for (const row of wideRows) {
     const sid = row.subject_id ?? '';
-    let rowHasMissing = false;
+    const problems = [];
 
-    for (const i of fiberIdx) {
-      const target = row[`fiber_${i}_targeted_structure`];
-      const meas = row[`fiber_${i}_intended_measurement`];
-      // Fiber exists (has at least one field set) but is incomplete
-      if ((target || meas) && (!target || !meas)) {
-        rowHasMissing = true;
-        break;
+    for (const [k, v] of Object.entries(row)) {
+      if (!k.startsWith('Fiber_')) continue;
+      if (v == null || v === '') {
+        const suffix = k.endsWith('/Target') ? 'no targeted structure' : 'no intended measurement';
+        problems.push(`${k}: ${suffix}`);
       }
     }
 
-    if (!rowHasMissing) continue;
+    if (problems.length === 0) continue;
 
     if (!subjectMap.has(sid)) {
-      subjectMap.set(sid, { subject_id: sid, investigators: new Set(), assetCount: 0 });
+      subjectMap.set(sid, { subject_id: sid, investigators: new Set(), assetCount: 0, problems: new Set() });
     }
     const entry = subjectMap.get(sid);
     entry.assetCount++;
+    problems.forEach((p) => entry.problems.add(p));
 
     const exps = row.experimenters ?? '';
     String(exps).split(',').map((e) => e.trim()).filter(Boolean).forEach((e) => entry.investigators.add(e));
@@ -158,6 +212,7 @@ export function buildMissingTable(rows, fiberIdx) {
       subject_id: e.subject_id,
       investigators: Array.from(e.investigators).join(', '),
       assetCount: e.assetCount,
+      incompleteInfo: Array.from(e.problems).sort().join('; '),
     }));
 }
 
@@ -188,10 +243,11 @@ export function createFiberPhotometryView(coord) {
     )
     .then((result) => {
       loadingEl.remove();
-      const rows = Array.isArray(result) ? result
+      const longRows = Array.isArray(result) ? result
         : Array.isArray(result?.data) ? result.data
         : Array.from(result ?? []);
-      buildPage(rows);
+      const wideRows = pivotLongFormRows(longRows);
+      buildPage(wideRows);
     })
     .catch((err) => {
       loadingEl.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
@@ -199,13 +255,12 @@ export function createFiberPhotometryView(coord) {
     });
 
   function buildPage(allRows) {
-    const fiberIdx = detectFiberIndices(allRows);
-    const fibCols = fiberColumns(fiberIdx);
-    const fibLabels = fiberLabels(fiberIdx);
-    const columnLabels = { ...BASICS_LABELS, ...fibLabels };
+    const channelCols = detectChannelColumns(allRows);
+    const columnLabels = { ...BASICS_LABELS };
+    // Channel columns use their own name as label
 
-    const allAvailableCols = [...ALWAYS_SHOWN_BASICS, ...fibCols, ...OPTIONAL_BASICS];
-    const defaultDisplayCols = [...ALWAYS_SHOWN_BASICS, ...fibCols];
+    const allAvailableCols = [...ALWAYS_SHOWN_BASICS, ...channelCols, ...OPTIONAL_BASICS];
+    const defaultDisplayCols = [...ALWAYS_SHOWN_BASICS, ...channelCols];
 
     const topCard = document.createElement('div');
     topCard.className = 'fib-top-card';
@@ -223,7 +278,7 @@ export function createFiberPhotometryView(coord) {
     topCard.appendChild(header);
 
     // Alert section
-    const missing = buildMissingTable(allRows, fiberIdx);
+    const missing = buildMissingTable(allRows);
     if (missing.length > 0) {
       const alertSection = document.createElement('div');
       alertSection.className = 'fib-alert-section';
@@ -235,7 +290,7 @@ export function createFiberPhotometryView(coord) {
 
       const alertDesc = document.createElement('p');
       alertDesc.className = 'fib-alert-desc';
-      alertDesc.textContent = 'These subjects have assets where at least one fiber is missing a targeted structure or intended measurement.';
+      alertDesc.textContent = 'These subjects have assets where at least one fiber channel is missing an intended measurement.';
       alertSection.appendChild(alertDesc);
 
       const alertTable = document.createElement('table');
@@ -245,6 +300,7 @@ export function createFiberPhotometryView(coord) {
           <th>Subject</th>
           <th>Investigators</th>
           <th>Affected assets</th>
+          <th>Incomplete info</th>
         </tr></thead>
         <tbody>
           ${missing.map((m) => {
@@ -255,6 +311,7 @@ export function createFiberPhotometryView(coord) {
               <td>${subjectLink}</td>
               <td>${escHtml(m.investigators || '—')}</td>
               <td>${m.assetCount}</td>
+              <td>${escHtml(m.incompleteInfo)}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -263,11 +320,11 @@ export function createFiberPhotometryView(coord) {
       topCard.appendChild(alertSection);
     }
 
-    buildTable(allRows, topCard, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, fiberIdx);
+    buildTable(allRows, topCard, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols);
     container.appendChild(topCard);
   }
 
-  function buildTable(allRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, fiberIdx) {
+  function buildTable(allRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
     let visibleColumns = [...defaultDisplayCols, 'links'];
@@ -380,7 +437,7 @@ export function createFiberPhotometryView(coord) {
       if (page >= totalPages) page = totalPages - 1;
 
       const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map((row) => renderFibRow(row, visibleColumns, fiberIdx, columnLabels)).join('');
+      tbody.innerHTML = pageRows.map((row) => renderFibRow(row, visibleColumns, channelCols, columnLabels)).join('');
 
       const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
       const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
