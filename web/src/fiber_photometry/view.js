@@ -302,21 +302,46 @@ export function createFiberPhotometryView(coord) {
           <th>Affected assets</th>
           <th>Incomplete info</th>
         </tr></thead>
-        <tbody>
-          ${missing.map((m) => {
-            const subjectLink = m.subject_id
-              ? `<a href="/subject?subject_id=${encodeURIComponent(m.subject_id)}">${escHtml(String(m.subject_id))}</a>`
-              : '—';
-            return `<tr>
-              <td>${subjectLink}</td>
-              <td>${escHtml(m.investigators || '—')}</td>
-              <td>${m.assetCount}</td>
-              <td>${escHtml(m.incompleteInfo)}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
+        <tbody></tbody>
       `;
+      const alertTbody = alertTable.querySelector('tbody');
+
+      const ALERT_PAGE_SIZE = 10;
+      let alertPage = 0;
+
+      const alertPaging = document.createElement('div');
+      alertPaging.className = 'assets-paging';
+
+      function renderAlertPage() {
+        const start = alertPage * ALERT_PAGE_SIZE;
+        const pageRows = missing.slice(start, start + ALERT_PAGE_SIZE);
+        alertTbody.innerHTML = pageRows.map((m) => {
+          const subjectLink = m.subject_id
+            ? `<a href="/subject?subject_id=${encodeURIComponent(m.subject_id)}">${escHtml(String(m.subject_id))}</a>`
+            : '—';
+          return `<tr>
+            <td>${subjectLink}</td>
+            <td>${escHtml(m.investigators || '—')}</td>
+            <td>${m.assetCount}</td>
+            <td>${escHtml(m.incompleteInfo)}</td>
+          </tr>`;
+        }).join('');
+
+        const totalPages = Math.max(1, Math.ceil(missing.length / ALERT_PAGE_SIZE));
+        const displayStart = missing.length === 0 ? 0 : start + 1;
+        const displayEnd = Math.min(start + ALERT_PAGE_SIZE, missing.length);
+        alertPaging.innerHTML = `
+          <button class="page-btn" id="alert-prev-page" ${alertPage === 0 ? 'disabled' : ''}>‹ Prev</button>
+          <span class="page-info">${displayStart}–${displayEnd} of ${missing.length}</span>
+          <button class="page-btn" id="alert-next-page" ${alertPage >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
+        `;
+        alertPaging.querySelector('#alert-prev-page').addEventListener('click', () => { alertPage--; renderAlertPage(); });
+        alertPaging.querySelector('#alert-next-page').addEventListener('click', () => { alertPage++; renderAlertPage(); });
+      }
+
+      renderAlertPage();
       alertSection.appendChild(alertTable);
+      alertSection.appendChild(alertPaging);
       topCard.appendChild(alertSection);
     }
 
