@@ -1,9 +1,11 @@
 /**
  * smartspim-view.js — SmartSPIM Assets page.
  *
- * Queries the `assets_smartspim` DuckDB table and renders two pie charts
- * (raw vs processed, by institution) plus a sortable, filterable, paginated
- * HTML table with a computed "Processed" column and clickable link columns.
+ * Queries the `assets_smartspim` DuckDB table and renders:
+ *   - Left sidebar: searchable multi-select subject filter
+ *   - Right: two pie charts (raw vs processed, by institution) + sortable,
+ *     filterable, paginated table with a computed "Processed" column
+ *     and clickable link columns.
  *
  * Pure helpers (buildNeuroglancerLink, isProcessed, renderSmartSpimRow,
  * institutionSlices, buildPieSvg, sortRows, uniqueValues, filterRows)
@@ -106,7 +108,7 @@ export function renderSmartSpimRow(row) {
 
   const subjectId = escHtml(String(row.subject_id ?? ''));
   const subjectLink = row.subject_id
-    ? `<a href="/subject?id=${encodeURIComponent(row.subject_id)}">${subjectId}</a>`
+    ? `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id)}">${subjectId}</a>`
     : subjectId;
 
   const cells = [
@@ -145,7 +147,8 @@ export function renderSmartSpimRow(row) {
  *
  * Registers `assets_smartspim` in DuckDB (using the acorn from metadata if
  * available, otherwise falling back to the known S3 path), queries all rows,
- * then renders a pie chart + sortable/filterable/paginated table.
+ * then renders a sidebar subject filter + pie chart + sortable/filterable/
+ * paginated table.
  *
  * @param {import('@uwdata/vgplot').Coordinator} coord
  * @param {{ acorns: object[] }} metadata
@@ -194,8 +197,111 @@ export function createSmartSpimView(coord, metadata) {
     });
 
   function buildPage(allRows) {
-    const rawRows = allRows.filter((r) => !isProcessed(r));
-    const processedRows = allRows.filter((r) => isProcessed(r));
+    // -- Layout: sidebar + main content ------------------------------------
+    const layout = document.createElement('div');
+    layout.className = 'sessions-layout smartspim-layout';
+
+    const filterPanel = document.createElement('div');
+    filterPanel.className = 'sessions-filter-panel';
+
+    const mainContent = document.createElement('div');
+    mainContent.className = 'smartspim-main';
+
+    layout.appendChild(filterPanel);
+    layout.appendChild(mainContent);
+    container.appendChild(layout);
+
+    // -- Subject sidebar ---------------------------------------------------
+    const allSubjects = uniqueValues(allRows, 'subject_id').sort();
+    const selectedSubjects = new Set();
+
+    filterPanel.innerHTML = `<h3 class="sessions-panel-title">Filter</h3>`;
+
+    const subjectGroup = document.createElement('div');
+    subjectGroup.className = 'sessions-filter-group';
+
+    const subjectLabel = document.createElement('div');
+    subjectLabel.className = 'sessions-filter-label';
+    subjectLabel.textContent = 'Subject ID';
+    subjectGroup.appendChild(subjectLabel);
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search…';
+    searchInput.className = 'smartspim-subject-search';
+    subjectGroup.appendChild(searchInput);
+
+    const checkboxList = document.createElement('div');
+    checkboxList.className = 'sessions-checkbox-list smartspim-subject-list';
+    subjectGroup.appendChild(checkboxList);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'sessions-filter-clear';
+    clearBtn.textContent = 'Clear';
+    clearBtn.addEventListener('click', () => {
+      selectedSubjects.clear();
+      checkboxList.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = false; });
+      onSubjectChange();
+    });
+    subjectGroup.appendChild(clearBtn);
+    filterPanel.appendChild(subjectGroup);
+
+    function renderSubjectCheckboxes(query) {
+      const q = (query ?? '').toLowerCase().trim();
+      const visible = q ? allSubjects.filter((s) => String(s).toLowerCase().includes(q)) : allSubjects;
+      checkboxList.innerHTML = '';
+      if (visible.length === 0) {
+        const empty = document.createElement('span');
+        empty.className = 'sessions-filter-empty';
+        empty.textContent = 'No matches';
+        checkboxList.appendChild(empty);
+        return;
+      }
+      for (const sid of visible) {
+        const item = document.createElement('label');
+        item.className = 'sessions-checkbox-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = sid;
+        cb.checked = selectedSubjects.has(sid);
+        cb.addEventListener('change', () => {
+          if (cb.checked) selectedSubjects.add(sid);
+          else selectedSubjects.delete(sid);
+          onSubjectChange();
+        });
+        item.appendChild(cb);
+        item.appendChild(document.createTextNode(' ' + sid));
+        checkboxList.appendChild(item);
+      }
+    }
+
+    renderSubjectCheckboxes('');
+
+    searchInput.addEventListener('input', () => renderSubjectCheckboxes(searchInput.value));
+
+    // -- Charts + table in mainContent ------------------------------------
+    function getDisplayRows() {
+      return selectedSubjects.size === 0
+        ? allRows
+        : allRows.filter((r) => selectedSubjects.has(String(r.subject_id ?? '')));
+    }
+
+    // top card (charts + table) — rebuilt on filter change
+    let topCard = null;
+
+    function onSubjectChange() {
+      if (topCard) topCard.remove();
+      topCard = buildTopCard(getDisplayRows());
+      mainContent.appendChild(topCard);
+    }
+
+    topCard = buildTopCard(getDisplayRows());
+    mainContent.appendChild(topCard);
+  }
+
+  function buildTopCard(displayRows) {
+    const rawRows = displayRows.filter((r) => !isProcessed(r));
+    const processedRows = displayRows.filter((r) => isProcessed(r));
 
     const topCard = document.createElement('div');
     topCard.className = 'smartspim-top-card';
@@ -232,13 +338,13 @@ export function createSmartSpimView(coord, metadata) {
       return section;
     }
 
-    chartsRow.appendChild(makePieSection(rawRows, `Raw (${rawRows.length.toLocaleString()})` ));
-    chartsRow.appendChild(makePieSection(processedRows, `Processed (${processedRows.length.toLocaleString()})` ));
+    chartsRow.appendChild(makePieSection(rawRows, `Raw (${rawRows.length.toLocaleString()})`));
+    chartsRow.appendChild(makePieSection(processedRows, `Processed (${processedRows.length.toLocaleString()})`));
 
     topCard.appendChild(chartsRow);
 
-    buildTable(allRows, topCard);
-    container.appendChild(topCard);
+    buildTable(displayRows, topCard);
+    return topCard;
   }
 
   function buildTable(allRows, target) {

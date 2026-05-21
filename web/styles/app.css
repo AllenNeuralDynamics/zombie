@@ -3743,6 +3743,34 @@ body {
 [data-theme="dark"] .pt-row-odd  { fill: var(--surface-card); }
 
 /* ---------------------------------------------------------------------------
+   SmartSPIM sidebar overrides
+   --------------------------------------------------------------------------- */
+
+.smartspim-layout {
+  grid-template-columns: 220px 1fr;
+}
+
+.smartspim-subject-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+.smartspim-subject-search:focus {
+  outline: 2px solid var(--color-red);
+  outline-offset: 1px;
+}
+
+.smartspim-subject-list {
+  max-height: 340px;
+}
+
+/* ---------------------------------------------------------------------------
    Fiber Photometry Platform dashboard
    --------------------------------------------------------------------------- */
 
