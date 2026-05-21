@@ -53,8 +53,10 @@ function normFiberIndex(fiberField) {
 
 /**
  * Pivot long-form rows (one per asset+channel) to wide-form (one per asset).
- * Each channel becomes a column (intended_measurement) and each fiber gets a
- * Fiber_N/Target column (targeted_structure).
+ * Each fiber gets:
+ *   - Fiber_N/Target  — targeted_structure
+ *   - Fiber_N/Channels — summary string "Green: calcium\nRed: dopamine" for display
+ *   - Fiber_N/<Color>  — individual channel values (kept for filtering/alerts)
  * Asset-basics fields are copied from the first long-form row for each asset.
  */
 export function pivotLongFormRows(longRows) {
@@ -70,7 +72,7 @@ export function pivotLongFormRows(longRows) {
     }
     const wideRow = assetMap.get(assetName);
 
-    // targeted_structure: one value per fiber (same across all channels of that fiber)
+    // targeted_structure: one value per fiber
     const fiberIdx = normFiberIndex(row.fiber);
     if (fiberIdx !== null) {
       const targetCol = `Fiber_${fiberIdx}/Target`;
@@ -88,35 +90,51 @@ export function pivotLongFormRows(longRows) {
       wideRow[col] = (val === 'missing' || val == null) ? '' : val;
     }
   }
+
+  // Build Fiber_N/Channels summary strings after all channels are collected
+  for (const wideRow of assetMap.values()) {
+    const fiberChannels = new Map(); // fiberIdx → [[color, measurement], ...]
+    for (const [k, v] of Object.entries(wideRow)) {
+      const m = k.match(/^Fiber_(\d+)\/([^T]\w*)$/); // color cols (not Target)
+      if (!m || !v) continue;
+      if (!fiberChannels.has(m[1])) fiberChannels.set(m[1], []);
+      fiberChannels.get(m[1]).push([m[2], v]);
+    }
+    for (const [idx, pairs] of fiberChannels) {
+      pairs.sort((a, b) => a[0].localeCompare(b[0]));
+      wideRow[`Fiber_${idx}/Channels`] = pairs.map(([color, meas]) => `${color}: ${meas}`).join('\n');
+    }
+  }
+
   return Array.from(assetMap.values());
 }
 
 /**
- * Return fiber column names (Target + channels) that have at least one
- * non-empty value, grouped per fiber and sorted: Fiber_N/Target first,
- * then channels alphabetically within each fiber index.
+ * Return display column names: Fiber_N/Target and Fiber_N/Channels only,
+ * sorted by fiber index. Individual color columns are kept in the row data
+ * for filtering and alerts but not returned here.
  */
 export function detectChannelColumns(wideRows) {
-  const seen = new Set();
+  const fiberIndices = new Set();
   for (const row of wideRows) {
-    for (const [k, v] of Object.entries(row)) {
-      if (k.startsWith('Fiber_') && v != null && v !== '') {
-        seen.add(k);
-      }
+    for (const k of Object.keys(row)) {
+      const m = k.match(/^Fiber_(\d+)\//);
+      if (m) fiberIndices.add(parseInt(m[1], 10));
     }
   }
-  // Sort: by fiber index, then Target before channel colors
-  return [...seen].sort((a, b) => {
-    const mA = a.match(/^Fiber_(\d+)\/(.+)$/);
-    const mB = b.match(/^Fiber_(\d+)\/(.+)$/);
-    if (!mA || !mB) return a.localeCompare(b);
-    const idxDiff = parseInt(mA[1]) - parseInt(mB[1]);
-    if (idxDiff !== 0) return idxDiff;
-    // Within same fiber: Target first, then alphabetical
-    if (mA[2] === 'Target') return -1;
-    if (mB[2] === 'Target') return 1;
-    return mA[2].localeCompare(mB[2]);
-  });
+  // Only include fibers that have any real data
+  const cols = [];
+  for (const idx of [...fiberIndices].sort((a, b) => a - b)) {
+    const hasData = wideRows.some((row) => {
+      for (const [k, v] of Object.entries(row)) {
+        if (k.startsWith(`Fiber_${idx}/`) && v != null && v !== '') return true;
+      }
+      return false;
+    });
+    if (!hasData) continue;
+    cols.push(`Fiber_${idx}/Target`, `Fiber_${idx}/Channels`);
+  }
+  return cols;
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +170,13 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
   };
 
   for (const col of channelCols) {
-    cellValues[col] = escHtml(String(row[col] ?? ''));
+    if (col.endsWith('/Channels')) {
+      // Render newline-separated lines as stacked rows
+      const lines = String(row[col] ?? '').split('\n').filter(Boolean);
+      cellValues[col] = lines.map((l) => escHtml(l)).join('<br>');
+    } else {
+      cellValues[col] = escHtml(String(row[col] ?? ''));
+    }
   }
 
   const cells = visibleColumns.map((col) => {
@@ -185,11 +209,25 @@ export function buildMissingTable(wideRows) {
     const sid = row.subject_id ?? '';
     const problems = [];
 
+    // Group Fiber_N/* keys by fiber index
+    const fiberKeys = new Map();
     for (const [k, v] of Object.entries(row)) {
       if (!k.startsWith('Fiber_')) continue;
-      if (v == null || v === '') {
-        const suffix = k.endsWith('/Target') ? 'no targeted structure' : 'no intended measurement';
-        problems.push(`${k}: ${suffix}`);
+      if (k.endsWith('/Channels')) continue; // synthetic summary, skip
+      const m = k.match(/^Fiber_(\d+)\//);
+      if (!m) continue;
+      if (!fiberKeys.has(m[1])) fiberKeys.set(m[1], []);
+      fiberKeys.get(m[1]).push([k, v]);
+    }
+
+    for (const pairs of fiberKeys.values()) {
+      // Skip fibers with no data at all — they don't exist for this asset
+      if (!pairs.some(([, v]) => v != null && v !== '')) continue;
+      for (const [k, v] of pairs) {
+        if (v == null || v === '') {
+          const suffix = k.endsWith('/Target') ? 'no targeted structure' : 'no intended measurement';
+          problems.push(`${k}: ${suffix}`);
+        }
       }
     }
 
