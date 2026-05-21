@@ -41,6 +41,7 @@ export default defineConfig({
         coordinate_system_builder: resolve(__dirname, 'coordinate_system_builder.html'),
         sessions: resolve(__dirname, 'sessions.html'),
         quality_control: resolve(__dirname, 'quality_control.html'),
+        fiber_photometry: resolve(__dirname, 'fiber_photometry.html'),
       },
     },
   },
