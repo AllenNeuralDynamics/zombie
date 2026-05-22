@@ -222,6 +222,31 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
 // Modality histogram (vgplot / Observable Plot)
 // ---------------------------------------------------------------------------
 
+// Fixed color per modality so all projects render consistently.
+// Grouped loosely by technique family (ephys, optical, sequencing, etc.).
+const MODALITY_COLOR = {
+  'ecephys':         '#4e79a7',
+  'icephys':         '#a0cbe8',
+  'EMG':             '#b07aa1',
+  'fib':             '#f28e2b',
+  'pophys':          '#ffbe7d',
+  'slap2':           '#e15759',
+  'SPIM':            '#76b7b2',
+  'confocal':        '#59a14f',
+  'brightfield':     '#8cd17d',
+  'fMOST':           '#b6992d',
+  'STPT':            '#499894',
+  'MRI':             '#86bcb6',
+  'EM':              '#d37295',
+  'ISI':             '#fabfd2',
+  'merfish':         '#9d7660',
+  'MAPseq':          '#d4a6c8',
+  'BARseq':          '#bcbd22',
+  'scRNAseq':        '#79706e',
+  'behavior':        '#bab0ac',
+  'behavior-videos': '#e49444',
+};
+
 /**
  * Build a stacked bar chart of acquisitions per week, colored by modality.
  *
@@ -257,6 +282,10 @@ function buildModalityHistogram(assets, containerWidth = 700) {
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
+  const presentModalities = Array.from(new Set(rows.map((r) => r.modality))).sort();
+  const colorDomain = presentModalities;
+  const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
+
   return Plot.plot({
     width: chartWidth,
     height: 200,
@@ -267,7 +296,7 @@ function buildModalityHistogram(assets, containerWidth = 700) {
         : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
     },
     y: { label: 'Acquisitions', grid: true },
-    color: { scheme: 'tableau10', legend: true },
+    color: { domain: colorDomain, range: colorRange, legend: true },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
       Plot.rectY(rows, Plot.stackY({
