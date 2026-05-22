@@ -56,6 +56,28 @@ const rows = arrowTableToRows(result); // from lib/assets-table.js
 
 **Assets table (grouped raw/derived):** Use `buildAssetsTable(assets, sourceMap)` and `fetchAssetsWithSources(coordinator, whereClause)` from `lib/assets-table.js`.
 
+## Plotting
+
+**Never hand-roll SVG for charts.** Use the right tool based on the data source:
+
+- **Static/pre-aggregated data (plain JS array):** Use `@observablehq/plot` directly — vgplot's `barY`/`plot` wrappers break with array data (columnar format mismatch).
+- **Live DuckDB queries with cross-filtering:** Use `@uwdata/vgplot` + `from('table', { filterBy })` — see `web/src/explorer/time-view.js`.
+
+```js
+// Static data → Observable Plot directly
+import * as Plot from '@observablehq/plot';
+const el = Plot.plot({
+  width: 700, height: 200,
+  color: { scheme: 'tableau10', legend: true },
+  style: { background: 'transparent', fontFamily: 'inherit' },
+  marks: [Plot.barY(rows, { x: 'week', y: 'n', fill: 'modality' })],
+});
+
+// Live DuckDB → vgplot
+import { plot, barY, from, colorScheme, colorLegend, style } from '@uwdata/vgplot';
+const el = plot(barY(from('table', { filterBy: sel }), { x: 'col', y: count() }), ...);
+```
+
 ## Tests
 
 `cd web && npm test` — Vitest, node environment. Pure-function unit tests only; DOM tests mock `coordinator.query`. Don't break them.

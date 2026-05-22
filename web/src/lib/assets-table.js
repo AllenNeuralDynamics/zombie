@@ -146,6 +146,10 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
   renderPage();
 
   // Expose a method to jump to a specific asset by name and highlight it
+  wrapper.clearHighlights = () => {
+    tbody.querySelectorAll('.asset-highlighted').forEach((r) => r.classList.remove('asset-highlighted'));
+  };
+
   wrapper.goToAsset = (name) => {
     const idx = orderedRows.findIndex((r) => r.asset.name === name);
     if (idx === -1) return;

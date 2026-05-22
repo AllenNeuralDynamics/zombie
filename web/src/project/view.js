@@ -8,6 +8,7 @@
  *   3. Grouped assets table at the bottom (shared with subject page).
  */
 
+import * as Plot from '@observablehq/plot';
 import { arrowTableToRows, buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
 
 // ---------------------------------------------------------------------------
@@ -218,6 +219,69 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
 }
 
 // ---------------------------------------------------------------------------
+// Modality histogram (vgplot / Observable Plot)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a stacked bar chart of acquisitions per week, colored by modality.
+ *
+ * Pre-aggregates the assets in JS (data already in memory) then passes a
+ * plain array to Observable Plot via vgplot's barY mark.
+ *
+ * @param {object[]} assets - Raw project assets (already filtered to non-derived).
+ * @param {number} containerWidth - Available pixel width for sizing the chart.
+ * @returns {HTMLElement|null} The plot element, or null if there's no data.
+ */
+function buildModalityHistogram(assets, containerWidth = 700) {
+  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
+  if (dated.length === 0) return null;
+
+  // Bin by ISO week start (Monday), one row per week+modality combination.
+  // Assets with comma-separated modalities are expanded into separate rows.
+  const counts = new Map(); // `week|modality` → count
+  for (const a of dated) {
+    const d = new Date(a.acquisition_start_time);
+    const dow = d.getUTCDay(); // 0=Sun
+    const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((dow + 6) % 7)));
+    const weekStr = isoDate(mon);
+    for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+      const key = `${weekStr}|${m}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const rows = Array.from(counts.entries()).map(([key, n]) => {
+    const [week, modality] = key.split('|');
+    return { week: new Date(week), modality, n };
+  });
+
+  const chartWidth = Math.max(300, containerWidth - 32);
+
+  return Plot.plot({
+    width: chartWidth,
+    height: 200,
+    marginBottom: 50,
+    x: { type: 'utc', tickFormat: (d) =>
+      d.getUTCMonth() === 0
+        ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+        : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+    },
+    y: { label: 'Acquisitions', grid: true },
+    color: { scheme: 'tableau10', legend: true },
+    style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
+    marks: [
+      Plot.rectY(rows, Plot.stackY({
+        x1: (d) => d.week,
+        x2: (d) => new Date(d.week.getTime() + 7 * 86400000),
+        y: 'n',
+        fill: 'modality',
+        sort: null,
+      })),
+    ],
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main view factory
 // ---------------------------------------------------------------------------
 
@@ -351,14 +415,18 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     // Info card
     const infoEl = document.createElement('div');
-    infoEl.className = 'subject-info-card';
+    infoEl.className = 'subject-info-card project-info-card';
     const subjectCount = new Set(rawAssets.map((a) => a.subject_id).filter(Boolean)).size;
-    infoEl.innerHTML = `
+
+    const infoTextEl = document.createElement('div');
+    infoTextEl.className = 'project-info-text';
+    infoTextEl.innerHTML = `
       <h3>${projectName}</h3>
       <dl>
         <dt>Total assets</dt><dd>${allAssets.length}</dd>
         <dt>Subjects</dt><dd>${subjectCount}</dd>
       </dl>`;
+    infoEl.appendChild(infoTextEl);
 
     // Timeline section
     const timelineSection = document.createElement('div');
@@ -386,6 +454,7 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     const svgEl = buildTimelineSvg(rawAssets, windowStart, (dayAssets) => {
       if (!assetsTableEl) return;
+      assetsTableEl.clearHighlights?.();
       for (const asset of dayAssets) {
         assetsTableEl.goToAsset?.(asset.name ?? '');
       }
@@ -424,6 +493,15 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     assetsSection.innerHTML = '<h3>Assets</h3>';
     assetsTableEl = buildAssetsTable(allAssets, sourceMap);
     assetsSection.appendChild(assetsTableEl);
+
+    // Acquisitions histogram — lives inside the info card, to the right
+    const histogramEl = document.createElement('div');
+    histogramEl.className = 'project-info-histogram';
+    const histPlot = buildModalityHistogram(rawAssets, Math.max(400, (contentEl.getBoundingClientRect().width || window.innerWidth) - 220));
+    if (histPlot) {
+      histogramEl.appendChild(histPlot);
+    }
+    if (histPlot) infoEl.appendChild(histogramEl);
 
     loadingEl.replaceWith(infoEl);
     contentEl.appendChild(timelineSection);

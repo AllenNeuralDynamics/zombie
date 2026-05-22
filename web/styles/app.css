@@ -3855,3 +3855,31 @@ body {
 .fib-alert-table th {
   padding: 5px 10px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Project page — info card with inline histogram
+ * ------------------------------------------------------------------------ */
+
+.project-info-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.project-info-text {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+
+.project-info-histogram {
+  flex: 1 1 0;
+  min-width: 280px;
+  overflow-x: auto;
+}
+
+.project-info-histogram figure,
+.project-info-histogram svg {
+  display: block;
+  max-width: 100%;
+}
