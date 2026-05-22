@@ -21,7 +21,7 @@ const SMARTSPIM_S3_PATH =
 // Fields pulled from asset_basics via JOIN
 const BASICS_KEYS = [
   'subject_id', 'project_name', 'acquisition_start_time',
-  'genotype', 'location', 'code_ocean', 'experimenters',
+  'genotype', 'location', 'code_ocean', 'investigators', 'experimenters',
 ];
 
 // Always-shown columns (cannot be hidden)
@@ -36,8 +36,8 @@ const DEFAULT_COLS = [
 // All available columns (for settings modal)
 const ALL_COLS = [
   'subject_id', 'project_name', 'genotype', 'acquisition_start_time',
-  'processing_end_time', 'channels', 'processed',
-  'experimenters', 'name',
+  'processing_end_time', 'channels', 'processed', 'institution',
+  'investigators', 'experimenters', 'raw_name',
 ];
 
 const COLUMN_LABELS = {
@@ -48,8 +48,10 @@ const COLUMN_LABELS = {
   processing_end_time: 'Processed (UTC)',
   channels: 'Channels',
   processed: 'Processed',
-  experimenters: 'Investigators',
-  name: 'Asset Name',
+  institution: 'Institution',
+  investigators: 'Investigators',
+  experimenters: 'Experimenters',
+  raw_name: 'Asset Name',
 };
 
 // ---------------------------------------------------------------------------
@@ -90,10 +92,13 @@ export function pivotLongFormRows(longRows) {
     const assetName = row.name;
     if (!assetMap.has(assetName)) {
       const wide = { name: assetName, _channels: [] };
+      wide.raw_name = row.raw_name;
       for (const k of BASICS_KEYS) wide[k] = row[k];
       wide.processing_end_time = row.processing_end_time;
+      wide.raw_link = row.raw_link;
       wide.stitched_link = row.stitched_link;
       wide.processed = row.processed;
+      wide.institution = row.institution;
       assetMap.set(assetName, wide);
     }
 
@@ -133,8 +138,8 @@ export function renderSmartSpimRow(row, visibleColumns) {
     : '<span class="badge badge-no">No</span>';
 
   const s3Href = buildS3ConsoleUrl(row.location ?? null);
-  const qcHref = buildQcLink(row.name ?? null);
-  const metaHref = buildMetadataLink(row.name ?? null);
+  const qcHref = buildQcLink(row.raw_name ?? null);
+  const metaHref = buildMetadataLink(row.raw_name ?? null);
   const coHref = buildCoLink(row.code_ocean ?? null);
 
   const cellValues = {
@@ -149,16 +154,19 @@ export function renderSmartSpimRow(row, visibleColumns) {
     processing_end_time: escHtml(formatDatetime(row.processing_end_time ?? null)),
     channels: String(row.channels ?? '').split('\n').filter(Boolean).map(escHtml).join('<br>'),
     processed: processedLabel,
+    institution: escHtml(String(row.institution ?? '')),
+    investigators: escHtml(String(row.investigators ?? '')),
     experimenters: escHtml(String(row.experimenters ?? '')),
-    name: escHtml(String(row.name ?? '')),
+    raw_name: escHtml(String(row.raw_name ?? '')),
   };
 
   const cols = visibleColumns ?? DEFAULT_COLS;
   const cells = [...cols, 'links'].map((col) => {
     if (col === 'links') {
+      const rawHtml = buildNeuroglancerLink(row.raw_link ?? null, 'Raw');
       return `<td class="link-cell">` +
         `<div class="link-cell-split">` +
-        `<span class="link-group-left">${stitchedHtml} ${channelLinks}</span>` +
+        `<span class="link-group-left">${rawHtml} ${stitchedHtml} ${channelLinks}</span>` +
         `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
         `</div>` +
         `</td>`;
@@ -193,12 +201,12 @@ export function createSmartSpimView(coord, metadata) {
   registerPromise
     .then(() =>
       coord.query(
-        `SELECT s.name, s.channel, s.segmentation_link, s.quantification_link,
-                s.processing_end_time, s.stitched_link, s.processed,
+        `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
+                s.processing_end_time, s.stitched_link, s.raw_link, s.processed, s.institution,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.genotype, b.location, b.code_ocean, b.experimenters
+                b.genotype, b.location, b.code_ocean, b.investigators, b.experimenters
          FROM assets_smartspim s
-         LEFT JOIN asset_basics b ON b.name = s.name
+         LEFT JOIN asset_basics b ON b.name = s.raw_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, s.name`,
         { type: 'json' },
       ),

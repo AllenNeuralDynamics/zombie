@@ -113,36 +113,42 @@ describe('isProcessed', () => {
 describe('pivotLongFormRows', () => {
   const longRows = [
     {
-      name: 'SmartSPIM_568105_2024-01-31',
+      name: 'SmartSPIM_568105_2024-01-31_stitched_2024-02-01',
+      raw_name: 'SmartSPIM_568105_2024-01-31',
       channel: 'Ex_488_Em_525',
       segmentation_link: 'https://neuroglancer.example.com/#!seg1',
       quantification_link: 'https://neuroglancer.example.com/#!quant1',
       processing_end_time: '2024-02-15T13:39:23Z',
       stitched_link: 'https://neuroglancer.example.com/#!stitched',
       processed: true,
+      institution: 'AIND',
       subject_id: '568105',
       project_name: 'BrainVAST',
       acquisition_start_time: '2024-01-31T16:23:16Z',
       genotype: 'Rorb-IRES2-Cre-neo/wt',
       location: 's3://bucket/asset/',
       code_ocean: 'abc123',
-      experimenters: 'Alice, Bob',
+      investigators: 'Alice',
+      experimenters: 'Bob',
     },
     {
-      name: 'SmartSPIM_568105_2024-01-31',
+      name: 'SmartSPIM_568105_2024-01-31_stitched_2024-02-01',
+      raw_name: 'SmartSPIM_568105_2024-01-31',
       channel: 'Ex_561_Em_600',
       segmentation_link: null,
       quantification_link: null,
       processing_end_time: '2024-02-15T13:39:23Z',
       stitched_link: 'https://neuroglancer.example.com/#!stitched',
       processed: true,
+      institution: 'AIND',
       subject_id: '568105',
       project_name: 'BrainVAST',
       acquisition_start_time: '2024-01-31T16:23:16Z',
       genotype: 'Rorb-IRES2-Cre-neo/wt',
       location: 's3://bucket/asset/',
       code_ocean: 'abc123',
-      experimenters: 'Alice, Bob',
+      investigators: 'Alice',
+      experimenters: 'Bob',
     },
   ];
 
@@ -172,7 +178,10 @@ describe('pivotLongFormRows', () => {
     const wide = pivotLongFormRows(longRows);
     expect(wide[0].subject_id).toBe('568105');
     expect(wide[0].project_name).toBe('BrainVAST');
-    expect(wide[0].experimenters).toBe('Alice, Bob');
+    expect(wide[0].investigators).toBe('Alice');
+    expect(wide[0].experimenters).toBe('Bob');
+    expect(wide[0].institution).toBe('AIND');
+    expect(wide[0].raw_name).toBe('SmartSPIM_568105_2024-01-31');
   });
 
   it('handles empty input', () => {
@@ -186,15 +195,18 @@ describe('pivotLongFormRows', () => {
 
 describe('renderSmartSpimRow', () => {
   const baseRow = {
-    name: 'SmartSPIM_568105_2024-01-31',
+    name: 'SmartSPIM_568105_2024-01-31_stitched_2024-02-01',
+    raw_name: 'SmartSPIM_568105_2024-01-31',
     subject_id: '568105',
     project_name: 'BrainVAST',
     genotype: 'Rorb-IRES2-Cre-neo/wt',
+    institution: 'AIND',
     acquisition_start_time: '2024-01-31T16:23:16Z',
     processing_end_time: '2024-02-15T13:39:23Z',
     stitched_link: 'https://neuroglancer.example.com/#!stitched',
     processed: true,
-    experimenters: 'Alice, Bob',
+    investigators: 'Alice',
+    experimenters: 'Bob',
     location: 's3://bucket/asset/',
     code_ocean: 'abc123',
     _channels: ['Ex_488_Em_525', 'Ex_561_Em_600'],
