@@ -344,6 +344,20 @@ body {
   margin: 0;
 }
 
+.assets-header-ext-link {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  margin-left: 16px;
+  margin-right: auto;
+}
+
+.assets-header-ext-link:hover {
+  color: var(--color-red);
+  text-decoration: underline;
+}
+
 .assets-settings-btn {
   background: none;
   border: none;
@@ -638,6 +652,7 @@ body {
   align-items: center;
   gap: 12px;
   justify-content: space-between;
+  width: 100%;
 }
 
 .link-group-right {

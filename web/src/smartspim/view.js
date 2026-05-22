@@ -156,9 +156,11 @@ export function renderSmartSpimRow(row, visibleColumns) {
   const cols = visibleColumns ?? DEFAULT_COLS;
   const cells = [...cols, 'links'].map((col) => {
     if (col === 'links') {
-      return `<td class="link-cell link-cell-split">` +
+      return `<td class="link-cell">` +
+        `<div class="link-cell-split">` +
         `<span class="link-group-left">${stitchedHtml} ${channelLinks}</span>` +
         `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
+        `</div>` +
         `</td>`;
     }
     return `<td>${cellValues[col] ?? ''}</td>`;
@@ -319,7 +321,10 @@ export function createSmartSpimView(coord, metadata) {
 
     const header = document.createElement('div');
     header.className = 'assets-header';
-    header.innerHTML = '<h2>SmartSPIM Assets</h2>';
+    header.innerHTML = '<h2>SmartSPIM Assets</h2>' +
+      '<span class="assets-header-ext-link">If your asset does not appear here, look at the ' +
+      '<a href="https://app.smartsheet.com/dashboards/cJ7W8rJHRv9c2xRrFjg5FRMH99v6XFFCHgV6w3W1" ' +
+      'target="_blank" rel="noopener noreferrer">Processing Dashboard</a></span>';
 
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'assets-settings-btn icon-btn';
