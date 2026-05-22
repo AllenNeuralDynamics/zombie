@@ -10,8 +10,7 @@ import {
   formatDatetime,
   isProcessed,
   renderSmartSpimRow,
-  institutionSlices,
-  buildPieSvg,
+  pivotLongFormRows,
   sortRows,
   uniqueValues,
   filterRows,
@@ -108,170 +107,153 @@ describe('isProcessed', () => {
 });
 
 // ---------------------------------------------------------------------------
+// pivotLongFormRows
+// ---------------------------------------------------------------------------
+
+describe('pivotLongFormRows', () => {
+  const longRows = [
+    {
+      name: 'SmartSPIM_568105_2024-01-31',
+      channel: 'Ex_488_Em_525',
+      segmentation_link: 'https://neuroglancer.example.com/#!seg1',
+      quantification_link: 'https://neuroglancer.example.com/#!quant1',
+      processing_end_time: '2024-02-15T13:39:23Z',
+      stitched_link: 'https://neuroglancer.example.com/#!stitched',
+      processed: true,
+      subject_id: '568105',
+      project_name: 'BrainVAST',
+      acquisition_start_time: '2024-01-31T16:23:16Z',
+      genotype: 'Rorb-IRES2-Cre-neo/wt',
+      location: 's3://bucket/asset/',
+      code_ocean: 'abc123',
+      experimenters: 'Alice, Bob',
+    },
+    {
+      name: 'SmartSPIM_568105_2024-01-31',
+      channel: 'Ex_561_Em_600',
+      segmentation_link: null,
+      quantification_link: null,
+      processing_end_time: '2024-02-15T13:39:23Z',
+      stitched_link: 'https://neuroglancer.example.com/#!stitched',
+      processed: true,
+      subject_id: '568105',
+      project_name: 'BrainVAST',
+      acquisition_start_time: '2024-01-31T16:23:16Z',
+      genotype: 'Rorb-IRES2-Cre-neo/wt',
+      location: 's3://bucket/asset/',
+      code_ocean: 'abc123',
+      experimenters: 'Alice, Bob',
+    },
+  ];
+
+  it('produces one wide row per asset', () => {
+    const wide = pivotLongFormRows(longRows);
+    expect(wide).toHaveLength(1);
+  });
+
+  it('collects channel names', () => {
+    const wide = pivotLongFormRows(longRows);
+    expect(wide[0]._channels).toContain('Ex_488_Em_525');
+    expect(wide[0]._channels).toContain('Ex_561_Em_600');
+  });
+
+  it('stores newline-joined channels string', () => {
+    const wide = pivotLongFormRows(longRows);
+    expect(wide[0].channels).toContain('Ex_488_Em_525');
+    expect(wide[0].channels).toContain('\n');
+  });
+
+  it('carries segmentation link for first channel', () => {
+    const wide = pivotLongFormRows(longRows);
+    expect(wide[0]['_seg_Ex_488_Em_525']).toBe('https://neuroglancer.example.com/#!seg1');
+  });
+
+  it('copies basics fields from first row', () => {
+    const wide = pivotLongFormRows(longRows);
+    expect(wide[0].subject_id).toBe('568105');
+    expect(wide[0].project_name).toBe('BrainVAST');
+    expect(wide[0].experimenters).toBe('Alice, Bob');
+  });
+
+  it('handles empty input', () => {
+    expect(pivotLongFormRows([])).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // renderSmartSpimRow
 // ---------------------------------------------------------------------------
 
 describe('renderSmartSpimRow', () => {
   const baseRow = {
+    name: 'SmartSPIM_568105_2024-01-31',
     subject_id: '568105',
+    project_name: 'BrainVAST',
     genotype: 'Rorb-IRES2-Cre-neo/wt',
-    institution: 'AIND',
     acquisition_start_time: '2024-01-31T16:23:16Z',
     processing_end_time: '2024-02-15T13:39:23Z',
     stitched_link: 'https://neuroglancer.example.com/#!stitched',
     processed: true,
-    name: 'SmartSPIM_568105_2024-01-31',
-    channel_1: 'Ex_488_Em_525',
-    segmentation_link_1: 'https://neuroglancer.example.com/#!seg1',
-    quantification_link_1: 'https://neuroglancer.example.com/#!quant1',
-    channel_2: 'Ex_561_Em_600',
-    segmentation_link_2: 'https://neuroglancer.example.com/#!seg2',
-    quantification_link_2: 'https://neuroglancer.example.com/#!quant2',
-    channel_3: null,
-    segmentation_link_3: null,
-    quantification_link_3: null,
+    experimenters: 'Alice, Bob',
+    location: 's3://bucket/asset/',
+    code_ocean: 'abc123',
+    _channels: ['Ex_488_Em_525', 'Ex_561_Em_600'],
+    channels: 'Ex_488_Em_525\nEx_561_Em_600',
+    '_seg_Ex_488_Em_525': 'https://neuroglancer.example.com/#!seg1',
+    '_quant_Ex_488_Em_525': 'https://neuroglancer.example.com/#!quant1',
+    '_seg_Ex_561_Em_600': null,
+    '_quant_Ex_561_Em_600': null,
   };
 
+  const defaultCols = ['subject_id', 'project_name', 'genotype', 'acquisition_start_time', 'processing_end_time', 'channels', 'processed'];
+
   it('produces a <tr> element', () => {
-    const html = renderSmartSpimRow(baseRow);
+    const html = renderSmartSpimRow(baseRow, defaultCols);
     expect(html).toMatch(/^<tr>/);
     expect(html).toMatch(/<\/tr>$/);
   });
 
   it('includes subject_id', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('568105');
+    expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('568105');
   });
 
-  it('includes institution', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('AIND');
+  it('includes channel names', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).toContain('Ex_488_Em_525');
+    expect(html).toContain('Ex_561_Em_600');
   });
 
-  it('includes channel_1', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('Ex_488_Em_525');
+  it('renders stitched link in link cell', () => {
+    expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('Stitched');
   });
 
-  it('includes channel_2', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('Ex_561_Em_600');
+  it('renders seg link for channel with data', () => {
+    expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('Seg');
   });
 
-  it('renders stitched link', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('Stitched');
-  });
-
-  it('renders seg links for populated channels', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('Seg');
-  });
-
-  it('renders quant links for populated channels', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('Quant');
+  it('renders CO and QC links', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).toContain('CO');
+    expect(html).toContain('QC');
   });
 
   it('renders processed badge Yes when processed is true', () => {
-    expect(renderSmartSpimRow(baseRow)).toContain('badge-yes');
+    expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('badge-yes');
   });
 
   it('renders processed badge No when processed is false', () => {
-    const html = renderSmartSpimRow({ ...baseRow, processed: false });
+    const html = renderSmartSpimRow({ ...baseRow, processed: false }, defaultCols);
     expect(html).toContain('badge-no');
   });
 
-  it('renders dash when stitched_link is null', () => {
-    const html = renderSmartSpimRow({ ...baseRow, stitched_link: null });
-    expect(html).toContain('—');
-  });
-
   it('handles missing fields without throwing', () => {
-    expect(() => renderSmartSpimRow({})).not.toThrow();
+    expect(() => renderSmartSpimRow({}, defaultCols)).not.toThrow();
   });
 
   it('escapes HTML characters in text fields', () => {
-    const html = renderSmartSpimRow({ ...baseRow, genotype: '<b>Test</b>' });
+    const html = renderSmartSpimRow({ ...baseRow, genotype: '<b>Test</b>' }, defaultCols);
     expect(html).not.toContain('<b>');
     expect(html).toContain('&lt;b&gt;');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// institutionSlices
-// ---------------------------------------------------------------------------
-
-describe('institutionSlices', () => {
-  const rows = [
-    { institution: 'AIND' },
-    { institution: 'AIND' },
-    { institution: 'AIBS' },
-    { institution: 'AIND' },
-    { institution: 'AIBS' },
-  ];
-
-  it('returns slices sorted descending by count', () => {
-    const slices = institutionSlices(rows);
-    expect(slices[0].institution).toBe('AIND');
-    expect(slices[0].count).toBe(3);
-    expect(slices[1].institution).toBe('AIBS');
-    expect(slices[1].count).toBe(2);
-  });
-
-  it('fractions sum to 1', () => {
-    const slices = institutionSlices(rows);
-    const total = slices.reduce((s, x) => s + x.fraction, 0);
-    expect(total).toBeCloseTo(1);
-  });
-
-  it('returns empty array for empty input', () => {
-    expect(institutionSlices([])).toEqual([]);
-  });
-
-  it('treats null institution as "Unknown"', () => {
-    const slices = institutionSlices([{ institution: null }]);
-    expect(slices[0].institution).toBe('Unknown');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildPieSvg
-// ---------------------------------------------------------------------------
-
-describe('buildPieSvg', () => {
-  it('returns empty string for empty slices', () => {
-    expect(buildPieSvg([])).toBe('');
-  });
-
-  it('returns an SVG string', () => {
-    const slices = [
-      { institution: 'AIND', count: 3, fraction: 0.6 },
-      { institution: 'AIBS', count: 2, fraction: 0.4 },
-    ];
-    const svg = buildPieSvg(slices);
-    expect(svg).toContain('<svg');
-    expect(svg).toContain('</svg>');
-  });
-
-  it('includes institution names in legend', () => {
-    const slices = [
-      { institution: 'AIND', count: 3, fraction: 0.6 },
-      { institution: 'AIBS', count: 2, fraction: 0.4 },
-    ];
-    const svg = buildPieSvg(slices);
-    expect(svg).toContain('AIND');
-    expect(svg).toContain('AIBS');
-  });
-
-  it('includes path elements for each slice', () => {
-    const slices = [
-      { institution: 'AIND', count: 10, fraction: 1.0 },
-    ];
-    const svg = buildPieSvg(slices);
-    expect(svg).toContain('<path');
-  });
-
-  it('escapes HTML in institution names', () => {
-    const slices = [
-      { institution: '<Evil>', count: 5, fraction: 1.0 },
-    ];
-    const svg = buildPieSvg(slices);
-    expect(svg).not.toContain('<Evil>');
-    expect(svg).toContain('&lt;Evil&gt;');
   });
 });
 
@@ -330,9 +312,9 @@ describe('uniqueValues', () => {
 
 describe('filterRows', () => {
   const rows = [
-    { subject_id: '100', institution: 'AIND', channel: 'Ex_488_Em_525' },
-    { subject_id: '200', institution: 'AIBS', channel: 'Ex_561_Em_600' },
-    { subject_id: '300', institution: 'AIND', channel: 'Ex_445_Em_469' },
+    { subject_id: '100', institution: 'AIND', channels: 'Ex_488_Em_525\nEx_561_Em_600' },
+    { subject_id: '200', institution: 'AIBS', channels: 'Ex_561_Em_600' },
+    { subject_id: '300', institution: 'AIND', channels: 'Ex_445_Em_469' },
   ];
 
   it('returns all rows when no filters active', () => {
@@ -350,7 +332,7 @@ describe('filterRows', () => {
   });
 
   it('applies multiple filters conjunctively', () => {
-    const result = filterRows(rows, { institution: 'AIND', channel: '488' });
+    const result = filterRows(rows, { institution: 'AIND', channels: '488' });
     expect(result).toHaveLength(1);
     expect(result[0].subject_id).toBe('100');
   });

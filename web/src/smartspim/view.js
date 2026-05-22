@@ -1,104 +1,130 @@
 /**
- * smartspim-view.js — SmartSPIM Assets page.
+ * smartspim/view.js — SmartSPIM Assets page.
  *
- * Queries the `assets_smartspim` DuckDB table and renders:
- *   - Left sidebar: searchable multi-select subject filter
- *   - Right: two pie charts (raw vs processed, by institution) + sortable,
- *     filterable, paginated table with a computed "Processed" column
- *     and clickable link columns.
+ * Loads `assets_smartspim` (long-form: one row per asset+channel) from S3,
+ * joins with `asset_basics`, then pivots to one row per asset.
+ * Channel names are real (e.g. "Ex_488_Em_525"), displayed stacked in one column.
  *
- * Pure helpers (buildNeuroglancerLink, isProcessed, renderSmartSpimRow,
- * institutionSlices, buildPieSvg, sortRows, uniqueValues, filterRows)
- * are exported for unit tests.
+ * Pure helpers are exported for unit tests.
  */
 
 import { registerAcornTable } from '../lib/metadata.js';
-import { S3_BUCKET, S3_REGION } from '../constants.js';
+import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
-import { institutionSlices, buildPieSvg } from '../lib/charts.js';
 
 // Re-export for backward compatibility with tests
-export { formatDatetime, sortRows, uniqueValues, filterRows, institutionSlices, buildPieSvg };
-
-// ---------------------------------------------------------------------------
-// S3 path for fallback registration
-// ---------------------------------------------------------------------------
+export { formatDatetime, sortRows, uniqueValues, filterRows };
 
 const SMARTSPIM_S3_PATH =
   `s3://allen-data-views/data-asset-cache/zs_assets_smartspim.pqt`;
 
+// Fields pulled from asset_basics via JOIN
+const BASICS_KEYS = [
+  'subject_id', 'project_name', 'acquisition_start_time',
+  'genotype', 'location', 'code_ocean', 'experimenters',
+];
+
+// Always-shown columns (cannot be hidden)
+const ALWAYS_SHOWN = ['subject_id'];
+
+// Default visible columns (before links)
+const DEFAULT_COLS = [
+  'subject_id', 'project_name', 'genotype', 'acquisition_start_time',
+  'processing_end_time', 'channels', 'processed',
+];
+
+// All available columns (for settings modal)
+const ALL_COLS = [
+  'subject_id', 'project_name', 'genotype', 'acquisition_start_time',
+  'processing_end_time', 'channels', 'processed',
+  'experimenters', 'name',
+];
+
+const COLUMN_LABELS = {
+  subject_id: 'Subject',
+  project_name: 'Project',
+  genotype: 'Genotype',
+  acquisition_start_time: 'Acquired (UTC)',
+  processing_end_time: 'Processed (UTC)',
+  channels: 'Channels',
+  processed: 'Processed',
+  experimenters: 'Investigators',
+  name: 'Asset Name',
+};
+
 // ---------------------------------------------------------------------------
-// Pure link builders
+// Link helper
 // ---------------------------------------------------------------------------
 
-/**
- * Render a neuroglancer URL as an anchor tag or a dash placeholder.
- *
- * @param {string|null} href
- * @param {string} label
- * @returns {string} HTML fragment
- */
 export function buildNeuroglancerLink(href, label) {
   if (!href) return '<span class="no-link">—</span>';
   const safe = String(href).replace(/"/g, '&quot;');
   return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 }
 
-/**
- * Return true when a row has both segmentation and quantification links.
- *
- * @param {object} row
- * @returns {boolean}
- */
+function linkHtml(href, label) {
+  if (!href) return '<span class="no-link">—</span>';
+  return `<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
 export function isProcessed(row) {
   return row.processed === true || row.processed === 'true' || row.processed === 'Yes';
 }
 
 // ---------------------------------------------------------------------------
-// Table rendering
+// Long-form → wide-form pivot
 // ---------------------------------------------------------------------------
 
-/** Columns displayed in the table, in order. */
-const DISPLAY_COLUMNS = [
-  'subject_id',
-  'genotype',
-  'institution',
-  'acquisition_start_time',
-  'processing_end_time',
-  'channel_1',
-  'channel_2',
-  'channel_3',
-  'processed',
-];
-
-/** Column header labels. */
-const COLUMN_LABELS = {
-  subject_id: 'Subject',
-  genotype: 'Genotype',
-  institution: 'Institution',
-  acquisition_start_time: 'Acquired (UTC)',
-  processing_end_time: 'Processed (UTC)',
-  channel_1: 'Ch 1',
-  channel_2: 'Ch 2',
-  channel_3: 'Ch 3',
-  processed: 'Processed',
-};
-
 /**
- * Render one table row as an HTML string.
- *
- * @param {object} row - Plain object with assets_smartspim columns.
- * @returns {string} `<tr>…</tr>` HTML
+ * Pivot long-form rows (one per asset+channel) to wide-form (one per asset).
+ * Each wide row gets:
+ *   - All BASICS_KEYS fields from the first long-form row for that asset
+ *   - processing_end_time, stitched_link, processed, institution from first row
+ *   - channels: newline-joined list of channel names that have any link data
+ *   - per-channel segmentation/quantification links keyed by channel name
  */
-export function renderSmartSpimRow(row) {
+export function pivotLongFormRows(longRows) {
+  const assetMap = new Map();
+
+  for (const row of longRows) {
+    const assetName = row.name;
+    if (!assetMap.has(assetName)) {
+      const wide = { name: assetName, _channels: [] };
+      for (const k of BASICS_KEYS) wide[k] = row[k];
+      wide.processing_end_time = row.processing_end_time;
+      wide.stitched_link = row.stitched_link;
+      wide.processed = row.processed;
+      assetMap.set(assetName, wide);
+    }
+
+    const wide = assetMap.get(assetName);
+    const ch = row.channel;
+    if (!ch) continue;
+
+    wide._channels.push(ch);
+    wide[`_seg_${ch}`] = row.segmentation_link;
+    wide[`_quant_${ch}`] = row.quantification_link;
+  }
+
+  // Build the display channels string (newline-separated)
+  for (const wide of assetMap.values()) {
+    wide.channels = wide._channels.join('\n');
+  }
+
+  return Array.from(assetMap.values());
+}
+
+// ---------------------------------------------------------------------------
+// Row renderer
+// ---------------------------------------------------------------------------
+
+export function renderSmartSpimRow(row, visibleColumns) {
   const stitchedHtml = buildNeuroglancerLink(row.stitched_link ?? null, 'Stitched');
 
-  const channelLinks = [1, 2, 3].map((n) => {
-    const ch = row[`channel_${n}`];
-    const seg = row[`segmentation_link_${n}`];
-    const quant = row[`quantification_link_${n}`];
-    if (!ch && !seg && !quant) return '';
-    const label = ch ? escHtml(String(ch)) : `Ch${n}`;
+  const channelLinks = (row._channels ?? []).map((ch) => {
+    const seg = row[`_seg_${ch}`];
+    const quant = row[`_quant_${ch}`];
+    const label = escHtml(String(ch));
     return `<span class="ch-links">${label}: ${buildNeuroglancerLink(seg, 'Seg')} ${buildNeuroglancerLink(quant, 'Quant')}</span>`;
   }).filter(Boolean).join(' ');
 
@@ -106,54 +132,45 @@ export function renderSmartSpimRow(row) {
     ? '<span class="badge badge-yes">Yes</span>'
     : '<span class="badge badge-no">No</span>';
 
-  const subjectId = escHtml(String(row.subject_id ?? ''));
-  const subjectLink = row.subject_id
-    ? `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id)}">${subjectId}</a>`
-    : subjectId;
+  const s3Href = buildS3ConsoleUrl(row.location ?? null);
+  const qcHref = buildQcLink(row.name ?? null);
+  const metaHref = buildMetadataLink(row.name ?? null);
+  const coHref = buildCoLink(row.code_ocean ?? null);
 
-  const cells = [
-    `<td>${subjectLink}</td>`,
-    `<td>${escHtml(String(row.genotype ?? ''))}</td>`,
-    `<td>${escHtml(String(row.institution ?? ''))}</td>`,
-    `<td>${escHtml(formatDatetime(row.acquisition_start_time ?? null))}</td>`,
-    `<td>${escHtml(formatDatetime(row.processing_end_time ?? null))}</td>`,
-    `<td>${escHtml(String(row.channel_1 ?? ''))}</td>`,
-    `<td>${escHtml(String(row.channel_2 ?? ''))}</td>`,
-    `<td>${escHtml(String(row.channel_3 ?? ''))}</td>`,
-    `<td>${processedLabel}</td>`,
-    `<td class="link-cell">${stitchedHtml} ${channelLinks}</td>`,
-  ];
+  const cellValues = {
+    subject_id: row.subject_id
+      ? `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id)}">${escHtml(String(row.subject_id))}</a>`
+      : '',
+    project_name: row.project_name
+      ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
+      : '',
+    genotype: escHtml(String(row.genotype ?? '')),
+    acquisition_start_time: escHtml(formatDatetime(row.acquisition_start_time ?? null)),
+    processing_end_time: escHtml(formatDatetime(row.processing_end_time ?? null)),
+    channels: String(row.channels ?? '').split('\n').filter(Boolean).map(escHtml).join('<br>'),
+    processed: processedLabel,
+    experimenters: escHtml(String(row.experimenters ?? '')),
+    name: escHtml(String(row.name ?? '')),
+  };
+
+  const cols = visibleColumns ?? DEFAULT_COLS;
+  const cells = [...cols, 'links'].map((col) => {
+    if (col === 'links') {
+      return `<td class="link-cell link-cell-split">` +
+        `<span class="link-group-left">${stitchedHtml} ${channelLinks}</span>` +
+        `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
+        `</td>`;
+    }
+    return `<td>${cellValues[col] ?? ''}</td>`;
+  });
 
   return `<tr>${cells.join('')}</tr>`;
 }
 
 // ---------------------------------------------------------------------------
-// Pie chart
-// ---------------------------------------------------------------------------
-
-/**
- * Compute institution slice data suitable for rendering a pie chart.
- *
-// ---------------------------------------------------------------------------
-// Sort / filter / page helpers (shared pattern from assets/view.js)
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // View factory
 // ---------------------------------------------------------------------------
 
-/**
- * Create the SmartSPIM view element.
- *
- * Registers `assets_smartspim` in DuckDB (using the acorn from metadata if
- * available, otherwise falling back to the known S3 path), queries all rows,
- * then renders a sidebar subject filter + pie chart + sortable/filterable/
- * paginated table.
- *
- * @param {import('@uwdata/vgplot').Coordinator} coord
- * @param {{ acorns: object[] }} metadata
- * @returns {HTMLElement}
- */
 export function createSmartSpimView(coord, metadata) {
   const container = document.createElement('div');
   container.className = 'assets-view smartspim-view';
@@ -174,22 +191,23 @@ export function createSmartSpimView(coord, metadata) {
   registerPromise
     .then(() =>
       coord.query(
-        `SELECT subject_id, genotype, institution, acquisition_start_time,
-                processing_end_time, stitched_link, processed, name,
-                channel_1, segmentation_link_1, quantification_link_1,
-                channel_2, segmentation_link_2, quantification_link_2,
-                channel_3, segmentation_link_3, quantification_link_3
-         FROM assets_smartspim
-         ORDER BY acquisition_start_time DESC NULLS LAST`,
+        `SELECT s.name, s.channel, s.segmentation_link, s.quantification_link,
+                s.processing_end_time, s.stitched_link, s.processed,
+                b.subject_id, b.project_name, b.acquisition_start_time,
+                b.genotype, b.location, b.code_ocean, b.experimenters
+         FROM assets_smartspim s
+         LEFT JOIN asset_basics b ON b.name = s.name
+         ORDER BY b.acquisition_start_time DESC NULLS LAST, s.name`,
         { type: 'json' },
       ),
     )
     .then((result) => {
       loadingEl.remove();
-      const rows = Array.isArray(result) ? result
+      const longRows = Array.isArray(result) ? result
         : Array.isArray(result?.data) ? result.data
         : Array.from(result ?? []);
-      buildPage(rows);
+      const wideRows = pivotLongFormRows(longRows);
+      buildPage(wideRows);
     })
     .catch((err) => {
       loadingEl.textContent = `Failed to load SmartSPIM assets: ${err?.message ?? err}`;
@@ -197,7 +215,6 @@ export function createSmartSpimView(coord, metadata) {
     });
 
   function buildPage(allRows) {
-    // -- Layout: sidebar + main content ------------------------------------
     const layout = document.createElement('div');
     layout.className = 'sessions-layout smartspim-layout';
 
@@ -211,7 +228,7 @@ export function createSmartSpimView(coord, metadata) {
     layout.appendChild(mainContent);
     container.appendChild(layout);
 
-    // -- Subject sidebar ---------------------------------------------------
+    // Subject sidebar
     const allSubjects = uniqueValues(allRows, 'subject_id').sort();
     const selectedSubjects = new Set();
 
@@ -270,23 +287,20 @@ export function createSmartSpimView(coord, metadata) {
           onSubjectChange();
         });
         item.appendChild(cb);
-        item.appendChild(document.createTextNode(' ' + sid));
+        item.appendChild(document.createTextNode(' ' + sid));
         checkboxList.appendChild(item);
       }
     }
 
     renderSubjectCheckboxes('');
-
     searchInput.addEventListener('input', () => renderSubjectCheckboxes(searchInput.value));
 
-    // -- Charts + table in mainContent ------------------------------------
     function getDisplayRows() {
       return selectedSubjects.size === 0
         ? allRows
         : allRows.filter((r) => selectedSubjects.has(String(r.subject_id ?? '')));
     }
 
-    // top card (charts + table) — rebuilt on filter change
     let topCard = null;
 
     function onSubjectChange() {
@@ -300,97 +314,49 @@ export function createSmartSpimView(coord, metadata) {
   }
 
   function buildTopCard(displayRows) {
-    const rawRows = displayRows.filter((r) => !isProcessed(r));
-    const processedRows = displayRows.filter((r) => isProcessed(r));
-
     const topCard = document.createElement('div');
     topCard.className = 'smartspim-top-card';
 
     const header = document.createElement('div');
     header.className = 'assets-header';
     header.innerHTML = '<h2>SmartSPIM Assets</h2>';
+
+    const settingsBtn = document.createElement('button');
+    settingsBtn.className = 'assets-settings-btn icon-btn';
+    settingsBtn.setAttribute('aria-label', 'Column settings');
+    settingsBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
+    header.appendChild(settingsBtn);
+
     topCard.appendChild(header);
 
-    const chartsRow = document.createElement('div');
-    chartsRow.className = 'smartspim-charts';
-
-    const descPanel = document.createElement('div');
-    descPanel.className = 'smartspim-desc';
-    descPanel.innerHTML = `
-      <p>The table below displays one row per subject that has started processing.</p>
-      <p>If there are multiple processing attempts, only the latest attempt is displayed.</p>
-      <p>The second group of links visualize cell segmentation results. If the &#8220;cell segmentation channels&#8221; column is not empty and there are no visualization links, this means that segmentation has not succeeded.</p>
-      <p>The third group of links visualize segmentation results aligned to the CCF. If there are no links, CCF alignment has not succeeded.</p>
-    `;
-    chartsRow.appendChild(descPanel);
-
-    function makePieSection(rows, title) {
-      const section = document.createElement('div');
-      section.className = 'smartspim-chart-section';
-      const h = document.createElement('h3');
-      h.className = 'chart-title';
-      h.textContent = title;
-      section.appendChild(h);
-      const el = document.createElement('div');
-      el.className = 'smartspim-pie';
-      el.innerHTML = buildPieSvg(institutionSlices(rows));
-      section.appendChild(el);
-      return section;
-    }
-
-    chartsRow.appendChild(makePieSection(rawRows, `Raw (${rawRows.length.toLocaleString()})`));
-    chartsRow.appendChild(makePieSection(processedRows, `Processed (${processedRows.length.toLocaleString()})`));
-
-    topCard.appendChild(chartsRow);
-
-    buildTable(displayRows, topCard);
+    buildTable(displayRows, topCard, settingsBtn);
     return topCard;
   }
 
-  function buildTable(allRows, target) {
+  function buildTable(allRows, target, settingsBtn) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
-    let filters = Object.fromEntries(DISPLAY_COLUMNS.map((c) => [c, '']));
+    let visibleColumns = [...DEFAULT_COLS];
+    let filters = Object.fromEntries(ALL_COLS.map((c) => [c, '']));
     let page = 0;
+    let settingsModalOpen = false;
 
     const uniques = {};
-    for (const col of DISPLAY_COLUMNS) {
+    for (const col of ALL_COLS) {
       uniques[col] = uniqueValues(allRows, col);
     }
 
     const useSelect = {};
-    for (const col of DISPLAY_COLUMNS) {
+    for (const col of ALL_COLS) {
       useSelect[col] = uniques[col].length > 0 && uniques[col].length <= SELECT_THRESHOLD;
     }
 
-    const allHeaders = [...DISPLAY_COLUMNS, 'links'];
-    const allLabels = { ...COLUMN_LABELS, links: 'Links' };
-
-    const headerRowHtml = allHeaders.map((col) => {
-      const label = allLabels[col] ?? col;
-      if (col === 'links') {
-        return `<th class="col-links"><span class="col-label">${label}</span></th>`;
-      }
-      let filterEl;
-      if (useSelect[col]) {
-        const options = uniques[col]
-          .map((v) => `<option value="${escHtml(v)}">${escHtml(v)}</option>`)
-          .join('');
-        filterEl = `<select class="col-filter" data-col="${col}"><option value="">— all —</option>${options}</select>`;
-      } else {
-        filterEl = `<input class="col-filter" type="text" data-col="${col}" placeholder="filter…" />`;
-      }
-      return `<th class="sortable" data-col="${col}"><span class="col-label">${label}</span>${filterEl}</th>`;
-    }).join('');
-
     const table = document.createElement('table');
     table.className = 'assets-table';
-    table.innerHTML = `
-      <thead><tr>${headerRowHtml}</tr></thead>
-      <tbody></tbody>
-    `;
-
-    const tbody = table.querySelector('tbody');
+    const thead = document.createElement('thead');
+    const tbody = document.createElement('tbody');
+    table.appendChild(thead);
+    table.appendChild(tbody);
 
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
@@ -398,19 +364,81 @@ export function createSmartSpimView(coord, metadata) {
     target.appendChild(table);
     target.appendChild(pagingBar);
 
+    function renderHeader() {
+      const displayCols = [...visibleColumns, 'links'];
+      const headerRowHtml = displayCols.map((col) => {
+        const label = COLUMN_LABELS[col] ?? col;
+        if (col === 'links') {
+          return `<th class="col-links"><span class="col-label">Links</span></th>`;
+        }
+        let filterEl;
+        if (useSelect[col]) {
+          const options = uniques[col]
+            .map((v) => `<option value="${escHtml(v)}">${escHtml(v)}</option>`)
+            .join('');
+          filterEl = `<select class="col-filter" data-col="${col}"><option value="">— all —</option>${options}</select>`;
+        } else {
+          filterEl = `<input class="col-filter" type="text" data-col="${col}" placeholder="filter…" />`;
+        }
+        return `<th class="sortable" data-col="${col}"><span class="col-label">${label}</span>${filterEl}</th>`;
+      }).join('');
+
+      thead.innerHTML = `<tr>${headerRowHtml}</tr>`;
+
+      thead.addEventListener('click', (e) => {
+        if (!e.target.closest('.col-label')) return;
+        const th = e.target.closest('th.sortable');
+        if (!th) return;
+        const col = th.dataset.col;
+        if (sortCol === col) {
+          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          sortCol = col;
+          sortDir = 'asc';
+        }
+        page = 0;
+        refresh();
+      });
+
+      thead.addEventListener('input', (e) => {
+        const el = e.target.closest('.col-filter');
+        if (!el) return;
+        filters[el.dataset.col] = el.value;
+        page = 0;
+        refresh();
+      });
+
+      thead.addEventListener('change', (e) => {
+        const el = e.target.closest('.col-filter');
+        if (!el) return;
+        filters[el.dataset.col] = el.value;
+        page = 0;
+        refresh();
+      });
+
+      restoreFilterInputs();
+      updateSortIndicators();
+    }
+
+    function restoreFilterInputs() {
+      thead.querySelectorAll('.col-filter').forEach((el) => {
+        const col = el.dataset.col;
+        if (filters[col]) el.value = filters[col];
+      });
+    }
+
     function updateSortIndicators() {
-      table.querySelectorAll('th.sortable').forEach((th) => {
+      thead.querySelectorAll('th.sortable').forEach((th) => {
         const col = th.dataset.col;
         th.dataset.sortDir = col === sortCol ? sortDir : '';
-        const label = allLabels[col] ?? col;
+        const label = COLUMN_LABELS[col] ?? col;
         const arrow = col === sortCol ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
         th.querySelector('.col-label').textContent = label + arrow;
       });
     }
 
     function visibleRows() {
-      const filtered = filterRows(allRows, filters);
-      return sortRows(filtered, sortCol, sortDir);
+      return sortRows(filterRows(allRows, filters), sortCol, sortDir);
     }
 
     function refresh() {
@@ -419,58 +447,101 @@ export function createSmartSpimView(coord, metadata) {
       if (page >= totalPages) page = totalPages - 1;
 
       const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map(renderSmartSpimRow).join('');
+      tbody.innerHTML = pageRows.map((row) => renderSmartSpimRow(row, visibleColumns)).join('');
 
       const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
       const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
       pagingBar.innerHTML = `
-        <button class="page-btn" id="prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
+        <button class="page-btn" id="spim-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
         <span class="page-info">${start}–${end} of ${rows.length.toLocaleString()}</span>
-        <button class="page-btn" id="next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
+        <button class="page-btn" id="spim-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
       `;
-      pagingBar.querySelector('#prev-page').addEventListener('click', () => { page--; refresh(); });
-      pagingBar.querySelector('#next-page').addEventListener('click', () => { page++; refresh(); });
+      pagingBar.querySelector('#spim-prev-page').addEventListener('click', () => { page--; refresh(); });
+      pagingBar.querySelector('#spim-next-page').addEventListener('click', () => { page++; refresh(); });
 
       updateSortIndicators();
     }
 
-    table.querySelector('thead').addEventListener('click', (e) => {
-      if (!e.target.closest('.col-label')) return;
-      const th = e.target.closest('th.sortable');
-      if (!th) return;
-      const col = th.dataset.col;
-      if (sortCol === col) {
-        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        sortCol = col;
-        sortDir = 'asc';
+    function openSettingsModal() {
+      if (settingsModalOpen) {
+        const existing = document.querySelector('.assets-settings-modal');
+        if (existing) existing.remove();
+        settingsModalOpen = false;
+        return;
       }
-      page = 0;
-      refresh();
-    });
 
-    table.querySelector('thead').addEventListener('input', (e) => {
-      const el = e.target.closest('.col-filter');
-      if (!el) return;
-      filters[el.dataset.col] = el.value;
-      page = 0;
-      refresh();
-    });
+      const settingsModal = document.createElement('div');
+      settingsModal.className = 'assets-settings-modal';
 
-    table.querySelector('thead').addEventListener('change', (e) => {
-      const el = e.target.closest('.col-filter');
-      if (!el) return;
-      filters[el.dataset.col] = el.value;
-      page = 0;
-      refresh();
-    });
+      const listHtml = ALL_COLS.map((col) => {
+        const isChecked = visibleColumns.includes(col);
+        const isRequired = ALWAYS_SHOWN.includes(col);
+        return `
+          <label class="settings-checkbox-label">
+            <input type="checkbox" class="settings-col-checkbox" data-col="${col}"
+              ${isChecked ? 'checked' : ''} ${isRequired ? 'disabled' : ''} />
+            <span>${COLUMN_LABELS[col] ?? col}${isRequired ? ' <em>(always shown)</em>' : ''}</span>
+          </label>
+        `;
+      }).join('');
 
+      settingsModal.innerHTML = `
+        <div class="settings-modal-content">
+          <h3>Visible Columns</h3>
+          <div class="settings-checkbox-list">${listHtml}</div>
+          <div class="settings-modal-actions">
+            <button class="settings-reset-btn">Reset to Defaults</button>
+            <button class="settings-close-btn">Close</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(settingsModal);
+      settingsModalOpen = true;
+
+      settingsModal.querySelectorAll('.settings-col-checkbox').forEach((checkbox) => {
+        checkbox.addEventListener('change', () => {
+          const col = checkbox.dataset.col;
+          if (checkbox.checked) {
+            if (!visibleColumns.includes(col)) {
+              visibleColumns.splice(visibleColumns.length, 0, col);
+            }
+          } else {
+            visibleColumns = visibleColumns.filter((c) => c !== col);
+          }
+          renderHeader();
+          refresh();
+        });
+      });
+
+      settingsModal.querySelector('.settings-reset-btn').addEventListener('click', () => {
+        visibleColumns = [...DEFAULT_COLS];
+        settingsModal.querySelectorAll('.settings-col-checkbox').forEach((cb) => {
+          cb.checked = visibleColumns.includes(cb.dataset.col);
+        });
+        renderHeader();
+        refresh();
+      });
+
+      settingsModal.querySelector('.settings-close-btn').addEventListener('click', () => {
+        settingsModal.remove();
+        settingsModalOpen = false;
+      });
+
+      document.addEventListener('click', function handler(e) {
+        if (!settingsModal.contains(e.target) && e.target !== settingsBtn) {
+          settingsModal.remove();
+          settingsModalOpen = false;
+          document.removeEventListener('click', handler);
+        }
+      }, true);
+    }
+
+    settingsBtn.addEventListener('click', openSettingsModal);
+
+    renderHeader();
     refresh();
   }
 
   return container;
 }
-
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------

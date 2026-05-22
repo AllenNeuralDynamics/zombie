@@ -633,6 +633,18 @@ body {
   max-width: none;
 }
 
+.assets-table .link-cell-split {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.link-group-right {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .assets-table .link-cell a {
   display: inline-block;
   margin-right: 6px;
