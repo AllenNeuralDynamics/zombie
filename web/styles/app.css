@@ -348,14 +348,17 @@ body {
   font-size: 0.82rem;
   font-weight: 500;
   color: var(--text-secondary);
-  text-decoration: none;
   margin-left: 16px;
   margin-right: auto;
 }
 
-.assets-header-ext-link:hover {
-  color: var(--color-red);
+.assets-header-ext-link a {
+  color: var(--text-secondary);
   text-decoration: underline;
+}
+
+.assets-header-ext-link a:hover {
+  color: var(--color-red);
 }
 
 .assets-settings-btn {
