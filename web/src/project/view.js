@@ -351,7 +351,12 @@ function buildModalityHistogram(assets, containerWidth = 700) {
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
-  const presentModalities = Array.from(new Set(rows.map((r) => r.modality))).sort();
+  // Sort modalities by total count descending so the heaviest sits at the bottom
+  // of every stack, giving a consistent visual baseline across all projects.
+  const totalByModality = new Map();
+  for (const r of rows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
+  const presentModalities = Array.from(totalByModality.keys())
+    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
   const colorDomain = presentModalities;
   const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
 
@@ -369,11 +374,11 @@ function buildModalityHistogram(assets, containerWidth = 700) {
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
       Plot.rectY(rows, Plot.stackY({
+        order: presentModalities,
         x1: (d) => d.week,
         x2: (d) => new Date(d.week.getTime() + 7 * 86400000),
         y: 'n',
         fill: 'modality',
-        sort: null,
       })),
     ],
   });
