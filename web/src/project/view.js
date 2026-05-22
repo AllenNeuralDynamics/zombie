@@ -159,6 +159,55 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     bySubjectDay.get(key).push(asset);
   }
 
+  // Build <defs> with one <symbol> per unique modality fingerprint.
+  // A fingerprint is the sorted unique modality set for a dot, e.g. "ecephys|fib".
+  // This means we only generate O(unique combos) paths, not O(dots).
+  const defs = document.createElementNS(NS, 'defs');
+  const fingerprintToSymId = new Map();
+  let symCounter = 0;
+
+  function getOrCreateSymbol(modalities) {
+    const fp = modalities.join('|');
+    if (fingerprintToSymId.has(fp)) return fingerprintToSymId.get(fp);
+
+    const symId = `pt-pie-${symCounter++}`;
+    fingerprintToSymId.set(fp, symId);
+
+    const sym = document.createElementNS(NS, 'symbol');
+    sym.setAttribute('id', symId);
+    sym.setAttribute('overflow', 'visible');
+
+    if (modalities.length === 1) {
+      const c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', 0);
+      c.setAttribute('cy', 0);
+      c.setAttribute('r', DOT_R);
+      c.setAttribute('fill', MODALITY_COLOR[modalities[0]] ?? '#888888');
+      sym.appendChild(c);
+    } else {
+      const n = modalities.length;
+      const step = (2 * Math.PI) / n;
+      const start = -Math.PI / 2; // 12 o'clock
+      for (let i = 0; i < n; i++) {
+        const a0 = start + i * step;
+        const a1 = start + (i + 1) * step;
+        const x0 = DOT_R * Math.cos(a0);
+        const y0 = DOT_R * Math.sin(a0);
+        const x1 = DOT_R * Math.cos(a1);
+        const y1 = DOT_R * Math.sin(a1);
+        const large = step > Math.PI ? 1 : 0;
+        const path = document.createElementNS(NS, 'path');
+        path.setAttribute('d', `M 0 0 L ${x0} ${y0} A ${DOT_R} ${DOT_R} 0 ${large} 1 ${x1} ${y1} Z`);
+        path.setAttribute('fill', MODALITY_COLOR[modalities[i]] ?? '#888888');
+        sym.appendChild(path);
+      }
+    }
+    defs.appendChild(sym);
+    return symId;
+  }
+
+  svg.appendChild(defs);
+
   bySubjectDay.forEach((dayAssets, key) => {
     const [subjectId, dayStr] = key.split('|');
     const ri = subjects.indexOf(subjectId);
@@ -170,26 +219,46 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     const cy = HEAD_H + ri * ROW_H + ROW_H / 2;
     const count = dayAssets.length;
 
-    const circle = document.createElementNS(NS, 'circle');
-    circle.setAttribute('cx', cx);
-    circle.setAttribute('cy', cy);
-    circle.setAttribute('r', DOT_R);
-    circle.setAttribute('class', 'pt-dot');
-    circle.style.cursor = 'pointer';
-    svg.appendChild(circle);
+    // Collect sorted unique modalities across all assets in this dot
+    const modalitySet = new Set();
+    for (const a of dayAssets) {
+      if (!a.modalities) continue;
+      for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+        modalitySet.add(m);
+      }
+    }
+    const modalities = Array.from(modalitySet).sort();
+    if (modalities.length === 0) modalities.push('unknown');
+    const symId = getOrCreateSymbol(modalities);
+
+    // Group: positions the reused symbol and acts as event target
+    const g = document.createElementNS(NS, 'g');
+    g.setAttribute('transform', `translate(${cx},${cy})`);
+    g.style.cursor = 'pointer';
+
+    const useEl = document.createElementNS(NS, 'use');
+    useEl.setAttribute('href', `#${symId}`);
+    g.appendChild(useEl);
+
+    // Transparent hit circle ensures reliable pointer events regardless of pie slice geometry
+    const hit = document.createElementNS(NS, 'circle');
+    hit.setAttribute('cx', 0);
+    hit.setAttribute('cy', 0);
+    hit.setAttribute('r', DOT_R);
+    hit.setAttribute('fill', 'transparent');
+    g.appendChild(hit);
 
     if (count > 1) {
       const countText = document.createElementNS(NS, 'text');
-      countText.setAttribute('x', cx);
-      countText.setAttribute('y', cy + 4);
+      countText.setAttribute('x', 0);
+      countText.setAttribute('y', 4);
       countText.setAttribute('class', 'pt-dot-count');
       countText.setAttribute('text-anchor', 'middle');
       countText.textContent = count;
       countText.style.pointerEvents = 'none';
-      svg.appendChild(countText);
+      g.appendChild(countText);
     }
 
-    // HTML tooltip on hover — avoids SVG viewport clipping
     if (tooltipEl) {
       const showTip = (e) => {
         tooltipEl.innerHTML = dayAssets.map((a) => {
@@ -203,16 +272,16 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
         tooltipEl.style.left = `${e.clientX + 14}px`;
         tooltipEl.style.top  = `${e.clientY + 14}px`;
       };
-      circle.addEventListener('mouseenter', showTip);
-      circle.addEventListener('mousemove', (e) => {
+      g.addEventListener('mouseenter', showTip);
+      g.addEventListener('mousemove', (e) => {
         tooltipEl.style.left = `${e.clientX + 14}px`;
         tooltipEl.style.top  = `${e.clientY + 14}px`;
       });
-      circle.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
+      g.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
     }
 
-    // Click: highlight asset row in table
-    circle.addEventListener('click', () => onDotClick && onDotClick(dayAssets));
+    g.addEventListener('click', () => onDotClick && onDotClick(dayAssets));
+    svg.appendChild(g);
   });
 
   return svg;
