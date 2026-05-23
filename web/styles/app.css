@@ -3804,6 +3804,14 @@ body {
    Fiber Photometry Platform dashboard
    --------------------------------------------------------------------------- */
 
+.fib-layout {
+  grid-template-columns: 200px 1fr;
+}
+
+.fib-main {
+  min-width: 0;
+}
+
 .fib-top-card {
   background: var(--surface-bg);
   border-radius: var(--radius);

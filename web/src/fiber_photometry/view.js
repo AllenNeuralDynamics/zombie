@@ -138,6 +138,93 @@ export function detectChannelColumns(wideRows) {
 }
 
 // ---------------------------------------------------------------------------
+// Sidebar filter helpers
+// ---------------------------------------------------------------------------
+
+/** Return {targetCols, measCols} — the Fiber_N/Target and Fiber_N/Color key names. */
+function detectFiberCols(wideRows) {
+  const targetColSet = new Set();
+  const measColSet = new Set();
+  for (const row of wideRows) {
+    for (const k of Object.keys(row)) {
+      if (k.match(/^Fiber_\d+\/Target$/)) targetColSet.add(k);
+      else if (k.match(/^Fiber_\d+\//) && !k.endsWith('/Channels') && !k.endsWith('/Target')) measColSet.add(k);
+    }
+  }
+  return { targetCols: [...targetColSet].sort(), measCols: [...measColSet].sort() };
+}
+
+/** Collect unique non-empty values across multiple columns. */
+function uniqueFiberValues(wideRows, cols) {
+  const seen = new Set();
+  for (const row of wideRows) {
+    for (const col of cols) {
+      const v = row[col];
+      if (v != null && v !== '') seen.add(String(v));
+    }
+  }
+  return [...seen].sort();
+}
+
+/** Filter rows to those matching the sidebar selections (target AND measurement). */
+function applyFiberSidebarFilters(rows, selectedTargets, selectedMeasurements, targetCols, measCols) {
+  if (selectedTargets.size === 0 && selectedMeasurements.size === 0) return rows;
+  return rows.filter((row) => {
+    if (selectedTargets.size > 0) {
+      if (!targetCols.some((col) => selectedTargets.has(String(row[col] ?? '')))) return false;
+    }
+    if (selectedMeasurements.size > 0) {
+      if (!measCols.some((col) => selectedMeasurements.has(String(row[col] ?? '')))) return false;
+    }
+    return true;
+  });
+}
+
+/** Build a checkbox filter group in the sidebar. */
+function buildCheckboxGroup(filterPanel, label, allValues, selectedSet, onChange) {
+  const group = document.createElement('div');
+  group.className = 'sessions-filter-group';
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'sessions-filter-label';
+  labelEl.textContent = label;
+  group.appendChild(labelEl);
+
+  const checkboxList = document.createElement('div');
+  checkboxList.className = 'sessions-checkbox-list';
+  group.appendChild(checkboxList);
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'sessions-filter-clear';
+  clearBtn.textContent = 'Clear';
+  clearBtn.addEventListener('click', () => {
+    selectedSet.clear();
+    checkboxList.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = false; });
+    onChange();
+  });
+  group.appendChild(clearBtn);
+
+  for (const val of allValues) {
+    const item = document.createElement('label');
+    item.className = 'sessions-checkbox-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = val;
+    cb.checked = selectedSet.has(val);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedSet.add(val);
+      else selectedSet.delete(val);
+      onChange();
+    });
+    item.appendChild(cb);
+    item.appendChild(document.createTextNode(' ' + val));
+    checkboxList.appendChild(item);
+  }
+
+  filterPanel.appendChild(group);
+}
+
+// ---------------------------------------------------------------------------
 // Link helper
 // ---------------------------------------------------------------------------
 
@@ -270,7 +357,8 @@ export function createFiberPhotometryView(coord) {
   coord.exec(`CREATE OR REPLACE TABLE platform_fib AS SELECT * FROM read_parquet('${FIB_S3_PATH}')`)
     .then(() =>
       coord.query(
-        `SELECT f.*, b.subject_id, b.project_name, b.acquisition_start_time,
+        `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
+                b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
                 b.code_ocean, b.experimenters
          FROM platform_fib f
@@ -295,11 +383,36 @@ export function createFiberPhotometryView(coord) {
   function buildPage(allRows) {
     const channelCols = detectChannelColumns(allRows);
     const columnLabels = { ...BASICS_LABELS };
-    // Channel columns use their own name as label
-
     const allAvailableCols = [...ALWAYS_SHOWN_BASICS, ...channelCols, ...OPTIONAL_BASICS];
     const defaultDisplayCols = [...ALWAYS_SHOWN_BASICS, ...channelCols];
 
+    // Sidebar filter state
+    const { targetCols, measCols } = detectFiberCols(allRows);
+    const allTargets = uniqueFiberValues(allRows, targetCols);
+    const allMeasurements = uniqueFiberValues(allRows, measCols);
+    const selectedTargets = new Set();
+    const selectedMeasurements = new Set();
+
+    function getBaseRows() {
+      return applyFiberSidebarFilters(allRows, selectedTargets, selectedMeasurements, targetCols, measCols);
+    }
+
+    // Layout: sidebar + main
+    const layout = document.createElement('div');
+    layout.className = 'sessions-layout fib-layout';
+
+    const filterPanel = document.createElement('div');
+    filterPanel.className = 'sessions-filter-panel';
+    filterPanel.innerHTML = '<h3 class="sessions-panel-title">Filter</h3>';
+
+    const mainContent = document.createElement('div');
+    mainContent.className = 'fib-main';
+
+    layout.appendChild(filterPanel);
+    layout.appendChild(mainContent);
+    container.appendChild(layout);
+
+    // Top card (header + alert + table)
     const topCard = document.createElement('div');
     topCard.className = 'fib-top-card';
 
@@ -312,10 +425,9 @@ export function createFiberPhotometryView(coord) {
     settingsBtn.setAttribute('aria-label', 'Column settings');
     settingsBtn.innerHTML = '<img src="/icons/gear.svg" alt="Settings" />';
     header.appendChild(settingsBtn);
-
     topCard.appendChild(header);
 
-    // Alert section
+    // Alert section (always from allRows — global data quality view)
     const missing = buildMissingTable(allRows);
     if (missing.length > 0) {
       const alertSection = document.createElement('div');
@@ -383,17 +495,46 @@ export function createFiberPhotometryView(coord) {
       topCard.appendChild(alertSection);
     }
 
-    buildTable(allRows, topCard, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols);
-    container.appendChild(topCard);
+    const { refresh: tableRefresh, invalidateSort } = buildTable(
+      allRows, getBaseRows, topCard, settingsBtn,
+      allAvailableCols, defaultDisplayCols, columnLabels, channelCols,
+    );
+
+    mainContent.appendChild(topCard);
+
+    // Sidebar filter groups — rebuild sorted cache and refresh table on change
+    function onSidebarChange() {
+      invalidateSort();
+      tableRefresh();
+    }
+
+    if (allTargets.length > 0) {
+      buildCheckboxGroup(filterPanel, 'Target', allTargets, selectedTargets, onSidebarChange);
+    }
+    if (allMeasurements.length > 0) {
+      buildCheckboxGroup(filterPanel, 'Intended Measurement', allMeasurements, selectedMeasurements, onSidebarChange);
+    }
   }
 
-  function buildTable(allRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols) {
+  function buildTable(allRows, getBaseRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
     let visibleColumns = [...defaultDisplayCols, 'links'];
     let filters = Object.fromEntries(allAvailableCols.map((c) => [c, '']));
     let page = 0;
     let settingsModalOpen = false;
+
+    // Sorted-base cache: avoids O(n log n) re-sort on every filter keypress.
+    // Invalidated when sort params change or sidebar filters change.
+    let sortedBase = null;
+
+    function invalidateSort() {
+      sortedBase = null;
+    }
+
+    function rebuildSortedBase() {
+      sortedBase = sortRows([...getBaseRows()], sortCol, sortDir);
+    }
 
     const uniques = {};
     for (const col of allAvailableCols) {
@@ -450,6 +591,7 @@ export function createFiberPhotometryView(coord) {
           sortDir = 'asc';
         }
         page = 0;
+        invalidateSort();
         refresh();
       });
 
@@ -491,7 +633,8 @@ export function createFiberPhotometryView(coord) {
     }
 
     function visibleRows() {
-      return sortRows(filterRows(allRows, filters), sortCol, sortDir);
+      if (!sortedBase) rebuildSortedBase();
+      return filterRows(sortedBase, filters);
     }
 
     function refresh() {
@@ -594,6 +737,8 @@ export function createFiberPhotometryView(coord) {
 
     renderHeader();
     refresh();
+
+    return { refresh, invalidateSort };
   }
 
   return container;
