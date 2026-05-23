@@ -156,19 +156,19 @@ describe('s3PathToHttps', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildParquetArg', () => {
-  it('returns a quoted s3:// URL for a non-partitioned acorn', () => {
+  it('returns a quoted https:// URL for a non-partitioned acorn', () => {
     const arg = buildParquetArg(METADATA_ACORN);
-    expect(arg).toMatch(/^'s3:\/\//);
+    expect(arg).toMatch(/^'https:\/\//);
     expect(arg).not.toContain('hive_partitioning');
     expect(arg).toContain('zs_asset_basics.pqt');
   });
 
-  it('preserves the original s3:// location verbatim', () => {
+  it('converts s3:// location to https:// URL', () => {
     const arg = buildParquetArg(METADATA_ACORN);
-    expect(arg).toBe(`'${METADATA_ACORN.location}'`);
+    expect(arg).toBe(`'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_asset_basics.pqt'`);
   });
 
-  it('returns a glob s3:// URL with hive_partitioning for a partitioned acorn', () => {
+  it('returns a glob https:// URL with hive_partitioning for a partitioned acorn', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
     expect(arg).toContain('*.pqt');
     expect(arg).toContain('hive_partitioning=true');
@@ -182,9 +182,9 @@ describe('buildParquetArg', () => {
     expect(arg).not.toContain('//*.pqt');
   });
 
-  it('uses the s3:// prefix in the glob path', () => {
+  it('uses https:// prefix in the glob path', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
-    expect(arg).toMatch(/^'s3:\/\//);
+    expect(arg).toMatch(/^'https:\/\//);
   });
 });
 

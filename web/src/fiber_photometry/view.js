@@ -10,7 +10,7 @@
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 
-const FIB_S3_PATH = `s3://allen-data-views/data-asset-cache/zs_platform_fib.pqt`;
+const FIB_S3_PATH = `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_platform_fib.pqt`;
 
 const ALWAYS_SHOWN_BASICS = ['subject_id', 'project_name'];
 const OPTIONAL_BASICS = ['acquisition_start_time', 'data_level', 'modalities', 'genotype'];
@@ -349,14 +349,35 @@ export function createFiberPhotometryView(coord) {
   const container = document.createElement('div');
   container.className = 'assets-view fib-view';
 
-  const loadingEl = document.createElement('p');
-  loadingEl.className = 'loading-message';
-  loadingEl.textContent = 'Loading Fiber Photometry data…';
+  // Progress bar UI
+  const loadingEl = document.createElement('div');
+  loadingEl.className = 'fib-loading';
+  const progressTrack = document.createElement('div');
+  progressTrack.className = 'fib-progress-track';
+  const progressFill = document.createElement('div');
+  progressFill.className = 'fib-progress-fill';
+  progressTrack.appendChild(progressFill);
+  const progressLabel = document.createElement('div');
+  progressLabel.className = 'fib-progress-label';
+  progressLabel.textContent = 'Connecting…';
+  loadingEl.appendChild(progressTrack);
+  loadingEl.appendChild(progressLabel);
   container.appendChild(loadingEl);
 
+  function setProgress(pct, label) {
+    progressFill.style.width = `${pct}%`;
+    progressLabel.textContent = label;
+  }
+
+  const t0 = performance.now();
+  console.log('[FibPhot] start');
+
+  setProgress(10, 'Downloading fiber photometry data…');
   coord.exec(`CREATE OR REPLACE TABLE platform_fib AS SELECT * FROM read_parquet('${FIB_S3_PATH}')`)
-    .then(() =>
-      coord.query(
+    .then(() => {
+      console.log(`[FibPhot] parquet loaded & registered  +${(performance.now()-t0).toFixed(0)}ms`);
+      setProgress(40, 'Running join query…');
+      return coord.query(
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
@@ -365,19 +386,25 @@ export function createFiberPhotometryView(coord) {
          LEFT JOIN asset_basics b ON b.name = f.asset_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
         { type: 'json' },
-      ),
-    )
+      );
+    })
     .then((result) => {
-      loadingEl.remove();
+      console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
+      setProgress(70, 'Reshaping data…');
       const longRows = Array.isArray(result) ? result
         : Array.isArray(result?.data) ? result.data
         : Array.from(result ?? []);
+      console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
       const wideRows = pivotLongFormRows(longRows);
+      console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
+      setProgress(90, 'Building page…');
+      loadingEl.remove();
       buildPage(wideRows);
+      console.log(`[FibPhot] page built                   +${(performance.now()-t0).toFixed(0)}ms`);
     })
     .catch((err) => {
-      loadingEl.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
       loadingEl.className = 'loading-message error';
+      progressLabel.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
     });
 
   function buildPage(allRows) {

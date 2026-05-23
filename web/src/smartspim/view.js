@@ -16,7 +16,7 @@ import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE,
 export { formatDatetime, sortRows, uniqueValues, filterRows };
 
 const SMARTSPIM_S3_PATH =
-  `s3://allen-data-views/data-asset-cache/zs_assets_smartspim.pqt`;
+  `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_assets_smartspim.pqt`;
 
 // Fields pulled from asset_basics via JOIN
 const BASICS_KEYS = [

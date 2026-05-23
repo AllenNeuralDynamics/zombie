@@ -3812,6 +3812,39 @@ body {
   min-width: 0;
 }
 
+/* ---- Fiber photometry loading progress bar ---- */
+
+.fib-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.fib-progress-track {
+  width: 320px;
+  height: 6px;
+  background: var(--surface-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.fib-progress-fill {
+  height: 100%;
+  background: var(--color-red);
+  border-radius: 3px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.fib-progress-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .fib-top-card {
   background: var(--surface-bg);
   border-radius: var(--radius);

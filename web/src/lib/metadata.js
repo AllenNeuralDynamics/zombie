@@ -88,25 +88,22 @@ export function s3PathToHttps(s3Path, region = S3_REGION) {
 /**
  * Build the DuckDB `read_parquet(...)` argument string for an acorn.
  *
- * Uses the original `s3://` path so the server-side DuckDB instance can use
- * the AWS credential chain (or instance profile) to resolve the S3 location.
- * HTTPS glob paths are not supported: S3 cannot expand `*` in a plain HTTPS
- * GET URL, so partitioned datasets must go through the S3 protocol.
+ * Converts `s3://bucket/key` → `https://bucket.s3.us-west-2.amazonaws.com/key`
+ * so DuckDB-WASM can read the file over plain HTTPS without needing AWS
+ * credentials or S3-protocol config. The bucket is public with CORS enabled.
  *
- * - Non-partitioned: single `s3://` URL.
- * - Partitioned directory: glob `s3://` URL with `hive_partitioning=true, union_by_name=true`.
+ * - Non-partitioned: single HTTPS URL.
+ * - Partitioned directory: glob HTTPS URL with `hive_partitioning=true, union_by_name=true`.
  *
  * @param {object} acorn - A validated acorn entry.
  * @returns {string} The argument string to place inside `read_parquet(...)`.
  */
 export function buildParquetArg(acorn) {
   if (acorn.partitioned) {
-    // Partitioned directory — glob all parquet files under it.
-    // Strip trailing slash before appending the glob pattern.
-    const base = acorn.location.replace(/\/+$/, '');
+    const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
     return `'${base}/*.pqt', hive_partitioning=true, union_by_name=true`;
   }
-  return `'${acorn.location}'`;
+  return `'${s3PathToHttps(acorn.location)}'`;
 }
 
 /**
@@ -217,20 +214,8 @@ export function getAcornByName(acorns, name) {
  * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
  */
 export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
-  console.debug('[fetchAndRegisterMetadata] called, stack:', new Error().stack);
-  // 1. Ensure DuckDB's httpfs / S3 extensions are loaded on the server.
-  // Try LOAD first (fast path: extension already installed, e.g. pre-baked into
-  // the Docker image).  Only fall back to INSTALL if LOAD fails — INSTALL makes
-  // an outbound network request to extensions.duckdb.org and will hang or fail
-  // when the container has no external internet access.
-  console.debug('[fetchAndRegisterMetadata] loading httpfs');
-  try {
-    await coordinator.exec('LOAD httpfs;');
-  } catch {
-    console.debug('[fetchAndRegisterMetadata] LOAD failed, attempting INSTALL then LOAD');
-    await coordinator.exec('INSTALL httpfs; LOAD httpfs;');
-  }
-  console.debug('[fetchAndRegisterMetadata] httpfs done');
+  // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
+  // All parquet URLs are converted to HTTPS so no S3 credentials are required.
 
   // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
   // cache: 'no-cache' forces a conditional revalidation request so that a

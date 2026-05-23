@@ -1,6 +1,6 @@
-import { coordinator, socketConnector } from '@uwdata/vgplot';
+import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
-import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
+import { SQUIRREL_URL } from './constants.js';
 import { escHtml, filterRows } from './lib/utils.js';
 
 const PAGE_SIZE = 100;
@@ -11,7 +11,7 @@ async function init() {
   if (!app) return;
 
   try {
-    coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
+    coordinator().databaseConnector(wasmConnector());
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
     if (loadingEl) loadingEl.remove();
     buildView(app, metadata.acorns);

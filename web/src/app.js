@@ -8,12 +8,12 @@
  * entry point so they can load independently without blocking on httpfs/DuckDB.
  */
 
-import { coordinator, socketConnector } from '@uwdata/vgplot';
+import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { initSettings } from './explorer/settings.js';
 import { createTimeView } from './explorer/time-view.js';
 import { createDataView } from './explorer/data-view.js';
-import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
+import { SQUIRREL_URL } from './constants.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -24,7 +24,7 @@ async function init() {
 
   try {
     // 1. Connect the Mosaic coordinator to the local duckdb-server.
-    coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
+    coordinator().databaseConnector(wasmConnector());
 
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
     const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
@@ -144,13 +144,8 @@ function renderError(err) {
     err?.type === 'error' ||
     err?.constructor?.name === 'CloseEvent';
 
-  const title = isConnErr ? 'Cannot connect to DuckDB server' : 'Initialisation error';
-  const body = isConnErr
-    ? `<p>Could not reach the DuckDB server at <code>${SERVER_WS_URL}</code>.</p>
-       <p>Start it with:</p>
-       <pre>npm run server</pre>
-       <p class="error-hint">Then reload this page.</p>`
-    : `<pre>${String(err?.stack ?? err?.message ?? err)}</pre>`;
+  const title = isConnErr ? 'Cannot initialise DuckDB-WASM' : 'Initialisation error';
+  const body = `<pre>${String(err?.stack ?? err?.message ?? err)}</pre>`;
 
   app.innerHTML = `
     <div class="card error">

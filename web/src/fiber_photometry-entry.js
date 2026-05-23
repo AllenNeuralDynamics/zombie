@@ -2,10 +2,10 @@
  * fiber_photometry-entry.js — Entry point for the Fiber Photometry Platform page.
  */
 
-import { coordinator, socketConnector } from '@uwdata/vgplot';
+import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { createFiberPhotometryView } from './fiber_photometry/view.js';
-import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
+import { SQUIRREL_URL } from './constants.js';
 
 async function init() {
   const loadingEl = document.getElementById('loading-message');
@@ -13,7 +13,7 @@ async function init() {
   if (!app) return;
 
   try {
-    coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
+    coordinator().databaseConnector(wasmConnector());
     await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
     if (loadingEl) loadingEl.remove();
 

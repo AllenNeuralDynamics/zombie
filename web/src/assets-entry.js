@@ -4,10 +4,10 @@
  * Connects to DuckDB, loads httpfs + metadata, then renders the assets table.
  */
 
-import { coordinator, socketConnector } from '@uwdata/vgplot';
+import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { createAssetsView } from './assets/view.js';
-import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
+import { SQUIRREL_URL } from './constants.js';
 
 async function init() {
   const loadingEl = document.getElementById('loading-message');
@@ -15,7 +15,7 @@ async function init() {
   if (!app) return;
 
   try {
-    coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
+    coordinator().databaseConnector(wasmConnector());
     await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
     if (loadingEl) loadingEl.remove();
 

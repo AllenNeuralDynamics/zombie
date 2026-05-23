@@ -5,10 +5,10 @@
  * subject-ID dropdown list, but renders the page even if DuckDB is unavailable.
  */
 
-import { coordinator, socketConnector } from '@uwdata/vgplot';
+import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { createSubjectView } from './subject/view.js';
-import { SQUIRREL_URL, SERVER_WS_URL } from './constants.js';
+import { SQUIRREL_URL } from './constants.js';
 
 async function init() {
   const app = document.getElementById('app');
@@ -18,7 +18,7 @@ async function init() {
   // page rendering if it fails (the dropdown will just be empty).
   let coord = null;
   try {
-    coordinator().databaseConnector(socketConnector(SERVER_WS_URL));
+    coordinator().databaseConnector(wasmConnector());
     await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
     coord = coordinator();
   } catch (err) {
