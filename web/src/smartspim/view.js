@@ -73,6 +73,7 @@ export function isProcessed(row) {
   return row.processed === true || row.processed === 'true' || row.processed === 'Yes';
 }
 
+
 // ---------------------------------------------------------------------------
 // Long-form → wide-form pivot
 // ---------------------------------------------------------------------------
@@ -99,6 +100,8 @@ export function pivotLongFormRows(longRows) {
       wide.stitched_link = row.stitched_link;
       wide.processed = row.processed;
       wide.institution = row.institution;
+      wide.proc_location = row.proc_location;
+      wide.proc_code_ocean = row.proc_code_ocean;
       assetMap.set(assetName, wide);
     }
 
@@ -137,10 +140,11 @@ export function renderSmartSpimRow(row, visibleColumns) {
     ? '<span class="badge badge-yes">Yes</span>'
     : '<span class="badge badge-no">No</span>';
 
-  const s3Href = buildS3ConsoleUrl(row.location ?? null);
-  const qcHref = buildQcLink(row.raw_name ?? null);
-  const metaHref = buildMetadataLink(row.raw_name ?? null);
-  const coHref = buildCoLink(row.code_ocean ?? null);
+  const proc = isProcessed(row);
+  const s3Href = buildS3ConsoleUrl(proc ? (row.proc_location ?? null) : (row.location ?? null));
+  const qcHref = buildQcLink(proc ? row.name : (row.raw_name ?? null));
+  const metaHref = buildMetadataLink(proc ? row.name : (row.raw_name ?? null));
+  const coHref = buildCoLink(proc ? (row.proc_code_ocean ?? null) : (row.code_ocean ?? null));
 
   const cellValues = {
     subject_id: row.subject_id
@@ -204,9 +208,11 @@ export function createSmartSpimView(coord, metadata) {
         `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
                 s.processing_end_time, s.stitched_link, s.raw_link, s.processed, s.institution,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.genotype, b.location, b.code_ocean, b.investigators, b.experimenters
+                b.genotype, b.location, b.code_ocean, b.investigators, b.experimenters,
+                p.location AS proc_location, p.code_ocean AS proc_code_ocean
          FROM assets_smartspim s
          LEFT JOIN asset_basics b ON b.name = s.raw_name
+         LEFT JOIN asset_basics p ON p.name = s.name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, s.name`,
         { type: 'json' },
       ),

@@ -194,6 +194,8 @@ describe('pivotLongFormRows', () => {
 // ---------------------------------------------------------------------------
 
 describe('renderSmartSpimRow', () => {
+  // baseRow simulates a processed asset: proc_location and proc_code_ocean come
+  // from the second JOIN (asset_basics p ON p.name = s.name).
   const baseRow = {
     name: 'SmartSPIM_568105_2024-01-31_stitched_2024-02-01',
     raw_name: 'SmartSPIM_568105_2024-01-31',
@@ -207,8 +209,10 @@ describe('renderSmartSpimRow', () => {
     processed: true,
     investigators: 'Alice',
     experimenters: 'Bob',
-    location: 's3://bucket/asset/',
-    code_ocean: 'abc123',
+    location: 's3://raw-bucket/raw-asset/',
+    code_ocean: 'raw-co-id',
+    proc_location: 's3://proc-bucket/proc-asset/',
+    proc_code_ocean: 'proc-co-id',
     _channels: ['Ex_488_Em_525', 'Ex_561_Em_600'],
     channels: 'Ex_488_Em_525\nEx_561_Em_600',
     '_seg_Ex_488_Em_525': 'https://neuroglancer.example.com/#!seg1',
@@ -243,10 +247,51 @@ describe('renderSmartSpimRow', () => {
     expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('Seg');
   });
 
-  it('renders CO and QC links', () => {
+  it('renders QC link using processed asset name when processed', () => {
     const html = renderSmartSpimRow(baseRow, defaultCols);
-    expect(html).toContain('CO');
     expect(html).toContain('QC');
+    expect(html).toContain('SmartSPIM_568105_2024-01-31_stitched_2024-02-01');
+  });
+
+  it('renders QC link using raw_name when not processed', () => {
+    const html = renderSmartSpimRow({ ...baseRow, processed: false }, defaultCols);
+    expect(html).toContain('QC');
+    expect(html).toContain('SmartSPIM_568105_2024-01-31');
+  });
+
+  // CO link
+  it('CO uses proc_code_ocean when processed', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).toContain('proc-co-id');
+    expect(html).not.toContain('raw-co-id');
+  });
+
+  it('CO uses raw code_ocean when not processed', () => {
+    const row = { ...baseRow, processed: false };
+    const html = renderSmartSpimRow(row, defaultCols);
+    expect(html).toContain('raw-co-id');
+    expect(html).not.toContain('proc-co-id');
+  });
+
+  it('CO is dash when processed and proc_code_ocean is null', () => {
+    const row = { ...baseRow, proc_code_ocean: null };
+    const html = renderSmartSpimRow(row, defaultCols);
+    expect(html).not.toContain('codeocean.allenneuraldynamics.org');
+    expect(html).not.toContain('raw-co-id');
+  });
+
+  // S3 link
+  it('S3 uses proc_location when processed', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).toContain('proc-bucket');
+    expect(html).not.toContain('raw-bucket');
+  });
+
+  it('S3 uses raw location when not processed', () => {
+    const row = { ...baseRow, processed: false };
+    const html = renderSmartSpimRow(row, defaultCols);
+    expect(html).toContain('raw-bucket');
+    expect(html).not.toContain('proc-bucket');
   });
 
   it('renders processed badge Yes when processed is true', () => {
