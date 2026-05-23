@@ -243,6 +243,18 @@ describe('renderSmartSpimRow', () => {
     expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('Stitched');
   });
 
+  it('renders alignment link when alignment_link is present', () => {
+    const row = { ...baseRow, alignment_link: 'https://neuroglancer.example.com/#!align' };
+    const html = renderSmartSpimRow(row, defaultCols);
+    expect(html).toContain('Alignment');
+    expect(html).toContain('neuroglancer.example.com/#!align');
+  });
+
+  it('renders no alignment link (dash) when alignment_link is absent', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).not.toContain('Alignment');
+  });
+
   it('renders seg link for channel with data', () => {
     expect(renderSmartSpimRow(baseRow, defaultCols)).toContain('Seg');
   });
