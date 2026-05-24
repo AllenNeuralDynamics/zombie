@@ -288,7 +288,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     const timelineSvg = createSubjectTimeline(events, {
       onSelect: (ev) => {
-        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system });
+        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator });
         if (assetsTableEl && ev?.type === 'Acquisition') {
           const targetName = ev.data?._assetName ?? '';
           if (targetName) assetsTableEl.goToAsset?.(targetName);

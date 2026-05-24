@@ -18,6 +18,11 @@ import { createBrainVizCanvas } from './brain-viz.js';
 import { createBrainViz3D } from './brain-viz-3d.js';
 import { createEphysViz3D, extractEphysProbes } from './ephys-viz-3d.js';
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
+import {
+  isForagingAcquisition,
+  extractForagingSessionInfo,
+  createForagingSessionDetail,
+} from '../lib/behaviors/dynamic-foraging.js';
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -499,8 +504,23 @@ function createEphysPanel(acquisitionData) {
  * Render an Acquisition event detail: overview card, with an optional
  * "Ephys Assembly" tab when ephys data is present.
  */
-function renderAcquisitionDetail(event, container) {
+function renderAcquisitionDetail(event, container, context = {}) {
   const { data = {} } = event;
+
+  // Dynamic foraging sessions get a dedicated panel
+  if (isForagingAcquisition(event)) {
+    const sessionInfo = extractForagingSessionInfo(event);
+    container.innerHTML = '';
+    const overviewEl = document.createElement('div');
+    overviewEl.innerHTML = buildAcquisitionDetail(event);
+    const foragingEl = createForagingSessionDetail(sessionInfo, null, context.coordinator ?? null);
+    const tabDefs = [
+      { label: 'Foraging',  content: foragingEl },
+      { label: 'Overview',  content: overviewEl },
+    ];
+    container.appendChild(createTabWidget(tabDefs));
+    return;
+  }
 
   if (!hasEphysAssemblies(data)) {
     // Simple case: just the overview card
@@ -584,7 +604,7 @@ export function renderEventDetail(event, container, context = {}) {
       break;
 
     case 'Acquisition':
-      renderAcquisitionDetail(event, container);
+      renderAcquisitionDetail(event, container, context);
       break;
 
     case 'Session':

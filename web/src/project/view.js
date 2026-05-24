@@ -10,6 +10,7 @@
 
 import * as Plot from '@observablehq/plot';
 import { arrowTableToRows, buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
+import { createForagingSessionDetail } from '../lib/behaviors/dynamic-foraging.js';
 
 // ---------------------------------------------------------------------------
 // Date helpers
@@ -551,15 +552,33 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     let assetsTableEl = null;
 
+    // Detail section for foraging sessions (shown on dot click)
+    const detailSection = document.createElement('div');
+    detailSection.className = 'subject-detail-section project-detail-section';
+
     // Compute cell width from available container width
     const containerW = contentEl.getBoundingClientRect().width || window.innerWidth;
     const cellW = Math.max(50, Math.floor((containerW - LABEL_W - 24) / 14));
 
     const svgEl = buildTimelineSvg(rawAssets, windowStart, (dayAssets) => {
-      if (!assetsTableEl) return;
-      assetsTableEl.clearHighlights?.();
-      for (const asset of dayAssets) {
-        assetsTableEl.goToAsset?.(asset.name ?? '');
+      if (assetsTableEl) {
+        assetsTableEl.clearHighlights?.();
+        for (const asset of dayAssets) {
+          assetsTableEl.goToAsset?.(asset.name ?? '');
+        }
+      }
+      // Show foraging detail for behavior assets
+      const behaviorAsset = dayAssets.find((a) => /^behavior_\d{6}_\d{4}-\d{2}-\d{2}/.test(a.name ?? ''));
+      if (behaviorAsset && coordinator) {
+        const match = behaviorAsset.name.match(/^behavior_(\d{6})_(\d{4}-\d{2}-\d{2})_(\d+)/);
+        if (match) {
+          detailSection.innerHTML = '';
+          detailSection.appendChild(createForagingSessionDetail(
+            { subject_id: match[1], session_date: match[2], nwb_suffix: match[3] },
+            null,
+            coordinator,
+          ));
+        }
       }
     }, { cellW, tooltipEl });
     timelineWrap.appendChild(svgEl);
@@ -608,6 +627,7 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     loadingEl.replaceWith(infoEl);
     contentEl.appendChild(timelineSection);
+    contentEl.appendChild(detailSection);
     contentEl.appendChild(assetsSection);
 
   } catch (err) {

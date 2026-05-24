@@ -3024,6 +3024,35 @@ body {
   margin: 0;
 }
 
+/* Foraging session detail */
+.foraging-session-detail { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.foraging-meta-card {
+  padding: 0.75rem;
+  background: var(--surface-card);
+  border-radius: var(--radius);
+}
+
+.foraging-meta-card dl {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  gap: 0.2rem 0.75rem;
+  margin: 0;
+}
+
+.foraging-meta-card dt { font-weight: 600; color: var(--color-muted, #666); }
+.foraging-meta-card dd { margin: 0; }
+.foraging-meta-card hr { border: none; border-top: 1px solid var(--color-grey, #ddd); margin: 0.5rem 0; }
+
+.foraging-choice-history-img {
+  width: 100%;
+  max-width: 1200px;
+  height: auto;
+  border: 1px solid var(--color-grey, #ddd);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
 /* Tab widget */
 .detail-tabs { }
 

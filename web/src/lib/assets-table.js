@@ -161,7 +161,6 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
     const row = tbody.querySelector(`tr[data-asset-name="${CSS.escape(name)}"]`);
     if (row) {
       row.classList.add('asset-highlighted');
-      row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   };
 
