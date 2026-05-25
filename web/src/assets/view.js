@@ -231,7 +231,7 @@ export function createAssetsView(coord) {
 
     const uniques = {};
     for (const col of ALL_AVAILABLE_COLUMNS) {
-      uniques[col] = uniqueValues(allRows, col);
+      uniques[col] = uniqueValues(allRows, col, { splitByComma: col === 'modalities' });
     }
 
     const useSelect = {};

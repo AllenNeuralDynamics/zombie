@@ -79,11 +79,18 @@ export function sortRows(rows, col, dir) {
  * @param {string} col
  * @returns {string[]}
  */
-export function uniqueValues(rows, col) {
+export function uniqueValues(rows, col, { splitByComma = false } = {}) {
   const seen = new Set();
   for (const row of rows) {
     const v = row[col];
-    if (v != null && v !== '') seen.add(String(v));
+    if (v == null || v === '') continue;
+    if (splitByComma) {
+      for (const part of String(v).split(',').map((s) => s.trim()).filter(Boolean)) {
+        seen.add(part);
+      }
+    } else {
+      seen.add(String(v));
+    }
   }
   return Array.from(seen).sort();
 }
