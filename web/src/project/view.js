@@ -313,8 +313,8 @@ const MODALITY_COLOR = {
   'MAPseq':          '#d4a6c8',
   'BARseq':          '#bcbd22',
   'scRNAseq':        '#79706e',
-  'behavior':        '#bab0ac',
-  'behavior-videos': '#e49444',
+  'behavior':        '#000000',
+  'behavior-videos': '#bab0ac',
 };
 
 /**
