@@ -361,6 +361,38 @@ body {
   color: var(--color-red);
 }
 
+.platform-summary-banner {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  padding: 4px 0 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.platform-summary-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0 0 4px;
+}
+
+.platform-summary-count {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.platform-summary-failed-link {
+  color: var(--color-red);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.platform-summary-failed-link:hover {
+  opacity: 0.75;
+}
+
 .assets-settings-btn {
   background: none;
   border: none;

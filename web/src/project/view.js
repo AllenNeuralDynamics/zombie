@@ -328,7 +328,7 @@ const MODALITY_COLOR = {
  * @param {Date} windowStart - Start of the currently selected two-week window (for highlight overlay).
  * @returns {HTMLElement|null} The plot element, or null if there's no data.
  */
-function buildModalityHistogram(assets, containerWidth = 700, windowStart = null) {
+function buildModalityHistogram(assets, containerWidth = 700) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
@@ -374,25 +374,7 @@ function buildModalityHistogram(assets, containerWidth = 700, windowStart = null
   }
   const maxTotal = Math.max(...monthTotals.values(), 1);
 
-  // Compute x domain from data, then extend to include the window so the
-  // overlay is never clipped when the window falls outside the data range.
-  const dataXMin = rows.reduce((m, r) => r.month < m ? r.month : m, rows[0].month);
-  const dataXMax = rows.reduce((m, r) => monthEnd(r.month) > m ? monthEnd(r.month) : m, monthEnd(rows[0].month));
-  const windowEnd = windowStart ? addDays(windowStart, 14) : null;
-  const xMin = windowStart && windowStart < dataXMin ? windowStart : dataXMin;
-  const xMax = windowEnd && windowEnd > dataXMax ? windowEnd : dataXMax;
-
   const marks = [
-    // Overlay behind the bars — uses explicit domain values so it fills
-    // exactly the full chart height without influencing the y scale.
-    ...(windowStart ? [Plot.rect([{}], {
-      x1: () => windowStart,
-      x2: () => windowEnd,
-      y1: 0,
-      y2: maxTotal,
-      fill: '#4e79a7',
-      fillOpacity: 0.15,
-    })] : []),
     Plot.rectY(rows, Plot.stackY({
       order: presentModalities,
       x1: (d) => d.month,
@@ -409,7 +391,7 @@ function buildModalityHistogram(assets, containerWidth = 700, windowStart = null
     x: {
       type: 'utc',
       interval: 'month',
-      domain: [xMin, xMax],
+
       tickFormat: (d) =>
         d.getUTCMonth() === 0
           ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -572,7 +554,7 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     // Acquisitions histogram — lives inside the info card, to the right
     const histogramEl = document.createElement('div');
     histogramEl.className = 'project-info-histogram';
-    const histPlot = buildModalityHistogram(rawAssets, Math.max(400, (contentEl.getBoundingClientRect().width || window.innerWidth) - 220), windowStart);
+    const histPlot = buildModalityHistogram(rawAssets, Math.max(400, (contentEl.getBoundingClientRect().width || window.innerWidth) - 220));
     if (histPlot) {
       histogramEl.appendChild(histPlot);
       infoEl.appendChild(histogramEl);

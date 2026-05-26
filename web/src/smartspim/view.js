@@ -11,6 +11,7 @@
 import { registerAcornTable } from '../lib/metadata.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { createPlatformSummaryBanner } from '../lib/platform-summary.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -244,6 +245,10 @@ export function createSmartSpimView(coord, metadata) {
 
     layout.appendChild(filterPanel);
     layout.appendChild(mainContent);
+    container.appendChild(createPlatformSummaryBanner(coord, {
+      platformTableName: 'assets_smartspim',
+      assetNameCol: 'name',
+    }));
     container.appendChild(layout);
 
     // Subject sidebar
@@ -337,8 +342,7 @@ export function createSmartSpimView(coord, metadata) {
 
     const header = document.createElement('div');
     header.className = 'assets-header';
-    header.innerHTML = '<h2>SmartSPIM Assets</h2>' +
-      '<span class="assets-header-ext-link">If your asset does not appear here, look at the ' +
+    header.innerHTML = '<span class="assets-header-ext-link">If your asset does not appear here, look at the ' +
       '<a href="https://app.smartsheet.com/dashboards/cJ7W8rJHRv9c2xRrFjg5FRMH99v6XFFCHgV6w3W1" ' +
       'target="_blank" rel="noopener noreferrer">Processing Dashboard</a></span>';
 

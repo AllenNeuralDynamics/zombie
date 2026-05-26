@@ -9,6 +9,7 @@
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { createPlatformSummaryBanner } from '../lib/platform-summary.js';
 
 const FIB_S3_PATH = `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_platform_fib.pqt`;
 
@@ -437,6 +438,10 @@ export function createFiberPhotometryView(coord) {
 
     layout.appendChild(filterPanel);
     layout.appendChild(mainContent);
+    container.appendChild(createPlatformSummaryBanner(coord, {
+      platformTableName: 'platform_fib',
+      assetNameCol: 'asset_name',
+    }));
     container.appendChild(layout);
 
     // Top card (header + alert + table)
@@ -445,7 +450,7 @@ export function createFiberPhotometryView(coord) {
 
     const header = document.createElement('div');
     header.className = 'assets-header';
-    header.innerHTML = '<h2>Fiber Photometry Platform</h2>';
+    header.innerHTML = '';
 
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'assets-settings-btn icon-btn';
