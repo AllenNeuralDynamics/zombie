@@ -318,36 +318,36 @@ const MODALITY_COLOR = {
 };
 
 /**
- * Build a stacked bar chart of acquisitions per week, colored by modality.
+ * Build a stacked bar chart of acquisitions per month, colored by modality.
  *
  * Pre-aggregates the assets in JS (data already in memory) then passes a
  * plain array to Observable Plot via vgplot's barY mark.
  *
  * @param {object[]} assets - Raw project assets (already filtered to non-derived).
  * @param {number} containerWidth - Available pixel width for sizing the chart.
+ * @param {Date} windowStart - Start of the currently selected two-week window (for highlight overlay).
  * @returns {HTMLElement|null} The plot element, or null if there's no data.
  */
-function buildModalityHistogram(assets, containerWidth = 700) {
+function buildModalityHistogram(assets, containerWidth = 700, windowStart = null) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
-  // Bin by ISO week start (Monday), one row per week+modality combination.
+  // Bin by month start (first day of month), one row per month+modality combination.
   // Assets with comma-separated modalities are expanded into separate rows.
-  const counts = new Map(); // `week|modality` → count
+  const counts = new Map(); // `monthStart|modality` → count
   for (const a of dated) {
     const d = new Date(a.acquisition_start_time);
-    const dow = d.getUTCDay(); // 0=Sun
-    const mon = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((dow + 6) % 7)));
-    const weekStr = isoDate(mon);
+    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    const monthStr = isoDate(monthStart);
     for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
-      const key = `${weekStr}|${m}`;
+      const key = `${monthStr}|${m}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
 
   const rows = Array.from(counts.entries()).map(([key, n]) => {
-    const [week, modality] = key.split('|');
-    return { week: new Date(week), modality, n };
+    const [month, modality] = key.split('|');
+    return { month: new Date(month), modality, n };
   });
 
   const chartWidth = Math.max(300, containerWidth - 32);
@@ -361,27 +361,64 @@ function buildModalityHistogram(assets, containerWidth = 700) {
   const colorDomain = presentModalities;
   const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
 
+  // Calculate the end of each month for x2
+  function monthEnd(monthStart) {
+    return new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
+  }
+
+  // Max stacked height per month (sum all modalities for same month)
+  const monthTotals = new Map();
+  for (const r of rows) {
+    const key = r.month.toISOString();
+    monthTotals.set(key, (monthTotals.get(key) ?? 0) + r.n);
+  }
+  const maxTotal = Math.max(...monthTotals.values(), 1);
+
+  // Compute x domain from data, then extend to include the window so the
+  // overlay is never clipped when the window falls outside the data range.
+  const dataXMin = rows.reduce((m, r) => r.month < m ? r.month : m, rows[0].month);
+  const dataXMax = rows.reduce((m, r) => monthEnd(r.month) > m ? monthEnd(r.month) : m, monthEnd(rows[0].month));
+  const windowEnd = windowStart ? addDays(windowStart, 14) : null;
+  const xMin = windowStart && windowStart < dataXMin ? windowStart : dataXMin;
+  const xMax = windowEnd && windowEnd > dataXMax ? windowEnd : dataXMax;
+
+  const marks = [
+    // Overlay behind the bars — uses explicit domain values so it fills
+    // exactly the full chart height without influencing the y scale.
+    ...(windowStart ? [Plot.rect([{}], {
+      x1: () => windowStart,
+      x2: () => windowEnd,
+      y1: 0,
+      y2: maxTotal,
+      fill: '#4e79a7',
+      fillOpacity: 0.15,
+    })] : []),
+    Plot.rectY(rows, Plot.stackY({
+      order: presentModalities,
+      x1: (d) => d.month,
+      x2: (d) => monthEnd(d.month),
+      y: 'n',
+      fill: 'modality',
+    })),
+  ];
+
   return Plot.plot({
     width: chartWidth,
     height: 200,
     marginBottom: 50,
-    x: { type: 'utc', tickFormat: (d) =>
-      d.getUTCMonth() === 0
-        ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
-        : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+    x: {
+      type: 'utc',
+      interval: 'month',
+      domain: [xMin, xMax],
+      tickFormat: (d) =>
+        d.getUTCMonth() === 0
+          ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+          : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
     },
-    y: { label: 'Acquisitions', grid: true },
+    y: { label: 'Acquisitions', grid: true, domain: [0, maxTotal] },
     color: { domain: colorDomain, range: colorRange, legend: true },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
-    marks: [
-      Plot.rectY(rows, Plot.stackY({
-        order: presentModalities,
-        x1: (d) => d.week,
-        x2: (d) => new Date(d.week.getTime() + 7 * 86400000),
-        y: 'n',
-        fill: 'modality',
-      })),
-    ],
+    marks,
   });
 }
 
@@ -532,6 +569,15 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
       </dl>`;
     infoEl.appendChild(infoTextEl);
 
+    // Acquisitions histogram — lives inside the info card, to the right
+    const histogramEl = document.createElement('div');
+    histogramEl.className = 'project-info-histogram';
+    const histPlot = buildModalityHistogram(rawAssets, Math.max(400, (contentEl.getBoundingClientRect().width || window.innerWidth) - 220), windowStart);
+    if (histPlot) {
+      histogramEl.appendChild(histPlot);
+      infoEl.appendChild(histogramEl);
+    }
+
     // Timeline section
     const timelineSection = document.createElement('div');
     timelineSection.className = 'subject-timeline-section project-timeline-section';
@@ -540,6 +586,31 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     timelineHeader.className = 'project-timeline-header';
     timelineHeader.innerHTML = `<h3>Acquisitions</h3>`;
     timelineSection.appendChild(timelineHeader);
+
+    // Navigation arrows — positioned above the timeline
+    const navEl = document.createElement('div');
+    navEl.className = 'project-timeline-nav';
+
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'project-nav-btn';
+    prevBtn.setAttribute('aria-label', 'Previous two weeks');
+    prevBtn.innerHTML = `<span class="material-icons">chevron_left</span>`;
+    prevBtn.addEventListener('click', onPrev);
+
+    const rangeLabel = document.createElement('span');
+    rangeLabel.className = 'project-nav-range';
+    rangeLabel.textContent = `${isoDate(windowStart)} – ${isoDate(addDays(windowEnd, -1))}`;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'project-nav-btn';
+    nextBtn.setAttribute('aria-label', 'Next two weeks');
+    nextBtn.innerHTML = `<span class="material-icons">chevron_right</span>`;
+    nextBtn.addEventListener('click', onNext);
+
+    navEl.appendChild(prevBtn);
+    navEl.appendChild(rangeLabel);
+    navEl.appendChild(nextBtn);
+    timelineSection.appendChild(navEl);
 
     const timelineWrap = document.createElement('div');
     timelineWrap.className = 'project-timeline-wrap';
@@ -584,46 +655,12 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     timelineWrap.appendChild(svgEl);
     timelineSection.appendChild(timelineWrap);
 
-    // Navigation arrows
-    const navEl = document.createElement('div');
-    navEl.className = 'project-timeline-nav';
-
-    const prevBtn = document.createElement('button');
-    prevBtn.className = 'project-nav-btn';
-    prevBtn.setAttribute('aria-label', 'Previous two weeks');
-    prevBtn.innerHTML = `<span class="material-icons">chevron_left</span>`;
-    prevBtn.addEventListener('click', onPrev);
-
-    const rangeLabel = document.createElement('span');
-    rangeLabel.className = 'project-nav-range';
-    rangeLabel.textContent = `${isoDate(windowStart)} – ${isoDate(addDays(windowEnd, -1))}`;
-
-    const nextBtn = document.createElement('button');
-    nextBtn.className = 'project-nav-btn';
-    nextBtn.setAttribute('aria-label', 'Next two weeks');
-    nextBtn.innerHTML = `<span class="material-icons">chevron_right</span>`;
-    nextBtn.addEventListener('click', onNext);
-
-    navEl.appendChild(prevBtn);
-    navEl.appendChild(rangeLabel);
-    navEl.appendChild(nextBtn);
-    timelineSection.appendChild(navEl);
-
     // Assets table
     const assetsSection = document.createElement('div');
     assetsSection.className = 'subject-assets-section';
     assetsSection.innerHTML = '<h3>Assets</h3>';
     assetsTableEl = buildAssetsTable(allAssets, sourceMap);
     assetsSection.appendChild(assetsTableEl);
-
-    // Acquisitions histogram — lives inside the info card, to the right
-    const histogramEl = document.createElement('div');
-    histogramEl.className = 'project-info-histogram';
-    const histPlot = buildModalityHistogram(rawAssets, Math.max(400, (contentEl.getBoundingClientRect().width || window.innerWidth) - 220));
-    if (histPlot) {
-      histogramEl.appendChild(histPlot);
-    }
-    if (histPlot) infoEl.appendChild(histogramEl);
 
     loadingEl.replaceWith(infoEl);
     contentEl.appendChild(timelineSection);

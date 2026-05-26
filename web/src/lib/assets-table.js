@@ -77,8 +77,8 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
   table.className = 'subject-assets-table detail-table';
   table.innerHTML = `<thead><tr>
     <th>Name</th>
+    <th>Subject</th>
     <th>Acquired (UTC)</th>
-    <th>Project</th>
     <th>Modalities</th>
     <th>Level</th>
     <th>Links</th>
@@ -117,10 +117,14 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
         qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC</a>` : '',
       ].filter(Boolean).join(' ');
 
+      const subjectCell = asset.subject_id
+        ? `<a href="/subject?subject_id=${encodeURIComponent(asset.subject_id)}">${asset.subject_id}</a>`
+        : '';
+
       tr.innerHTML = `
         <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${asset.name ?? ''}</td>
+        <td>${subjectCell}</td>
         <td>${formatDatetime(asset.acquisition_start_time)}</td>
-        <td>${asset.project_name ?? ''}</td>
         <td>${asset.modalities ?? ''}</td>
         <td>${asset.data_level ?? ''}</td>
         <td class="link-cell">${linkParts}</td>`;
