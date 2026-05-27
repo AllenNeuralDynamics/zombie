@@ -3680,7 +3680,7 @@ body {
 }
 
 .project-timeline-section {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .project-timeline-header {
@@ -3690,8 +3690,35 @@ body {
   margin-bottom: 8px;
 }
 
+.project-timeline-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.project-filter-panel {
+  flex: 0 0 180px;
+  min-width: 160px;
+}
+
+.project-timeline-main {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.project-filter-select {
+  width: 100%;
+  font-size: 0.82rem;
+  padding: 3px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
 .project-timeline-wrap {
-  overflow-x: auto;
   padding: 50px 0 4px;
 }
 

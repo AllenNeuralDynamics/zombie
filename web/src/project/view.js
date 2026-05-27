@@ -29,6 +29,40 @@ function isoDate(d) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
+function getNumDays(windowSize) {
+  switch (windowSize) {
+    case 'week':    return 7;
+    case 'month':   return 30;
+    case '3months': return 91;
+    default:        return 14;
+  }
+}
+
+function computeDefaultWindowStart(windowSize, today) {
+  const dow = today.getUTCDay();
+  const thisSunday = addDays(today, -dow);
+  switch (windowSize) {
+    case 'week':    return thisSunday;
+    case 'month':   return addDays(today, -29);
+    case '3months': return addDays(today, -90);
+    default:        return addDays(thisSunday, -7);
+  }
+}
+
+function filterByCurricula(rawAssets, windowStart, numDays, curriculumMap, selectedCurricula) {
+  if (!selectedCurricula || selectedCurricula.size === 0) return rawAssets;
+  const windowEnd = addDays(windowStart, numDays);
+  const allowedSubjects = new Set();
+  for (const a of rawAssets) {
+    if (!a.acquisition_start_time || !a.subject_id) continue;
+    const d = utcDay(new Date(a.acquisition_start_time));
+    if (d < windowStart || d >= windowEnd) continue;
+    const cur = curriculumMap.get(a.name);
+    if (cur && selectedCurricula.has(cur.curriculum_name)) allowedSubjects.add(a.subject_id);
+  }
+  return rawAssets.filter((a) => allowedSubjects.has(a.subject_id));
+}
+
 // ---------------------------------------------------------------------------
 // Timeline SVG builder
 // ---------------------------------------------------------------------------
@@ -56,8 +90,8 @@ function shortDateLabel(d) {
  * @param {HTMLElement} opts.tooltipEl - Floating HTML div for hover tooltip (avoids SVG clipping).
  * @returns {SVGSVGElement}
  */
-function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltipEl = null, viewMode = 'modality', curriculumMap = null } = {}) {
-  const windowEnd = addDays(windowStart, 14);
+function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltipEl = null, viewMode = 'modality', curriculumMap = null, numDays = 14 } = {}) {
+  const windowEnd = addDays(windowStart, numDays);
 
   const inWindow = assets.filter((a) => {
     if (!a.acquisition_start_time) return false;
@@ -74,7 +108,6 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     return b.localeCompare(a);
   });
 
-  const numDays = 14;
   const days = Array.from({ length: numDays }, (_, i) => addDays(windowStart, i));
 
   const svgW = LABEL_W + numDays * cellW;
@@ -367,8 +400,8 @@ function stageForeground(stageNodeId) {
   return idx >= 5 ? '#ffffff' : '#000000';
 }
 
-function buildCurriculumLegend(rawAssets, windowStart, curriculumMap) {
-  const windowEnd = addDays(windowStart, 14);
+function buildCurriculumLegend(rawAssets, windowStart, curriculumMap, numDays = 14) {
+  const windowEnd = addDays(windowStart, numDays);
   const visibleCurricula = new Set();
   for (const a of rawAssets) {
     if (!a.acquisition_start_time) continue;
@@ -513,10 +546,12 @@ export function createProjectView(opts = {}) {
   const initialProject = params.get('project') ?? '';
 
   const today = utcDay(new Date());
-  let windowStart = addDays(today, -13);
   let currentProject = initialProject;
   let abortController = null;
   let viewMode = params.get('color_by') ?? 'modality';
+  let windowSize = params.get('window_size') ?? 'twoweeks';
+  let windowStart = computeDefaultWindowStart(windowSize, today);
+  let selectedCurricula = new Set((params.get('curricula') ?? '').split(',').filter(Boolean));
 
   const root = document.createElement('div');
   root.className = 'project-view';
@@ -567,17 +602,25 @@ export function createProjectView(opts = {}) {
     const p = new URLSearchParams(window.location.search);
     if (currentProject) p.set('project', currentProject); else p.delete('project');
     p.set('color_by', viewMode);
+    p.set('window_size', windowSize);
+    const curriculaStr = Array.from(selectedCurricula).join(',');
+    if (curriculaStr) p.set('curricula', curriculaStr); else p.delete('curricula');
     try {
       const url = new URL(window.location.href);
       url.search = p.toString();
       history.replaceState({}, '', url);
     } catch { /* restricted */ }
 
+    const _numDays = getNumDays(windowSize);
     _loadProject(contentEl, currentProject, coordinator, windowStart, abortController.signal, {
-      onPrev: () => { windowStart = addDays(windowStart, -14); load(); },
-      onNext: () => { windowStart = addDays(windowStart, 14); load(); },
+      onPrev: () => { windowStart = addDays(windowStart, -_numDays); load(); },
+      onNext: () => { windowStart = addDays(windowStart, _numDays); load(); },
       viewMode,
       onViewModeChange: (mode) => { viewMode = mode; load(); },
+      windowSize,
+      onWindowSizeChange: (size) => { windowSize = size; windowStart = computeDefaultWindowStart(size, utcDay(new Date())); load(); },
+      selectedCurricula,
+      onCurriculaChange: (set) => { selectedCurricula = set; load(); },
     });
   }
 
@@ -598,7 +641,7 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, viewMode = 'modality', onViewModeChange = null } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
   contentEl.innerHTML = '';
@@ -621,7 +664,8 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     return;
   }
 
-  const windowEnd = addDays(windowStart, 14);
+  const numDays = getNumDays(windowSize);
+  const windowEnd = addDays(windowStart, numDays);
   const safeProject = projectName.replace(/'/g, "''");
 
   try {
@@ -659,6 +703,11 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     } catch { /* curriculum data is optional */ }
     if (signal?.aborted) return;
 
+    const allCurricula = Array.from(
+      new Set(Array.from(curriculumMap.values()).map((c) => c.curriculum_name).filter(Boolean))
+    ).sort();
+    const filteredRawAssets = filterByCurricula(rawAssets, windowStart, numDays, curriculumMap, selectedCurricula ?? new Set());
+
     // Info card
     const infoEl = document.createElement('div');
     infoEl.className = 'subject-info-card project-info-card';
@@ -689,44 +738,124 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     const timelineHeader = document.createElement('div');
     timelineHeader.className = 'project-timeline-header';
-    timelineHeader.innerHTML = `<h3>Acquisitions</h3>`;
-    const colorByEl = document.createElement('div');
-    colorByEl.className = 'project-color-by';
-    colorByEl.innerHTML = `
-      <label for="pt-color-by-select">Color by</label>
-      <select id="pt-color-by-select">
-        <option value="modality" ${viewMode === 'modality' ? 'selected' : ''}>Modality</option>
-        <option value="curriculum" ${viewMode === 'curriculum' ? 'selected' : ''}>Curriculum stage</option>
-      </select>`;
-    timelineHeader.appendChild(colorByEl);
-    const colorBySelect = colorByEl.querySelector('select');
-    colorBySelect.addEventListener('change', () => onViewModeChange?.(colorBySelect.value));
+    timelineHeader.innerHTML = '<h3>Acquisitions</h3>';
     timelineSection.appendChild(timelineHeader);
 
-    // Navigation arrows — positioned above the timeline
+    const timelineBody = document.createElement('div');
+    timelineBody.className = 'project-timeline-body';
+
+    // --- Settings / filter panel ---
+    const filterPanel = document.createElement('div');
+    filterPanel.className = 'sessions-filter-panel project-filter-panel';
+
+    const panelTitle = document.createElement('h3');
+    panelTitle.className = 'sessions-panel-title';
+    panelTitle.textContent = 'Settings';
+    filterPanel.appendChild(panelTitle);
+
+    if (allCurricula.length > 0) {
+      const curriculumGroup = document.createElement('div');
+      curriculumGroup.className = 'sessions-filter-group';
+      const curriculumLabel = document.createElement('div');
+      curriculumLabel.className = 'sessions-filter-label';
+      curriculumLabel.textContent = 'Curriculum';
+      curriculumGroup.appendChild(curriculumLabel);
+      const cbList = document.createElement('div');
+      cbList.className = 'sessions-checkbox-list';
+      const localCurricula = new Set(selectedCurricula ?? []);
+      for (const name of allCurricula) {
+        const item = document.createElement('label');
+        item.className = 'sessions-checkbox-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = localCurricula.has(name);
+        cb.addEventListener('change', () => {
+          if (cb.checked) localCurricula.add(name); else localCurricula.delete(name);
+          onCurriculaChange?.(new Set(localCurricula));
+        });
+        item.appendChild(cb);
+        item.appendChild(document.createTextNode('\u00a0' + name));
+        cbList.appendChild(item);
+      }
+      const clearCurrBtn = document.createElement('button');
+      clearCurrBtn.className = 'sessions-filter-clear';
+      clearCurrBtn.textContent = 'Clear';
+      clearCurrBtn.addEventListener('click', () => {
+        localCurricula.clear();
+        cbList.querySelectorAll('input').forEach((c) => { c.checked = false; });
+        onCurriculaChange?.(new Set());
+      });
+      curriculumGroup.appendChild(cbList);
+      curriculumGroup.appendChild(clearCurrBtn);
+      filterPanel.appendChild(curriculumGroup);
+    }
+
+    const windowGroup = document.createElement('div');
+    windowGroup.className = 'sessions-filter-group';
+    const windowLabel = document.createElement('div');
+    windowLabel.className = 'sessions-filter-label';
+    windowLabel.textContent = 'Window';
+    windowGroup.appendChild(windowLabel);
+    const windowSelect = document.createElement('select');
+    windowSelect.className = 'project-filter-select';
+    [{ value: 'week', label: 'Current week' }, { value: 'twoweeks', label: 'Two weeks' },
+     { value: 'month', label: 'Month' }, { value: '3months', label: '3 months' }]
+      .forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value; opt.textContent = label;
+        if (value === windowSize) opt.selected = true;
+        windowSelect.appendChild(opt);
+      });
+    windowSelect.addEventListener('change', () => onWindowSizeChange?.(windowSelect.value));
+    windowGroup.appendChild(windowSelect);
+    filterPanel.appendChild(windowGroup);
+
+    const colorGroup = document.createElement('div');
+    colorGroup.className = 'sessions-filter-group';
+    const colorLabel = document.createElement('div');
+    colorLabel.className = 'sessions-filter-label';
+    colorLabel.textContent = 'Color by';
+    colorGroup.appendChild(colorLabel);
+    const colorSelect = document.createElement('select');
+    colorSelect.className = 'project-filter-select';
+    [{ value: 'modality', label: 'Modality' }, { value: 'curriculum', label: 'Curriculum stage' }]
+      .forEach(({ value, label }) => {
+        const opt = document.createElement('option');
+        opt.value = value; opt.textContent = label;
+        if (value === viewMode) opt.selected = true;
+        colorSelect.appendChild(opt);
+      });
+    colorSelect.addEventListener('change', () => onViewModeChange?.(colorSelect.value));
+    colorGroup.appendChild(colorSelect);
+    filterPanel.appendChild(colorGroup);
+
+    // --- Timeline main content ---
+    const timelineMain = document.createElement('div');
+    timelineMain.className = 'project-timeline-main';
+
     const navEl = document.createElement('div');
     navEl.className = 'project-timeline-nav';
 
     const prevBtn = document.createElement('button');
     prevBtn.className = 'project-nav-btn';
-    prevBtn.setAttribute('aria-label', 'Previous two weeks');
+    prevBtn.setAttribute('aria-label', 'Previous window');
     prevBtn.innerHTML = `<span class="material-icons">chevron_left</span>`;
     prevBtn.addEventListener('click', onPrev);
 
     const rangeLabel = document.createElement('span');
     rangeLabel.className = 'project-nav-range';
-    rangeLabel.textContent = `${isoDate(windowStart)} – ${isoDate(addDays(windowEnd, -1))}`;
+    rangeLabel.textContent = `${isoDate(windowStart)} \u2013 ${isoDate(addDays(windowEnd, -1))}`;
 
     const nextBtn = document.createElement('button');
     nextBtn.className = 'project-nav-btn';
-    nextBtn.setAttribute('aria-label', 'Next two weeks');
+    nextBtn.setAttribute('aria-label', 'Next window');
     nextBtn.innerHTML = `<span class="material-icons">chevron_right</span>`;
     nextBtn.addEventListener('click', onNext);
 
     navEl.appendChild(prevBtn);
     navEl.appendChild(rangeLabel);
     navEl.appendChild(nextBtn);
-    timelineSection.appendChild(navEl);
+    timelineMain.appendChild(navEl);
 
     const timelineWrap = document.createElement('div');
     timelineWrap.className = 'project-timeline-wrap';
@@ -743,11 +872,11 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     const detailSection = document.createElement('div');
     detailSection.className = 'subject-detail-section project-detail-section';
 
-    // Compute cell width from available container width
-    const containerW = contentEl.getBoundingClientRect().width || window.innerWidth;
-    const cellW = Math.max(50, Math.floor((containerW - LABEL_W - 24) / 14));
+    // Compute cell width — subtract filter panel (180px) + gap (16px) so SVG always fits
+    const containerW = (contentEl.getBoundingClientRect().width || window.innerWidth) - 196;
+    const cellW = Math.max(10, Math.floor((containerW - LABEL_W - 24) / numDays));
 
-    const svgEl = buildTimelineSvg(rawAssets, windowStart, (dayAssets) => {
+    const svgEl = buildTimelineSvg(filteredRawAssets, windowStart, (dayAssets) => {
       if (assetsTableEl) {
         assetsTableEl.clearHighlights?.();
         for (const asset of dayAssets) {
@@ -767,13 +896,17 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
           ));
         }
       }
-    }, { cellW, tooltipEl, viewMode, curriculumMap });
+    }, { cellW, tooltipEl, viewMode, curriculumMap, numDays });
     timelineWrap.appendChild(svgEl);
     if (viewMode === 'curriculum') {
-      const legendEl = buildCurriculumLegend(rawAssets, windowStart, curriculumMap);
+      const legendEl = buildCurriculumLegend(filteredRawAssets, windowStart, curriculumMap, numDays);
       if (legendEl) timelineWrap.appendChild(legendEl);
     }
-    timelineSection.appendChild(timelineWrap);
+    timelineMain.appendChild(timelineWrap);
+
+    timelineBody.appendChild(filterPanel);
+    timelineBody.appendChild(timelineMain);
+    timelineSection.appendChild(timelineBody);
 
     // Assets table
     const assetsSection = document.createElement('div');
