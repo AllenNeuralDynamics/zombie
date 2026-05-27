@@ -3684,6 +3684,9 @@ body {
 }
 
 .project-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
 }
 
@@ -3984,4 +3987,88 @@ body {
 .project-info-histogram svg {
   display: block;
   max-width: 100%;
+}
+
+/* ---------------------------------------------------------------------------
+ * Project page — color-by dropdown and curriculum legend
+ * ------------------------------------------------------------------------ */
+
+.project-color-by {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.project-color-by label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.project-color-by select {
+  font-size: 0.85rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.pt-curriculum-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 8px 0 4px 0;
+  margin-top: 6px;
+}
+
+.pt-legend-curriculum {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pt-legend-curriculum-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.pt-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.pt-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.pt-legend-badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 5px;
+  text-align: center;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.pt-legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 1px solid rgba(0, 0, 0, 0.2);
 }

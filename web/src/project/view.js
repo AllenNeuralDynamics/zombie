@@ -56,7 +56,7 @@ function shortDateLabel(d) {
  * @param {HTMLElement} opts.tooltipEl - Floating HTML div for hover tooltip (avoids SVG clipping).
  * @returns {SVGSVGElement}
  */
-function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltipEl = null } = {}) {
+function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltipEl = null, viewMode = 'modality', curriculumMap = null } = {}) {
   const windowEnd = addDays(windowStart, 14);
 
   const inWindow = assets.filter((a) => {
@@ -207,6 +207,24 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     return symId;
   }
 
+  const stageColorSymIdMap = new Map();
+  function getOrCreateCircleSymbol(color) {
+    if (stageColorSymIdMap.has(color)) return stageColorSymIdMap.get(color);
+    const symId = `pt-circle-${symCounter++}`;
+    stageColorSymIdMap.set(color, symId);
+    const sym = document.createElementNS(NS, 'symbol');
+    sym.setAttribute('id', symId);
+    sym.setAttribute('overflow', 'visible');
+    const c = document.createElementNS(NS, 'circle');
+    c.setAttribute('cx', 0);
+    c.setAttribute('cy', 0);
+    c.setAttribute('r', DOT_R);
+    c.setAttribute('fill', color);
+    sym.appendChild(c);
+    defs.appendChild(sym);
+    return symId;
+  }
+
   svg.appendChild(defs);
 
   bySubjectDay.forEach((dayAssets, key) => {
@@ -220,17 +238,27 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     const cy = HEAD_H + ri * ROW_H + ROW_H / 2;
     const count = dayAssets.length;
 
-    // Collect sorted unique modalities across all assets in this dot
-    const modalitySet = new Set();
-    for (const a of dayAssets) {
-      if (!a.modalities) continue;
-      for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
-        modalitySet.add(m);
+    // Collect symbol for this dot based on view mode
+    let symId;
+    if (viewMode === 'curriculum') {
+      let stageNodeId = null;
+      for (const a of dayAssets) {
+        const cur = curriculumMap?.get(a.name);
+        if (cur && cur.stage_node_id != null) { stageNodeId = cur.stage_node_id; break; }
       }
+      symId = getOrCreateCircleSymbol(stageColor(stageNodeId));
+    } else {
+      const modalitySet = new Set();
+      for (const a of dayAssets) {
+        if (!a.modalities) continue;
+        for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+          modalitySet.add(m);
+        }
+      }
+      const modalities = Array.from(modalitySet).sort();
+      if (modalities.length === 0) modalities.push('unknown');
+      symId = getOrCreateSymbol(modalities);
     }
-    const modalities = Array.from(modalitySet).sort();
-    if (modalities.length === 0) modalities.push('unknown');
-    const symId = getOrCreateSymbol(modalities);
 
     // Group: positions the reused symbol and acts as event target
     const g = document.createElementNS(NS, 'g');
@@ -263,11 +291,15 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
     if (tooltipEl) {
       const showTip = (e) => {
         tooltipEl.innerHTML = dayAssets.map((a) => {
-          const meta = [
+          const cur = curriculumMap?.get(a.name);
+          const metaLines = [
             a.acquisition_type ? `type: ${a.acquisition_type}` : '',
             a.modalities ? `modalities: ${a.modalities}` : '',
-          ].filter(Boolean).join(' · ');
-          return `<div class="pt-tip-row"><div class="pt-tip-name">${a.name ?? ''}</div>${meta ? `<div class="pt-tip-meta">${meta}</div>` : ''}</div>`;
+            cur?.curriculum_name ? `curriculum: ${cur.curriculum_name}` : '',
+            cur?.stage_name ? `stage: ${cur.stage_name}` : '',
+          ].filter(Boolean);
+          const metaHtml = metaLines.map(l => `<div>${l}</div>`).join('');
+          return `<div class="pt-tip-row"><div class="pt-tip-name">${a.name ?? ''}</div>${metaHtml ? `<div class="pt-tip-meta">${metaHtml}</div>` : ''}</div>`;
         }).join('');
         tooltipEl.style.display = '';
         tooltipEl.style.left = `${e.clientX + 14}px`;
@@ -316,6 +348,73 @@ const MODALITY_COLOR = {
   'behavior':        '#000000',
   'behavior-videos': '#bab0ac',
 };
+
+const CURRICULUM_PARQUET_URL = 'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_behavior_curriculum.pqt';
+
+const STAGE_COLORS = [
+  '#ffffcc', '#ffeda0', '#fed976', '#feb24c', '#fd8d3c',
+  '#fc4e2a', '#e31a1c', '#bd0026', '#800026', '#54001a', '#2d0010',
+];
+
+function stageColor(stageNodeId) {
+  if (stageNodeId == null || isNaN(stageNodeId)) return '#aaaaaa';
+  const idx = Math.round(stageNodeId);
+  return STAGE_COLORS[Math.min(idx, STAGE_COLORS.length - 1)] ?? '#aaaaaa';
+}
+
+function stageForeground(stageNodeId) {
+  const idx = stageNodeId == null ? 0 : Math.round(stageNodeId);
+  return idx >= 5 ? '#ffffff' : '#000000';
+}
+
+function buildCurriculumLegend(rawAssets, windowStart, curriculumMap) {
+  const windowEnd = addDays(windowStart, 14);
+  const visibleCurricula = new Set();
+  for (const a of rawAssets) {
+    if (!a.acquisition_start_time) continue;
+    const d = utcDay(new Date(a.acquisition_start_time));
+    if (d < windowStart || d >= windowEnd) continue;
+    const cur = curriculumMap?.get(a.name);
+    if (cur?.curriculum_name) visibleCurricula.add(cur.curriculum_name);
+  }
+  if (visibleCurricula.size === 0) return null;
+
+  const allStages = new Map();
+  for (const cur of curriculumMap.values()) {
+    if (!visibleCurricula.has(cur.curriculum_name)) continue;
+    if (!allStages.has(cur.curriculum_name)) allStages.set(cur.curriculum_name, new Map());
+    allStages.get(cur.curriculum_name).set(cur.stage_node_id, cur.stage_name);
+  }
+
+  const container = document.createElement('div');
+  container.className = 'pt-curriculum-legend';
+
+  for (const curriculumName of visibleCurricula) {
+    const stagesMap = allStages.get(curriculumName);
+    if (!stagesMap) continue;
+    const section = document.createElement('div');
+    section.className = 'pt-legend-curriculum';
+    const title = document.createElement('div');
+    title.className = 'pt-legend-curriculum-title';
+    title.textContent = curriculumName;
+    section.appendChild(title);
+    const sortedStages = Array.from(stagesMap.entries()).sort((a, b) => a[0] - b[0]);
+    for (const [nodeId, stageName] of sortedStages) {
+      const item = document.createElement('div');
+      item.className = 'pt-legend-item';
+      const badge = document.createElement('span');
+      badge.className = 'pt-legend-badge';
+      badge.style.background = stageColor(nodeId);
+      badge.style.color = stageForeground(nodeId);
+      badge.textContent = String(nodeId);
+      item.appendChild(badge);
+      item.appendChild(document.createTextNode(` ${stageName}`));
+      section.appendChild(item);
+    }
+    container.appendChild(section);
+  }
+  return container;
+}
 
 /**
  * Build a stacked bar chart of acquisitions per month, colored by modality.
@@ -417,6 +516,7 @@ export function createProjectView(opts = {}) {
   let windowStart = addDays(today, -13);
   let currentProject = initialProject;
   let abortController = null;
+  let viewMode = params.get('color_by') ?? 'modality';
 
   const root = document.createElement('div');
   root.className = 'project-view';
@@ -466,6 +566,7 @@ export function createProjectView(opts = {}) {
     // Update URL
     const p = new URLSearchParams(window.location.search);
     if (currentProject) p.set('project', currentProject); else p.delete('project');
+    p.set('color_by', viewMode);
     try {
       const url = new URL(window.location.href);
       url.search = p.toString();
@@ -475,6 +576,8 @@ export function createProjectView(opts = {}) {
     _loadProject(contentEl, currentProject, coordinator, windowStart, abortController.signal, {
       onPrev: () => { windowStart = addDays(windowStart, -14); load(); },
       onNext: () => { windowStart = addDays(windowStart, 14); load(); },
+      viewMode,
+      onViewModeChange: (mode) => { viewMode = mode; load(); },
     });
   }
 
@@ -495,7 +598,7 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, viewMode = 'modality', onViewModeChange = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
   contentEl.innerHTML = '';
@@ -536,6 +639,26 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     );
     if (signal?.aborted) return;
 
+    const curriculumMap = new Map();
+    try {
+      const currResult = await coordinator.query(`
+        SELECT a.name, c.curriculum_name, c.stage_name, c.stage_node_id
+        FROM asset_basics a
+        LEFT JOIN read_parquet('${CURRICULUM_PARQUET_URL}') c ON a.name = c.asset_name
+        WHERE a.project_name = '${safeProject}' AND c.curriculum_name IS NOT NULL
+      `);
+      if (!signal?.aborted) {
+        for (const row of arrowTableToRows(currResult)) {
+          curriculumMap.set(row.name, {
+            curriculum_name: row.curriculum_name,
+            stage_name: row.stage_name,
+            stage_node_id: row.stage_node_id != null ? Math.round(Number(row.stage_node_id)) : null,
+          });
+        }
+      }
+    } catch { /* curriculum data is optional */ }
+    if (signal?.aborted) return;
+
     // Info card
     const infoEl = document.createElement('div');
     infoEl.className = 'subject-info-card project-info-card';
@@ -567,6 +690,17 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     const timelineHeader = document.createElement('div');
     timelineHeader.className = 'project-timeline-header';
     timelineHeader.innerHTML = `<h3>Acquisitions</h3>`;
+    const colorByEl = document.createElement('div');
+    colorByEl.className = 'project-color-by';
+    colorByEl.innerHTML = `
+      <label for="pt-color-by-select">Color by</label>
+      <select id="pt-color-by-select">
+        <option value="modality" ${viewMode === 'modality' ? 'selected' : ''}>Modality</option>
+        <option value="curriculum" ${viewMode === 'curriculum' ? 'selected' : ''}>Curriculum stage</option>
+      </select>`;
+    timelineHeader.appendChild(colorByEl);
+    const colorBySelect = colorByEl.querySelector('select');
+    colorBySelect.addEventListener('change', () => onViewModeChange?.(colorBySelect.value));
     timelineSection.appendChild(timelineHeader);
 
     // Navigation arrows — positioned above the timeline
@@ -633,8 +767,12 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
           ));
         }
       }
-    }, { cellW, tooltipEl });
+    }, { cellW, tooltipEl, viewMode, curriculumMap });
     timelineWrap.appendChild(svgEl);
+    if (viewMode === 'curriculum') {
+      const legendEl = buildCurriculumLegend(rawAssets, windowStart, curriculumMap);
+      if (legendEl) timelineWrap.appendChild(legendEl);
+    }
     timelineSection.appendChild(timelineWrap);
 
     // Assets table
