@@ -1874,7 +1874,7 @@ export function createContributionsView(options = {}) {
       // If the URL specifies a project that differs from the draft, discard the
       // draft and treat the URL as ground truth.
       const draftProject = (draft.projectName || '').trim();
-      if (projectName && draftProject && projectName !== draftProject) {
+      if (draftProject && projectName !== draftProject) {
         sessionStorage.removeItem(DRAFT_KEY);
       } else if (draft.rows?.length > 0) {
         assetInput.value = draft.assetNames || '';
