@@ -113,6 +113,16 @@ export function filterRows(rows, filters) {
 }
 
 /**
+ * Shared regex (as a string) used by both the JS and SQL instrument-ID
+ * normalisers. Keeping it in one place ensures they can never silently diverge.
+ *
+ * Pattern: ^<location>[_-]<name>_<date>$
+ * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23-26).
+ */
+export const INSTRUMENT_ID_REGEX =
+  '^[^_-]+[_-](.+)_(\\d{8}|\\d{4}-\\d{2}-\\d{2}|2[3-6]\\d{4})$';
+
+/**
  * Normalize a raw instrument_id by extracting just the <name> portion from
  * legacy naming patterns:
  *   <location>_<name>_<date>
@@ -120,14 +130,43 @@ export function filterRows(rows, filters) {
  *
  * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23–26).
  * IDs that don't match are returned unchanged.
+ * Spacer characters (- and _) are stripped from the result in both cases.
  *
  * @param {string|null} id
  * @returns {string}
  */
 export function normalizeInstrumentId(id) {
   if (!id) return id ?? '';
-  const m = String(id).match(/^[^_-]+[_-](.+)_(\d{8}|\d{4}-\d{2}-\d{2}|(?:2[3-6])\d{4})$/);
-  return m ? m[1] : String(id);
+  const m = String(id).match(new RegExp(INSTRUMENT_ID_REGEX));
+  return (m ? m[1] : String(id)).replace(/[_-]/g, '');
+}
+
+/**
+ * Return a DuckDB SQL expression that normalises an instrument_id column,
+ * stripping the legacy <location>_<name>_<date> prefix/suffix and then
+ * removing spacer characters (- and _).
+ *
+ * Uses the same regex as INSTRUMENT_ID_REGEX.
+ *
+ * @param {string} col - SQL column reference, e.g. 'instrument_id'
+ * @returns {string} SQL expression
+ */
+export function normalizeInstrumentIdSql(col) {
+  return `regexp_replace(
+    COALESCE(
+      NULLIF(
+        regexp_extract(
+          COALESCE(${col}, ''),
+          '${INSTRUMENT_ID_REGEX}',
+          1
+        ),
+        ''
+      ),
+      ${col},
+      '(unknown)'
+    ),
+    '[_-]', '', 'g'
+  )`;
 }
 
 /**

@@ -14,7 +14,7 @@
  * @module
  */
 
-import { escHtml } from './utils.js';
+import { escHtml, normalizeInstrumentIdSql } from './utils.js';
 
 const S3_BASE =
   'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache';
@@ -53,19 +53,7 @@ async function ensurePlatformTable(coord, platformKey) {
  */
 function groupExprFor(groupBy) {
   if (groupBy === 'experimenter') return 'experimenter';
-  // Same logic as normalizeInstrumentId() in lib/utils.js
-  return `COALESCE(
-    NULLIF(
-      regexp_extract(
-        COALESCE(instrument_id, ''),
-        '^[^_-]+[_-](.+)_(\\d{8}|\\d{4}-\\d{2}-\\d{2}|2[3-6]\\d{4})$',
-        1
-      ),
-      ''
-    ),
-    instrument_id,
-    '(unknown)'
-  )`;
+  return normalizeInstrumentIdSql('instrument_id');
 }
 
 /**
