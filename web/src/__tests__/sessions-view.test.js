@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { normalizeInstrumentId } from '../sessions/view.js';
+import { normalizeInstrumentId } from '../lib/utils.js';
 
 describe('normalizeInstrumentId', () => {
   it('returns a bare ID unchanged', () => {

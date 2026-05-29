@@ -11,7 +11,7 @@
 import { registerAcornTable } from '../lib/metadata.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
-import { createPlatformSummaryBanner } from '../lib/platform-summary.js';
+import { createPlatformOverview } from '../lib/platform-overview.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -245,9 +245,11 @@ export function createSmartSpimView(coord, metadata) {
 
     layout.appendChild(filterPanel);
     layout.appendChild(mainContent);
-    container.appendChild(createPlatformSummaryBanner(coord, {
+    container.appendChild(createPlatformOverview(coord, {
       platformTableName: 'assets_smartspim',
       assetNameCol: 'name',
+      assetFilter: { type: 'modality', value: 'SPIM' },
+      platformKey: 'spim',
     }));
     container.appendChild(layout);
 

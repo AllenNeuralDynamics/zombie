@@ -113,6 +113,24 @@ export function filterRows(rows, filters) {
 }
 
 /**
+ * Normalize a raw instrument_id by extracting just the <name> portion from
+ * legacy naming patterns:
+ *   <location>_<name>_<date>
+ *   <location>-<name>_<date>
+ *
+ * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23–26).
+ * IDs that don't match are returned unchanged.
+ *
+ * @param {string|null} id
+ * @returns {string}
+ */
+export function normalizeInstrumentId(id) {
+  if (!id) return id ?? '';
+  const m = String(id).match(/^[^_-]+[_-](.+)_(\d{8}|\d{4}-\d{2}-\d{2}|(?:2[3-6])\d{4})$/);
+  return m ? m[1] : String(id);
+}
+
+/**
  * Generate a CSV file and trigger download using papaparse.
  * @param {string} filename
  * @param {string[]} headers

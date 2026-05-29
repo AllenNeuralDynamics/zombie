@@ -9,7 +9,7 @@
  */
 
 import { registerAcornTable } from '../lib/metadata.js';
-import { escHtml, formatDate, sortRows, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
+import { escHtml, formatDate, sortRows, uniqueValues, normalizeInstrumentId, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -100,24 +100,6 @@ export function collectQuarters(rows) {
   return Array.from(seen).sort().reverse();
 }
 
-/**
- * Normalize a raw instrument_id by extracting just the <name> portion from
- * legacy naming patterns:
- *   <location>_<name>_<date>
- *   <location>-<name>_<date>
- *   <location>-<name>_<morename>_<date>
- *
- * where <date> is YYYYMMDD or YYYY-MM-DD.
- * IDs that don't match these patterns are returned unchanged.
- *
- * @param {string|null} id
- * @returns {string}
- */
-export function normalizeInstrumentId(id) {
-  if (!id) return id ?? '';
-  const m = String(id).match(/^[^_-]+[_-](.+)_(\d{8}|\d{4}-\d{2}-\d{2}|(?:2[3-6])\d{4})$/);
-  return m ? m[1] : String(id);
-}
 
 /**
  * Collect unique experimenter display names from rows, deduplicated by mergeKey, sorted.

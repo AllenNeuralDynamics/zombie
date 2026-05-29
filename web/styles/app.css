@@ -4099,3 +4099,218 @@ body {
   flex-shrink: 0;
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
+
+/* ---------------------------------------------------------------------------
+ * Platform overview section (platform-overview.js)
+ * ------------------------------------------------------------------------ */
+
+.platform-overview {
+  padding: 4px 0 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.platform-overview-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.platform-overview-gear {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  line-height: 0;
+  transition: background 0.15s;
+}
+
+.platform-overview-gear:hover {
+  background: var(--surface-card);
+}
+
+.platform-overview-gear img {
+  width: 1rem;
+  height: 1rem;
+  display: block;
+  filter: var(--icon-filter);
+  opacity: 0.7;
+}
+
+.platform-qc-label,
+.platform-qc-toggle {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin: 10px 0 4px;
+}
+
+.platform-qc-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+.platform-qc-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.platform-qc-toggle-arrow {
+  font-size: 0.6em;
+  line-height: 1;
+}
+
+/* ---------------------------------------------------------------------------
+ * Platform QC stats table (platform-qc-table.js)
+ * ------------------------------------------------------------------------ */
+
+.platform-qc-table-wrap {
+  margin-top: 4px;
+  overflow-x: auto;
+}
+
+.platform-qc-loading,
+.platform-qc-empty,
+.platform-qc-error {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 4px 0;
+  margin: 0;
+}
+
+.platform-qc-error {
+  color: var(--color-red);
+}
+
+.platform-qc-table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.platform-qc-table th,
+.platform-qc-table td {
+  padding: 3px 10px 3px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-border);
+  vertical-align: middle;
+}
+
+.platform-qc-table thead th {
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  border-bottom-width: 2px;
+}
+
+.qc-th-pct,
+.qc-td-pct,
+.qc-th-n,
+.qc-td-n,
+.qc-td-count {
+  text-align: right;
+  padding-right: 12px;
+}
+
+/* Pass% colour coding */
+.qc-pct-high { color: var(--color-green); font-weight: 600; }
+.qc-pct-mid  { color: var(--color-yellow); font-weight: 600; }
+.qc-pct-low  { color: var(--color-red); font-weight: 600; }
+.qc-pct-none { color: var(--text-muted); }
+
+/* Status column header tints */
+.qc-th-pass    { color: var(--color-green); }
+.qc-th-fail    { color: var(--color-red); }
+.qc-th-pending { color: var(--color-yellow); }
+
+/* ---------------------------------------------------------------------------
+ * Settings modal — extra sections used by platform-overview.js
+ * ------------------------------------------------------------------------ */
+
+.settings-section {
+  margin-bottom: 16px;
+}
+
+.settings-section-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.settings-loading-note {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+  padding: 4px 0;
+}
+
+/* Radio buttons reuse .settings-checkbox-label — add radio-specific tweak */
+.settings-checkbox-label input[type="radio"] {
+  margin-right: 10px;
+  cursor: pointer;
+}
+
+/* Metric column header — truncate long names, show full in tooltip */
+.qc-th-metric {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+
+/* Metric filter controls inside settings modal */
+.settings-metric-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.settings-metric-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.settings-metric-btn {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.settings-metric-btn:hover {
+  background: var(--surface-hover);
+}
+
+.settings-metric-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 4px 6px;
+}
+

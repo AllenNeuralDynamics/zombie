@@ -42,6 +42,8 @@ export default defineConfig({
         sessions: resolve(__dirname, 'sessions.html'),
         quality_control: resolve(__dirname, 'quality_control.html'),
         fiber_photometry: resolve(__dirname, 'fiber_photometry.html'),
+        vr_foraging: resolve(__dirname, 'vr_foraging.html'),
+        dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
         tables: resolve(__dirname, 'tables.html'),
       },
     },

@@ -9,7 +9,7 @@
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
-import { createPlatformSummaryBanner } from '../lib/platform-summary.js';
+import { createPlatformOverview } from '../lib/platform-overview.js';
 
 const FIB_S3_PATH = `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_platform_fib.pqt`;
 
@@ -438,9 +438,11 @@ export function createFiberPhotometryView(coord) {
 
     layout.appendChild(filterPanel);
     layout.appendChild(mainContent);
-    container.appendChild(createPlatformSummaryBanner(coord, {
+    container.appendChild(createPlatformOverview(coord, {
       platformTableName: 'platform_fib',
       assetNameCol: 'asset_name',
+      assetFilter: { type: 'modality', value: 'fib' },
+      platformKey: 'fib',
     }));
     container.appendChild(layout);
 
