@@ -2,7 +2,118 @@
  * charts.js — Shared chart rendering utilities.
  */
 
+import * as Plot from '@observablehq/plot';
 import { escHtml } from './utils.js';
+
+// ---------------------------------------------------------------------------
+// Modality histogram
+// ---------------------------------------------------------------------------
+
+/** Fixed colour per modality — used by both project and platform overview pages. */
+export const MODALITY_COLOR = {
+  'ecephys':         '#4e79a7',
+  'icephys':         '#a0cbe8',
+  'EMG':             '#b07aa1',
+  'fib':             '#f28e2b',
+  'pophys':          '#ffbe7d',
+  'slap2':           '#e15759',
+  'SPIM':            '#76b7b2',
+  'confocal':        '#59a14f',
+  'brightfield':     '#8cd17d',
+  'fMOST':           '#b6992d',
+  'STPT':            '#499894',
+  'MRI':             '#86bcb6',
+  'EM':              '#d37295',
+  'ISI':             '#fabfd2',
+  'merfish':         '#9d7660',
+  'MAPseq':          '#d4a6c8',
+  'BARseq':          '#bcbd22',
+  'scRNAseq':        '#79706e',
+  'behavior':        '#000000',
+  'behavior-videos': '#bab0ac',
+};
+
+function _isoDate(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+}
+
+/**
+ * Build a stacked bar chart of acquisitions per month, coloured by modality.
+ *
+ * Pre-aggregates the assets in JS (data already in memory) then passes a
+ * plain array to Observable Plot.
+ *
+ * @param {object[]} assets        - Raw assets with acquisition_start_time and modalities.
+ * @param {number}   containerWidth - Available pixel width for sizing the chart.
+ * @returns {HTMLElement|null} The plot element, or null if there is no data.
+ */
+export function buildModalityHistogram(assets, containerWidth = 700) {
+  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
+  if (dated.length === 0) return null;
+
+  const counts = new Map(); // `monthStart|modality` → count
+  for (const a of dated) {
+    const d = new Date(a.acquisition_start_time);
+    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    const monthStr = _isoDate(monthStart);
+    for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+      const key = `${monthStr}|${m}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const rows = Array.from(counts.entries()).map(([key, n]) => {
+    const [month, modality] = key.split('|');
+    return { month: new Date(month), modality, n };
+  });
+
+  const chartWidth = Math.max(300, containerWidth - 32);
+
+  const totalByModality = new Map();
+  for (const r of rows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
+  const presentModalities = Array.from(totalByModality.keys())
+    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
+  const colorDomain = presentModalities;
+  const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
+
+  function monthEnd(d) {
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+  }
+
+  const monthTotals = new Map();
+  for (const r of rows) {
+    const key = r.month.toISOString();
+    monthTotals.set(key, (monthTotals.get(key) ?? 0) + r.n);
+  }
+  const maxTotal = Math.max(...monthTotals.values(), 1);
+
+  return Plot.plot({
+    width: chartWidth,
+    height: 200,
+    marginBottom: 50,
+    x: {
+      type: 'utc',
+      interval: 'month',
+      tickFormat: (d) =>
+        d.getUTCMonth() === 0
+          ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+          : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+    },
+    y: { label: 'Acquisitions', grid: true, domain: [0, maxTotal] },
+    color: { domain: colorDomain, range: colorRange, legend: true },
+    style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
+    marks: [
+      Plot.rectY(rows, Plot.stackY({
+        order: presentModalities,
+        x1: (d) => d.month,
+        x2: (d) => monthEnd(d.month),
+        y: 'n',
+        fill: 'modality',
+      })),
+    ],
+  });
+}
 
 /** Fixed colours for known institutions; others fall back to grey shades. */
 const INSTITUTION_COLORS = {

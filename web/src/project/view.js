@@ -8,8 +8,8 @@
  *   3. Grouped assets table at the bottom (shared with subject page).
  */
 
-import * as Plot from '@observablehq/plot';
 import { arrowTableToRows, buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
+import { buildModalityHistogram, MODALITY_COLOR } from '../lib/charts.js';
 import { createForagingSessionDetail } from '../lib/behaviors/dynamic-foraging.js';
 
 // ---------------------------------------------------------------------------
@@ -354,33 +354,8 @@ function buildTimelineSvg(assets, windowStart, onDotClick, { cellW = 70, tooltip
 }
 
 // ---------------------------------------------------------------------------
-// Modality histogram (vgplot / Observable Plot)
+// Modality histogram (delegated to lib/charts.js)
 // ---------------------------------------------------------------------------
-
-// Fixed color per modality so all projects render consistently.
-// Grouped loosely by technique family (ephys, optical, sequencing, etc.).
-const MODALITY_COLOR = {
-  'ecephys':         '#4e79a7',
-  'icephys':         '#a0cbe8',
-  'EMG':             '#b07aa1',
-  'fib':             '#f28e2b',
-  'pophys':          '#ffbe7d',
-  'slap2':           '#e15759',
-  'SPIM':            '#76b7b2',
-  'confocal':        '#59a14f',
-  'brightfield':     '#8cd17d',
-  'fMOST':           '#b6992d',
-  'STPT':            '#499894',
-  'MRI':             '#86bcb6',
-  'EM':              '#d37295',
-  'ISI':             '#fabfd2',
-  'merfish':         '#9d7660',
-  'MAPseq':          '#d4a6c8',
-  'BARseq':          '#bcbd22',
-  'scRNAseq':        '#79706e',
-  'behavior':        '#000000',
-  'behavior-videos': '#bab0ac',
-};
 
 const CURRICULUM_PARQUET_URL = 'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_behavior_curriculum.pqt';
 
@@ -460,81 +435,7 @@ function buildCurriculumLegend(rawAssets, windowStart, curriculumMap, numDays = 
  * @param {Date} windowStart - Start of the currently selected two-week window (for highlight overlay).
  * @returns {HTMLElement|null} The plot element, or null if there's no data.
  */
-function buildModalityHistogram(assets, containerWidth = 700) {
-  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
-  if (dated.length === 0) return null;
-
-  // Bin by month start (first day of month), one row per month+modality combination.
-  // Assets with comma-separated modalities are expanded into separate rows.
-  const counts = new Map(); // `monthStart|modality` → count
-  for (const a of dated) {
-    const d = new Date(a.acquisition_start_time);
-    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-    const monthStr = isoDate(monthStart);
-    for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
-      const key = `${monthStr}|${m}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-  }
-
-  const rows = Array.from(counts.entries()).map(([key, n]) => {
-    const [month, modality] = key.split('|');
-    return { month: new Date(month), modality, n };
-  });
-
-  const chartWidth = Math.max(300, containerWidth - 32);
-
-  // Sort modalities by total count descending so the heaviest sits at the bottom
-  // of every stack, giving a consistent visual baseline across all projects.
-  const totalByModality = new Map();
-  for (const r of rows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
-  const presentModalities = Array.from(totalByModality.keys())
-    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
-  const colorDomain = presentModalities;
-  const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
-
-  // Calculate the end of each month for x2
-  function monthEnd(monthStart) {
-    return new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1));
-  }
-
-  // Max stacked height per month (sum all modalities for same month)
-  const monthTotals = new Map();
-  for (const r of rows) {
-    const key = r.month.toISOString();
-    monthTotals.set(key, (monthTotals.get(key) ?? 0) + r.n);
-  }
-  const maxTotal = Math.max(...monthTotals.values(), 1);
-
-  const marks = [
-    Plot.rectY(rows, Plot.stackY({
-      order: presentModalities,
-      x1: (d) => d.month,
-      x2: (d) => monthEnd(d.month),
-      y: 'n',
-      fill: 'modality',
-    })),
-  ];
-
-  return Plot.plot({
-    width: chartWidth,
-    height: 200,
-    marginBottom: 50,
-    x: {
-      type: 'utc',
-      interval: 'month',
-
-      tickFormat: (d) =>
-        d.getUTCMonth() === 0
-          ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
-          : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
-    },
-    y: { label: 'Acquisitions', grid: true, domain: [0, maxTotal] },
-    color: { domain: colorDomain, range: colorRange, legend: true },
-    style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
-    marks,
-  });
-}
+// buildModalityHistogram is imported from lib/charts.js
 
 // ---------------------------------------------------------------------------
 // Main view factory

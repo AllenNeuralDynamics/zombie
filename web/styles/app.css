@@ -4169,6 +4169,32 @@ body {
   line-height: 1;
 }
 
+/* Platform overview — body flex layout (left stats + right histogram) */
+
+.platform-overview-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.platform-overview-left {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+
+.platform-overview-histogram {
+  flex: 1 1 0;
+  min-width: 280px;
+  overflow-x: auto;
+}
+
+.platform-overview-histogram figure,
+.platform-overview-histogram svg {
+  display: block;
+  max-width: 100%;
+}
+
 /* ---------------------------------------------------------------------------
  * Platform QC stats table (platform-qc-table.js)
  * ------------------------------------------------------------------------ */

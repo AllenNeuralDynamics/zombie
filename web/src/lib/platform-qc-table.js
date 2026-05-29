@@ -7,7 +7,7 @@
  *
  * Schema of each platform QC parquet:
  *   asset_name, subject_id, instrument_id, experimenter,
- *   metric_name, status, timestamp
+ *   tag, status, timestamp
  *
  * Users can filter which metric columns are visible via the gear settings.
  *
@@ -21,10 +21,10 @@ const S3_BASE =
 
 /** S3 URL for each platform's pre-computed QC parquet. */
 const PLATFORM_QC_URLS = {
-  spim:             `${S3_BASE}/zs_platform_qc_spim.pqt`,
-  fib:              `${S3_BASE}/zs_platform_qc_fib.pqt`,
-  vr:               `${S3_BASE}/zs_platform_qc_vr.pqt`,
-  dynamic_foraging: `${S3_BASE}/zs_platform_qc_dynamic_foraging.pqt`,
+  spim:             `${S3_BASE}/zs_platform_qc/spim.pqt`,
+  fib:              `${S3_BASE}/zs_platform_qc/fib.pqt`,
+  vr:               `${S3_BASE}/zs_platform_qc/vr.pqt`,
+  dynamic_foraging: `${S3_BASE}/zs_platform_qc/dynamic_foraging.pqt`,
 };
 
 /** DuckDB table name for a given platform key. */
@@ -70,7 +70,7 @@ function groupExprFor(groupBy) {
 
 /**
  * Query DuckDB and return flat rows:
- *   { grp, n_sessions, metric_name, n_pass, n_fail, n_pending, n_total }
+ *   { grp, n_sessions, tag, n_pass, n_fail, n_pending, n_total }
  *
  * n_sessions counts distinct assets across ALL metrics (not filtered by
  * visible selection), so it always reflects the full group size.
@@ -89,17 +89,17 @@ async function fetchStats(coord, { platformKey, groupBy }) {
     ),
     grp_metrics AS (
       SELECT ${grp} AS grp,
-             metric_name,
+             tag,
              COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
              COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
              COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
              COUNT(*) AS n_total
       FROM ${tbl}
-      GROUP BY grp, metric_name
+      GROUP BY grp, tag
     )
     SELECT s.grp,
            s.n_sessions,
-           m.metric_name,
+           m.tag,
            m.n_pass,
            m.n_fail,
            m.n_pending,
@@ -107,7 +107,7 @@ async function fetchStats(coord, { platformKey, groupBy }) {
     FROM grp_sessions s
     JOIN grp_metrics m ON m.grp = s.grp
     WHERE s.grp IS NOT NULL AND s.grp != ''
-    ORDER BY s.n_sessions DESC, s.grp, m.metric_name
+    ORDER BY s.n_sessions DESC, s.grp, m.tag
   `;
 
   const result = await coord.query(sql, { type: 'json' });
@@ -129,11 +129,11 @@ function organizeStats(rows) {
   const seenGroups = new Set();
   const groupOrder = [];
   const metricSet  = new Set();
-  const data       = new Map(); // grp → Map<metric_name, counts>
+  const data       = new Map(); // grp → Map<tag, counts>
 
   for (const row of rows) {
     const grp    = String(row.grp ?? '');
-    const metric = String(row.metric_name ?? '');
+    const metric = String(row.tag ?? '');
     metricSet.add(metric);
     if (!seenGroups.has(grp)) {
       seenGroups.add(grp);
