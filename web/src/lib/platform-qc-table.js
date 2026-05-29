@@ -208,7 +208,8 @@ export function createPlatformQcTable(coord, {
     html += `<th class="qc-th-group">${groupLabel}</th>`;
     html += `<th class="qc-th-n" title="Distinct assets in this group">Sessions</th>`;
     for (const m of shownMetrics) {
-      html += `<th class="qc-th-metric" title="${escHtml(m)}">${escHtml(m)}</th>`;
+      const mDisplay = m.includes(':') ? m.slice(m.indexOf(':') + 1) : m;
+      html += `<th class="qc-th-metric" title="${escHtml(m)}">${escHtml(mDisplay)}</th>`;
     }
     html += `</tr></thead><tbody>`;
 
