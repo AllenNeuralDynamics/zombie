@@ -4340,3 +4340,33 @@ body {
   padding: 4px 6px;
 }
 
+/* Date-range filter controls inside the overview settings modal */
+.settings-since-select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
+.settings-since-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-since-date {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}

@@ -138,8 +138,20 @@ export function createPlatformOverview(coord, {
   const _urlParams = new URLSearchParams(window.location.search);
   const _urlGroup = _urlParams.get('ov_group');
   const _urlMetricsRaw = _urlParams.get('ov_metrics');
+  const _urlSince = _urlParams.get('ov_since'); // null=absent, ''=all-time, 'YYYY-MM-DD'=filter
   const _cookieGroup = _cookiePrefix ? _readCookie(`${_cookiePrefix}_group`) : null;
   const _cookieMetricsRaw = _cookiePrefix ? _readCookie(`${_cookiePrefix}_metrics`) : null;
+  const _cookieSince = _cookiePrefix ? _readCookie(`${_cookiePrefix}_since`) : null;
+
+  // Compute default "since" date: 6 months ago.
+  function _sixMonthsAgo() {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 6);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // URL takes priority over cookie; null for both means first visit → default.
+  const _rawSince = _urlSince !== null ? _urlSince : _cookieSince;
 
   const settings = {
     groupBy:
@@ -147,6 +159,7 @@ export function createPlatformOverview(coord, {
       : _cookieGroup === 'rig' || _cookieGroup === 'experimenter' ? _cookieGroup
       : 'rig',
     visibleMetrics: null, // null = show all; restored after metrics load
+    since: _rawSince !== null ? (_rawSince || null) : _sixMonthsAgo(),
   };
   // URL takes priority over cookie for metric visibility.
   let _pendingMetricsRaw = _urlMetricsRaw ?? _cookieMetricsRaw; // comma-separated string or null
@@ -159,6 +172,7 @@ export function createPlatformOverview(coord, {
     _writeCookie(`${_cookiePrefix}_group`, settings.groupBy);
     const metricsVal = settings.visibleMetrics ? [...settings.visibleMetrics].join(',') : '';
     _writeCookie(`${_cookiePrefix}_metrics`, metricsVal);
+    _writeCookie(`${_cookiePrefix}_since`, settings.since ?? '');
     const p = new URLSearchParams(window.location.search);
     p.set('ov_group', settings.groupBy);
     if (metricsVal) {
@@ -166,6 +180,7 @@ export function createPlatformOverview(coord, {
     } else {
       p.delete('ov_metrics');
     }
+    p.set('ov_since', settings.since ?? '');
     history.replaceState({}, '', `?${p.toString()}`);
   }
   // Push whatever was resolved (from URL or cookie) into the URL immediately.
@@ -175,6 +190,7 @@ export function createPlatformOverview(coord, {
     platformKey,
     groupBy: settings.groupBy,
     visibleMetrics: settings.visibleMetrics,
+    since: settings.since,
   });
 
   qcTableApi.onMetricsDiscovered((metrics) => {
@@ -263,13 +279,93 @@ export function createPlatformOverview(coord, {
     }
     content.appendChild(grpSection);
 
-    // ── Metric filter ──────────────────────────────────────────────────────
+    // ── Date range ─────────────────────────────────────────────────────────────────────
+    const sinceSection = document.createElement('div');
+    sinceSection.className = 'settings-section';
+
+    const sinceLabel = document.createElement('div');
+    sinceLabel.className = 'settings-section-label';
+    sinceLabel.textContent = 'Show tags since';
+    sinceSection.appendChild(sinceLabel);
+
+    const PRESETS = [
+      { label: '\u2014 Quick select \u2014', months: null },
+      { label: 'Last month',       months: 1 },
+      { label: 'Last 3 months',    months: 3 },
+      { label: 'Last 6 months',    months: 6 },
+      { label: 'Last year',        months: 12 },
+      { label: 'All time',         months: 0 },
+    ];
+    function computePresetDate(months) {
+      if (!months) return '';
+      const d = new Date();
+      d.setMonth(d.getMonth() - months);
+      return d.toISOString().slice(0, 10);
+    }
+
+    const presetSelect = document.createElement('select');
+    presetSelect.className = 'settings-since-select';
+    for (const p of PRESETS) {
+      const opt = document.createElement('option');
+      opt.value = p.months === null ? '__placeholder__' : (p.months === 0 ? '' : String(p.months));
+      opt.textContent = p.label;
+      if (p.months === null) { opt.disabled = true; opt.hidden = true; }
+      presetSelect.appendChild(opt);
+    }
+    presetSelect.value = '__placeholder__';
+
+    const sinceRow = document.createElement('div');
+    sinceRow.className = 'settings-since-row';
+
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.className = 'settings-since-date';
+    dateInput.value = settings.since ?? '';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'settings-metric-btn';
+    clearBtn.textContent = 'All time';
+
+    sinceRow.appendChild(dateInput);
+    sinceRow.appendChild(clearBtn);
+
+    presetSelect.addEventListener('change', () => {
+      const val = presetSelect.value;
+      if (val === '__placeholder__') return;
+      const months = val === '' ? 0 : Number(val);
+      dateInput.value = computePresetDate(months);
+      settings.since = dateInput.value || null;
+      presetSelect.value = '__placeholder__';
+      _persistSettings();
+      qcTableApi.setSince(settings.since);
+    });
+
+    dateInput.addEventListener('change', () => {
+      settings.since = dateInput.value || null;
+      _persistSettings();
+      qcTableApi.setSince(settings.since);
+    });
+
+    clearBtn.addEventListener('click', () => {
+      dateInput.value = '';
+      settings.since = null;
+      _persistSettings();
+      qcTableApi.setSince(null);
+    });
+
+    sinceSection.appendChild(presetSelect);
+    sinceSection.appendChild(sinceRow);
+    content.appendChild(sinceSection);
+
+    // ── Tag filter ───────────────────────────────────────────────────────────────────
+    // ── Tag column filter (previously 'Metric filter') ──────────────────────
     const statusSection = document.createElement('div');
     statusSection.className = 'settings-section';
 
     const statusLabel = document.createElement('div');
     statusLabel.className = 'settings-section-label';
-    statusLabel.textContent = 'Show metric columns';
+    statusLabel.textContent = 'Show tag columns';
     statusSection.appendChild(statusLabel);
 
     function buildCheckboxes() {

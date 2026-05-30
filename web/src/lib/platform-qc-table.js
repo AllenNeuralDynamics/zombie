@@ -56,6 +56,9 @@ function groupExprFor(groupBy) {
   return normalizeInstrumentIdSql('instrument_id');
 }
 
+/** Validate that a value is a YYYY-MM-DD date string before using in SQL. */
+const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
 /**
  * Query DuckDB and return flat rows:
  *   { grp, n_sessions, tag, n_pass, n_fail, n_pending, n_total }
@@ -63,16 +66,18 @@ function groupExprFor(groupBy) {
  * n_sessions counts distinct assets across ALL metrics (not filtered by
  * visible selection), so it always reflects the full group size.
  */
-async function fetchStats(coord, { platformKey, groupBy }) {
+async function fetchStats(coord, { platformKey, groupBy, since }) {
   await ensurePlatformTable(coord, platformKey);
   const tbl = tableNameFor(platformKey);
   const grp = groupExprFor(groupBy);
+  const where = (since && isValidDate(since)) ? `WHERE timestamp >= '${since}'` : '';
 
   const sql = `
     WITH grp_sessions AS (
       SELECT ${grp} AS grp,
              COUNT(DISTINCT asset_name) AS n_sessions
       FROM ${tbl}
+      ${where}
       GROUP BY grp
     ),
     grp_metrics AS (
@@ -83,6 +88,7 @@ async function fetchStats(coord, { platformKey, groupBy }) {
              COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
              COUNT(*) AS n_total
       FROM ${tbl}
+      ${where}
       GROUP BY grp, tag
     )
     SELECT s.grp,
@@ -144,13 +150,15 @@ function organizeStats(rows) {
  *
  * @param {object} coord
  * @param {object} opts
- * @param {string}               opts.platformKey     'spim' | 'fib' | 'vr'
+ * @param {string}               opts.platformKey     'spim' | 'fib' | 'vr' | 'dynamic_foraging'
  * @param {'rig'|'experimenter'} [opts.groupBy]
  * @param {Set<string>|null}     [opts.visibleMetrics]  null = show all
+ * @param {string|null}          [opts.since]  YYYY-MM-DD lower bound on timestamp, null = all time
  * @returns {{
  *   el: HTMLElement,
  *   setGroupBy(gb: string): void,
  *   setVisibleMetrics(vis: Set|null): void,
+ *   setSince(date: string|null): void,
  *   onMetricsDiscovered(cb: (metrics: string[]) => void): void,
  * }}
  */
@@ -158,9 +166,11 @@ export function createPlatformQcTable(coord, {
   platformKey,
   groupBy = 'rig',
   visibleMetrics = null,
+  since = null,
 } = {}) {
   let _groupBy   = groupBy;
   let _visible   = visibleMetrics;
+  let _since     = since;
   let _organized = null;  // { groupOrder, metrics, data }
   let _metricsCb = null;
 
@@ -230,7 +240,7 @@ export function createPlatformQcTable(coord, {
     p.textContent = 'Loading QC stats…';
     container.appendChild(p);
 
-    fetchStats(coord, { platformKey, groupBy: _groupBy })
+    fetchStats(coord, { platformKey, groupBy: _groupBy, since: _since })
       .then((rows) => {
         _organized = organizeStats(rows);
         if (_metricsCb) _metricsCb(_organized.metrics);
@@ -259,6 +269,11 @@ export function createPlatformQcTable(coord, {
     setVisibleMetrics(vis) {
       _visible = vis;
       renderTable();
+    },
+    setSince(date) {
+      _since = date ?? null;
+      _organized = null;
+      load();
     },
     onMetricsDiscovered(cb) {
       _metricsCb = cb;
