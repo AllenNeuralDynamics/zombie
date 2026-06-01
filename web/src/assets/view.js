@@ -93,6 +93,7 @@ const ALL_AVAILABLE_COLUMNS = [
   'project_name',
   'modalities',
   'data_level',
+  'acquisition_type',
   'genotype',
   'location',
   'code_ocean',
@@ -105,7 +106,7 @@ const DEFAULT_DISPLAY_COLUMNS = [
   'project_name',
   'modalities',
   'data_level',
-  'genotype',
+  'acquisition_type',
 ];
 
 const COLUMN_LABELS = {
@@ -117,6 +118,7 @@ const COLUMN_LABELS = {
   project_name: 'Project',
   modalities: 'Modalities',
   data_level: 'Level',
+  acquisition_type: 'Acquisition Type',
   genotype: 'Genotype',
   location: 'Location',
   code_ocean: 'Code Ocean',
@@ -141,6 +143,7 @@ export function renderAssetRow(row, visibleColumns) {
     project_name: row.project_name ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>` : '',
     modalities: row.modalities ?? '',
     data_level: row.data_level ?? '',
+    acquisition_type: row.acquisition_type ?? '',
     genotype: row.genotype ?? '',
     location: row.location ?? '',
     code_ocean: row.code_ocean ?? '',
@@ -203,8 +206,8 @@ export function createAssetsView(coord) {
   const sql = `
     SELECT
       _id, name, subject_id, acquisition_start_time, acquisition_end_time,
-      project_name, modalities, data_level, genotype, location, code_ocean,
-      process_date
+      project_name, modalities, data_level, acquisition_type, genotype, location,
+      code_ocean, process_date
     FROM asset_basics
     ORDER BY acquisition_start_time DESC NULLS LAST
   `;
@@ -239,6 +242,26 @@ export function createAssetsView(coord) {
       useSelect[col] = uniques[col].length > 0 && uniques[col].length <= SELECT_THRESHOLD;
     }
 
+    const COOKIE_NAME = 'assets_cols';
+
+    function readColsFromCookie() {
+      const entry = document.cookie.split(';').map((s) => s.trim()).find((s) => s.startsWith(`${COOKIE_NAME}=`));
+      if (!entry) return null;
+      const cols = decodeURIComponent(entry.slice(COOKIE_NAME.length + 1))
+        .split(',')
+        .filter((c) => ALL_AVAILABLE_COLUMNS.includes(c));
+      return cols.length > 0 ? cols : null;
+    }
+
+    function writeColsToCookie(cols) {
+      if (JSON.stringify(cols) === JSON.stringify(DEFAULT_DISPLAY_COLUMNS)) {
+        document.cookie = `${COOKIE_NAME}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; SameSite=Lax`;
+      } else {
+        const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+        document.cookie = `${COOKIE_NAME}=${encodeURIComponent(cols.join(','))}; expires=${expires}; path=/; SameSite=Lax`;
+      }
+    }
+
     function readFromUrl() {
       const params = new URLSearchParams(window.location.search);
       if (params.has('sort') && ALL_AVAILABLE_COLUMNS.includes(params.get('sort'))) sortCol = params.get('sort');
@@ -250,6 +273,9 @@ export function createAssetsView(coord) {
       if (params.has('cols')) {
         const cols = params.get('cols').split(',').filter((c) => ALL_AVAILABLE_COLUMNS.includes(c));
         if (cols.length > 0) visibleColumns = [...cols, 'links'];
+      } else {
+        const cookieCols = readColsFromCookie();
+        if (cookieCols) visibleColumns = [...cookieCols, 'links'];
       }
       for (const col of ALL_AVAILABLE_COLUMNS) {
         if (params.has(`f_${col}`)) filters[col] = params.get(`f_${col}`);
@@ -262,9 +288,11 @@ export function createAssetsView(coord) {
       if (sortDir !== 'desc') params.set('dir', sortDir);
       if (page !== 0) params.set('page', String(page));
       const dataCols = visibleColumns.filter((c) => c !== 'links');
-      if (JSON.stringify(dataCols) !== JSON.stringify(DEFAULT_DISPLAY_COLUMNS)) {
+      const isDefault = JSON.stringify(dataCols) === JSON.stringify(DEFAULT_DISPLAY_COLUMNS);
+      if (!isDefault) {
         params.set('cols', dataCols.join(','));
       }
+      writeColsToCookie(dataCols);
       for (const col of ALL_AVAILABLE_COLUMNS) {
         if (filters[col]) params.set(`f_${col}`, filters[col]);
       }
