@@ -52,20 +52,21 @@ export function buildModalityHistogram(assets, containerWidth = 700) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
-  const counts = new Map(); // `monthStart|modality` → count
+  const counts = new Map(); // `weekStart|modality` → count
   for (const a of dated) {
     const d = new Date(a.acquisition_start_time);
-    const monthStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
-    const monthStr = _isoDate(monthStart);
+    const day = d.getUTCDay(); // 0=Sun
+    const weekStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
+    const weekStr = _isoDate(weekStart);
     for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
-      const key = `${monthStr}|${m}`;
+      const key = `${weekStr}|${m}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
 
   const rows = Array.from(counts.entries()).map(([key, n]) => {
-    const [month, modality] = key.split('|');
-    return { month: new Date(month), modality, n };
+    const [week, modality] = key.split('|');
+    return { week: new Date(week), modality, n };
   });
 
   const chartWidth = Math.max(300, containerWidth - 32);
@@ -77,37 +78,26 @@ export function buildModalityHistogram(assets, containerWidth = 700) {
   const colorDomain = presentModalities;
   const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
 
-  function monthEnd(d) {
-    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
-  }
-
-  const monthTotals = new Map();
-  for (const r of rows) {
-    const key = r.month.toISOString();
-    monthTotals.set(key, (monthTotals.get(key) ?? 0) + r.n);
-  }
-  const maxTotal = Math.max(...monthTotals.values(), 1);
-
   return Plot.plot({
     width: chartWidth,
     height: 200,
     marginBottom: 50,
     x: {
       type: 'utc',
-      interval: 'month',
+      ticks: 'month',
       tickFormat: (d) =>
         d.getUTCMonth() === 0
           ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
           : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
     },
-    y: { label: 'Acquisitions', grid: true, domain: [0, maxTotal] },
+    y: { label: 'Acquisitions', grid: true },
     color: { domain: colorDomain, range: colorRange, legend: true },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
       Plot.rectY(rows, Plot.stackY({
         order: presentModalities,
-        x1: (d) => d.month,
-        x2: (d) => monthEnd(d.month),
+        x: (d) => d.week,
+        interval: 'week',
         y: 'n',
         fill: 'modality',
       })),
