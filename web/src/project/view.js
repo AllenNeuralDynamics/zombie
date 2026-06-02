@@ -49,6 +49,16 @@ function computeDefaultWindowStart(windowSize, today) {
   }
 }
 
+function findLastAcquisitionWindow(rawAssets, windowSize) {
+  let lastDate = null;
+  for (const a of rawAssets) {
+    if (!a.acquisition_start_time) continue;
+    const d = utcDay(new Date(a.acquisition_start_time));
+    if (!lastDate || d > lastDate) lastDate = d;
+  }
+  return computeDefaultWindowStart(windowSize, lastDate ?? utcDay(new Date()));
+}
+
 function filterByCurricula(rawAssets, windowStart, numDays, curriculumMap, selectedCurricula) {
   if (!selectedCurricula || selectedCurricula.size === 0) return rawAssets;
   const windowEnd = addDays(windowStart, numDays);
@@ -451,7 +461,9 @@ export function createProjectView(opts = {}) {
   let abortController = null;
   let viewMode = params.get('color_by') ?? 'modality';
   let windowSize = params.get('window_size') ?? 'twoweeks';
-  let windowStart = computeDefaultWindowStart(windowSize, today);
+  let windowStart = params.get('window_start')
+    ? utcDay(new Date(params.get('window_start') + 'T00:00:00Z'))
+    : null;
   let selectedCurricula = new Set((params.get('curricula') ?? '').split(',').filter(Boolean));
 
   const root = document.createElement('div');
@@ -504,6 +516,7 @@ export function createProjectView(opts = {}) {
     if (currentProject) p.set('project', currentProject); else p.delete('project');
     p.set('color_by', viewMode);
     p.set('window_size', windowSize);
+    if (windowStart) p.set('window_start', isoDate(windowStart)); else p.delete('window_start');
     const curriculaStr = Array.from(selectedCurricula).join(',');
     if (curriculaStr) p.set('curricula', curriculaStr); else p.delete('curricula');
     try {
@@ -516,6 +529,7 @@ export function createProjectView(opts = {}) {
     _loadProject(contentEl, currentProject, coordinator, windowStart, abortController.signal, {
       onPrev: () => { windowStart = addDays(windowStart, -_numDays); load(); },
       onNext: () => { windowStart = addDays(windowStart, _numDays); load(); },
+      onWindowStartChange: (date) => { windowStart = date; },
       viewMode,
       onViewModeChange: (mode) => { viewMode = mode; load(); },
       windowSize,
@@ -527,7 +541,7 @@ export function createProjectView(opts = {}) {
 
   input.addEventListener('change', () => {
     currentProject = input.value.trim();
-    windowStart = addDays(utcDay(new Date()), -13);
+    windowStart = null;
     load();
   });
   input.addEventListener('keydown', (e) => {
@@ -542,7 +556,7 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
   contentEl.innerHTML = '';
@@ -566,7 +580,6 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
   }
 
   const numDays = getNumDays(windowSize);
-  const windowEnd = addDays(windowStart, numDays);
   const safeProject = projectName.replace(/'/g, "''");
 
   try {
@@ -576,6 +589,19 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
       `project_name = '${safeProject}' AND (data_level IS NULL OR data_level != 'derived')`,
     );
     if (signal?.aborted) return;
+
+    if (!windowStart) {
+      windowStart = findLastAcquisitionWindow(rawAssets, windowSize);
+      onWindowStartChange?.(windowStart);
+      try {
+        const _p = new URLSearchParams(window.location.search);
+        _p.set('window_start', isoDate(windowStart));
+        const _url = new URL(window.location.href);
+        _url.search = _p.toString();
+        history.replaceState({}, '', _url);
+      } catch { /* restricted */ }
+    }
+    const windowEnd = addDays(windowStart, numDays);
 
     // Fetch all assets (raw + derived) for the table
     const { assets: allAssets, sourceMap } = await fetchAssetsWithSources(
