@@ -4,7 +4,13 @@
 
 A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. Browser SPA backed by a local DuckDB server that queries Parquet files from S3.
 
-**Stack:** Vite + plain ES modules (no framework). DuckDB via WebSocket (`@uwdata/vgplot` / `mosaic-core`). Data from S3 Parquet read server-side. No React, no TypeScript.
+**Stack:** Vite + plain ES modules. DuckDB via WebSocket (`@uwdata/vgplot` / `mosaic-core`). Data from S3 Parquet read server-side. No TypeScript.
+
+**UI framework policy:**
+- **Most pages** (assets, subjects, projects, dashboards): vanilla JS + direct DOM manipulation is fine. These pages are simple: one selector → one query → render a table. No framework needed.
+- **Complex stateful pages** (contributions): use **Preact + htm + `@preact/signals`**. The `htm` tagged-template syntax works in plain `.js` files with no build changes — just `import { html } from 'htm/preact'`. Preact is 3 KB and Vite handles it without extra config.
+
+**When to reach for Preact:** if a page has more than ~3 interdependent state variables, or re-renders in response to user input cause visible DOM flicker, switch to Preact. It gives you stable DOM + VDOM diffing for free.
 
 ## How Data Works
 
