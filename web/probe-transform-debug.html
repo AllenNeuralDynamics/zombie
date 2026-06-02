@@ -63,12 +63,6 @@
       position: absolute; bottom: 10px; left: 12px;
       font: 11px monospace; color: #555; pointer-events: none;
     }
-    #legend {
-      position: absolute; top: 10px; right: 12px;
-      font: 11px monospace; background: rgba(255,255,255,.85);
-      padding: 8px 10px; border-radius: 4px; line-height: 1.9;
-      border: 1px solid #ddd;
-    }
   </style>
 </head>
 <body>
@@ -87,7 +81,6 @@
 
 <div id="canvas-wrap">
   <div id="status">Loading brain mesh…</div>
-  <div id="legend"></div>
 </div>
 
 <script type="module">
@@ -219,39 +212,36 @@ const EXAMPLES = [
   },
   // ── Real probes from example_metadata.json ──────────────────────────
   {
-    name: 'Probe 46121 → PAL (Pallidum)',
-    color: '#FF6B6B',
-    target: 'target: Pallidum (PAL)',
-    transforms: [
-      { type: 'Rotation',    angles: [90, 0, -90],                                         label: 'R1 — initial reorientation' },
-      { type: 'Rotation',    angles: [0, 0, 0],                                            label: 'R2 — identity (no-op)' },
-      { type: 'Translation', translation: [7.502, 5.333, 11.386, 1],                       label: 'T1 — manipulator position (mm)', intrinsic: true },
-      { type: 'Rotation',    angles: [14.96260569495023, -4.140622262893658, -90],         label: 'R3 — rotate around bregma' },
-      { type: 'Translation', translation: [3.9618575437063566, -12.101629723550062, -4.040916212626378, 3.611], label: 'T2 — tip position (mm)' },
-    ],
-  },
-  {
-    name: 'Probe 46105 → MD (Mediodorsal thalamus)',
+    name: 'Probe91 → MD (Mediodorsal nucleus of thalamus)',
     color: '#4ECDC4',
     target: 'target: Mediodorsal nucleus of thalamus (MD)',
     transforms: [
-      { type: 'Rotation',    angles: [90, 0, -90],                                              label: 'R1 — initial reorientation' },
-      { type: 'Rotation',    angles: [0, 0, 0],                                                 label: 'R2 — identity (no-op)' },
-      { type: 'Translation', translation: [8.754, 4.721, 11.133, 1],                            label: 'T1 — manipulator position (mm)', intrinsic: true },
-      { type: 'Rotation',    angles: [4.371791013219473, -29.092718819262377, -90],              label: 'R3 — rotate around bregma' },
-      { type: 'Translation', translation: [-3.2039830376214535, -9.58046494924959, -8.495415766802356, 3.862], label: 'T2 — tip position (mm)' },
+      { type: 'Rotation',    angles: [90.0, 0.0, -90.0],                                                   label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0.0, 0.0, 0.0],                                                      label: 'R2 — identity (no-op)' },
+      { type: 'Rotation',    angles: [-15.054701128833468, -4.829217342540028, 1.2971686236314086],         label: 'R3 — probe angles' },
+      { type: 'Translation', translation: [-0.28420946452950857, -2.5508067488240584, 2.252963583910199],   label: 'T — tip position (mm)' },
     ],
   },
   {
-    name: 'Probe 46811 → PIR (Piriform area)',
+    name: 'Probe92 → PIR (Piriform area)',
     color: '#45B7D1',
     target: 'target: Piriform area (PIR)',
     transforms: [
-      { type: 'Rotation',    angles: [90, 0, -90],                                              label: 'R1 — initial reorientation' },
-      { type: 'Rotation',    angles: [0, 0, 0],                                                 label: 'R2 — identity (no-op)' },
-      { type: 'Translation', translation: [7.925, 0.227, 10.681, 1],                            label: 'T1 — manipulator position (mm)', intrinsic: true },
-      { type: 'Rotation',    angles: [-4.987789352538776, -4.015229468646872, -90],              label: 'R3 — rotate around bregma' },
-      { type: 'Translation', translation: [1.7128800425290023, -7.173946069818659, -7.053089943226251, 3.46], label: 'T2 — tip position (mm)' },
+      { type: 'Rotation',    angles: [90.0, 0.0, -90.0],                                                   label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0.0, 0.0, 0.0],                                                      label: 'R2 — identity (no-op)' },
+      { type: 'Rotation',    angles: [10.037423045910712, 4.923849754810795, 0.8703846749799722],            label: 'R3 — probe angles' },
+      { type: 'Translation', translation: [0.5490775736733011, 1.1396097884519374, 4.651378757761354],      label: 'T — tip position (mm)' },
+    ],
+  },
+  {
+    name: 'Probe93 → PAL (Pallidum)',
+    color: '#FF6B6B',
+    target: 'target: Pallidum (PAL)',
+    transforms: [
+      { type: 'Rotation',    angles: [90.0, 0.0, -90.0],                                                   label: 'R1 — initial reorientation' },
+      { type: 'Rotation',    angles: [0.0, 0.0, 0.0],                                                      label: 'R2 — identity (no-op)' },
+      { type: 'Rotation',    angles: [10.345270046149952, -14.766889608571189, -2.6639876166223018],        label: 'R3 — probe angles' },
+      { type: 'Translation', translation: [-4.245417037773359, -1.5012929968157838, 3.4810902764932043],    label: 'T — tip position (mm)' },
     ],
   },
 ];
@@ -340,7 +330,6 @@ function threeColor(t, rgb) { return new THREE.Color(lerpColor(t, rgb)); }
 // ── Three.js scene ────────────────────────────────────────────────────────
 const wrap = document.getElementById('canvas-wrap');
 const statusEl = document.getElementById('status');
-const legendEl = document.getElementById('legend');
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xffffff);
@@ -438,12 +427,9 @@ function rebuildScene() {
   probeGroup.clear();
   debugGroup.clear();
 
-  const legendLines = [];
-
   for (let pi = 0; pi < EXAMPLES.length; pi++) {
     const probe = EXAMPLES[pi];
     if (!probeEnabled[pi]) {
-      legendLines.push(`<span style="color:#ccc">■</span> <s style="color:#aaa">${probe.name}</s>`);
       continue;
     }
     const rgb   = cssToRgb(probe.color);
@@ -518,11 +504,7 @@ function rebuildScene() {
       }
     }
 
-    legendLines.push(`<span style="color:${probe.color}">■</span> ${probe.name} → ${probe.target}`);
   }
-
-  legendLines.push(`<span style="color:#aaa39f">●</span> Bregma`);
-  legendEl.innerHTML = legendLines.join('<br>');
 }
 
 // ── Sidebar UI ────────────────────────────────────────────────────────────
