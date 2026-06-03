@@ -4952,3 +4952,26 @@ body {
   font-size: 0.82rem;
   padding: 3px 6px;
 }
+
+/* ---- DF timeline ---- */
+
+.df-figures-inner {
+  /* figures count + grid stacked below the timeline */
+}
+
+.df-timeline-wrap {
+  overflow-x: auto;
+  margin-bottom: 16px;
+  padding-bottom: 4px;
+}
+
+.df-timeline-range {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.df-figure-card--highlighted {
+  outline: 3px solid var(--accent, #0078d4);
+  outline-offset: 2px;
+}

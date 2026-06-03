@@ -10,6 +10,11 @@ import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
 import { arrowTableToRows } from '../lib/assets-table.js';
 import { normalizeName, mergeKey } from '../lib/utils.js';
+import {
+  utcDay, addDays, isoDate,
+  buildTimelineSvg, buildCurriculumLegend,
+  TIMELINE_LABEL_W,
+} from '../lib/behavior-timeline.js';
 
 // URL for the curriculum parquet (same source used by project/view.js)
 const CURRICULUM_PARQUET_URL =
@@ -98,7 +103,8 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         f.nwb_suffix,
         f.trainer,
         COALESCE(c.curriculum_name, f.curriculum_name) AS curriculum_name,
-        COALESCE(c.stage_name, f.current_stage_actual)  AS stage_name
+        COALESCE(c.stage_name, f.current_stage_actual)  AS stage_name,
+        c.stage_node_id
       FROM zs_foraging_sessions f
       LEFT JOIN read_parquet('${CURRICULUM_PARQUET_URL}') c
         ON c.asset_name = 'behavior_' || f.subject_id || '_' || f.session_date
@@ -116,7 +122,8 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     try {
       const result = await coord.query(`
         SELECT subject_id, session_date, nwb_suffix, trainer,
-               curriculum_name, current_stage_actual AS stage_name
+               curriculum_name, current_stage_actual AS stage_name,
+               NULL AS stage_node_id
         FROM zs_foraging_sessions
         ORDER BY session_date DESC, subject_id ASC
       `);
@@ -211,12 +218,28 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   panelTitle.textContent = 'Filters';
   filterPanel.appendChild(panelTitle);
 
-  // Right: figures panel
+  // Right: main column (timeline on top, figures below)
+  const rightCol = document.createElement('div');
+  rightCol.className = 'df-figures-panel';
+
+  // Timeline area
+  const timelineWrap = document.createElement('div');
+  timelineWrap.className = 'df-timeline-wrap';
+  rightCol.appendChild(timelineWrap);
+
+  // Figures panel (count + grid)
   const figuresPanel = document.createElement('div');
-  figuresPanel.className = 'df-figures-panel';
+  figuresPanel.className = 'df-figures-inner';
+  rightCol.appendChild(figuresPanel);
 
   layout.appendChild(filterPanel);
-  layout.appendChild(figuresPanel);
+  layout.appendChild(rightCol);
+
+  // HTML tooltip for timeline hover
+  const tooltipEl = document.createElement('div');
+  tooltipEl.className = 'pt-html-tooltip';
+  tooltipEl.style.display = 'none';
+  document.body.appendChild(tooltipEl);
 
   // -- Checkbox helper -------------------------------------------------------
   function buildCheckboxGroup(title, options, selectedSet) {
@@ -243,7 +266,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         if (cb.checked) selectedSet.add(opt);
         else selectedSet.delete(opt);
         _persist();
-        renderFigures();
+        renderAll();
       });
       item.appendChild(cb);
       item.appendChild(document.createTextNode('\u00a0' + opt));
@@ -257,7 +280,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
       selectedSet.clear();
       for (const cb of list.querySelectorAll('input[type=checkbox]')) cb.checked = false;
       _persist();
-      renderFigures();
+      renderAll();
     });
     wrapper.appendChild(clearBtn);
 
@@ -267,19 +290,98 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   filterPanel.appendChild(buildCheckboxGroup('Trainer / Experimenter', allTrainers, selTrainers));
   filterPanel.appendChild(buildCheckboxGroup('Curriculum', allCurricula, selCurricula));
   filterPanel.appendChild(buildCheckboxGroup('Curriculum Stage', allStages, selStages));
-  filterPanel.appendChild(_buildDateFilter(() => sinceDate, (d) => { sinceDate = d; _persist(); renderFigures(); }));
+  filterPanel.appendChild(_buildDateFilter(() => sinceDate, (d) => { sinceDate = d; _persist(); renderAll(); }));
 
   // Push whatever was resolved from URL/cookie into the URL immediately
   _persist();
 
-  // -- Figure renderer -------------------------------------------------------
-  function renderFigures() {
+  // -- Combined render -------------------------------------------------------
+  function renderAll() {
     const filtered = allSessions.filter((s) =>
       (!sinceDate || (s.session_date ?? '') >= sinceDate) &&
       (selTrainers.size  === 0 || selTrainers.has(s._trainerNorm)) &&
       (selCurricula.size === 0 || selCurricula.has(s.curriculum_name ?? '')) &&
       (selStages.size    === 0 || selStages.has(s.stage_name ?? '')),
     );
+    renderTimeline(filtered);
+    renderFigures(filtered);
+  }
+
+  // -- Timeline renderer -----------------------------------------------------
+  function renderTimeline(filtered) {
+    document.querySelectorAll('.pt-html-tooltip').forEach((el) => {
+      if (el !== tooltipEl) el.remove();
+    });
+    tooltipEl.style.display = 'none';
+
+    // Build curriculum map for colour coding
+    const curriculumMap = new Map();
+    for (const s of filtered) {
+      const assetName = `behavior_${s.subject_id}_${s.session_date}` +
+        (s.nwb_suffix && String(s.nwb_suffix) !== '0' && String(s.nwb_suffix) !== ''
+          ? `_${s.nwb_suffix}` : '');
+      if (s.curriculum_name) {
+        curriculumMap.set(assetName, {
+          curriculum_name: s.curriculum_name,
+          stage_name: s.stage_name ?? null,
+          stage_node_id: s.stage_node_id != null ? Math.round(Number(s.stage_node_id)) : null,
+        });
+      }
+    }
+
+    // Compute window: sinceDate to today (capped at 90 days for readability)
+    const today = utcDay(new Date());
+    const windowStart = sinceDate
+      ? utcDay(new Date(sinceDate + 'T00:00:00Z'))
+      : addDays(today, -13);
+    const rawDays = Math.round((today.getTime() - windowStart.getTime()) / 86400000) + 1;
+    const numDays = Math.min(Math.max(rawDays, 1), 90);
+
+    // Convert sessions to synthetic asset objects for the timeline
+    const assets = filtered.map((s) => ({
+      subject_id: String(s.subject_id ?? ''),
+      name: `behavior_${s.subject_id}_${s.session_date}` +
+        (s.nwb_suffix && String(s.nwb_suffix) !== '0' && String(s.nwb_suffix) !== ''
+          ? `_${s.nwb_suffix}` : ''),
+      acquisition_start_time: s.session_date ? (s.session_date + 'T12:00:00Z') : null,
+      modalities: 'behavior',
+    }));
+
+    timelineWrap.innerHTML = '';
+
+    if (assets.length === 0) return;
+
+    // cellW: available width minus filter panel (~250px) minus label width
+    const containerW = (section.getBoundingClientRect().width || window.innerWidth) - 260;
+    const cellW = Math.max(8, Math.floor((containerW - TIMELINE_LABEL_W - 24) / numDays));
+
+    const rangeLabel = document.createElement('div');
+    rangeLabel.className = 'df-timeline-range';
+    rangeLabel.textContent =
+      `${isoDate(windowStart)} \u2013 ${isoDate(addDays(windowStart, numDays - 1))}`;
+    timelineWrap.appendChild(rangeLabel);
+
+    const svgEl = buildTimelineSvg(assets, windowStart, (dayAssets) => {
+      // Highlight figure cards matching clicked day's assets
+      const nameSet = new Set(dayAssets.map((a) => a.name));
+      const cards = figuresPanel.querySelectorAll('.df-figure-card[data-name]');
+      let firstHighlighted = null;
+      for (const card of cards) {
+        if (nameSet.has(card.dataset.name)) {
+          card.classList.add('df-figure-card--highlighted');
+          if (!firstHighlighted) firstHighlighted = card;
+        } else {
+          card.classList.remove('df-figure-card--highlighted');
+        }
+      }
+      firstHighlighted?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, { cellW, tooltipEl, viewMode: 'modality', curriculumMap, numDays });
+
+    timelineWrap.appendChild(svgEl);
+  }
+
+  // -- Figure renderer -------------------------------------------------------
+  function renderFigures(filtered) {
 
     figuresPanel.innerHTML = '';
 
@@ -300,6 +402,10 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     for (const s of filtered.slice(0, MAX_FIGURES)) {
       const card = document.createElement('div');
       card.className = 'df-figure-card';
+      const assetName = `behavior_${s.subject_id}_${s.session_date}` +
+        (s.nwb_suffix && String(s.nwb_suffix) !== '0' && String(s.nwb_suffix) !== ''
+          ? `_${s.nwb_suffix}` : '');
+      card.dataset.name = assetName;
 
       const imgUrl = buildChoiceHistoryUrl(s.subject_id, s.session_date, s.nwb_suffix);
 
@@ -363,8 +469,8 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     }
   }
 
-  // Initial render (all sessions, no filter)
-  renderFigures();
+  // Initial render
+  renderAll();
 }
 
 // ---------------------------------------------------------------------------
