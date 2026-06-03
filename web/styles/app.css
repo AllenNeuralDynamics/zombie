@@ -4799,3 +4799,156 @@ body {
 .contributions-edit-page {
   padding: 0;
 }
+
+/* ============================================================
+   Dynamic Foraging — Acquisition Figures section
+   ============================================================ */
+
+.df-figures-section {
+  margin-top: 28px;
+}
+
+.df-figures-heading {
+  margin-bottom: 12px;
+}
+
+/* Two-column layout: narrow filter panel on left, figures area on right */
+.df-figures-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .df-figures-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.df-filter-panel {
+  position: sticky;
+  top: 12px;
+}
+
+/* ---- Figures panel (right side) ---- */
+
+.df-figures-panel {
+  min-height: 120px;
+}
+
+.df-figures-count {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+/* Card grid */
+.df-figures-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.df-figure-card {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.df-figure-card--no-img .df-figure-caption {
+  border-top: none;
+}
+
+.df-figure-img-link {
+  display: block;
+  background: var(--surface-bg);
+}
+
+.df-figure-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.df-figure-missing {
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.df-figure-caption {
+  padding: 7px 10px 8px;
+  border-top: 1px solid var(--surface-border);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.df-figure-subject {
+  font-weight: 600;
+  color: var(--color-red, #c0392b);
+  text-decoration: none;
+}
+
+.df-figure-subject:hover {
+  text-decoration: underline;
+}
+
+.df-figure-date {
+  color: var(--text-secondary);
+}
+
+.df-figure-meta {
+  color: var(--text-secondary);
+  font-size: 0.77rem;
+}
+
+.df-figure-stage {
+  display: inline-block;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-top: 1px;
+}
+
+/* ---- Date filter (Show sessions since) ---- */
+
+.df-since-select {
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  padding: 3px 6px;
+  margin-bottom: 4px;
+}
+
+.df-since-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.df-since-date {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  padding: 3px 6px;
+}

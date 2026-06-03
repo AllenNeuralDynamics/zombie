@@ -170,6 +170,79 @@ export function normalizeInstrumentIdSql(col) {
 }
 
 /**
+ * Normalize a single person/experimenter/trainer name:
+ *  1. Replace non-alphanumeric/non-space chars (dots, underscores, etc.) with a space
+ *  2. Collapse multiple spaces and strip leading/trailing whitespace
+ *  3. Lowercase everything
+ *  4. Re-capitalize the first letter of each word (title case)
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+export function normalizeName(name) {
+  return String(name)
+    .replace(/[^a-zA-Z0-9 ]/g, ' ')   // special chars -> space
+    .replace(/\s+/g, ' ')              // collapse whitespace
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase()); // title case
+}
+
+/**
+ * Merge key for deduplication: lowercase with all spaces removed.
+ * "John Doe" and "JohnDoe" both produce "johndoe".
+ *
+ * @param {string} displayName - Already normalized display name.
+ * @returns {string}
+ */
+export function mergeKey(displayName) {
+  return displayName.toLowerCase().replace(/ /g, '');
+}
+
+/**
+ * Parse a comma-separated experimenter/trainer field into an array of
+ * deduplicated, normalized display names.
+ *
+ * @param {string|null} val
+ * @returns {string[]}
+ */
+export function parseExperimenters(val) {
+  if (!val) return [];
+  const seen = new Set();
+  const result = [];
+  for (const part of String(val).split(',')) {
+    const normalized = normalizeName(part);
+    if (normalized && !seen.has(mergeKey(normalized))) {
+      seen.add(mergeKey(normalized));
+      result.push(normalized);
+    }
+  }
+  return result;
+}
+
+/**
+ * Collect unique experimenter display names from rows, deduplicated by
+ * mergeKey, sorted alphabetically. Reads the `experimenters` column.
+ *
+ * @param {object[]} rows
+ * @returns {string[]}
+ */
+export function uniqueExperimenters(rows) {
+  const seen = new Set();
+  const result = [];
+  for (const row of rows) {
+    for (const name of parseExperimenters(row.experimenters)) {
+      const key = mergeKey(name);
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(name);
+      }
+    }
+  }
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Generate a CSV file and trigger download using papaparse.
  * @param {string} filename
  * @param {string[]} headers
