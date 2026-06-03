@@ -28,6 +28,7 @@ const PARAM_SINCE     = 'df_since';
 const PARAM_TRAINERS  = 'df_trainers';
 const PARAM_CURRICULA = 'df_curricula';
 const PARAM_STAGES    = 'df_stages';
+const PARAM_COLOR_BY  = 'df_color_by';
 
 // ---------------------------------------------------------------------------
 // Cookie helpers (scoped to this module)
@@ -93,27 +94,25 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   try {
     await ensureForagingTable(coord);
 
-    // Load foraging sessions joined with the curriculum table so we get
-    // the human-readable stage_name from zs_behavior_curriculum.
-    // The asset name for a session is: behavior_{subject_id}_{session_date}[_{nwb_suffix}]
+    // Load foraging sessions joined with the curriculum table to get stage_node_id.
+    // Join on (curriculum_name, stage_name) since the asset_name format in the parquet
+    // uses full timestamps and doesn't match our session date keys.
     const result = await coord.query(`
       SELECT
         f.subject_id,
         f.session_date,
         f.nwb_suffix,
         f.trainer,
-        COALESCE(c.curriculum_name, f.curriculum_name) AS curriculum_name,
-        COALESCE(c.stage_name, f.current_stage_actual)  AS stage_name,
+        f.curriculum_name,
+        f.current_stage_actual AS stage_name,
         c.stage_node_id
       FROM zs_foraging_sessions f
-      LEFT JOIN read_parquet('${CURRICULUM_PARQUET_URL}') c
-        ON c.asset_name = 'behavior_' || f.subject_id || '_' || f.session_date
-            || CASE
-                 WHEN f.nwb_suffix IS NOT NULL
-                      AND CAST(f.nwb_suffix AS VARCHAR) NOT IN ('0', '')
-                 THEN '_' || CAST(f.nwb_suffix AS VARCHAR)
-                 ELSE ''
-               END
+      LEFT JOIN (
+        SELECT DISTINCT curriculum_name, stage_name, stage_node_id
+        FROM read_parquet('${CURRICULUM_PARQUET_URL}')
+        WHERE stage_node_id IS NOT NULL
+      ) c ON c.curriculum_name = f.curriculum_name
+         AND c.stage_name = f.current_stage_actual
       ORDER BY f.session_date DESC, f.subject_id ASC
     `);
     allSessions = arrowTableToRows(result);
@@ -182,6 +181,9 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   const selCurricula = _parseSet(_readParam(PARAM_CURRICULA), allCurricula);
   const selStages    = _parseSet(_readParam(PARAM_STAGES),    allStages);
 
+  const _rawColorBy = _readParam(PARAM_COLOR_BY);
+  let colorBy = (_rawColorBy === 'modality' || _rawColorBy === 'curriculum') ? _rawColorBy : 'modality';
+
   // ---------------------------------------------------------------------------
   // Persist current filter state to URL + cookies
   // ---------------------------------------------------------------------------
@@ -193,6 +195,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     setOrDel(PARAM_TRAINERS,  [...selTrainers].join('|'));
     setOrDel(PARAM_CURRICULA, [...selCurricula].join('|'));
     setOrDel(PARAM_STAGES,    [...selStages].join('|'));
+    p.set(PARAM_COLOR_BY, colorBy);
 
     try {
       history.replaceState({}, '', `?${p.toString()}`);
@@ -202,6 +205,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     _writeCookie(PARAM_TRAINERS,  [...selTrainers].join('|'));
     _writeCookie(PARAM_CURRICULA, [...selCurricula].join('|'));
     _writeCookie(PARAM_STAGES,    [...selStages].join('|'));
+    _writeCookie(PARAM_COLOR_BY,  colorBy);
   }
 
   // -- Layout ----------------------------------------------------------------
@@ -292,6 +296,30 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   filterPanel.appendChild(buildCheckboxGroup('Curriculum Stage', allStages, selStages));
   filterPanel.appendChild(_buildDateFilter(() => sinceDate, (d) => { sinceDate = d; _persist(); renderAll(); }));
 
+  // Color-by selector (affects timeline only)
+  const colorByGroup = document.createElement('div');
+  colorByGroup.className = 'sessions-filter-group';
+  const colorByLabel = document.createElement('div');
+  colorByLabel.className = 'sessions-filter-label';
+  colorByLabel.textContent = 'Color timeline by';
+  colorByGroup.appendChild(colorByLabel);
+  const colorBySelect = document.createElement('select');
+  colorBySelect.className = 'project-filter-select';
+  [{ value: 'modality', label: 'Modality' }, { value: 'curriculum', label: 'Curriculum stage' }]
+    .forEach(({ value, label }) => {
+      const opt = document.createElement('option');
+      opt.value = value; opt.textContent = label;
+      if (value === colorBy) opt.selected = true;
+      colorBySelect.appendChild(opt);
+    });
+  colorBySelect.addEventListener('change', () => {
+    colorBy = colorBySelect.value;
+    _persist();
+    renderAll();
+  });
+  colorByGroup.appendChild(colorBySelect);
+  filterPanel.appendChild(colorByGroup);
+
   // Push whatever was resolved from URL/cookie into the URL immediately
   _persist();
 
@@ -314,17 +342,24 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     });
     tooltipEl.style.display = 'none';
 
-    // Build curriculum map for colour coding
+    // Build curriculum map for colour coding.
+    // For curricula that appear in the parquet, stage_node_id comes from the join.
+    // For the main DF curricula (Coupled/Uncoupled Baiting etc.) the parquet has no
+    // matching rows, so we infer a node ID from the stage name pattern instead.
     const curriculumMap = new Map();
     for (const s of filtered) {
       const assetName = `behavior_${s.subject_id}_${s.session_date}` +
         (s.nwb_suffix && String(s.nwb_suffix) !== '0' && String(s.nwb_suffix) !== ''
           ? `_${s.nwb_suffix}` : '');
       if (s.curriculum_name) {
+        let nodeId = s.stage_node_id != null ? Math.round(Number(s.stage_node_id)) : null;
+        if (nodeId == null && s.stage_name) {
+          nodeId = _inferStageNodeId(s.stage_name);
+        }
         curriculumMap.set(assetName, {
           curriculum_name: s.curriculum_name,
           stage_name: s.stage_name ?? null,
-          stage_node_id: s.stage_node_id != null ? Math.round(Number(s.stage_node_id)) : null,
+          stage_node_id: nodeId,
         });
       }
     }
@@ -375,9 +410,14 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         }
       }
       firstHighlighted?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }, { cellW, tooltipEl, viewMode: 'modality', curriculumMap, numDays });
+    }, { cellW, tooltipEl, viewMode: colorBy, curriculumMap, numDays });
 
     timelineWrap.appendChild(svgEl);
+
+    if (colorBy === 'curriculum') {
+      const legendEl = buildCurriculumLegend(assets, windowStart, curriculumMap, numDays);
+      if (legendEl) timelineWrap.appendChild(legendEl);
+    }
   }
 
   // -- Figure renderer -------------------------------------------------------
@@ -596,4 +636,22 @@ function _buildDateFilter(getSince, onChange) {
   });
 
   return wrapper;
+}
+
+/**
+ * Infer a numeric stage node ID from a stage name string when the curriculum
+ * parquet has no entry for this curriculum (e.g. "Coupled Baiting" curricula).
+ *
+ * Handles patterns like STAGE_1, STAGE_1_WARMUP, STAGE_2, …, STAGE_FINAL, GRADUATED.
+ * Returns null if the pattern is unrecognised.
+ */
+function _inferStageNodeId(stageName) {
+  if (!stageName) return null;
+  const s = stageName.toUpperCase();
+  if (s === 'STAGE_1_WARMUP') return 0;
+  const numMatch = s.match(/^STAGE_(\d+)/);
+  if (numMatch) return parseInt(numMatch[1], 10);
+  if (s === 'STAGE_FINAL') return 5;
+  if (s === 'GRADUATED') return 6;
+  return null;
 }
