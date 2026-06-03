@@ -3988,6 +3988,27 @@ body {
   padding: 5px 10px;
 }
 
+/* Fiber photometry grouped table rows */
+.assets-table .fib-group-row {
+  background: var(--surface-bg, #fff);
+  font-weight: 500;
+}
+
+.assets-table .fib-group-row td {
+  border-top: 2px solid var(--surface-border, #e5e7eb);
+}
+
+.assets-table .fib-asset-row {
+  opacity: 0.82;
+  background: var(--surface-card, #f8f8f8);
+}
+
+.assets-table .fib-asset-name-cell {
+  padding-left: 1.5rem;
+  color: var(--color-muted, #666);
+  font-size: 0.85rem;
+}
+
 /* ---------------------------------------------------------------------------
  * Project page — info card with inline histogram
  * ------------------------------------------------------------------------ */
@@ -4974,4 +4995,49 @@ body {
 .df-figure-card--highlighted {
   outline: 3px solid var(--accent, #0078d4);
   outline-offset: 2px;
+}
+
+/* ---- Platform overview: side-by-side dropdowns row ---- */
+
+.platform-dropdowns-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.platform-dropdown-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.platform-summary-section {
+  margin-top: 4px;
+}
+
+.platform-summary-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.platform-summary-table {
+  width: 100%;
+}
+
+/* ---- Settings modal: QC settings box ---- */
+
+.settings-section-box {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.settings-section-box-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
 }

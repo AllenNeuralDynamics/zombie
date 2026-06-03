@@ -11,6 +11,7 @@
 import { createPlatformQcTable } from './platform-qc-table.js';
 import { buildModalityHistogram } from './charts.js';
 import { arrowTableToRows } from './assets-table.js';
+import { escHtml, parseExperimenters, downloadCsv } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +38,9 @@ function buildFilterCondition(assetFilter) {
   if (assetFilter.type === 'acquisition_type_regex') return `regexp_matches(acquisition_type, '${safeVal}')`;
   return '1=1';
 }
+
+/** Validate that a value is a YYYY-MM-DD date string before interpolating into SQL. */
+const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 const UPGRADE_S3_PATH =
   'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_metadata_upgrade.pqt';
@@ -119,6 +123,17 @@ export function createPlatformOverview(coord, {
   statsEl.textContent = 'Loading summary…';
   leftCol.appendChild(statsEl);
 
+  // ─── Collapsible dropdowns row (QC metrics | Session summary) ──────────────
+  const dropdownsRow = document.createElement('div');
+  dropdownsRow.className = 'platform-dropdowns-row';
+  const qcCol = document.createElement('div');
+  qcCol.className = 'platform-dropdown-col';
+  dropdownsRow.appendChild(qcCol);
+  const summaryCol = document.createElement('div');
+  summaryCol.className = 'platform-dropdown-col';
+  dropdownsRow.appendChild(summaryCol);
+  section.appendChild(dropdownsRow);
+
   // ─── QC table collapsible section ──────────────────────────────────────────
   const qcToggle = document.createElement('button');
   qcToggle.className = 'platform-qc-toggle';
@@ -131,7 +146,7 @@ export function createPlatformOverview(coord, {
   const qcLabelText = document.createTextNode('');
   qcToggle.appendChild(qcLabelText);
 
-  section.appendChild(qcToggle);
+  qcCol.appendChild(qcToggle);
 
   // ─── Settings state (initialised from URL param + cookies) ────────────────
   const _cookiePrefix = platformKey ? `ov_${platformKey}` : null;
@@ -139,9 +154,11 @@ export function createPlatformOverview(coord, {
   const _urlGroup = _urlParams.get('ov_group');
   const _urlMetricsRaw = _urlParams.get('ov_metrics');
   const _urlSince = _urlParams.get('ov_since'); // null=absent, ''=all-time, 'YYYY-MM-DD'=filter
+  const _urlSumBy = _urlParams.get('ov_sum_by');
   const _cookieGroup = _cookiePrefix ? _readCookie(`${_cookiePrefix}_group`) : null;
   const _cookieMetricsRaw = _cookiePrefix ? _readCookie(`${_cookiePrefix}_metrics`) : null;
   const _cookieSince = _cookiePrefix ? _readCookie(`${_cookiePrefix}_since`) : null;
+  const _cookieSumBy = _cookiePrefix ? _readCookie(`${_cookiePrefix}_sum_by`) : null;
 
   // Compute default "since" date: 6 months ago.
   function _sixMonthsAgo() {
@@ -160,6 +177,10 @@ export function createPlatformOverview(coord, {
       : 'rig',
     visibleMetrics: null, // null = show all; restored after metrics load
     since: _rawSince !== null ? (_rawSince || null) : _sixMonthsAgo(),
+    summaryRowBy:
+      _urlSumBy === 'project' || _urlSumBy === 'experimenter' ? _urlSumBy
+      : _cookieSumBy === 'project' || _cookieSumBy === 'experimenter' ? _cookieSumBy
+      : 'project',
   };
   // URL takes priority over cookie for metric visibility.
   let _pendingMetricsRaw = _urlMetricsRaw ?? _cookieMetricsRaw; // comma-separated string or null
@@ -173,6 +194,7 @@ export function createPlatformOverview(coord, {
     const metricsVal = settings.visibleMetrics ? [...settings.visibleMetrics].join(',') : '';
     _writeCookie(`${_cookiePrefix}_metrics`, metricsVal);
     _writeCookie(`${_cookiePrefix}_since`, settings.since ?? '');
+    _writeCookie(`${_cookiePrefix}_sum_by`, settings.summaryRowBy);
     const p = new URLSearchParams(window.location.search);
     p.set('ov_group', settings.groupBy);
     if (metricsVal) {
@@ -181,6 +203,7 @@ export function createPlatformOverview(coord, {
       p.delete('ov_metrics');
     }
     p.set('ov_since', settings.since ?? '');
+    p.set('ov_sum_by', settings.summaryRowBy);
     history.replaceState({}, '', `?${p.toString()}`);
   }
   // Push whatever was resolved (from URL or cookie) into the URL immediately.
@@ -210,7 +233,7 @@ export function createPlatformOverview(coord, {
 
   // Collapsed by default
   qcTableApi.el.hidden = true;
-  section.appendChild(qcTableApi.el);
+  qcCol.appendChild(qcTableApi.el);
 
   function updateQcLabel() {
     const expanded = qcToggle.getAttribute('aria-expanded') === 'true';
@@ -224,6 +247,180 @@ export function createPlatformOverview(coord, {
     qcToggle.setAttribute('aria-expanded', String(expanded));
     qcTableApi.el.hidden = !expanded;
     updateQcLabel();
+  });
+
+  // ─── Session summary collapsible section ──────────────────────────────────
+  const summaryToggle = document.createElement('button');
+  summaryToggle.className = 'platform-qc-toggle';
+  summaryToggle.setAttribute('aria-expanded', 'false');
+
+  const summaryArrow = document.createElement('span');
+  summaryArrow.className = 'platform-qc-toggle-arrow';
+  summaryArrow.textContent = '▶';
+  summaryToggle.appendChild(summaryArrow);
+  const summaryLabelText = document.createTextNode('');
+  summaryToggle.appendChild(summaryLabelText);
+
+  const summaryEl = document.createElement('div');
+  summaryEl.className = 'platform-summary-section';
+  summaryEl.hidden = true;
+  summaryCol.appendChild(summaryToggle);
+  summaryCol.appendChild(summaryEl);
+
+  let summaryBuilt = false;
+  let refreshSummaryTable = null;
+
+  function updateSummaryLabel() {
+    const expanded = summaryToggle.getAttribute('aria-expanded') === 'true';
+    summaryArrow.textContent = expanded ? '▼' : '▶';
+    const by = settings.summaryRowBy === 'experimenter' ? 'experimenter' : 'project';
+    summaryLabelText.textContent = ` Session summary by ${by}`;
+  }
+  updateSummaryLabel();
+
+  function buildSummarySection() {
+    summaryEl.innerHTML = '';
+
+    const summaryHeader = document.createElement('div');
+    summaryHeader.className = 'platform-summary-header';
+    const exportBtn = document.createElement('button');
+    exportBtn.className = 'sessions-export-btn';
+    exportBtn.textContent = 'Export CSV';
+    summaryHeader.appendChild(exportBtn);
+    summaryEl.appendChild(summaryHeader);
+
+    const summaryTable = document.createElement('table');
+    summaryTable.className = 'assets-table platform-summary-table';
+    const summaryThead = document.createElement('thead');
+    const summaryTbody = document.createElement('tbody');
+    summaryTable.appendChild(summaryThead);
+    summaryTable.appendChild(summaryTbody);
+    summaryEl.appendChild(summaryTable);
+
+    const loadingNote = document.createElement('p');
+    loadingNote.className = 'settings-loading-note';
+    loadingNote.textContent = 'Loading…';
+    summaryEl.appendChild(loadingNote);
+
+    let currentRows = [];
+
+    function renderHeader() {
+      const groupLabel = settings.summaryRowBy === 'experimenter' ? 'Experimenter' : 'Project';
+      summaryThead.innerHTML = `<tr><th>${escHtml(groupLabel)}</th><th>Sessions</th><th>Total time</th></tr>`;
+    }
+
+    function formatDuration(seconds) {
+      if (!seconds || seconds <= 0) return '—';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function renderRows(rows) {
+      currentRows = rows;
+      summaryTbody.innerHTML = rows.map((r) =>
+        `<tr><td>${escHtml(String(r.group || '(none)'))}</td><td>${r.sessionCount}</td><td>${escHtml(formatDuration(r.totalSeconds))}</td></tr>`
+      ).join('');
+    }
+
+    async function loadData() {
+      loadingNote.textContent = 'Loading…';
+      loadingNote.hidden = false;
+      summaryTbody.innerHTML = '';
+      renderHeader();
+      const filterCond = buildFilterCondition(assetFilter);
+      const sinceCond = (settings.since && isValidDate(settings.since))
+        ? `AND acquisition_start_time >= '${settings.since}'`
+        : '';
+      try {
+        let rows;
+        if (settings.summaryRowBy === 'project') {
+          const result = await coord.query(
+            `SELECT
+               COALESCE(project_name, '(none)') AS group_key,
+               COUNT(*) AS session_count,
+               SUM(CASE WHEN acquisition_end_time IS NOT NULL
+                   THEN datediff('second', acquisition_start_time, acquisition_end_time)
+                   ELSE 0 END) AS total_seconds
+             FROM asset_basics
+             WHERE ${filterCond}
+               AND (data_level IS NULL OR data_level != 'derived')
+               ${sinceCond}
+             GROUP BY project_name
+             ORDER BY session_count DESC NULLS LAST`,
+            { type: 'json' },
+          );
+          const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
+          rows = raw.map((r) => ({
+            group: r.group_key ?? '(none)',
+            sessionCount: Number(r.session_count ?? 0),
+            totalSeconds: Number(r.total_seconds ?? 0),
+          }));
+        } else {
+          const result = await coord.query(
+            `SELECT experimenters,
+               CASE WHEN acquisition_end_time IS NOT NULL
+                    THEN datediff('second', acquisition_start_time, acquisition_end_time)
+                    ELSE 0 END AS session_seconds
+             FROM asset_basics
+             WHERE ${filterCond}
+               AND (data_level IS NULL OR data_level != 'derived')
+               ${sinceCond}`,
+            { type: 'json' },
+          );
+          const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
+          const expMap = new Map();
+          for (const r of raw) {
+            const exps = parseExperimenters(r.experimenters);
+            const secs = Number(r.session_seconds ?? 0);
+            if (exps.length === 0) {
+              const key = '(none)';
+              if (!expMap.has(key)) expMap.set(key, { sessionCount: 0, totalSeconds: 0 });
+              expMap.get(key).sessionCount++;
+              expMap.get(key).totalSeconds += secs;
+            } else {
+              for (const exp of exps) {
+                if (!expMap.has(exp)) expMap.set(exp, { sessionCount: 0, totalSeconds: 0 });
+                expMap.get(exp).sessionCount++;
+                expMap.get(exp).totalSeconds += secs;
+              }
+            }
+          }
+          rows = [...expMap.entries()]
+            .map(([group, d]) => ({ group, sessionCount: d.sessionCount, totalSeconds: d.totalSeconds }))
+            .sort((a, b) => b.sessionCount - a.sessionCount);
+        }
+        renderRows(rows);
+        loadingNote.hidden = true;
+      } catch (err) {
+        loadingNote.textContent = `Failed to load summary: ${err?.message ?? err}`;
+        loadingNote.hidden = false;
+        console.error('[PlatformOverview] summary query failed:', err);
+      }
+    }
+
+    exportBtn.addEventListener('click', () => {
+      const groupLabel = settings.summaryRowBy === 'experimenter' ? 'Experimenter' : 'Project';
+      downloadCsv(
+        `summary_by_${settings.summaryRowBy}.csv`,
+        [groupLabel, 'Sessions', 'Total time (s)'],
+        currentRows.map((r) => [String(r.group), String(r.sessionCount), String(Math.round(r.totalSeconds))]),
+      );
+    });
+
+    loadData();
+    return loadData;
+  }
+
+  summaryToggle.addEventListener('click', () => {
+    const expanded = summaryToggle.getAttribute('aria-expanded') !== 'true';
+    summaryToggle.setAttribute('aria-expanded', String(expanded));
+    summaryEl.hidden = !expanded;
+    if (expanded && !summaryBuilt) {
+      summaryBuilt = true;
+      refreshSummaryTable = buildSummarySection();
+    }
+    updateSummaryLabel();
   });
 
   // ─── Settings modal ───────────────────────────────────────────────────────
@@ -277,7 +474,7 @@ export function createPlatformOverview(coord, {
       lbl.appendChild(span);
       grpSection.appendChild(lbl);
     }
-    content.appendChild(grpSection);
+    // grpSection appended to qcBox below
 
     // ── Date range ─────────────────────────────────────────────────────────────────────
     const sinceSection = document.createElement('div');
@@ -285,7 +482,7 @@ export function createPlatformOverview(coord, {
 
     const sinceLabel = document.createElement('div');
     sinceLabel.className = 'settings-section-label';
-    sinceLabel.textContent = 'Show tags since';
+    sinceLabel.textContent = 'Show assets since';
     sinceSection.appendChild(sinceLabel);
 
     const PRESETS = [
@@ -339,12 +536,14 @@ export function createPlatformOverview(coord, {
       presetSelect.value = '__placeholder__';
       _persistSettings();
       qcTableApi.setSince(settings.since);
+      if (refreshSummaryTable) refreshSummaryTable();
     });
 
     dateInput.addEventListener('change', () => {
       settings.since = dateInput.value || null;
       _persistSettings();
       qcTableApi.setSince(settings.since);
+      if (refreshSummaryTable) refreshSummaryTable();
     });
 
     clearBtn.addEventListener('click', () => {
@@ -352,6 +551,7 @@ export function createPlatformOverview(coord, {
       settings.since = null;
       _persistSettings();
       qcTableApi.setSince(null);
+      if (refreshSummaryTable) refreshSummaryTable();
     });
 
     sinceSection.appendChild(presetSelect);
@@ -458,7 +658,58 @@ export function createPlatformOverview(coord, {
 
     rebuildMetricCheckboxes = buildCheckboxes;
     buildCheckboxes();
-    content.appendChild(statusSection);
+    // statusSection appended to qcBox below
+
+    // ── Re-append in order: since first, then QC settings box, then summary row-by ───────
+    content.appendChild(sinceSection);
+
+    const qcBox = document.createElement('div');
+    qcBox.className = 'settings-section-box';
+    const qcBoxLabel = document.createElement('div');
+    qcBoxLabel.className = 'settings-section-box-label';
+    qcBoxLabel.textContent = 'QC settings';
+    qcBox.appendChild(qcBoxLabel);
+    qcBox.appendChild(grpSection);
+    qcBox.appendChild(statusSection);
+    content.appendChild(qcBox);
+
+    // ── Summary row-by ────────────────────────────────────────────────────
+    const sumBox = document.createElement('div');
+    sumBox.className = 'settings-section-box';
+    const sumBoxLabel = document.createElement('div');
+    sumBoxLabel.className = 'settings-section-box-label';
+    sumBoxLabel.textContent = 'Session summary settings';
+    sumBox.appendChild(sumBoxLabel);
+    const sumSection = document.createElement('div');
+    sumSection.className = 'settings-section';
+    const sumLabel = document.createElement('div');
+    sumLabel.className = 'settings-section-label';
+    sumLabel.textContent = 'Rows grouped by';
+    sumSection.appendChild(sumLabel);
+    for (const [val, text] of [['project', 'Project'], ['experimenter', 'Experimenter']]) {
+      const lbl = document.createElement('label');
+      lbl.className = 'settings-checkbox-label';
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'platform-ov-sumby';
+      radio.value = val;
+      radio.checked = settings.summaryRowBy === val;
+      radio.addEventListener('change', () => {
+        if (radio.checked && val !== settings.summaryRowBy) {
+          settings.summaryRowBy = val;
+          _persistSettings();
+          updateSummaryLabel();
+          if (refreshSummaryTable) refreshSummaryTable();
+        }
+      });
+      const span = document.createElement('span');
+      span.textContent = text;
+      lbl.appendChild(radio);
+      lbl.appendChild(span);
+      sumSection.appendChild(lbl);
+    }
+    sumBox.appendChild(sumSection);
+    content.appendChild(sumBox);
 
     // ── Close button ───────────────────────────────────────────────────────
     const actions = document.createElement('div');
