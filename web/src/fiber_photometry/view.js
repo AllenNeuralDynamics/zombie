@@ -28,7 +28,7 @@ const BASICS_LABELS = {
 const BASICS_KEYS_FROM_JOIN = [
   'subject_id', 'project_name', 'acquisition_start_time',
   'data_level', 'modalities', 'genotype', 'location',
-  'code_ocean', 'experimenters',
+  'code_ocean', 'investigators', 'experimenters',
 ];
 
 // ---------------------------------------------------------------------------
@@ -401,7 +401,7 @@ export function renderFibGroupRows(group, visibleColumns, channelCols) {
 
 /**
  * For each subject, collect unique "channel: no intended measurement" problems
- * across all their assets. Returns [{subject_id, investigators, assetCount, incompleteInfo}].
+ * across all their assets. Returns [{asset_name, code_ocean, investigators, incompleteInfo}].
  */
 export function buildMissingTable(wideRows) {
   const result = [];
@@ -439,8 +439,8 @@ export function buildMissingTable(wideRows) {
 
     if (problems.length === 0) continue;
 
-    const exps = row.experimenters ?? '';
-    const investigators = String(exps).split(',').map((e) => e.trim()).filter(Boolean).join(', ');
+    const invs = row.investigators ?? '';
+    const investigators = String(invs).split(',').map((e) => e.trim()).filter(Boolean).join(', ');
 
     result.push({
       asset_name: row.asset_name ?? '',
@@ -493,7 +493,7 @@ export function createFiberPhotometryView(coord) {
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
-                b.code_ocean, b.experimenters
+                b.code_ocean, b.investigators, b.experimenters
          FROM platform_fib f
          LEFT JOIN asset_basics b ON b.name = f.asset_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
