@@ -157,6 +157,7 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
   wrapper.goToAsset = (name) => {
     const idx = orderedRows.findIndex((r) => r.asset.name === name);
     if (idx === -1) return;
+    wrapper.clearHighlights();
     const targetPage = Math.floor(idx / PAGE_SIZE);
     if (targetPage !== page) {
       page = targetPage;
