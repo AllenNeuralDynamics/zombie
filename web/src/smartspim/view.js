@@ -211,7 +211,7 @@ export function createSmartSpimView(coord, metadata) {
         `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
                 s.processing_end_time, s.stitched_link, s.raw_link, s.alignment_link, s.processed, s.institution,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.genotype, b.location, b.code_ocean, b.investigators, b.experimenters,
+                b.genotype, b.location, b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters,
                 p.location AS proc_location, p.code_ocean AS proc_code_ocean
          FROM assets_smartspim s
          LEFT JOIN asset_basics b ON b.name = s.raw_name

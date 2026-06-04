@@ -6,9 +6,10 @@
  * per group (rig or experimenter) × metric name.
  *
  * Schema of each platform QC parquet:
- *   asset_name, experimenter, tag, status, timestamp
+ *   asset_name, tag, status, timestamp
  *
- * instrument_id_normalized is sourced via JOIN with asset_basics.
+ * instrument_id_normalized and experimenters_normalized are sourced via
+ * JOIN with asset_basics.
  *
  * Users can filter which metric columns are visible via the gear settings.
  *
@@ -48,12 +49,10 @@ async function ensurePlatformTable(coord, platformKey) {
 }
 
 /**
- * SQL column reference for the group label.
- * - 'rig': instrument_id_normalized from the asset_basics JOIN
- * - 'experimenter': experimenter column directly (one value per row)
+ * SQL column reference for the group label (rig grouping only).
+ * For experimenter grouping the SQL is structured differently (unnest).
  */
 function groupExprFor(groupBy) {
-  if (groupBy === 'experimenter') return 'experimenter';
   return 'instrument_id_normalized';
 }
 
@@ -70,46 +69,92 @@ const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s
 async function fetchStats(coord, { platformKey, groupBy, since }) {
   await ensurePlatformTable(coord, platformKey);
   const tbl = tableNameFor(platformKey);
-  const grp = groupExprFor(groupBy);
   const where = (since && isValidDate(since)) ? `WHERE timestamp >= '${since}'` : '';
 
-  const sql = `
-    WITH joined AS (
-      SELECT q.*,
-             b.instrument_id_normalized
-      FROM ${tbl} q
-      LEFT JOIN asset_basics b ON b.name = q.asset_name
-    ),
-    grp_sessions AS (
-      SELECT ${grp} AS grp,
-             COUNT(DISTINCT asset_name) AS n_sessions
-      FROM joined
-      ${where}
-      GROUP BY grp
-    ),
-    grp_metrics AS (
-      SELECT ${grp} AS grp,
-             tag,
-             COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
-             COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
-             COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
-             COUNT(*) AS n_total
-      FROM joined
-      ${where}
-      GROUP BY grp, tag
-    )
-    SELECT s.grp,
-           s.n_sessions,
-           m.tag,
-           m.n_pass,
-           m.n_fail,
-           m.n_pending,
-           m.n_total
-    FROM grp_sessions s
-    JOIN grp_metrics m ON m.grp = s.grp
-    WHERE s.grp IS NOT NULL AND s.grp != ''
-    ORDER BY s.n_sessions DESC, s.grp, m.tag
-  `;
+  let sql;
+  if (groupBy === 'experimenter') {
+    // experimenters_normalized is a comma-separated list — unnest into one
+    // row per experimenter so we can group by individual display name.
+    sql = `
+      WITH joined AS (
+        SELECT q.*,
+               TRIM(exp.name) AS grp
+        FROM ${tbl} q
+        LEFT JOIN asset_basics b ON b.name = q.asset_name
+        CROSS JOIN LATERAL (
+          SELECT UNNEST(b.experimenters_normalized) AS name
+        ) exp
+      ),
+      grp_sessions AS (
+        SELECT grp,
+               COUNT(DISTINCT asset_name) AS n_sessions
+        FROM joined
+        ${where}
+        GROUP BY grp
+      ),
+      grp_metrics AS (
+        SELECT grp,
+               tag,
+               COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
+               COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
+               COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
+               COUNT(*) AS n_total
+        FROM joined
+        ${where}
+        GROUP BY grp, tag
+      )
+      SELECT s.grp,
+             s.n_sessions,
+             m.tag,
+             m.n_pass,
+             m.n_fail,
+             m.n_pending,
+             m.n_total
+      FROM grp_sessions s
+      JOIN grp_metrics m ON m.grp = s.grp
+      WHERE s.grp IS NOT NULL AND s.grp != ''
+      ORDER BY s.n_sessions DESC, s.grp, m.tag
+    `;
+  } else {
+    const grp = groupExprFor(groupBy);
+    sql = `
+      WITH joined AS (
+        SELECT q.*,
+               b.instrument_id_normalized
+        FROM ${tbl} q
+        LEFT JOIN asset_basics b ON b.name = q.asset_name
+      ),
+      grp_sessions AS (
+        SELECT ${grp} AS grp,
+               COUNT(DISTINCT asset_name) AS n_sessions
+        FROM joined
+        ${where}
+        GROUP BY grp
+      ),
+      grp_metrics AS (
+        SELECT ${grp} AS grp,
+               tag,
+               COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
+               COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
+               COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
+               COUNT(*) AS n_total
+        FROM joined
+        ${where}
+        GROUP BY grp, tag
+      )
+      SELECT s.grp,
+             s.n_sessions,
+             m.tag,
+             m.n_pass,
+             m.n_fail,
+             m.n_pending,
+             m.n_total
+      FROM grp_sessions s
+      JOIN grp_metrics m ON m.grp = s.grp
+      WHERE s.grp IS NOT NULL AND s.grp != ''
+      ORDER BY s.n_sessions DESC, s.grp, m.tag
+    `;
+  }
 
   const result = await coord.query(sql, { type: 'json' });
   return Array.isArray(result) ? result

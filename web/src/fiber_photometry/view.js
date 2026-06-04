@@ -493,7 +493,7 @@ export function createFiberPhotometryView(coord) {
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
-                b.code_ocean, b.investigators_normalized AS investigators, b.experimenters
+                b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters
          FROM platform_fib f
          LEFT JOIN asset_basics b ON b.name = f.asset_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
