@@ -80,6 +80,7 @@ function PasswordModal({ doi, onUnlock }) {
 function EditApp({ doi }) {
   const [needsPassword, setNeedsPassword] = useState(null); // null = checking, true = show modal
   const [password, setPassword] = useState('');
+  const passwordRef = useRef('');
   const [editorMounted, setEditorMounted] = useState(false);
   const editorRef = useRef(null);
 
@@ -105,12 +106,13 @@ function EditApp({ doi }) {
   useEffect(() => {
     if (needsPassword !== false || editorMounted) return;
     if (!editorRef.current || !doi) return;
-    const el = createContributionsView({ projectName: doi, password, showTokenLinks: true });
+    const el = createContributionsView({ projectName: doi, password: passwordRef.current, showTokenLinks: true });
     editorRef.current.appendChild(el);
     setEditorMounted(true);
   }, [needsPassword, doi]);
 
   function handleUnlock(pw) {
+    passwordRef.current = pw;
     setPassword(pw);
     setNeedsPassword(false);
   }

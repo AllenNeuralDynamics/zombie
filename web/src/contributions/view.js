@@ -1065,7 +1065,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [doi, setDoi]                         = useState(initialDraft?.doi || '');
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
   const [projectLocked, setProjectLocked]     = useState(initialDraft?.projectLocked || false);
-  const [projectPassword, setProjectPassword] = useState(initialDraft?.projectPassword || initialPassword || '');
+  const [projectPassword, setProjectPassword] = useState(initialPassword || '');
   const [serverLocked, setServerLocked]       = useState(initialDraft?.serverLocked || false);
   const [assetsOpen, setAssetsOpen]           = useState(true);
   const [sharedOpen, setSharedOpen]           = useState(false);
@@ -1080,6 +1080,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [tokenLinkResults, setTokenLinkResults] = useState({});
   const [inviteLink, setInviteLink]           = useState('');
   const [inviteBusy, setInviteBusy]           = useState(false);
+  const [multiLink, setMultiLink]             = useState('');
+  const [multiBusy, setMultiBusy]             = useState(false);
 
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
@@ -1094,7 +1096,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
         affiliations, sections, creditDescriptions: creditDescs, creditLinkedSections: creditLinks,
-        loadedAssetNames: loadedAssets, doi, projectLocked, projectPassword, serverLocked,
+        loadedAssetNames: loadedAssets, doi, projectLocked, serverLocked,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
@@ -1151,9 +1153,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     if (!project) { setEndpointStatus({ text: 'Enter a project name first.', cls: 'status-error' }); return; }
     setEndpointStatus({ text: `Fetching \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
-      const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`,
-      );
+      const pw = sr.current.projectPassword;
+      let loadUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
+      if (pw) {
+        const hashed = await hashPassword(pw);
+        loadUrl += `&password=${encodeURIComponent(hashed)}`;
+      }
+      const res = await fetch(loadUrl);
       if (res.status === 404) throw new Error(`Project \u201c${project}\u201d not found on server.`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
@@ -1316,6 +1322,27 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       setInviteLink(`Error: ${err.message}`);
     } finally {
       setInviteBusy(false);
+    }
+  }
+
+  async function generateMultiLink() {
+    const project = sr.current.projectName;
+    const pw = sr.current.projectPassword;
+    setMultiBusy(true);
+    try {
+      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=multi_author`;
+      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const data = await res.json();
+      const token = data.token || data.key || '';
+      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
+      navigator.clipboard.writeText(link).catch(() => {});
+      setMultiLink(link);
+    } catch (err) {
+      setMultiLink(`Error: ${err.message}`);
+    } finally {
+      setMultiBusy(false);
     }
   }
 
@@ -1529,6 +1556,20 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
               `}
               ${inviteLink && inviteLink.startsWith('Error') && html`
                 <span class="cv-token-error">${inviteLink}</span>
+              `}
+              <button class="btn-secondary cv-invite-btn" onClick=${generateMultiLink} disabled=${multiBusy}
+                      title="Reusable link valid for 1 week — multiple new authors can use the same URL">
+                ${multiBusy ? 'Generating…' : '+ Shared link (1 week)'}
+              </button>
+              ${multiLink && !multiLink.startsWith('Error') && html`
+                <div class="cv-token-link-result">
+                  <input type="text" readonly value=${multiLink} class="cv-token-link-input" />
+                  <button class="btn-secondary" onClick=${() => copyToClipboard(multiLink)}>Copy</button>
+                  <span class="cv-token-copied-badge">✓ Copied</span>
+                </div>
+              `}
+              ${multiLink && multiLink.startsWith('Error') && html`
+                <span class="cv-token-error">${multiLink}</span>
               `}
             `}
           </div>
