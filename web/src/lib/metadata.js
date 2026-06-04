@@ -35,9 +35,6 @@ export function validateAcorn(acorn, index = -1) {
   if (!Array.isArray(acorn.columns)) {
     throw new Error(`${label}.columns must be an array`);
   }
-  if (!['metadata', 'asset'].includes(acorn.type)) {
-    throw new Error(`${label}.type must be "metadata" or "asset", got "${acorn.type}"`);
-  }
 }
 
 // ---------------------------------------------------------------------------
