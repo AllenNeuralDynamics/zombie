@@ -217,6 +217,44 @@ export function aggregateByExperimenter(rawRows, selectedExperimenters) {
 }
 
 /**
+ * Aggregate raw session rows by project, optionally filtered to a selected
+ * set of experimenters.  Each raw row must have:
+ *   - group_key: project name (already COALESCE'd to '(none)')
+ *   - experimenters: comma-separated display names, or null
+ *   - session_seconds: session duration in seconds
+ *
+ * Experimenter filtering happens in JS rather than SQL because
+ * experimenters_normalized is a VARCHAR[] in DuckDB and LIKE on arrays
+ * throws a Binder Error.
+ *
+ * @param {Array<{group_key: string, experimenters: string|null, session_seconds: number|string|null}>} rawRows
+ * @param {Set<string>|null} selectedExperimenters
+ *   Normalised display names to include, or null to include all.
+ * @returns {Array<{group: string, sessionCount: number, totalSeconds: number}>}
+ *   Sorted descending by sessionCount.
+ */
+export function aggregateByProject(rawRows, selectedExperimenters) {
+  const allowedKeys = selectedExperimenters
+    ? new Set([...selectedExperimenters].map(mergeKey))
+    : null;
+  const projMap = new Map();
+  for (const r of rawRows) {
+    if (allowedKeys) {
+      const exps = parseExperimenters(r.experimenters);
+      if (exps.length === 0 || !exps.some((e) => allowedKeys.has(mergeKey(e)))) continue;
+    }
+    const key = r.group_key ?? '(none)';
+    const entry = projMap.get(key) ?? { sessionCount: 0, totalSeconds: 0 };
+    entry.sessionCount++;
+    entry.totalSeconds += Number(r.session_seconds ?? 0);
+    projMap.set(key, entry);
+  }
+  return [...projMap.entries()]
+    .map(([group, d]) => ({ group, sessionCount: d.sessionCount, totalSeconds: d.totalSeconds }))
+    .sort((a, b) => b.sessionCount - a.sessionCount);
+}
+
+/**
  * Generate a CSV file and trigger download using papaparse.
  * @param {string} filename
  * @param {string[]} headers

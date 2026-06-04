@@ -11,7 +11,7 @@
 import { createPlatformQcTable } from './platform-qc-table.js';
 import { buildModalityHistogram } from './charts.js';
 import { arrowTableToRows } from './assets-table.js';
-import { escHtml, parseExperimenters, downloadCsv, aggregateByExperimenter } from './utils.js';
+import { escHtml, mergeKey, parseExperimenters, downloadCsv, aggregateByExperimenter, aggregateByProject } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -360,35 +360,27 @@ export function createPlatformOverview(coord, {
       const instrumentCond = (settings.summaryInstruments && settings.summaryInstruments.size > 0)
         ? `AND instrument_id_normalized IN (${[...settings.summaryInstruments].map((v) => `'${v.replace(/'/g, "''")}'`).join(',')})`
         : '';
-      const experimenterCond = (settings.summaryExperimenters && settings.summaryExperimenters.size > 0)
-        ? `AND (${[...settings.summaryExperimenters].map((v) => `experimenters_normalized LIKE '%${v.replace(/'/g, "''")}%'`).join(' OR ')})`
-        : '';
       try {
         let rows;
         if (settings.summaryRowBy === 'project') {
+          // Fetch raw rows — experimenter filtering must happen in JS because
+          // experimenters_normalized is VARCHAR[] and LIKE on arrays throws in DuckDB.
           const result = await coord.query(
             `SELECT
                COALESCE(project_name, '(none)') AS group_key,
-               COUNT(*) AS session_count,
-               SUM(CASE WHEN acquisition_end_time IS NOT NULL
-                   THEN datediff('second', acquisition_start_time, acquisition_end_time)
-                   ELSE 0 END) AS total_seconds
+               experimenters_normalized AS experimenters,
+               CASE WHEN acquisition_end_time IS NOT NULL
+                    THEN datediff('second', acquisition_start_time, acquisition_end_time)
+                    ELSE 0 END AS session_seconds
              FROM asset_basics
              WHERE ${filterCond}
                AND (data_level IS NULL OR data_level != 'derived')
                ${sinceCond}
-               ${instrumentCond}
-               ${experimenterCond}
-             GROUP BY project_name
-             ORDER BY session_count DESC NULLS LAST`,
+               ${instrumentCond}`,
             { type: 'json' },
           );
           const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
-          rows = raw.map((r) => ({
-            group: r.group_key ?? '(none)',
-            sessionCount: Number(r.session_count ?? 0),
-            totalSeconds: Number(r.total_seconds ?? 0),
-          }));
+          rows = aggregateByProject(raw, settings.summaryExperimenters);
         } else {
           // Fetch all sessions matching the non-experimenter filters, then
           // aggregate and filter by experimenter in JS.  Using SQL LIKE with

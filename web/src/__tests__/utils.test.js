@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escHtml, formatDatetime, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter } from '../lib/utils.js';
+import { escHtml, formatDatetime, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter, aggregateByProject } from '../lib/utils.js';
 
 describe('escHtml', () => {
   it('escapes ampersands', () => expect(escHtml('a&b')).toBe('a&amp;b'));
@@ -221,5 +221,90 @@ describe('aggregateByExperimenter', () => {
 
   it('handles empty input', () => {
     expect(aggregateByExperimenter([], null)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// aggregateByProject
+// ---------------------------------------------------------------------------
+
+describe('aggregateByProject', () => {
+  // Rows as produced by the project-path SQL in platform-overview:
+  // group_key is already COALESCE'd, experimenters is the normalized array
+  // serialised as a comma-separated string, session_seconds is a number.
+  const RAW_ROWS = [
+    { group_key: 'ProjectA', experimenters: 'Anna Lakunina', session_seconds: 3600 },
+    { group_key: 'ProjectA', experimenters: 'Nick Ponvert', session_seconds: 1800 },
+    { group_key: 'ProjectB', experimenters: 'Anna Lakunina, Nick Ponvert', session_seconds: 900 },
+    { group_key: 'ProjectB', experimenters: 'John Doe', session_seconds: 600 },
+    { group_key: '(none)',   experimenters: null,          session_seconds: 300 },
+  ];
+
+  const ANNA = 'Anna Lakunina';
+  const NICK = 'Nick Ponvert';
+  const JOHN = 'John Doe';
+
+  it('null selectedExperimenters returns all projects', () => {
+    const rows = aggregateByProject(RAW_ROWS, null);
+    const groups = rows.map((r) => r.group);
+    expect(groups).toContain('ProjectA');
+    expect(groups).toContain('ProjectB');
+    expect(groups).toContain('(none)');
+  });
+
+  it('counts sessions per project correctly', () => {
+    const rows = aggregateByProject(RAW_ROWS, null);
+    const a = rows.find((r) => r.group === 'ProjectA');
+    const b = rows.find((r) => r.group === 'ProjectB');
+    expect(a.sessionCount).toBe(2);
+    expect(b.sessionCount).toBe(2);
+  });
+
+  it('sums totalSeconds per project correctly', () => {
+    const rows = aggregateByProject(RAW_ROWS, null);
+    const a = rows.find((r) => r.group === 'ProjectA');
+    expect(a.totalSeconds).toBe(3600 + 1800);
+  });
+
+  it('filtering by one experimenter returns only their projects', () => {
+    const rows = aggregateByProject(RAW_ROWS, new Set([JOHN]));
+    const groups = rows.map((r) => r.group);
+    // John only has a session in ProjectB
+    expect(groups).toContain('ProjectB');
+    expect(groups).not.toContain('ProjectA');
+    expect(groups).not.toContain('(none)');
+  });
+
+  it('filtering by multiple experimenters includes sessions by any of them', () => {
+    // Reproduces the original crash: LIKE on VARCHAR[] threw a Binder Error.
+    const rows = aggregateByProject(RAW_ROWS, new Set([ANNA, NICK]));
+    const groups = rows.map((r) => r.group);
+    expect(groups).toContain('ProjectA');
+    expect(groups).toContain('ProjectB');
+    // (none) has no experimenter so it is excluded
+    expect(groups).not.toContain('(none)');
+  });
+
+  it('a session with multiple experimenters is counted once per project', () => {
+    const rows = aggregateByProject(RAW_ROWS, new Set([ANNA]));
+    const b = rows.find((r) => r.group === 'ProjectB');
+    // Row 2 has Anna AND Nick — counted once for ProjectB, not twice
+    expect(b.sessionCount).toBe(1);
+  });
+
+  it('empty selectedExperimenters returns no projects', () => {
+    const rows = aggregateByProject(RAW_ROWS, new Set());
+    expect(rows).toHaveLength(0);
+  });
+
+  it('result is sorted descending by sessionCount', () => {
+    const rows = aggregateByProject(RAW_ROWS, null);
+    for (let i = 1; i < rows.length; i++) {
+      expect(rows[i - 1].sessionCount).toBeGreaterThanOrEqual(rows[i].sessionCount);
+    }
+  });
+
+  it('handles empty input', () => {
+    expect(aggregateByProject([], null)).toEqual([]);
   });
 });
