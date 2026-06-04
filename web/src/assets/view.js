@@ -95,6 +95,13 @@ const ALL_AVAILABLE_COLUMNS = [
   'data_level',
   'acquisition_type',
   'genotype',
+  'age',
+  'experimenters',
+  'experimenters_normalized',
+  'investigators',
+  'investigators_normalized',
+  'instrument_id',
+  'instrument_id_normalized',
   'location',
   'code_ocean',
   'process_date',
@@ -120,6 +127,13 @@ const COLUMN_LABELS = {
   data_level: 'Level',
   acquisition_type: 'Acquisition Type',
   genotype: 'Genotype',
+  age: 'Age (days)',
+  experimenters: 'Experimenters',
+  experimenters_normalized: 'Experimenters (normalized)',
+  investigators: 'Investigators',
+  investigators_normalized: 'Investigators (normalized)',
+  instrument_id: 'Instrument ID',
+  instrument_id_normalized: 'Instrument ID (normalized)',
   location: 'Location',
   code_ocean: 'Code Ocean',
   process_date: 'Processed',
@@ -145,6 +159,13 @@ export function renderAssetRow(row, visibleColumns) {
     data_level: row.data_level ?? '',
     acquisition_type: row.acquisition_type ?? '',
     genotype: row.genotype ?? '',
+    age: row.age != null ? String(row.age) : '',
+    experimenters: escHtml(row.experimenters ?? ''),
+    experimenters_normalized: escHtml(row.experimenters_normalized ?? ''),
+    investigators: escHtml(row.investigators ?? ''),
+    investigators_normalized: escHtml(row.investigators_normalized ?? ''),
+    instrument_id: escHtml(row.instrument_id ?? ''),
+    instrument_id_normalized: escHtml(row.instrument_id_normalized ?? ''),
     location: row.location ?? '',
     code_ocean: row.code_ocean ?? '',
     process_date: procDate,
@@ -206,8 +227,9 @@ export function createAssetsView(coord) {
   const sql = `
     SELECT
       _id, name, subject_id, acquisition_start_time, acquisition_end_time,
-      project_name, modalities, data_level, acquisition_type, genotype, location,
-      code_ocean, process_date
+      project_name, modalities, data_level, acquisition_type, genotype, age,
+      experimenters, experimenters_normalized, investigators, investigators_normalized,
+      instrument_id, instrument_id_normalized, location, code_ocean, process_date
     FROM asset_basics
     ORDER BY acquisition_start_time DESC NULLS LAST
   `;
