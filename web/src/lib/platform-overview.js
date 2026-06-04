@@ -11,7 +11,7 @@
 import { createPlatformQcTable } from './platform-qc-table.js';
 import { buildModalityHistogram } from './charts.js';
 import { arrowTableToRows } from './assets-table.js';
-import { escHtml, parseExperimenters, downloadCsv } from './utils.js';
+import { escHtml, parseExperimenters, downloadCsv, aggregateByExperimenter } from './utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -155,10 +155,20 @@ export function createPlatformOverview(coord, {
   const _urlMetricsRaw = _urlParams.get('ov_metrics');
   const _urlSince = _urlParams.get('ov_since'); // null=absent, ''=all-time, 'YYYY-MM-DD'=filter
   const _urlSumBy = _urlParams.get('ov_sum_by');
+  const _urlSumInstrumentsRaw = _urlParams.get('ov_sum_instruments');
+  const _urlSumExperimentersRaw = _urlParams.get('ov_sum_experimenters');
   const _cookieGroup = _cookiePrefix ? _readCookie(`${_cookiePrefix}_group`) : null;
   const _cookieMetricsRaw = _cookiePrefix ? _readCookie(`${_cookiePrefix}_metrics`) : null;
   const _cookieSince = _cookiePrefix ? _readCookie(`${_cookiePrefix}_since`) : null;
   const _cookieSumBy = _cookiePrefix ? _readCookie(`${_cookiePrefix}_sum_by`) : null;
+  const _cookieSumInstrumentsRaw = _cookiePrefix ? _readCookie(`${_cookiePrefix}_sum_instruments`) : null;
+  const _cookieSumExperimentersRaw = _cookiePrefix ? _readCookie(`${_cookiePrefix}_sum_experimenters`) : null;
+
+  function _rawToSet(raw) {
+    if (raw === null || raw === undefined || raw === '*') return null; // null = all
+    if (raw === '') return new Set(); // empty string = none selected
+    return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
+  }
 
   // Compute default "since" date: 6 months ago.
   function _sixMonthsAgo() {
@@ -181,11 +191,17 @@ export function createPlatformOverview(coord, {
       _urlSumBy === 'project' || _urlSumBy === 'experimenter' ? _urlSumBy
       : _cookieSumBy === 'project' || _cookieSumBy === 'experimenter' ? _cookieSumBy
       : 'project',
+    summaryInstruments: _rawToSet(_urlSumInstrumentsRaw ?? _cookieSumInstrumentsRaw),
+    summaryExperimenters: _rawToSet(_urlSumExperimentersRaw ?? _cookieSumExperimentersRaw),
   };
   // URL takes priority over cookie for metric visibility.
   let _pendingMetricsRaw = _urlMetricsRaw ?? _cookieMetricsRaw; // comma-separated string or null
   let allMetrics = [];
+  let allInstruments = []; // distinct instrument_id values for the platform
+  let allExperimenters = []; // distinct experimenter names for the platform
   let rebuildMetricCheckboxes = null; // set while modal is open
+  let rebuildInstrumentCheckboxes = null; // set while modal is open
+  let rebuildExperimenterCheckboxes = null; // set while modal is open
 
   /** Persist current settings to cookie and URL. */
   function _persistSettings() {
@@ -195,6 +211,12 @@ export function createPlatformOverview(coord, {
     _writeCookie(`${_cookiePrefix}_metrics`, metricsVal);
     _writeCookie(`${_cookiePrefix}_since`, settings.since ?? '');
     _writeCookie(`${_cookiePrefix}_sum_by`, settings.summaryRowBy);
+    // Use '*' as the sentinel for null (= all selected) so it round-trips
+    // through cookies without collapsing to '' (= none selected).
+    const instrVal = settings.summaryInstruments === null ? '*' : [...settings.summaryInstruments].join(',');
+    const expVal = settings.summaryExperimenters === null ? '*' : [...settings.summaryExperimenters].join(',');
+    _writeCookie(`${_cookiePrefix}_sum_instruments`, instrVal);
+    _writeCookie(`${_cookiePrefix}_sum_experimenters`, expVal);
     const p = new URLSearchParams(window.location.search);
     p.set('ov_group', settings.groupBy);
     if (metricsVal) {
@@ -204,6 +226,9 @@ export function createPlatformOverview(coord, {
     }
     p.set('ov_since', settings.since ?? '');
     p.set('ov_sum_by', settings.summaryRowBy);
+    // Use '*' in URL too so the round-trip is consistent.
+    if (instrVal && instrVal !== '*') { p.set('ov_sum_instruments', instrVal); } else { p.delete('ov_sum_instruments'); }
+    if (expVal && expVal !== '*') { p.set('ov_sum_experimenters', expVal); } else { p.delete('ov_sum_experimenters'); }
     history.replaceState({}, '', `?${p.toString()}`);
   }
   // Push whatever was resolved (from URL or cookie) into the URL immediately.
@@ -332,6 +357,12 @@ export function createPlatformOverview(coord, {
       const sinceCond = (settings.since && isValidDate(settings.since))
         ? `AND acquisition_start_time >= '${settings.since}'`
         : '';
+      const instrumentCond = (settings.summaryInstruments && settings.summaryInstruments.size > 0)
+        ? `AND instrument_id_normalized IN (${[...settings.summaryInstruments].map((v) => `'${v.replace(/'/g, "''")}'`).join(',')})`
+        : '';
+      const experimenterCond = (settings.summaryExperimenters && settings.summaryExperimenters.size > 0)
+        ? `AND (${[...settings.summaryExperimenters].map((v) => `experimenters_normalized LIKE '%${v.replace(/'/g, "''")}%'`).join(' OR ')})`
+        : '';
       try {
         let rows;
         if (settings.summaryRowBy === 'project') {
@@ -346,6 +377,8 @@ export function createPlatformOverview(coord, {
              WHERE ${filterCond}
                AND (data_level IS NULL OR data_level != 'derived')
                ${sinceCond}
+               ${instrumentCond}
+               ${experimenterCond}
              GROUP BY project_name
              ORDER BY session_count DESC NULLS LAST`,
             { type: 'json' },
@@ -357,38 +390,24 @@ export function createPlatformOverview(coord, {
             totalSeconds: Number(r.total_seconds ?? 0),
           }));
         } else {
+          // Fetch all sessions matching the non-experimenter filters, then
+          // aggregate and filter by experimenter in JS.  Using SQL LIKE with
+          // normalised names (spaces) against raw column values (dots) is
+          // unreliable and causes wrong rows to be excluded.
           const result = await coord.query(
-            `SELECT experimenters,
+            `SELECT experimenters_normalized AS experimenters,
                CASE WHEN acquisition_end_time IS NOT NULL
                     THEN datediff('second', acquisition_start_time, acquisition_end_time)
                     ELSE 0 END AS session_seconds
              FROM asset_basics
              WHERE ${filterCond}
                AND (data_level IS NULL OR data_level != 'derived')
-               ${sinceCond}`,
+               ${sinceCond}
+               ${instrumentCond}`,
             { type: 'json' },
           );
           const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
-          const expMap = new Map();
-          for (const r of raw) {
-            const exps = parseExperimenters(r.experimenters);
-            const secs = Number(r.session_seconds ?? 0);
-            if (exps.length === 0) {
-              const key = '(none)';
-              if (!expMap.has(key)) expMap.set(key, { sessionCount: 0, totalSeconds: 0 });
-              expMap.get(key).sessionCount++;
-              expMap.get(key).totalSeconds += secs;
-            } else {
-              for (const exp of exps) {
-                if (!expMap.has(exp)) expMap.set(exp, { sessionCount: 0, totalSeconds: 0 });
-                expMap.get(exp).sessionCount++;
-                expMap.get(exp).totalSeconds += secs;
-              }
-            }
-          }
-          rows = [...expMap.entries()]
-            .map(([group, d]) => ({ group, sessionCount: d.sessionCount, totalSeconds: d.totalSeconds }))
-            .sort((a, b) => b.sessionCount - a.sessionCount);
+          rows = aggregateByExperimenter(raw, settings.summaryExperimenters);
         }
         renderRows(rows);
         loadingNote.hidden = true;
@@ -409,6 +428,40 @@ export function createPlatformOverview(coord, {
     });
 
     loadData();
+    // Fetch distinct instruments and experimenters for modal checkboxes (if not yet loaded)
+    if (!allInstruments.length) {
+      const filterCond = buildFilterCondition(assetFilter);
+      coord.query(
+        `SELECT DISTINCT instrument_id_normalized AS norm_id FROM asset_basics WHERE ${filterCond} AND instrument_id IS NOT NULL`,
+        { type: 'json' },
+      ).then((result) => {
+        const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
+        const seen = new Set();
+        allInstruments = raw
+          .map((r) => String(r.norm_id ?? ''))
+          .filter((v) => v)
+          .filter((v) => { if (seen.has(v)) return false; seen.add(v); return true; })
+          .sort();
+        if (rebuildInstrumentCheckboxes) rebuildInstrumentCheckboxes();
+      }).catch(() => {});
+    }
+    if (!allExperimenters.length) {
+      const filterCond = buildFilterCondition(assetFilter);
+      coord.query(
+        `SELECT experimenters_normalized AS experimenters FROM asset_basics WHERE ${filterCond} AND (data_level IS NULL OR data_level != 'derived') AND experimenters_normalized IS NOT NULL`,
+        { type: 'json' },
+      ).then((result) => {
+        const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
+        const seen = new Set();
+        for (const r of raw) {
+          for (const name of parseExperimenters(r.experimenters)) {
+            seen.add(name);
+          }
+        }
+        allExperimenters = [...seen].sort();
+        if (rebuildExperimenterCheckboxes) rebuildExperimenterCheckboxes();
+      }).catch(() => {});
+    }
     return loadData;
   }
 
@@ -440,9 +493,18 @@ export function createPlatformOverview(coord, {
     content.className = 'settings-modal-content';
     modal.appendChild(content);
 
+    const modalHeader = document.createElement('div');
+    modalHeader.className = 'settings-modal-header';
     const title = document.createElement('h3');
     title.textContent = 'Overview Settings';
-    content.appendChild(title);
+    modalHeader.appendChild(title);
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'settings-modal-close-btn';
+    closeBtn.setAttribute('aria-label', 'Close settings');
+    closeBtn.textContent = '×';
+    closeBtn.addEventListener('click', closeModal);
+    modalHeader.appendChild(closeBtn);
+    content.appendChild(modalHeader);
 
     // ── Group-by radios ────────────────────────────────────────────────────
     const grpSection = document.createElement('div');
@@ -661,7 +723,9 @@ export function createPlatformOverview(coord, {
     // statusSection appended to qcBox below
 
     // ── Re-append in order: since first, then QC settings box, then summary row-by ───────
-    content.appendChild(sinceSection);
+    const modalBody = document.createElement('div');
+    modalBody.className = 'settings-modal-body';
+    modalBody.appendChild(sinceSection);
 
     const qcBox = document.createElement('div');
     qcBox.className = 'settings-section-box';
@@ -671,7 +735,7 @@ export function createPlatformOverview(coord, {
     qcBox.appendChild(qcBoxLabel);
     qcBox.appendChild(grpSection);
     qcBox.appendChild(statusSection);
-    content.appendChild(qcBox);
+    modalBody.appendChild(qcBox);
 
     // ── Summary row-by ────────────────────────────────────────────────────
     const sumBox = document.createElement('div');
@@ -709,17 +773,113 @@ export function createPlatformOverview(coord, {
       sumSection.appendChild(lbl);
     }
     sumBox.appendChild(sumSection);
-    content.appendChild(sumBox);
 
-    // ── Close button ───────────────────────────────────────────────────────
-    const actions = document.createElement('div');
-    actions.className = 'settings-modal-actions';
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'settings-close-btn';
-    closeBtn.textContent = 'Close';
-    closeBtn.addEventListener('click', closeModal);
-    actions.appendChild(closeBtn);
-    content.appendChild(actions);
+    // ── Summary checkbox filters (instrument + experimenter) ───────────────
+    function buildSumCheckboxSection(labelText, allValues, settingKey, rebuildRef) {
+      const section = document.createElement('div');
+      section.className = 'settings-section';
+      const sectionLabel = document.createElement('div');
+      sectionLabel.className = 'settings-section-label';
+      sectionLabel.textContent = labelText;
+      section.appendChild(sectionLabel);
+
+      function build() {
+        while (section.children.length > 1) section.removeChild(section.lastChild);
+
+        if (!allValues.length) {
+          const note = document.createElement('p');
+          note.className = 'settings-loading-note';
+          note.textContent = 'Loading…';
+          section.appendChild(note);
+          return;
+        }
+
+        const searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = `Search…`;
+        searchInput.className = 'settings-metric-search';
+        section.appendChild(searchInput);
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'settings-metric-btn-row';
+        const selAllBtn = document.createElement('button');
+        selAllBtn.type = 'button';
+        selAllBtn.className = 'settings-metric-btn';
+        selAllBtn.textContent = 'Select all';
+        const clrAllBtn = document.createElement('button');
+        clrAllBtn.type = 'button';
+        clrAllBtn.className = 'settings-metric-btn';
+        clrAllBtn.textContent = 'Clear all';
+        btnRow.appendChild(selAllBtn);
+        btnRow.appendChild(clrAllBtn);
+        section.appendChild(btnRow);
+
+        const listWrap = document.createElement('div');
+        listWrap.className = 'settings-metric-list';
+        section.appendChild(listWrap);
+
+        function renderList(filter) {
+          listWrap.innerHTML = '';
+          const low = (filter ?? '').toLowerCase();
+          const shown = low ? allValues.filter((v) => v.toLowerCase().includes(low)) : allValues;
+          for (const v of shown) {
+            const isChecked = settings[settingKey] === null || settings[settingKey].has(v);
+            const lbl = document.createElement('label');
+            lbl.className = 'settings-checkbox-label';
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.checked = isChecked;
+            cb.addEventListener('change', () => {
+              if (settings[settingKey] === null) {
+                settings[settingKey] = new Set(allValues);
+              }
+              if (cb.checked) {
+                settings[settingKey].add(v);
+              } else {
+                settings[settingKey].delete(v);
+              }
+              _persistSettings();
+              if (refreshSummaryTable) refreshSummaryTable();
+            });
+            const span = document.createElement('span');
+            span.textContent = v;
+            lbl.appendChild(cb);
+            lbl.appendChild(span);
+            listWrap.appendChild(lbl);
+          }
+        }
+
+        searchInput.addEventListener('input', () => renderList(searchInput.value));
+        selAllBtn.addEventListener('click', () => {
+          settings[settingKey] = null;
+          _persistSettings();
+          if (refreshSummaryTable) refreshSummaryTable();
+          renderList(searchInput.value);
+        });
+        clrAllBtn.addEventListener('click', () => {
+          settings[settingKey] = new Set();
+          _persistSettings();
+          if (refreshSummaryTable) refreshSummaryTable();
+          renderList(searchInput.value);
+        });
+
+        renderList();
+      }
+
+      // Store rebuild reference so data-load can trigger it
+      rebuildRef(build);
+      build();
+      return section;
+    }
+
+    rebuildInstrumentCheckboxes = null;
+    rebuildExperimenterCheckboxes = null;
+    sumBox.appendChild(buildSumCheckboxSection('Filter by instrument', allInstruments, 'summaryInstruments', (fn) => { rebuildInstrumentCheckboxes = fn; }));
+    sumBox.appendChild(buildSumCheckboxSection('Filter by experimenter', allExperimenters, 'summaryExperimenters', (fn) => { rebuildExperimenterCheckboxes = fn; }));
+
+    modalBody.appendChild(sumBox);
+    content.appendChild(modalBody);
+
 
     document.body.appendChild(modal);
     modalOpen = true;
@@ -736,6 +896,8 @@ export function createPlatformOverview(coord, {
     }
     modalOpen = false;
     rebuildMetricCheckboxes = null;
+    rebuildInstrumentCheckboxes = null;
+    rebuildExperimenterCheckboxes = null;
     document.removeEventListener('click', outsideClickHandler, true);
   }
 

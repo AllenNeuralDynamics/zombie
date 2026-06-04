@@ -113,82 +113,6 @@ export function filterRows(rows, filters) {
 }
 
 /**
- * Shared regex (as a string) used by both the JS and SQL instrument-ID
- * normalisers. Keeping it in one place ensures they can never silently diverge.
- *
- * Pattern: ^<location>[_-]<name>_<date>$
- * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23-26).
- */
-export const INSTRUMENT_ID_REGEX =
-  '^[^_-]+[_-](.+)_(\\d{8}|\\d{4}-\\d{2}-\\d{2}|2[3-6]\\d{4})$';
-
-/**
- * Normalize a raw instrument_id by extracting just the <name> portion from
- * legacy naming patterns:
- *   <location>_<name>_<date>
- *   <location>-<name>_<date>
- *
- * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23–26).
- * IDs that don't match are returned unchanged.
- * Spacer characters (- and _) are stripped from the result in both cases.
- *
- * @param {string|null} id
- * @returns {string}
- */
-export function normalizeInstrumentId(id) {
-  if (!id) return id ?? '';
-  const m = String(id).match(new RegExp(INSTRUMENT_ID_REGEX));
-  return (m ? m[1] : String(id)).replace(/[_-]/g, '');
-}
-
-/**
- * Return a DuckDB SQL expression that normalises an instrument_id column,
- * stripping the legacy <location>_<name>_<date> prefix/suffix and then
- * removing spacer characters (- and _).
- *
- * Uses the same regex as INSTRUMENT_ID_REGEX.
- *
- * @param {string} col - SQL column reference, e.g. 'instrument_id'
- * @returns {string} SQL expression
- */
-export function normalizeInstrumentIdSql(col) {
-  return `regexp_replace(
-    COALESCE(
-      NULLIF(
-        regexp_extract(
-          COALESCE(${col}, ''),
-          '${INSTRUMENT_ID_REGEX}',
-          1
-        ),
-        ''
-      ),
-      ${col},
-      '(unknown)'
-    ),
-    '[_-]', '', 'g'
-  )`;
-}
-
-/**
- * Normalize a single person/experimenter/trainer name:
- *  1. Replace non-alphanumeric/non-space chars (dots, underscores, etc.) with a space
- *  2. Collapse multiple spaces and strip leading/trailing whitespace
- *  3. Lowercase everything
- *  4. Re-capitalize the first letter of each word (title case)
- *
- * @param {string} name
- * @returns {string}
- */
-export function normalizeName(name) {
-  return String(name)
-    .replace(/[^a-zA-Z0-9 ]/g, ' ')   // special chars -> space
-    .replace(/\s+/g, ' ')              // collapse whitespace
-    .trim()
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase()); // title case
-}
-
-/**
  * Merge key for deduplication: lowercase with all spaces removed.
  * "John Doe" and "JohnDoe" both produce "johndoe".
  *
@@ -200,8 +124,8 @@ export function mergeKey(displayName) {
 }
 
 /**
- * Parse a comma-separated experimenter/trainer field into an array of
- * deduplicated, normalized display names.
+ * Parse a comma-separated experimenter field into an array of deduplicated
+ * display names. Names are expected to already be normalized by the backend.
  *
  * @param {string|null} val
  * @returns {string[]}
@@ -211,10 +135,10 @@ export function parseExperimenters(val) {
   const seen = new Set();
   const result = [];
   for (const part of String(val).split(',')) {
-    const normalized = normalizeName(part);
-    if (normalized && !seen.has(mergeKey(normalized))) {
-      seen.add(mergeKey(normalized));
-      result.push(normalized);
+    const trimmed = part.trim();
+    if (trimmed && !seen.has(mergeKey(trimmed))) {
+      seen.add(mergeKey(trimmed));
+      result.push(trimmed);
     }
   }
   return result;
@@ -240,6 +164,56 @@ export function uniqueExperimenters(rows) {
     }
   }
   return result.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Aggregate raw session rows by experimenter and optionally filter to a
+ * selected set.  The `experimenters` field may be a comma-separated raw
+ * string such as `"anna.katelyn.mcdougal, nick.ponvert"` — it is parsed and
+ * normalised by `parseExperimenters` before comparison.
+ *
+ * @param {Array<{experimenters: string|null, session_seconds: number|string|null}>} rawRows
+ * @param {Set<string>|null} selectedExperimenters
+ *   Normalised display names to include (produced by `parseExperimenters`),
+ *   or `null` to include all.
+ * @returns {Array<{group: string, sessionCount: number, totalSeconds: number}>}
+ *   Sorted descending by sessionCount.
+ */
+export function aggregateByExperimenter(rawRows, selectedExperimenters) {
+  const expMap = new Map();
+  for (const r of rawRows) {
+    const exps = parseExperimenters(r.experimenters);
+    const secs = Number(r.session_seconds ?? 0);
+    if (exps.length === 0) {
+      const entry = expMap.get('(none)') ?? { sessionCount: 0, totalSeconds: 0 };
+      entry.sessionCount++;
+      entry.totalSeconds += secs;
+      expMap.set('(none)', entry);
+    } else {
+      for (const exp of exps) {
+        const entry = expMap.get(exp) ?? { sessionCount: 0, totalSeconds: 0 };
+        entry.sessionCount++;
+        entry.totalSeconds += secs;
+        expMap.set(exp, entry);
+      }
+    }
+  }
+
+  let rows = [...expMap.entries()].map(([group, d]) => ({
+    group,
+    sessionCount: d.sessionCount,
+    totalSeconds: d.totalSeconds,
+  }));
+  rows.sort((a, b) => b.sessionCount - a.sessionCount);
+
+  if (selectedExperimenters !== null) {
+    const allowedKeys = new Set([...selectedExperimenters].map(mergeKey));
+    rows = rows.filter(
+      (r) => r.group === '(none)' || allowedKeys.has(mergeKey(r.group)),
+    );
+  }
+
+  return rows;
 }
 
 /**

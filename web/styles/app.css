@@ -439,11 +439,45 @@ body {
   box-shadow: var(--shadow);
 }
 
-.settings-modal-content h3 {
-  margin: 0 0 16px 0;
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 14px;
+}
+
+.settings-modal-header h3 {
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.settings-modal-close-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.settings-modal-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover, #f3f4f6);
+}
+
+.settings-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 8px;
+  margin: 0 -8px;
 }
 
 .settings-checkbox-list {
@@ -483,6 +517,8 @@ body {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 12px;
 }
 
 .settings-modal-actions button {

@@ -6,15 +6,16 @@
  * per group (rig or experimenter) × metric name.
  *
  * Schema of each platform QC parquet:
- *   asset_name, subject_id, instrument_id, experimenter,
- *   tag, status, timestamp
+ *   asset_name, experimenter, tag, status, timestamp
+ *
+ * instrument_id_normalized is sourced via JOIN with asset_basics.
  *
  * Users can filter which metric columns are visible via the gear settings.
  *
  * @module
  */
 
-import { escHtml, normalizeInstrumentIdSql } from './utils.js';
+import { escHtml } from './utils.js';
 
 const S3_BASE =
   'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache';
@@ -47,13 +48,13 @@ async function ensurePlatformTable(coord, platformKey) {
 }
 
 /**
- * SQL expression that produces the group label from a row.
- * - 'rig': normalize instrument_id, stripping legacy <loc>_<name>_<date> patterns
- * - 'experimenter': use the experimenter column directly (already one value per row)
+ * SQL column reference for the group label.
+ * - 'rig': instrument_id_normalized from the asset_basics JOIN
+ * - 'experimenter': experimenter column directly (one value per row)
  */
 function groupExprFor(groupBy) {
   if (groupBy === 'experimenter') return 'experimenter';
-  return normalizeInstrumentIdSql('instrument_id');
+  return 'instrument_id_normalized';
 }
 
 /** Validate that a value is a YYYY-MM-DD date string before using in SQL. */
@@ -73,10 +74,16 @@ async function fetchStats(coord, { platformKey, groupBy, since }) {
   const where = (since && isValidDate(since)) ? `WHERE timestamp >= '${since}'` : '';
 
   const sql = `
-    WITH grp_sessions AS (
+    WITH joined AS (
+      SELECT q.*,
+             b.instrument_id_normalized
+      FROM ${tbl} q
+      LEFT JOIN asset_basics b ON b.name = q.asset_name
+    ),
+    grp_sessions AS (
       SELECT ${grp} AS grp,
              COUNT(DISTINCT asset_name) AS n_sessions
-      FROM ${tbl}
+      FROM joined
       ${where}
       GROUP BY grp
     ),
@@ -87,7 +94,7 @@ async function fetchStats(coord, { platformKey, groupBy, since }) {
              COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
              COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
              COUNT(*) AS n_total
-      FROM ${tbl}
+      FROM joined
       ${where}
       GROUP BY grp, tag
     )

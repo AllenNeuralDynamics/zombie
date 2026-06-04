@@ -9,7 +9,7 @@
  */
 
 import { registerAcornTable } from '../lib/metadata.js';
-import { escHtml, formatDate, sortRows, uniqueValues, normalizeInstrumentId, normalizeName, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
+import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -233,8 +233,10 @@ export function createSessionsView(coord, metadata) {
   registerPromise
     .then(() =>
       coord.query(
-        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name, instrument_id,
-                experimenters, modalities, genotype, name, location
+        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name,
+                instrument_id_normalized AS instrument_id,
+                experimenters_normalized AS experimenters,
+                modalities, genotype, name, location
          FROM asset_basics
          WHERE lower(modalities) LIKE '%behavior%'
          ORDER BY acquisition_start_time DESC NULLS LAST`,
@@ -258,9 +260,8 @@ export function createSessionsView(coord, metadata) {
   // -------------------------------------------------------------------------
 
   function buildPage(allRows) {
-    // Normalize instrument_ids once so all downstream filtering and display
-    // sees clean names rather than <location>_<name>_<date> variants.
-    allRows = allRows.map((r) => ({ ...r, instrument_id: normalizeInstrumentId(r.instrument_id) }));
+    // instrument_id and experimenters are already normalized by the backend
+    // (instrument_id_normalized / experimenters_normalized columns).
     // -- URL state helpers ---------------------------------------------------
     function readUrlState() {
       const p = new URLSearchParams(window.location.search);

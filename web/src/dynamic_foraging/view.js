@@ -9,7 +9,7 @@ import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
 import { arrowTableToRows } from '../lib/assets-table.js';
-import { normalizeName, mergeKey } from '../lib/utils.js';
+
 import {
   utcDay, addDays, isoDate,
   buildTimelineSvg, buildCurriculumLegend,
@@ -102,7 +102,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         f.subject_id,
         f.session_date,
         f.nwb_suffix,
-        f.trainer,
+        f.trainer_normalized AS trainer,
         f.curriculum_name,
         f.current_stage_actual AS stage_name,
         c.stage_node_id
@@ -120,7 +120,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     console.warn('[DFView] curriculum join failed, falling back to sessions-only query:', err);
     try {
       const result = await coord.query(`
-        SELECT subject_id, session_date, nwb_suffix, trainer,
+        SELECT subject_id, session_date, nwb_suffix, trainer_normalized AS trainer,
                curriculum_name, current_stage_actual AS stage_name,
                NULL AS stage_node_id
         FROM zs_foraging_sessions
@@ -144,13 +144,8 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     return;
   }
 
-  // Normalize trainer names and annotate each session row
-  for (const s of allSessions) {
-    s._trainerNorm = s.trainer ? normalizeName(s.trainer) : '';
-  }
-
-  // Unique sorted options for each filter dimension (trainers deduplicated by mergeKey)
-  const allTrainers  = _uniqueNormalized(allSessions, '_trainerNorm');
+  // Unique sorted options for each filter dimension
+  const allTrainers  = _unique(allSessions, 'trainer');
   const allCurricula = _unique(allSessions, 'curriculum_name');
   const allStages    = _unique(allSessions, 'stage_name');
 
@@ -327,7 +322,7 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   function renderAll() {
     const filtered = allSessions.filter((s) =>
       (!sinceDate || (s.session_date ?? '') >= sinceDate) &&
-      (selTrainers.size  === 0 || selTrainers.has(s._trainerNorm)) &&
+      (selTrainers.size  === 0 || selTrainers.has(s.trainer)) &&
       (selCurricula.size === 0 || selCurricula.has(s.curriculum_name ?? '')) &&
       (selStages.size    === 0 || selStages.has(s.stage_name ?? '')),
     );
@@ -488,10 +483,10 @@ async function _loadFiguresSection(coord, section, loadingEl) {
       caption.appendChild(document.createTextNode(' · '));
       caption.appendChild(dateSpan);
 
-      if (s._trainerNorm) {
+      if (s.trainer) {
         const trainerSpan = document.createElement('span');
         trainerSpan.className = 'df-figure-meta';
-        trainerSpan.textContent = s._trainerNorm;
+        trainerSpan.textContent = s.trainer;
         caption.appendChild(document.createElement('br'));
         caption.appendChild(trainerSpan);
       }
@@ -522,21 +517,6 @@ function _unique(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
 
-/**
- * Unique normalized names from a pre-computed `_*Norm` column,
- * deduplicated by mergeKey so "john.doe" and "John Doe" collapse to one.
- */
-function _uniqueNormalized(rows, key) {
-  const seen = new Set();
-  const result = [];
-  for (const r of rows) {
-    const v = r[key];
-    if (!v) continue;
-    const k = mergeKey(v);
-    if (!seen.has(k)) { seen.add(k); result.push(v); }
-  }
-  return result.sort((a, b) => a.localeCompare(b));
-}
 
 /**
  * Compute a YYYY-MM-DD date string N days before today.
