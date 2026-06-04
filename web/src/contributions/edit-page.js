@@ -74,109 +74,6 @@ function PasswordModal({ doi, onUnlock }) {
 }
 
 // ---------------------------------------------------------------------------
-// Token Generation Panel
-// ---------------------------------------------------------------------------
-
-function TokenPanel({ doi, password, rows }) {
-  const [linkResults, setLinkResults] = useState({});
-  const [inviteLink, setInviteLink] = useState('');
-  const [inviteBusy, setInviteBusy] = useState(false);
-
-  async function hashPw(pw) {
-    const encoded = new TextEncoder().encode(pw);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-
-  async function generateEditLink(authorName) {
-    try {
-      setLinkResults((prev) => ({ ...prev, [authorName]: { busy: true } }));
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(doi)}&type=edit_author&author=${encodeURIComponent(authorName)}`;
-      if (password) url += `&password=${encodeURIComponent(await hashPw(password))}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
-      const data = await res.json();
-      const token = data.token || data.key || '';
-      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(doi)}&token=${encodeURIComponent(token)}`;
-      setLinkResults((prev) => ({ ...prev, [authorName]: { link } }));
-    } catch (err) {
-      setLinkResults((prev) => ({ ...prev, [authorName]: { error: err.message } }));
-    }
-  }
-
-  async function generateInviteLink() {
-    setInviteBusy(true);
-    try {
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(doi)}&type=add_author`;
-      if (password) url += `&password=${encodeURIComponent(await hashPw(password))}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
-      const data = await res.json();
-      const token = data.token || data.key || '';
-      setInviteLink(`${window.location.origin}/contributions/add?doi=${encodeURIComponent(doi)}&token=${encodeURIComponent(token)}`);
-    } catch (err) {
-      setInviteLink(`Error: ${err.message}`);
-    } finally {
-      setInviteBusy(false);
-    }
-  }
-
-  function copyToClipboard(text) {
-    navigator.clipboard.writeText(text);
-  }
-
-  return html`
-    <section class="cv-section cv-token-section">
-      <h3 class="cv-section-heading">Share Links</h3>
-      <p class="cv-token-desc">Generate links for authors to edit their own contributions or for new authors to add themselves.</p>
-
-      <div class="cv-token-invite-row">
-        <button class="btn-primary" onClick=${generateInviteLink} disabled=${inviteBusy}>
-          ${inviteBusy ? 'Generating…' : '+ Invite New Author'}
-        </button>
-        ${inviteLink && !inviteLink.startsWith('Error') && html`
-          <div class="cv-token-link-result">
-            <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
-            <button class="btn-secondary" onClick=${() => copyToClipboard(inviteLink)}>Copy</button>
-          </div>
-        `}
-        ${inviteLink && inviteLink.startsWith('Error') && html`
-          <span class="cv-token-error">${inviteLink}</span>
-        `}
-      </div>
-
-      ${rows.length > 0 && html`
-        <h4 class="cv-subsection-heading">Per-Author Edit Links</h4>
-        <div class="cv-token-author-list">
-          ${rows.map((row) => {
-            const result = linkResults[row.name];
-            return html`
-              <div key=${row.name} class="cv-token-author-row">
-                <span class="cv-token-author-name">${row.name}</span>
-                <button class="btn-secondary cv-token-gen-btn"
-                        disabled=${result?.busy}
-                        onClick=${() => generateEditLink(row.name)}>
-                  ${result?.busy ? '…' : 'Generate'}
-                </button>
-                ${result?.link && html`
-                  <div class="cv-token-link-result">
-                    <input type="text" readonly value=${result.link} class="cv-token-link-input" />
-                    <button class="btn-secondary" onClick=${() => copyToClipboard(result.link)}>Copy</button>
-                  </div>
-                `}
-                ${result?.error && html`<span class="cv-token-error">${result.error}</span>`}
-              </div>
-            `;
-          })}
-        </div>
-      `}
-    </section>
-  `;
-}
-
-// ---------------------------------------------------------------------------
 // Edit Page App
 // ---------------------------------------------------------------------------
 
@@ -185,8 +82,6 @@ function EditApp({ doi }) {
   const [password, setPassword] = useState('');
   const [editorMounted, setEditorMounted] = useState(false);
   const editorRef = useRef(null);
-  const tokenRef = useRef(null);
-  const rowsRef = useRef([]);
 
   // Check if project is locked
   useEffect(() => {
@@ -210,7 +105,7 @@ function EditApp({ doi }) {
   useEffect(() => {
     if (needsPassword !== false || editorMounted) return;
     if (!editorRef.current || !doi) return;
-    const el = createContributionsView({ projectName: doi, password });
+    const el = createContributionsView({ projectName: doi, password, showTokenLinks: true });
     editorRef.current.appendChild(el);
     setEditorMounted(true);
   }, [needsPassword, doi]);
@@ -237,7 +132,6 @@ function EditApp({ doi }) {
   return html`
     <div class="contributions-edit-page">
       <div ref=${editorRef}></div>
-      <${TokenPanel} doi=${doi} password=${password} rows=${rowsRef.current} />
     </div>
   `;
 }

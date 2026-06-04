@@ -4438,6 +4438,47 @@ body {
 }
 
 /* ===========================================================================
+   Contributions — Shared button styles (btn-primary / btn-secondary)
+   Used throughout contributions pages (editor, wizard, token panel).
+   =========================================================================== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--color-primary, #4338ca);
+  color: #fff;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary, #4338ca) 85%, #000); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-secondary:hover:not(:disabled) { background: var(--surface-hover, #f3f4f6); border-color: var(--text-secondary); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===========================================================================
    Contributions — Landing Page
    =========================================================================== */
 
@@ -4664,6 +4705,33 @@ body {
   padding: 4px 10px;
 }
 
+/* Inline link generation button (per-author row) */
+.cv-token-cell { width: 28px; text-align: center; }
+.cv-link-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.cv-link-btn:hover { opacity: 1; }
+.cv-link-btn--done { opacity: 1; border-color: var(--color-accent, #4338ca); }
+.cv-link-btn:disabled { cursor: wait; opacity: 0.4; }
+
+/* Add row actions (Add author + Invite) */
+.cv-add-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.cv-add-row-actions .cv-add-row-btn { margin-top: 0; }
+.cv-invite-btn { font-size: 0.82rem; padding: 4px 12px; }
+
 /* ===========================================================================
    Contributions — Add Page / Wizard
    =========================================================================== */
@@ -4761,6 +4829,27 @@ body {
   margin-top: 8px;
 }
 
+.cv-orcid-result-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cv-orcid-verify-link {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cv-orcid-verify-link:hover { text-decoration: underline; color: var(--color-primary, #4338ca); }
+
+.cv-orcid-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
 .cv-wizard-nav {
   display: flex;
   justify-content: space-between;
@@ -4768,6 +4857,57 @@ body {
   margin-top: 32px;
   padding-top: 16px;
   border-top: 1px solid var(--surface-border);
+}
+
+.cv-wizard-nav .btn-primary,
+.cv-wizard-nav .btn-secondary {
+  padding: 10px 24px;
+  font-size: 0.95rem;
+}
+
+/* Affiliations checklist (step 1) */
+.cv-wizard-aff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cv-wizard-aff-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.cv-wizard-aff-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.cv-wizard-custom-aff-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
+  border: 1px solid color-mix(in srgb, var(--color-primary, #4338ca) 30%, transparent);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.cv-wizard-aff-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cv-wizard-aff-add-row .cv-wizard-input {
+  flex: 1;
 }
 
 /* Roles grid (step 2) */
@@ -4786,6 +4926,8 @@ body {
   justify-content: space-between;
   gap: 8px;
   transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  user-select: none;
 }
 
 .cv-wizard-role-active {

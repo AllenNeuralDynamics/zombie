@@ -600,10 +600,15 @@ function OrcidSearch({ authorName, value, onChange }) {
       ${open && results.length > 0 && html`
         <div class="cv-chip-dropdown cv-orcid-dropdown">
           ${results.map((orcid) => html`
-            <button key=${orcid} type="button" class="cv-chip-dropdown-item"
-                    onMouseDown=${(e) => { e.preventDefault(); onChange(orcid); setOpen(false); }}>
-              ${orcid}
-            </button>
+            <div key=${orcid} class="cv-orcid-dropdown-row">
+              <button type="button" class="cv-chip-dropdown-item"
+                      onMouseDown=${(e) => { e.preventDefault(); onChange(orcid); setOpen(false); }}>
+                ${orcid}
+              </button>
+              <a href=${`https://orcid.org/${orcid}`} target="_blank" rel="noopener noreferrer"
+                 class="cv-orcid-verify-link" title="Verify on orcid.org"
+                 onMouseDown=${(e) => e.stopPropagation()}>verify ↗</a>
+            </div>
           `)}
         </div>
       `}
@@ -998,13 +1003,27 @@ function ProjectWidget({
 
 // ── AuthorRow ──────────────────────────────────────────────────────────────
 
-function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange }) {
+function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, tokenResult, onGenerateLink, showTokenLinks }) {
   return html`
     <tr class=${isActive ? 'cv-row-active' : ''}>
       <td>
         <button class="cv-x-btn" aria-label=${'Remove ' + row.name}
                 onClick=${() => onRemove(rowIdx)}>×</button>
       </td>
+      ${showTokenLinks && html`
+        <td class="cv-token-cell">
+          ${tokenResult?.link
+            ? html`<button class="cv-link-btn cv-link-btn--done" title="Copy link"
+                           onClick=${() => navigator.clipboard.writeText(tokenResult.link)}>🔗</button>`
+            : html`<button class="cv-link-btn" title="Generate add link"
+                           disabled=${tokenResult?.busy}
+                           onClick=${() => onGenerateLink(row.name)}>
+                ${tokenResult?.busy ? '…' : '🔗'}
+              </button>`
+          }
+          ${tokenResult?.error && html`<span class="cv-token-error" title=${tokenResult.error}>⚠</span>`}
+        </td>
+      `}
       <td>
         <input type="text" value=${row.name} class="cv-author-name-input"
                onBlur=${(e) => onRename(rowIdx, e.target.value)} />
@@ -1030,7 +1049,7 @@ const DEFAULT_AFFILIATIONS = [
   { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
 ];
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialPassword, initialDraft, docdbOptions, actionsRef }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialPassword, initialDraft, docdbOptions, actionsRef, showTokenLinks }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1057,6 +1076,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [endpointStatus, setEndpointStatus]   = useState({ text: '', cls: '' });
   const [historyCommits, setHistoryCommits]   = useState([]);
   const [selectedCommit, setSelectedCommit]   = useState(null);
+  const [tokenLinkResults, setTokenLinkResults] = useState({});
+  const [inviteLink, setInviteLink]           = useState('');
+  const [inviteBusy, setInviteBusy]           = useState(false);
 
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
@@ -1247,6 +1269,56 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     }
   }
 
+  // ── Token link generation ─────────────────────────────────────────────────
+  async function hashPw(pw) {
+    const encoded = new TextEncoder().encode(pw);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  async function generateEditLink(authorName) {
+    const project = sr.current.projectName;
+    const pw = sr.current.projectPassword;
+    try {
+      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { busy: true } }));
+      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=edit_author&author=${encodeURIComponent(authorName)}`;
+      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const data = await res.json();
+      const token = data.token || data.key || '';
+      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
+      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { link } }));
+    } catch (err) {
+      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { error: err.message } }));
+    }
+  }
+
+  async function generateInviteLink() {
+    const project = sr.current.projectName;
+    const pw = sr.current.projectPassword;
+    setInviteBusy(true);
+    try {
+      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=add_author`;
+      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const data = await res.json();
+      const token = data.token || data.key || '';
+      setInviteLink(`${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`);
+    } catch (err) {
+      setInviteLink(`Error: ${err.message}`);
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text);
+  }
+
   // ── Row mutations ──────────────────────────────────────────────────────────
   function removeRow(idx) {
     const removed = sr.current.rows[idx];
@@ -1411,6 +1483,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
               <thead>
                 <tr id="cv-authors-thead-row">
                   <th></th>
+                  ${showTokenLinks && html`<th></th>`}
                   <th>Name</th>
                   ${CREDIT_CATEGORIES.map((cat) => html`<th key=${cat}>${cat}</th>`)}
                 </tr>
@@ -1425,16 +1498,35 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
                     onRemove=${removeRow}
                     onRename=${renameRow}
                     onCategoryChange=${updateCategory}
+                    showTokenLinks=${showTokenLinks}
+                    tokenResult=${tokenLinkResults[row.name]}
+                    onGenerateLink=${generateEditLink}
                   />
                 `)}
               </tbody>
             </table>
           </div>
-          <button class="btn-secondary cv-add-row-btn" onClick=${() => {
-            const newRow = { name: 'New Author', isFirst: false, author_level: null };
-            for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
-            setRows((prev) => [...prev, newRow]);
-          }}>+ Add author</button>
+          <div class="cv-add-row-actions">
+            <button class="btn-secondary cv-add-row-btn" onClick=${() => {
+              const newRow = { name: 'New Author', isFirst: false, author_level: null };
+              for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
+              setRows((prev) => [...prev, newRow]);
+            }}>+ Add author</button>
+            ${showTokenLinks && html`
+              <button class="btn-primary cv-invite-btn" onClick=${generateInviteLink} disabled=${inviteBusy}>
+                ${inviteBusy ? 'Generating…' : '+ Invite new author'}
+              </button>
+              ${inviteLink && !inviteLink.startsWith('Error') && html`
+                <div class="cv-token-link-result">
+                  <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
+                  <button class="btn-secondary" onClick=${() => copyToClipboard(inviteLink)}>Copy</button>
+                </div>
+              `}
+              ${inviteLink && inviteLink.startsWith('Error') && html`
+                <span class="cv-token-error">${inviteLink}</span>
+              `}
+            `}
+          </div>
         </div>
       </section>
 
@@ -1481,7 +1573,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', password = '', docdbOptions = {} } = options;
+  const { assetName = '', projectName = '', password = '', docdbOptions = {}, showTokenLinks = false } = options;
 
   // Restore draft synchronously before first render
   let draftRestored = false;
@@ -1512,6 +1604,7 @@ export function createContributionsView(options = {}) {
       initialDraft=${initialDraft}
       docdbOptions=${docdbOptions}
       actionsRef=${actionsRef}
+      showTokenLinks=${showTokenLinks}
     />`,
     container,
   );
