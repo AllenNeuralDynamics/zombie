@@ -722,10 +722,18 @@ export function createPlatformOverview(coord, {
     buildCheckboxes();
     // statusSection appended to qcBox below
 
-    // ── Re-append in order: since first, then QC settings box, then summary row-by ───────
+    // ── Layout: three columns — time settings | QC settings | session summary ───────
     const modalBody = document.createElement('div');
     modalBody.className = 'settings-modal-body';
-    modalBody.appendChild(sinceSection);
+
+    const timeCol = document.createElement('div');
+    timeCol.className = 'settings-modal-col';
+    timeCol.appendChild(sinceSection);
+    modalBody.appendChild(timeCol);
+
+    const qcCol2 = document.createElement('div');
+    qcCol2.className = 'settings-modal-col';
+    modalBody.appendChild(qcCol2);
 
     const qcBox = document.createElement('div');
     qcBox.className = 'settings-section-box';
@@ -735,9 +743,13 @@ export function createPlatformOverview(coord, {
     qcBox.appendChild(qcBoxLabel);
     qcBox.appendChild(grpSection);
     qcBox.appendChild(statusSection);
-    modalBody.appendChild(qcBox);
+    qcCol2.appendChild(qcBox);
 
     // ── Summary row-by ────────────────────────────────────────────────────
+    const sumCol = document.createElement('div');
+    sumCol.className = 'settings-modal-col';
+    modalBody.appendChild(sumCol);
+
     const sumBox = document.createElement('div');
     sumBox.className = 'settings-section-box';
     const sumBoxLabel = document.createElement('div');
@@ -877,7 +889,7 @@ export function createPlatformOverview(coord, {
     sumBox.appendChild(buildSumCheckboxSection('Filter by instrument', allInstruments, 'summaryInstruments', (fn) => { rebuildInstrumentCheckboxes = fn; }));
     sumBox.appendChild(buildSumCheckboxSection('Filter by experimenter', allExperimenters, 'summaryExperimenters', (fn) => { rebuildExperimenterCheckboxes = fn; }));
 
-    modalBody.appendChild(sumBox);
+    sumCol.appendChild(sumBox);
     content.appendChild(modalBody);
 
 
