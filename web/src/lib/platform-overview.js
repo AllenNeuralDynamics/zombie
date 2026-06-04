@@ -779,7 +779,9 @@ export function createPlatformOverview(coord, {
     sumBox.appendChild(sumSection);
 
     // ── Summary checkbox filters (instrument + experimenter) ───────────────
-    function buildSumCheckboxSection(labelText, allValues, settingKey, rebuildRef) {
+    // getValues is a function (() => array) so build() always reads the current
+    // module-level array even after it has been reassigned by async data loads.
+    function buildSumCheckboxSection(labelText, getValues, settingKey, rebuildRef) {
       const section = document.createElement('div');
       section.className = 'settings-section';
       const sectionLabel = document.createElement('div');
@@ -788,6 +790,7 @@ export function createPlatformOverview(coord, {
       section.appendChild(sectionLabel);
 
       function build() {
+        const allValues = getValues();
         while (section.children.length > 1) section.removeChild(section.lastChild);
 
         if (!allValues.length) {
@@ -878,8 +881,8 @@ export function createPlatformOverview(coord, {
 
     rebuildInstrumentCheckboxes = null;
     rebuildExperimenterCheckboxes = null;
-    sumBox.appendChild(buildSumCheckboxSection('Filter by instrument', allInstruments, 'summaryInstruments', (fn) => { rebuildInstrumentCheckboxes = fn; }));
-    sumBox.appendChild(buildSumCheckboxSection('Filter by experimenter', allExperimenters, 'summaryExperimenters', (fn) => { rebuildExperimenterCheckboxes = fn; }));
+    sumBox.appendChild(buildSumCheckboxSection('Filter by instrument', () => allInstruments, 'summaryInstruments', (fn) => { rebuildInstrumentCheckboxes = fn; }));
+    sumBox.appendChild(buildSumCheckboxSection('Filter by experimenter', () => allExperimenters, 'summaryExperimenters', (fn) => { rebuildExperimenterCheckboxes = fn; }));
 
     sumCol.appendChild(sumBox);
     content.appendChild(modalBody);
