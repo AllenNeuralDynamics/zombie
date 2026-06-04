@@ -23,6 +23,7 @@ import {
   toEndpointPayload,
 } from './view.js';
 import { CREDIT_ROLES } from './credit-helpers.js';
+import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -251,7 +252,7 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
                  onClick=${() => toggle(cat)}>
               <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
                 <input type="checkbox" checked=${active} onChange=${() => toggle(cat)} />
-                <span class="cv-wizard-role-name">${cat}</span>
+                <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
               </label>
               ${active && html`
                 <select class="cv-wizard-role-level" value=${roles[cat]}
@@ -294,7 +295,7 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, linkedSections,
         return html`
           <div key=${cat} class="cv-credit-card">
             <div class="cv-credit-card-header">
-              <span class="cv-credit-role-name">${cat}</span>
+              <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
               <span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${roles[cat]}</span>
             </div>
             <label class="cv-detail-label">Description</label>
@@ -539,7 +540,7 @@ function StepFullEditor({
               <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
                 <input type="checkbox" checked=${active}
                        onChange=${() => setEditRoles((prev) => ({ ...prev, [cat]: prev[cat] && prev[cat] !== 'None' ? 'None' : 'Equal' }))} />
-                <span class="cv-wizard-role-name">${cat}</span>
+                <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
               </label>
               ${active && html`
                 <select class="cv-wizard-role-level" value=${editRoles[cat]}
@@ -562,7 +563,7 @@ function StepFullEditor({
           return html`
             <div key=${cat} class="cv-credit-card">
               <div class="cv-credit-card-header">
-                <span class="cv-credit-role-name">${cat}</span>
+                <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
                 <span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${editRoles[cat]}</span>
               </div>
               <label class="cv-detail-label">Description</label>
@@ -613,7 +614,7 @@ function StepFullEditor({
 // Main Add App
 // ---------------------------------------------------------------------------
 
-function AddApp({ doi, token }) {
+function AddApp({ doi, token, existingAuthor }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0); // 0=loading, 1-4=wizard steps
@@ -624,9 +625,12 @@ function AddApp({ doi, token }) {
 
   // Restore draft synchronously from localStorage
   const _draft = token ? loadDraft(token) : null;
+  // For existing-author links, pre-fill from project data once loaded
+  // (handled in the useEffect below after data arrives)
+  const isExisting = Boolean(existingAuthor);
 
   // Wizard state (initialised from draft if present)
-  const [name, setName] = useState(_draft?.name || '');
+  const [name, setName] = useState(_draft?.name || (isExisting ? existingAuthor : ''));
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
   const [roles, setRoles] = useState(() => {
@@ -637,6 +641,7 @@ function AddApp({ doi, token }) {
   });
   const [descriptions, setDescriptions] = useState(_draft?.descriptions || {});
   const [linkedSections, setLinkedSections] = useState(_draft?.linkedSections || {});
+  const [prefilled, setPrefilled] = useState(false); // tracks whether existing-author prefill ran
 
   // Auto-save draft whenever wizard state changes
   useEffect(() => {
@@ -670,11 +675,49 @@ function AddApp({ doi, token }) {
         setSections(meta.sections);
         setAffiliations(meta.affiliations);
 
-        // If draft exists, go straight to edit step (step 4);
-        // otherwise follow the visited-cookie check.
-        if (_draft?.name) {
-          setStep(4);
-        } else if (hasVisitedCookie(doi, token)) {
+        // For existing-author links: pre-fill from project data (unless draft already set)
+        if (isExisting && !_draft?.roles && !prefilled) {
+          const contributor = (data.contributors || []).find(
+            (c) => c.author?.name === existingAuthor
+          );
+          if (contributor) {
+            // ORCID
+            const existingOrcid = contributor.author?.registry_identifier || '';
+            if (existingOrcid) setOrcid(existingOrcid);
+
+            // Affiliations
+            const affRaw = contributor.author?.affiliation;
+            const affArr = Array.isArray(affRaw) ? affRaw
+              : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
+            if (affArr.length) setSelectedAffNames(affArr);
+
+            // Roles
+            const newRoles = {};
+            for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
+            const newDescs = {};
+            const newLinks = {};
+            const secByTitle = new Map(meta.sections.map((s) => [s.title, s.id]));
+            for (const cl of contributor.credit_levels || []) {
+              const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
+              if (displayRole) {
+                newRoles[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
+              }
+              if (cl.description) newDescs[cl.role] = cl.description;
+              if (cl.linked_sections?.length) {
+                newLinks[cl.role] = cl.linked_sections
+                  .map((s) => secByTitle.get(typeof s === 'string' ? s : (s.section || s.title || '')))
+                  .filter(Boolean);
+              }
+            }
+            setRoles(newRoles);
+            if (Object.keys(newDescs).length) setDescriptions(newDescs);
+            if (Object.keys(newLinks).length) setLinkedSections(newLinks);
+            setPrefilled(true);
+          }
+        }
+
+        // If existing-author link, draft present, or visited cookie → go straight to edit step
+        if (isExisting || _draft?.name || hasVisitedCookie(doi, token)) {
           setStep(4);
         } else {
           setStep(1);
@@ -765,8 +808,8 @@ function AddApp({ doi, token }) {
 // Entry
 // ---------------------------------------------------------------------------
 
-export function createContributionsAddPage({ doi, token }) {
+export function createContributionsAddPage({ doi, token, author = '' }) {
   const container = document.createElement('div');
-  render(html`<${AddApp} doi=${doi} token=${token} />`, container);
+  render(html`<${AddApp} doi=${doi} token=${token} existingAuthor=${author} />`, container);
   return container;
 }

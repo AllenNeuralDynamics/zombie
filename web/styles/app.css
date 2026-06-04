@@ -4680,6 +4680,13 @@ body {
   font-size: 0.8rem;
 }
 
+.cv-token-copied-badge {
+  font-size: 0.8rem;
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .cv-token-author-list {
   display: flex;
   flex-direction: column;
@@ -4909,6 +4916,64 @@ body {
 .cv-wizard-aff-add-row .cv-wizard-input {
   flex: 1;
 }
+
+/* Role name tooltip (cv-role-tip)
+   Uses position:fixed on the popup to escape overflow:auto containers. */
+.cv-role-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.cv-role-tip-icon {
+  font-size: 0.7em;
+  opacity: 0.5;
+  line-height: 1;
+}
+
+.cv-role-tip-popup {
+  position: fixed;
+  z-index: 9999;
+  width: 320px;
+  background: var(--surface-bg, #fff);
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: var(--radius, 6px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.14);
+  padding: 12px 14px;
+  pointer-events: none;
+}
+
+.cv-role-tip-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.cv-role-tip-def {
+  display: block;
+  font-style: normal;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.78rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples li {
+  margin-bottom: 4px;
+}
+.cv-role-tip-examples li:last-child { margin-bottom: 0; }
 
 /* Roles grid (step 2) */
 .cv-wizard-roles-grid {

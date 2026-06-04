@@ -16,6 +16,7 @@ import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
 import { CREDIT_ROLES } from './credit-helpers.js';
+import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -680,7 +681,7 @@ function AuthorDetailSection({
           return html`
             <div key=${cat} class="cv-credit-card">
               <div class="cv-credit-card-header">
-                <span class="cv-credit-role-name">${cat}</span>
+                <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
                 <span class=${'cv-credit-level-badge cv-credit-level-' + row[cat].toLowerCase()}>${row[cat]}</span>
               </div>
               <label class="cv-detail-label">Description</label>
@@ -1013,8 +1014,8 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
       ${showTokenLinks && html`
         <td class="cv-token-cell">
           ${tokenResult?.link
-            ? html`<button class="cv-link-btn cv-link-btn--done" title="Copy link"
-                           onClick=${() => navigator.clipboard.writeText(tokenResult.link)}>🔗</button>`
+            ? html`<button class="cv-link-btn cv-link-btn--done" title="Copied! Click to copy again"
+                           onClick=${() => navigator.clipboard.writeText(tokenResult.link)}>✓</button>`
             : html`<button class="cv-link-btn" title="Generate add link"
                            disabled=${tokenResult?.busy}
                            onClick=${() => onGenerateLink(row.name)}>
@@ -1289,8 +1290,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       const data = await res.json();
       const token = data.token || data.key || '';
-      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
-      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { link } }));
+      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}&author=${encodeURIComponent(authorName)}`;
+      navigator.clipboard.writeText(link).catch(() => {});
+      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { link, copied: true } }));
     } catch (err) {
       setTokenLinkResults((prev) => ({ ...prev, [authorName]: { error: err.message } }));
     }
@@ -1307,7 +1309,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       if (!res.ok) throw new Error(`Failed (${res.status})`);
       const data = await res.json();
       const token = data.token || data.key || '';
-      setInviteLink(`${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`);
+      const invLink = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
+      navigator.clipboard.writeText(invLink).catch(() => {});
+      setInviteLink(invLink);
     } catch (err) {
       setInviteLink(`Error: ${err.message}`);
     } finally {
@@ -1485,7 +1489,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
                   <th></th>
                   ${showTokenLinks && html`<th></th>`}
                   <th>Name</th>
-                  ${CREDIT_CATEGORIES.map((cat) => html`<th key=${cat}>${cat}</th>`)}
+                  ${CREDIT_CATEGORIES.map((cat) => html`<th key=${cat}><${RoleTip} name=${cat} /></th>`)}
                 </tr>
               </thead>
               <tbody id="cv-authors-tbody">
@@ -1520,6 +1524,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
                 <div class="cv-token-link-result">
                   <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
                   <button class="btn-secondary" onClick=${() => copyToClipboard(inviteLink)}>Copy</button>
+                  <span class="cv-token-copied-badge">✓ Copied</span>
                 </div>
               `}
               ${inviteLink && inviteLink.startsWith('Error') && html`

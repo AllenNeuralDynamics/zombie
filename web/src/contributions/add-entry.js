@@ -11,7 +11,8 @@ function init() {
   const params = new URLSearchParams(window.location.search);
   const doi = params.get('doi') ?? '';
   const token = params.get('token') ?? '';
-  app.appendChild(createContributionsAddPage({ doi, token }));
+  const author = params.get('author') ?? '';
+  app.appendChild(createContributionsAddPage({ doi, token, author }));
 }
 
 init();
