@@ -268,7 +268,6 @@ export function createNamesView(coordinator) {
       <p class="names-subtitle">
         Each node on the left is a raw name variant as it appears in the data.
         Arrows point to its normalized form on the right.
-        Hover a cluster to highlight it.
       </p>
     </div>
     <div id="names-loading" class="loading-message">Querying DuckDB…</div>
