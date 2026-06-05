@@ -5,29 +5,7 @@
  * the experimenter name normalization graph.
  */
 
-import { coordinator, wasmConnector } from '@uwdata/vgplot';
-import { fetchAndRegisterMetadata } from './lib/metadata.js';
+import { bootstrap } from './lib/bootstrap.js';
 import { createNamesView } from './names/view.js';
-import { SQUIRREL_URL } from './constants.js';
 
-async function init() {
-  const loadingEl = document.getElementById('loading-message');
-  const app = document.getElementById('app');
-  if (!app) return;
-
-  try {
-    coordinator().databaseConnector(wasmConnector());
-    await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
-    if (loadingEl) loadingEl.remove();
-
-    app.appendChild(createNamesView(coordinator()));
-  } catch (err) {
-    console.error('[Names] Initialisation failed:', err);
-    if (loadingEl) {
-      loadingEl.textContent = `Failed to load: ${err?.message ?? err}`;
-      loadingEl.className = 'loading-message error';
-    }
-  }
-}
-
-init();
+bootstrap((coord) => createNamesView(coord));

@@ -17,94 +17,37 @@ import { arrowTableToRows } from '../lib/assets-table.js';
 import { escHtml } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
-// Cipher helpers
+// Anonymization — fixed letter-substitution cipher
 // ---------------------------------------------------------------------------
 
-/** Gender-neutral, nature-themed fake first names. */
-const FAKE_FIRSTS = [
-  'Ash', 'Bay', 'Cedar', 'Dune', 'Elm', 'Fen', 'Glen', 'Heath',
-  'Iris', 'Jade', 'Knoll', 'Lake', 'Moss', 'Nova', 'Oak', 'Pine',
-  'Reed', 'Sage', 'Tide', 'Umber', 'Vale', 'Wren', 'Yarrow', 'Zeal',
-  'Briar', 'Cliff', 'Drift', 'Echo', 'Flint', 'Gorge', 'Haze', 'Inlet',
-];
-
 /**
- * Shift an uppercase letter by +7 positions in the alphabet (wrapping).
- * @param {string} ch - Single uppercase letter.
- * @returns {string} Shifted uppercase letter.
- */
-function shiftInitial(ch) {
-  const code = ch.toUpperCase().charCodeAt(0) - 65;
-  return String.fromCharCode(((code + 7) % 26) + 65);
-}
-
-/**
- * Build a cipher map: normalized name → { fakeName, fakeFirst, realLast, fakeLast }.
- * Names are sorted for determinism so the same person always gets the same fake name.
+ * Fixed alphabet substitution table (QWERTY-based permutation).
+ * Maps every ASCII letter to a different letter, preserving case.
+ * All non-alphabetic characters (spaces, commas, dots, hyphens, etc.) pass through unchanged.
  *
- * @param {string[]} normalizedNames
- * @returns {Map<string, {fakeName:string, fakeFirst:string, realLast:string, fakeLast:string}>}
+ * Plain:  A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+ * Cipher: Q W E R T Y U I O P A S D F G H J K L Z X C V B N M
  */
-function buildCipher(normalizedNames) {
-  const sorted = [...normalizedNames].sort((a, b) => a.localeCompare(b));
-  const cipher = new Map();
-  for (let i = 0; i < sorted.length; i++) {
-    const name = sorted[i];
-    const parts = name.trim().split(/\s+/).filter(Boolean);
-    const lastPart = parts[parts.length - 1] ?? '';
-    const realLast = (lastPart[0] ?? 'A').toUpperCase();
-    const fakeLast = shiftInitial(realLast);
-    const fakeFirst = FAKE_FIRSTS[i % FAKE_FIRSTS.length];
-    cipher.set(name, { fakeName: `${fakeFirst} ${fakeLast}`, fakeFirst, realLast, fakeLast });
+const ALPHA_MAP = (() => {
+  const plain  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const cipher = 'QWERTYUIOPASDFGHJKLZXCVBNM';
+  const map = Object.create(null);
+  for (let i = 0; i < 26; i++) {
+    map[plain[i]] = cipher[i];
+    map[plain[i].toLowerCase()] = cipher[i].toLowerCase();
   }
-  return cipher;
-}
+  return map;
+})();
 
 /**
- * Anonymize a single original (un-normalized) name string using the cipher
- * derived from its corresponding normalized name.
+ * Anonymize a name string by substituting each alphabetic character using
+ * ALPHA_MAP. Case, length, spacing, and punctuation are all preserved.
  *
- * Strategy:
- *   - Split on any run of separator chars (`.`, ` `, `,`, `_`, `-`), preserving delimiters.
- *   - Replace the first name token with fakeFirst (matching the original's case style).
- *   - For every subsequent token that begins with realLast (case-insensitive), replace
- *     that leading character with fakeLast (matching the original's case).
- *
- * @param {string} original
- * @param {string} fakeFirst
- * @param {string} realLast  - uppercase letter
- * @param {string} fakeLast  - uppercase letter
+ * @param {string} str
  * @returns {string}
  */
-function anonymizeOriginal(original, fakeFirst, realLast, fakeLast) {
-  // Split into alternating [token, delimiter, token, delimiter, …]
-  const parts = original.split(/([.\s,_\-]+)/);
-  let firstTokenSeen = false;
-
-  return parts.map((part) => {
-    // Delimiters pass through unchanged
-    if (/^[.\s,_\-]+$/.test(part)) return part;
-
-    if (!firstTokenSeen) {
-      firstTokenSeen = true;
-      // Match casing style of original first token
-      const allLower = part === part.toLowerCase();
-      const titleCase = part.length > 1 &&
-        part[0] === part[0].toUpperCase() &&
-        part.slice(1) === part.slice(1).toLowerCase();
-      if (allLower) return fakeFirst.toLowerCase();
-      if (titleCase) return fakeFirst[0].toUpperCase() + fakeFirst.slice(1).toLowerCase();
-      return fakeFirst.toUpperCase();
-    }
-
-    // Subsequent tokens: swap leading char if it matches the real last initial
-    if (part[0] && part[0].toUpperCase() === realLast) {
-      const isLower = part[0] === part[0].toLowerCase();
-      const replacement = isLower ? fakeLast.toLowerCase() : fakeLast;
-      return replacement + part.slice(1);
-    }
-    return part;
-  }).join('');
+function anonymizeName(str) {
+  return str.split('').map((ch) => ALPHA_MAP[ch] ?? ch).join('');
 }
 
 // ---------------------------------------------------------------------------
@@ -355,13 +298,13 @@ async function _load(container, coordinator) {
   try {
     const result = await coordinator.query(`
       SELECT
-        experimenters,
+        array_to_string(experimenters, ',') AS experimenters,
         array_to_string(experimenters_normalized, ',') AS experimenters_normalized
       FROM asset_basics
       WHERE experimenters IS NOT NULL
         AND experimenters_normalized IS NOT NULL
-        AND trim(experimenters) <> ''
-        AND array_to_string(experimenters_normalized, ',') <> ''
+        AND len(experimenters) > 0
+        AND len(experimenters_normalized) > 0
     `);
     const rows = arrowTableToRows(result);
 
@@ -375,14 +318,12 @@ async function _load(container, coordinator) {
 
     // const cipher = buildCipher(normalizedNames);
 
-    // Build view data (cipher disabled — real names shown)
+    // Build view data with character-substitution anonymization
     const viewData = normalizedNames.map((norm, i) => {
-      // const { fakeName, fakeFirst, realLast, fakeLast } = cipher.get(norm);
       const originals = [...mapping.get(norm)].sort((a, b) => a.localeCompare(b));
-      // const fakeOriginals = originals.map((o) =>
-      //   anonymizeOriginal(o, fakeFirst, realLast, fakeLast),
-      // );
       return {
+        // norm: anonymizeName(norm),
+        // originals: originals.map(anonymizeName),
         norm,
         originals,
         color: PALETTE[i % PALETTE.length],
