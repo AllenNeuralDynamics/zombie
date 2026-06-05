@@ -2,24 +2,14 @@
  * lib/platform-summary.js — Shared summary banner for platform pages.
  *
  * Creates a one-line stat row: "N Assets (M do not upgrade)" where M is a
- * download link for the failed-upgrade rows from zs_metadata_upgrade.
+ * download link for the failed-upgrade rows from metadata_upgrade.
  */
 
-const UPGRADE_S3_PATH =
-  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_metadata_upgrade.pqt';
-
-let upgradeTableReady = null;
+import { ensureTable } from './registry.js';
+import { queryRows } from './arrow.js';
 
 function ensureUpgradeTable(coord) {
-  if (!upgradeTableReady) {
-    upgradeTableReady = coord.exec(
-      `CREATE OR REPLACE TABLE zs_metadata_upgrade AS SELECT * FROM read_parquet('${UPGRADE_S3_PATH}')`,
-    ).catch((err) => {
-      upgradeTableReady = null; // allow retry
-      throw err;
-    });
-  }
-  return upgradeTableReady;
+  return ensureTable(coord, 'metadata_upgrade');
 }
 
 /**
@@ -49,10 +39,9 @@ export function createPlatformSummaryBanner(coord, { platformTableName, assetNam
     .then(() => coord.query(
       `SELECT
          (SELECT COUNT(DISTINCT ${assetNameCol}) FROM ${platformTableName}) AS total_assets,
-         (SELECT COUNT(*) FROM zs_metadata_upgrade
+         (SELECT COUNT(*) FROM metadata_upgrade
           WHERE status = 'failed'
             AND name IN (SELECT DISTINCT ${assetNameCol} FROM ${platformTableName})) AS failed_assets`,
-      { type: 'json' },
     ))
     .then((result) => {
       const rows = Array.isArray(result) ? result
@@ -95,10 +84,9 @@ export function createPlatformSummaryBanner(coord, { platformTableName, assetNam
 
 function downloadFailedUpgrades(coord, platformTableName, assetNameCol) {
   coord.query(
-    `SELECT * FROM zs_metadata_upgrade
+    `SELECT * FROM metadata_upgrade
      WHERE status = 'failed'
        AND name IN (SELECT DISTINCT ${assetNameCol} FROM ${platformTableName})`,
-    { type: 'json' },
   )
     .then((result) => {
       const rows = Array.isArray(result) ? result

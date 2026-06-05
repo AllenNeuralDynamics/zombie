@@ -8,17 +8,14 @@
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
-import { arrowTableToRows } from '../lib/assets-table.js';
+import { arrowTableToRows, queryRows } from '../lib/arrow.js';
+import { ensureTable } from '../lib/registry.js';
 
 import {
   utcDay, addDays, isoDate,
   buildTimelineSvg, buildCurriculumLegend,
   TIMELINE_LABEL_W,
 } from '../lib/behavior-timeline.js';
-
-// URL for the curriculum parquet (same source used by project/view.js)
-const CURRICULUM_PARQUET_URL =
-  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_behavior_curriculum.pqt';
 
 // Maximum figures shown at once (prevents DOM explosion)
 const MAX_FIGURES = 60;
@@ -95,9 +92,8 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     await ensureForagingTable(coord);
 
     // Load foraging sessions joined with the curriculum table to get stage_node_id.
-    // Join on (curriculum_name, stage_name) since the asset_name format in the parquet
-    // uses full timestamps and doesn't match our session date keys.
-    const result = await coord.query(`
+    await ensureTable(coord, 'behavior_curriculum');
+    allSessions = await queryRows(coord, `
       SELECT
         f.subject_id,
         f.session_date,
@@ -106,27 +102,25 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         f.curriculum_name,
         f.current_stage_actual AS stage_name,
         c.stage_node_id
-      FROM zs_foraging_sessions f
+      FROM foraging_sessions f
       LEFT JOIN (
         SELECT DISTINCT curriculum_name, stage_name, stage_node_id
-        FROM read_parquet('${CURRICULUM_PARQUET_URL}')
+        FROM behavior_curriculum
         WHERE stage_node_id IS NOT NULL
       ) c ON c.curriculum_name = f.curriculum_name
          AND c.stage_name = f.current_stage_actual
       ORDER BY f.session_date DESC, f.subject_id ASC
     `);
-    allSessions = arrowTableToRows(result);
   } catch (err) {
     console.warn('[DFView] curriculum join failed, falling back to sessions-only query:', err);
     try {
-      const result = await coord.query(`
+      allSessions = await queryRows(coord, `
         SELECT subject_id, session_date, nwb_suffix, trainer_normalized AS trainer,
                curriculum_name, current_stage_actual AS stage_name,
                NULL AS stage_node_id
-        FROM zs_foraging_sessions
+        FROM foraging_sessions
         ORDER BY session_date DESC, subject_id ASC
       `);
-      allSessions = arrowTableToRows(result);
     } catch (err2) {
       loadingEl.textContent = `Failed to load session data: ${err2?.message ?? err2}`;
       loadingEl.className = 'loading-message error';

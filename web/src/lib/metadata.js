@@ -6,7 +6,7 @@
  * coordinator are grouped at the bottom under "# DB Operations".
  */
 
-import { S3_REGION } from '../constants.js';
+import { S3_REGION, DATA_CACHE_PREFIX } from '../constants.js';
 
 // ---------------------------------------------------------------------------
 // # Schema validation helpers
@@ -98,7 +98,7 @@ export function s3PathToHttps(s3Path, region = S3_REGION) {
 export function buildParquetArg(acorn) {
   if (acorn.partitioned) {
     const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
-    return `'${base}/*.pqt', hive_partitioning=true, union_by_name=true`;
+    return `'${base}/**', hive_partitioning=true, union_by_name=true`;
   }
   return `'${s3PathToHttps(acorn.location)}'`;
 }
@@ -199,20 +199,88 @@ export function getAcornByName(acorns, name) {
 }
 
 // ---------------------------------------------------------------------------
+// # Version resolution
+// ---------------------------------------------------------------------------
+
+/** Module-level resolved base URL (set after first successful fetch). */
+let _resolvedBaseUrl = null;
+
+/**
+ * Return the resolved data-cache base URL (e.g. `https://…/data-asset-cache/zs-v0.28.1`).
+ * Available only after `fetchAndRegisterMetadata` has completed successfully.
+ *
+ * @returns {string|null}
+ */
+export function getResolvedBaseUrl() {
+  return _resolvedBaseUrl;
+}
+
+/**
+ * Compare two semver strings (e.g. "0.28.1" > "0.27.3").
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function compareSemver(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] ?? 0;
+    const nb = pb[i] ?? 0;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
+
+/**
+ * Fetch the versions index, pick the latest version, and return the
+ * squirrel.json URL for that version.
+ *
+ * @param {string} versionsUrl - HTTPS URL of zombie-squirrels.json.
+ * @returns {Promise<{squirrelUrl: string, baseUrl: string}>}
+ */
+async function resolveLatestVersion(versionsUrl) {
+  const resp = await fetch(versionsUrl, { cache: 'no-cache' });
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch versions index: ${resp.status} ${resp.statusText}`);
+  }
+  const versions = await resp.json();
+  if (!Array.isArray(versions) || versions.length === 0) {
+    throw new Error('zombie-squirrels.json must be a non-empty array');
+  }
+  // versions may be folder names like "zs-v0.28.1" or bare version strings "0.28.1"
+  const parsed = versions.map((v) => {
+    const bare = String(v).replace(/^zs-v/, '');
+    return { raw: v, bare };
+  });
+  parsed.sort((a, b) => compareSemver(a.bare, b.bare));
+  const latest = parsed[parsed.length - 1];
+  const folder = latest.raw.startsWith('zs-v') ? latest.raw : `zs-v${latest.bare}`;
+  const baseUrl = `${DATA_CACHE_PREFIX}/${folder}`;
+  const squirrelUrl = `${baseUrl}/squirrel.json`;
+  return { squirrelUrl, baseUrl };
+}
+
+// ---------------------------------------------------------------------------
 // # DB Operations (require a live Mosaic coordinator)
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the squirrel.json metadata file and register all `"metadata"`-type
- * acorns as DuckDB tables via the provided coordinator.
+ * Fetch the zombie-squirrels.json version index, resolve the latest version,
+ * fetch the corresponding squirrel.json metadata file, and register all
+ * `"metadata"`-type acorns as DuckDB tables via the provided coordinator.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
- * @param {string} squirrelUrl - HTTPS URL of the metadata JSON.
- * @returns {Promise<{ acorns: object[] }>} The parsed squirrel JSON.
+ * @param {string} versionsUrl - HTTPS URL of zombie-squirrels.json.
+ * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed squirrel JSON + base URL.
  */
-export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
+export async function fetchAndRegisterMetadata(coordinator, versionsUrl) {
   // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
   // All parquet URLs are converted to HTTPS so no S3 credentials are required.
+
+  // 1. Resolve the latest version from the versions index.
+  const { squirrelUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
+  _resolvedBaseUrl = baseUrl;
 
   // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
   // cache: 'no-cache' forces a conditional revalidation request so that a
@@ -225,14 +293,27 @@ export async function fetchAndRegisterMetadata(coordinator, squirrelUrl) {
   const json = await resp.json();
   const metadata = parseSquirrelJson(json);
 
-  // 3. Register all metadata-type acorns as persistent DuckDB tables
+  // 3. Register all metadata-type acorns as persistent DuckDB tables.
+  //    Skip individual failures so one broken/empty parquet file doesn't
+  //    crash every page in the app.
   const metaAcorns = getMetadataAcorns(metadata.acorns);
   for (const acorn of metaAcorns) {
-    await registerAcornTable(coordinator, acorn);
+    try {
+      await registerAcornTable(coordinator, acorn);
+    } catch (err) {
+      console.warn(`[metadata] Failed to register acorn "${acorn.name}", skipping:`, err?.message ?? err);
+    }
   }
 
+  metadata.baseUrl = baseUrl;
   return metadata;
 }
+
+/** Columns that are list-typed in the new parquet schema. */
+const LIST_COLUMNS = new Set([
+  'modalities', 'experimenters', 'experimenters_normalized',
+  'investigators', 'investigators_normalized',
+]);
 
 /**
  * Build a SQL WHERE clause (including the WHERE keyword) that filters
@@ -260,7 +341,11 @@ export function buildQueryWhereClause(queryFilter) {
       const quoted = f.values
         .map((v) => "'" + String(v).replace(/'/g, "''") + "'")
         .join(', ');
-      parts.push(`"${col}" IN (${quoted})`);
+      if (LIST_COLUMNS.has(f.column)) {
+        parts.push(`list_has_any("${col}", [${quoted}])`);
+      } else {
+        parts.push(`"${col}" IN (${quoted})`);
+      }
     }
   }
   const filter = parts.length > 0 ? parts.join(' AND ') + ' AND ' : '';

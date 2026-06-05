@@ -8,7 +8,8 @@ import { describe, it, expect } from 'vitest';
 import {
   S3_REGION,
   S3_BUCKET,
-  SQUIRREL_URL,
+  VERSIONS_URL,
+  DATA_CACHE_PREFIX,
   AIND_COLORS,
   URL_PARAM_PROJECTS,
   URL_PARAM_DATA_TYPES,
@@ -29,10 +30,15 @@ describe('constants', () => {
     expect(S3_BUCKET.length).toBeGreaterThan(0);
   });
 
-  it('SQUIRREL_URL points to the squirrel.json metadata file', () => {
-    expect(SQUIRREL_URL).toContain('allen-data-views');
-    expect(SQUIRREL_URL).toContain('data-asset-cache');
-    expect(SQUIRREL_URL).toContain('squirrel.json');
+  it('VERSIONS_URL points to the zombie-squirrels.json versions index', () => {
+    expect(VERSIONS_URL).toContain('allen-data-views');
+    expect(VERSIONS_URL).toContain('data-asset-cache');
+    expect(VERSIONS_URL).toContain('zombie-squirrels.json');
+  });
+
+  it('DATA_CACHE_PREFIX is the base URL for data-asset-cache', () => {
+    expect(DATA_CACHE_PREFIX).toContain('allen-data-views');
+    expect(DATA_CACHE_PREFIX).toContain('data-asset-cache');
   });
 
   it('AIND_COLORS contains the expected palette keys', () => {

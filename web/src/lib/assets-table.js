@@ -6,26 +6,10 @@
 
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 import { formatDatetime, PAGE_SIZE } from './utils.js';
+import { arrowTableToRows, queryRows } from './arrow.js';
 
-/**
- * Convert an Apache Arrow result table to an array of plain JS row objects.
- *
- * @param {import('apache-arrow').Table} result
- * @returns {object[]}
- */
-export function arrowTableToRows(result) {
-  const rows = [];
-  const fields = result.schema.fields.map((f) => f.name);
-  for (let i = 0; i < result.numRows; i++) {
-    const row = {};
-    for (const f of fields) {
-      const col = result.getChild(f);
-      row[f] = col ? col.get(i) : null;
-    }
-    rows.push(row);
-  }
-  return rows;
-}
+// Re-export for backward compatibility
+export { arrowTableToRows, queryRows };
 
 /**
  * Build a DOM table element grouping raw assets with their derived children.
@@ -125,7 +109,7 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
         <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${asset.name ?? ''}</td>
         <td>${subjectCell}</td>
         <td>${formatDatetime(asset.acquisition_start_time)}</td>
-        <td>${asset.modalities ?? ''}</td>
+        <td>${Array.isArray(asset.modalities) ? asset.modalities.join(', ') : (asset.modalities ?? '')}</td>
         <td>${asset.data_level ?? ''}</td>
         <td class="link-cell">${linkParts}</td>`;
 

@@ -26,7 +26,7 @@ import {
 
 const METADATA_ACORN = {
   name: 'asset_basics',
-  location: 's3://allen-data-views/data-asset-cache/zs_asset_basics.pqt',
+  location: 's3://allen-data-views/data-asset-cache/zs-v0.28.1/asset_basics.pqt',
   partitioned: false,
   partition_key: null,
   type: 'metadata',
@@ -35,7 +35,7 @@ const METADATA_ACORN = {
 
 const ASSET_ACORN_PARTITIONED = {
   name: 'quality_control',
-  location: 's3://allen-data-views/data-asset-cache/zs_qc/',
+  location: 's3://allen-data-views/data-asset-cache/zs-v0.28.1/qc/',
   partitioned: true,
   partition_key: 'subject_id',
   type: 'asset',
@@ -175,26 +175,26 @@ describe('buildParquetArg', () => {
     const arg = buildParquetArg(METADATA_ACORN);
     expect(arg).toMatch(/^'https:\/\//);
     expect(arg).not.toContain('hive_partitioning');
-    expect(arg).toContain('zs_asset_basics.pqt');
+    expect(arg).toContain('asset_basics.pqt');
   });
 
   it('converts s3:// location to https:// URL', () => {
     const arg = buildParquetArg(METADATA_ACORN);
-    expect(arg).toBe(`'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_asset_basics.pqt'`);
+    expect(arg).toBe(`'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs-v0.28.1/asset_basics.pqt'`);
   });
 
   it('returns a glob https:// URL with hive_partitioning for a partitioned acorn', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
-    expect(arg).toContain('*.pqt');
+    expect(arg).toContain('**');
     expect(arg).toContain('hive_partitioning=true');
     expect(arg).toContain('union_by_name=true');
-    // Should not have double-slash in the glob (e.g. dir//*.pqt)
+    // Should not have double-slash in the glob (e.g. dir//**)
     expect(arg).not.toMatch(/[^:]\/{2}/);
   });
 
   it('strips trailing slash before appending glob', () => {
     const arg = buildParquetArg(ASSET_ACORN_PARTITIONED);
-    expect(arg).not.toContain('//*.pqt');
+    expect(arg).not.toContain('//**');
   });
 
   it('uses https:// prefix in the glob path', () => {

@@ -58,7 +58,7 @@ export function buildModalityHistogram(assets, containerWidth = 700) {
     const day = d.getUTCDay(); // 0=Sun
     const weekStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
     const weekStr = _isoDate(weekStart);
-    for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+    for (const m of (Array.isArray(a.modalities) ? a.modalities : String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean))) {
       const key = `${weekStr}|${m}`;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }

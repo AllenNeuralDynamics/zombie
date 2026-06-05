@@ -23,17 +23,10 @@
  */
 
 import { escHtml } from './utils.js';
-
-const S3_BASE =
-  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache';
-
-/** S3 URLs for each platform's pre-computed QC parquet. */
-const PLATFORM_QC_URLS = {
-  spim:             `${S3_BASE}/zs_platform_qc/spim.pqt`,
-  fib:              `${S3_BASE}/zs_platform_qc/fib.pqt`,
-  vr:               `${S3_BASE}/zs_platform_qc/vr.pqt`,
-  dynamic_foraging: `${S3_BASE}/zs_platform_qc/dynamic_foraging.pqt`,
-};
+import { queryRows } from './arrow.js';
+import { ensureTable } from './registry.js';
+import { s3PathToHttps } from './metadata.js';
+import { getAcorn } from './registry.js';
 
 /** DuckDB table name for a given platform key. */
 const tableNameFor = (key) => `platform_qc_${key}`;
@@ -43,11 +36,24 @@ const _tableReady = new Map();
 
 async function ensurePlatformTable(coord, platformKey) {
   if (!_tableReady.has(platformKey)) {
-    const url = PLATFORM_QC_URLS[platformKey];
-    if (!url) throw new Error(`Unknown platform QC key: ${platformKey}`);
+    const acorn = getAcorn('platform_qc');
+    if (!acorn) {
+      // Fallback: try to register the full table
+      const p = ensureTable(coord, 'platform_qc').then(() => {
+        // Create a filtered view for this platform
+        return coord.exec(
+          `CREATE OR REPLACE TABLE ${tableNameFor(platformKey)} AS SELECT * FROM platform_qc WHERE platform = '${platformKey}'`,
+        );
+      }).catch((err) => { _tableReady.delete(platformKey); throw err; });
+      _tableReady.set(platformKey, p);
+      return p;
+    }
+    // Load only the specific partition for this platform
+    const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
+    const url = `${base}/platform=${platformKey}/**`;
     const tbl = tableNameFor(platformKey);
     const p = coord
-      .exec(`CREATE OR REPLACE TABLE ${tbl} AS SELECT * FROM read_parquet('${url}')`)
+      .exec(`CREATE OR REPLACE TABLE ${tbl} AS SELECT * FROM read_parquet('${url}', hive_partitioning=true, union_by_name=true)`)
       .catch((err) => { _tableReady.delete(platformKey); throw err; });
     _tableReady.set(platformKey, p);
   }
@@ -156,10 +162,8 @@ async function fetchStats(coord, { platformKey, groupBy, since }) {
     `;
   }
 
-  const result = await coord.query(sql, { type: 'json' });
-  return Array.isArray(result) ? result
-       : Array.isArray(result?.data) ? result.data
-       : Array.from(result ?? []);
+  const result = await queryRows(coord, sql);
+  return result;
 }
 
 /**

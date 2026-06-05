@@ -8,16 +8,14 @@
  * Pure helpers are exported for unit tests.
  */
 
-import { registerAcornTable } from '../lib/metadata.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
+import { ensureTable } from '../lib/registry.js';
+import { queryRows } from '../lib/arrow.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
-
-const SMARTSPIM_S3_PATH =
-  `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_assets_smartspim.pqt`;
 
 // Fields pulled from asset_basics via JOIN
 const BASICS_KEYS = [
@@ -188,7 +186,7 @@ export function renderSmartSpimRow(row, visibleColumns) {
 // View factory
 // ---------------------------------------------------------------------------
 
-export function createSmartSpimView(coord, metadata) {
+export function createSmartSpimView(coord) {
   const container = document.createElement('div');
   container.className = 'assets-view smartspim-view';
 
@@ -197,17 +195,9 @@ export function createSmartSpimView(coord, metadata) {
   loadingEl.textContent = 'Loading SmartSPIM assets…';
   container.appendChild(loadingEl);
 
-  const acorn = metadata?.acorns?.find((a) => a.name === 'assets_smartspim');
-
-  const registerPromise = acorn
-    ? registerAcornTable(coord, acorn)
-    : coord.exec(
-        `CREATE OR REPLACE TABLE assets_smartspim AS SELECT * FROM read_parquet('${SMARTSPIM_S3_PATH}')`,
-      );
-
-  registerPromise
+  ensureTable(coord, 'assets_smartspim')
     .then(() =>
-      coord.query(
+      queryRows(coord,
         `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
                 s.processing_end_time, s.stitched_link, s.raw_link, s.alignment_link, s.processed, s.institution,
                 b.subject_id, b.project_name, b.acquisition_start_time,
@@ -217,14 +207,10 @@ export function createSmartSpimView(coord, metadata) {
          LEFT JOIN asset_basics b ON b.name = s.raw_name
          LEFT JOIN asset_basics p ON p.name = s.name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, s.name`,
-        { type: 'json' },
       ),
     )
-    .then((result) => {
+    .then((longRows) => {
       loadingEl.remove();
-      const longRows = Array.isArray(result) ? result
-        : Array.isArray(result?.data) ? result.data
-        : Array.from(result ?? []);
       const wideRows = pivotLongFormRows(longRows);
       buildPage(wideRows);
     })

@@ -306,7 +306,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     // Async: fetch DuckDB asset data (projects + grouped assets table)
     if (coordinator) {
-      _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then(({ tableEl, assets }) => {
+      _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then((result) => {
+        if (!result) return;
+        const { tableEl, assets } = result;
         assetsTableEl = tableEl;
         // Enrich acquisition event data with S3 location and Code Ocean from DuckDB
         if (assets?.length) {

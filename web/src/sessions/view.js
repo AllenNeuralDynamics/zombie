@@ -8,7 +8,7 @@
  *   - Bottom: sortable, filterable, paginated table
  */
 
-import { registerAcornTable } from '../lib/metadata.js';
+import { queryRows } from '../lib/arrow.js';
 import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
@@ -197,8 +197,8 @@ export function renderSessionRow(row) {
     `<td>${escHtml(formatDate(row.acquisition_start_time ?? null))}</td>`,
     `<td>${escHtml(row.project_name ?? '')}</td>`,
     `<td>${escHtml(row.instrument_id ?? '')}</td>`,
-    `<td>${escHtml(row.experimenters ?? '')}</td>`,
-    `<td>${escHtml(row.modalities ?? '')}</td>`,
+    `<td>${escHtml(Array.isArray(row.experimenters) ? row.experimenters.join(', ') : (row.experimenters ?? ''))}</td>`,
+    `<td>${escHtml(Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''))}</td>`,
     `<td>${escHtml(row.genotype ?? '')}</td>`,
   ];
   return `<tr>${cells.join('')}</tr>`;
@@ -215,7 +215,7 @@ export function renderSessionRow(row) {
  * @param {{ acorns: object[] }} metadata
  * @returns {HTMLElement}
  */
-export function createSessionsView(coord, metadata) {
+export function createSessionsView(coord) {
   const container = document.createElement('div');
   container.className = 'sessions-view';
 
@@ -224,30 +224,17 @@ export function createSessionsView(coord, metadata) {
   loadingEl.textContent = 'Loading behavioral sessions…';
   container.appendChild(loadingEl);
 
-  const acorn = metadata?.acorns?.find((a) => a.name === 'asset_basics');
-
-  const registerPromise = acorn
-    ? registerAcornTable(coord, acorn)
-    : Promise.reject(new Error('asset_basics table not found in metadata'));
-
-  registerPromise
-    .then(() =>
-      coord.query(
-        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name,
-                instrument_id_normalized AS instrument_id,
-                experimenters_normalized AS experimenters,
-                modalities, genotype, name, location
-         FROM asset_basics
-         WHERE lower(modalities) LIKE '%behavior%'
-         ORDER BY acquisition_start_time DESC NULLS LAST`,
-        { type: 'json' },
-      ),
-    )
-    .then((result) => {
+  queryRows(coord,
+    `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name,
+            instrument_id_normalized AS instrument_id,
+            experimenters_normalized AS experimenters,
+            modalities, genotype, name, location
+     FROM asset_basics
+     WHERE list_contains(modalities, 'behavior')
+     ORDER BY acquisition_start_time DESC NULLS LAST`,
+  )
+    .then((rows) => {
       loadingEl.remove();
-      const rows = Array.isArray(result) ? result
-        : Array.isArray(result?.data) ? result.data
-        : Array.from(result ?? []);
       buildPage(rows);
     })
     .catch((err) => {
@@ -569,8 +556,8 @@ export function createSessionsView(coord, metadata) {
           formatDate(row.acquisition_start_time ?? null),
           row.project_name ?? '',
           row.instrument_id ?? '',
-          row.experimenters ?? '',
-          row.modalities ?? '',
+          Array.isArray(row.experimenters) ? row.experimenters.join(', ') : (row.experimenters ?? ''),
+          Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''),
           row.genotype ?? '',
         ]),
       );

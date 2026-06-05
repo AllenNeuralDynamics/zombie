@@ -8,9 +8,11 @@
  *   3. Grouped assets table at the bottom (shared with subject page).
  */
 
-import { arrowTableToRows, buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
+import { arrowTableToRows } from '../lib/arrow.js';
+import { buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
 import { buildModalityHistogram } from '../lib/charts.js';
 import { createForagingSessionDetail } from '../lib/behaviors/dynamic-foraging.js';
+import { ensureTable } from '../lib/registry.js';
 import {
   utcDay, addDays, isoDate,
   buildTimelineSvg, buildCurriculumLegend,
@@ -64,8 +66,6 @@ function filterByCurricula(rawAssets, windowStart, numDays, curriculumMap, selec
   }
   return rawAssets.filter((a) => allowedSubjects.has(a.subject_id));
 }
-
-const CURRICULUM_PARQUET_URL = 'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_behavior_curriculum.pqt';
 
 // ---------------------------------------------------------------------------
 // Main view factory
@@ -232,10 +232,11 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
 
     const curriculumMap = new Map();
     try {
+      await ensureTable(coordinator, 'behavior_curriculum');
       const currResult = await coordinator.query(`
         SELECT a.name, c.curriculum_name, c.stage_name, c.stage_node_id
         FROM asset_basics a
-        LEFT JOIN read_parquet('${CURRICULUM_PARQUET_URL}') c ON a.name = c.asset_name
+        LEFT JOIN behavior_curriculum c ON a.name = c.asset_name
         WHERE a.project_name = '${safeProject}' AND c.curriculum_name IS NOT NULL
       `);
       if (!signal?.aborted) {

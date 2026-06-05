@@ -13,7 +13,7 @@ import { fetchAndRegisterMetadata } from './lib/metadata.js';
 import { initSettings } from './explorer/settings.js';
 import { createTimeView } from './explorer/time-view.js';
 import { createDataView } from './explorer/data-view.js';
-import { SQUIRREL_URL } from './constants.js';
+import { VERSIONS_URL } from './constants.js';
 
 // ---------------------------------------------------------------------------
 // Bootstrap
@@ -27,7 +27,7 @@ async function init() {
     coordinator().databaseConnector(wasmConnector());
 
     // 2. Fetch squirrel.json and register metadata tables in DuckDB.
-    const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
+    const metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL);
 
     console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 

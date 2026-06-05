@@ -1,24 +1,23 @@
 /**
- * foraging-metadata.js — Query helpers for the zs_foraging_sessions DuckDB table.
+ * foraging-metadata.js — Query helpers for the foraging_sessions DuckDB table.
  *
  * The table is registered from a parquet file on S3 (allen-data-views bucket)
- * during app startup via squirrel.json or manual registration.
+ * via squirrel.json acorn definitions (centralized in lib/registry.js).
  */
 
-import { S3_REGION, S3_BUCKET } from '../../constants.js';
+import { ensureTable } from '../registry.js';
+import { queryRows } from '../arrow.js';
 
-const TABLE_NAME = 'zs_foraging_sessions';
-const PARQUET_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/zs_foraging_sessions.pqt`;
+const TABLE_NAME = 'foraging_sessions';
 
 /**
- * Ensure the zs_foraging_sessions table is registered in DuckDB.
- * Safe to call multiple times — uses CREATE OR REPLACE.
+ * Ensure the foraging_sessions table is registered in DuckDB.
+ * Safe to call multiple times — uses singleton promise in registry.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
  */
 export async function ensureForagingTable(coordinator) {
-  const sql = `CREATE TABLE IF NOT EXISTS ${TABLE_NAME} AS SELECT * FROM read_parquet('${PARQUET_URL}')`;
-  await coordinator.exec(sql);
+  await ensureTable(coordinator, TABLE_NAME);
 }
 
 /**
@@ -36,18 +35,12 @@ export async function queryForagingSession(coordinator, subjectId, sessionDate) 
     const safeId = subjectId.replace(/'/g, "''");
     const safeDate = sessionDate.replace(/'/g, "''");
 
-    const result = await coordinator.query(
+    const rows = await queryRows(
+      coordinator,
       `SELECT * FROM ${TABLE_NAME} WHERE subject_id = '${safeId}' AND session_date = '${safeDate}' LIMIT 1`,
     );
 
-    if (!result || result.numRows === 0) return null;
-
-    const row = {};
-    for (const field of result.schema.fields) {
-      const col = result.getChild(field.name);
-      row[field.name] = col ? col.get(0) : null;
-    }
-    return row;
+    return rows.length > 0 ? rows[0] : null;
   } catch (err) {
     console.warn('[ForagingMetadata] query failed:', err);
     return null;

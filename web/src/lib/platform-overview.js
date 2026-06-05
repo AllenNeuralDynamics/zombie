@@ -10,8 +10,9 @@
 
 import { createPlatformQcTable } from './platform-qc-table.js';
 import { buildModalityHistogram } from './charts.js';
-import { arrowTableToRows } from './assets-table.js';
+import { arrowTableToRows, queryRows } from './arrow.js';
 import { escHtml, mergeKey, parseExperimenters, downloadCsv, aggregateByExperimenter, aggregateByProject } from './utils.js';
+import { ensureTable } from './registry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +34,7 @@ function _writeCookie(name, value) {
 function buildFilterCondition(assetFilter) {
   if (!assetFilter) return '1=1';
   const safeVal = String(assetFilter.value ?? '').replace(/'/g, "''");
-  if (assetFilter.type === 'modality') return `modalities ILIKE '%${safeVal}%'`;
+  if (assetFilter.type === 'modality') return `list_contains(modalities, '${safeVal}')`;
   if (assetFilter.type === 'acquisition_type') return `acquisition_type = '${safeVal}'`;
   if (assetFilter.type === 'acquisition_type_regex') return `regexp_matches(acquisition_type, '${safeVal}')`;
   return '1=1';
@@ -42,23 +43,8 @@ function buildFilterCondition(assetFilter) {
 /** Validate that a value is a YYYY-MM-DD date string before interpolating into SQL. */
 const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
-const UPGRADE_S3_PATH =
-  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_metadata_upgrade.pqt';
-
-let _upgradeReady = null;
-
 function ensureUpgradeTable(coord) {
-  if (!_upgradeReady) {
-    _upgradeReady = coord
-      .exec(
-        `CREATE OR REPLACE TABLE zs_metadata_upgrade AS SELECT * FROM read_parquet('${UPGRADE_S3_PATH}')`,
-      )
-      .catch((err) => {
-        _upgradeReady = null;
-        throw err;
-      });
-  }
-  return _upgradeReady;
+  return ensureTable(coord, 'metadata_upgrade');
 }
 
 /**
@@ -377,7 +363,6 @@ export function createPlatformOverview(coord, {
                AND (data_level IS NULL OR data_level != 'derived')
                ${sinceCond}
                ${instrumentCond}`,
-            { type: 'json' },
           );
           const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
           rows = aggregateByProject(raw, settings.summaryExperimenters);
@@ -396,7 +381,6 @@ export function createPlatformOverview(coord, {
                AND (data_level IS NULL OR data_level != 'derived')
                ${sinceCond}
                ${instrumentCond}`,
-            { type: 'json' },
           );
           const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
           rows = aggregateByExperimenter(raw, settings.summaryExperimenters);
@@ -425,7 +409,6 @@ export function createPlatformOverview(coord, {
       const filterCond = buildFilterCondition(assetFilter);
       coord.query(
         `SELECT DISTINCT instrument_id_normalized AS norm_id FROM asset_basics WHERE ${filterCond} AND instrument_id IS NOT NULL`,
-        { type: 'json' },
       ).then((result) => {
         const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
         const seen = new Set();
@@ -441,7 +424,6 @@ export function createPlatformOverview(coord, {
       const filterCond = buildFilterCondition(assetFilter);
       coord.query(
         `SELECT experimenters_normalized AS experimenters FROM asset_basics WHERE ${filterCond} AND (data_level IS NULL OR data_level != 'derived') AND experimenters_normalized IS NOT NULL`,
-        { type: 'json' },
       ).then((result) => {
         const raw = Array.isArray(result) ? result : Array.isArray(result?.data) ? result.data : Array.from(result ?? []);
         const seen = new Set();
@@ -939,14 +921,14 @@ function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, stat
   if (platformTableName && assetNameCol) {
     totalSql = `SELECT COUNT(DISTINCT ${assetNameCol}) AS cnt FROM ${platformTableName}`;
     failedSql =
-      `SELECT COUNT(*) AS cnt FROM zs_metadata_upgrade ` +
+      `SELECT COUNT(*) AS cnt FROM metadata_upgrade ` +
       `WHERE status = 'failed' AND name IN ` +
       `(SELECT DISTINCT ${assetNameCol} FROM ${platformTableName})`;
   } else {
     const filterCond = buildFilterCondition(assetFilter);
     totalSql = `SELECT COUNT(*) AS cnt FROM asset_basics WHERE ${filterCond}`;
     failedSql =
-      `SELECT COUNT(*) AS cnt FROM zs_metadata_upgrade ` +
+      `SELECT COUNT(*) AS cnt FROM metadata_upgrade ` +
       `WHERE status = 'failed' AND name IN ` +
       `(SELECT name FROM asset_basics WHERE ${filterCond})`;
   }
@@ -955,7 +937,6 @@ function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, stat
     .then(() =>
       coord.query(
         `SELECT (${totalSql}) AS total_assets, (${failedSql}) AS failed_assets`,
-        { type: 'json' },
       ),
     )
     .then((result) => {
@@ -1006,8 +987,7 @@ function downloadFailedUpgrades(coord, platformTableName, assetNameCol, assetFil
 
   coord
     .query(
-      `SELECT * FROM zs_metadata_upgrade WHERE status = 'failed' AND name IN (${nameSql})`,
-      { type: 'json' },
+      `SELECT * FROM metadata_upgrade WHERE status = 'failed' AND name IN (${nameSql})`,
     )
     .then((result) => {
       const rows = Array.isArray(result)

@@ -1,7 +1,7 @@
 /**
  * fiber_photometry/view.js — Fiber Photometry Platform dashboard.
  *
- * Loads `zs_platform_fib.pqt` (long-form: one row per asset+channel) from S3,
+ * Loads `platform_fib.pqt` (long-form: one row per asset+channel) from S3,
  * joins with `asset_basics`, then pivots to one row per asset.
  * Channel columns are named Fiber_N/Color (e.g. Fiber_0/Green).
  * Only channels with at least one non-"missing" intended_measurement are shown.
@@ -10,8 +10,8 @@
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 import { escHtml, formatDatetime, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
-
-const FIB_S3_PATH = `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_platform_fib.pqt`;
+import { ensureTable } from '../lib/registry.js';
+import { queryRows } from '../lib/arrow.js';
 
 const ALWAYS_SHOWN_BASICS = ['subject_id', 'project_name'];
 const OPTIONAL_BASICS = ['acquisition_start_time', 'data_level', 'modalities', 'genotype'];
@@ -303,7 +303,7 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
       : '',
     acquisition_start_time: escHtml(formatDatetime(row.acquisition_start_time ?? null)),
     data_level: escHtml(String(row.data_level ?? '')),
-    modalities: escHtml(String(row.modalities ?? '')),
+    modalities: escHtml(Array.isArray(row.modalities) ? row.modalities.join(', ') : String(row.modalities ?? '')),
     genotype: escHtml(String(row.genotype ?? '')),
   };
 
@@ -485,11 +485,11 @@ export function createFiberPhotometryView(coord) {
   console.log('[FibPhot] start');
 
   setProgress(10, 'Downloading fiber photometry data…');
-  coord.exec(`CREATE OR REPLACE TABLE platform_fib AS SELECT * FROM read_parquet('${FIB_S3_PATH}')`)
+  ensureTable(coord, 'platform_fib')
     .then(() => {
       console.log(`[FibPhot] parquet loaded & registered  +${(performance.now()-t0).toFixed(0)}ms`);
       setProgress(40, 'Running join query…');
-      return coord.query(
+      return queryRows(coord,
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
@@ -497,15 +497,11 @@ export function createFiberPhotometryView(coord) {
          FROM platform_fib f
          LEFT JOIN asset_basics b ON b.name = f.asset_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
-        { type: 'json' },
       );
     })
-    .then((result) => {
+    .then((longRows) => {
       console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
       setProgress(70, 'Reshaping data…');
-      const longRows = Array.isArray(result) ? result
-        : Array.isArray(result?.data) ? result.data
-        : Array.from(result ?? []);
       console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
       const wideRows = pivotLongFormRows(longRows);
       console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);

@@ -1,6 +1,6 @@
 import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata, s3PathToHttps } from './lib/metadata.js';
-import { SQUIRREL_URL, S3_REGION } from './constants.js';
+import { VERSIONS_URL, S3_REGION } from './constants.js';
 import { escHtml, filterRows } from './lib/utils.js';
 
 const PAGE_SIZE = 100;
@@ -12,7 +12,7 @@ async function init() {
 
   try {
     coordinator().databaseConnector(wasmConnector());
-    const metadata = await fetchAndRegisterMetadata(coordinator(), SQUIRREL_URL);
+    const metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL);
     if (loadingEl) loadingEl.remove();
     buildView(app, metadata.acorns);
   } catch (err) {
@@ -27,7 +27,7 @@ async function init() {
  * Fetch the list of hive-partition values for a partitioned acorn by doing an
  * S3 ListObjectsV2 request against the acorn's directory prefix.
  *
- * @param {string} s3Location  - e.g. "s3://bucket/path/zs_qc/"
+ * @param {string} s3Location  - e.g. "s3://bucket/path/qc/"
  * @param {string} partitionKey - e.g. "subject_id"
  * @returns {Promise<{values:string[], truncated:boolean}|null>}
  *   null when the listing request fails (e.g. CORS not permitted).
@@ -264,7 +264,7 @@ function buildView(app, acorns) {
       const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
       // Escape single quotes in path components to prevent SQL injection
       const safePath =
-        `${base}/${acorn.partition_key}=${partValue}/*.pqt`.replace(/'/g, "''");
+        `${base}/${acorn.partition_key}=${partValue}/**`.replace(/'/g, "''");
       sql = `SELECT * FROM read_parquet('${safePath}', hive_partitioning=true, union_by_name=true)`;
     } else {
       const httpsUrl = s3PathToHttps(acorn.location).replace(/'/g, "''");
@@ -274,7 +274,7 @@ function buildView(app, acorns) {
     status.textContent = 'Loading…';
     loadBtn.disabled = true;
     try {
-      const result = await coordinator().query(sql, { type: 'json' });
+      const result = await coordinator().query(sql);
       allRows = Array.isArray(result) ? result
         : Array.isArray(result?.data) ? result.data
         : Array.from(result ?? []);

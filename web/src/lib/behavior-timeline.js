@@ -348,7 +348,8 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
       const modalitySet = new Set();
       for (const a of dayAssets) {
         if (!a.modalities) continue;
-        for (const m of String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean)) {
+        const mods = Array.isArray(a.modalities) ? a.modalities : String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean);
+        for (const m of mods) {
           modalitySet.add(m);
         }
       }
@@ -390,7 +391,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
           const cur = curriculumMap?.get(a.name);
           const metaLines = [
             a.acquisition_type ? `type: ${a.acquisition_type}` : '',
-            a.modalities ? `modalities: ${a.modalities}` : '',
+            a.modalities ? `modalities: ${Array.isArray(a.modalities) ? a.modalities.join(', ') : a.modalities}` : '',
             cur?.curriculum_name ? `curriculum: ${cur.curriculum_name}` : '',
             cur?.stage_name ? `stage: ${cur.stage_name}` : '',
           ].filter(Boolean);

@@ -75,6 +75,8 @@ export function sortRows(rows, col, dir) {
 
 /**
  * Collect unique non-null/non-empty values for a column, sorted lexicographically.
+ * Handles both array-typed values (parquet list columns) and optionally
+ * splitting string values by a delimiter.
  * @param {object[]} rows
  * @param {string} col
  * @returns {string[]}
@@ -84,7 +86,12 @@ export function uniqueValues(rows, col, { split = null } = {}) {
   for (const row of rows) {
     const v = row[col];
     if (v == null || v === '') continue;
-    if (split) {
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const s = String(item).trim();
+        if (s) seen.add(s);
+      }
+    } else if (split) {
       for (const part of String(v).split(split).map((s) => s.trim()).filter(Boolean)) {
         seen.add(part);
       }
@@ -97,6 +104,7 @@ export function uniqueValues(rows, col, { split = null } = {}) {
 
 /**
  * Apply per-column filters to a row array. Text filters use case-insensitive substring match.
+ * Array-valued cells are joined with ', ' before matching.
  * @param {object[]} rows
  * @param {Record<string, string>} filters
  * @returns {object[]}
@@ -106,7 +114,8 @@ export function filterRows(rows, filters) {
   if (entries.length === 0) return rows;
   return rows.filter((row) =>
     entries.every(([col, val]) => {
-      const cell = String(row[col] ?? '').toLowerCase();
+      const raw = row[col];
+      const cell = (Array.isArray(raw) ? raw.join(', ') : String(raw ?? '')).toLowerCase();
       return cell.includes(val.toLowerCase());
     }),
   );
@@ -124,18 +133,19 @@ export function mergeKey(displayName) {
 }
 
 /**
- * Parse a comma-separated experimenter field into an array of deduplicated
- * display names. Names are expected to already be normalized by the backend.
+ * Parse an experimenter field (array or comma-separated string) into an array
+ * of deduplicated display names.
  *
- * @param {string|null} val
+ * @param {string|string[]|null} val
  * @returns {string[]}
  */
 export function parseExperimenters(val) {
   if (!val) return [];
+  const parts = Array.isArray(val) ? val : String(val).split(',');
   const seen = new Set();
   const result = [];
-  for (const part of String(val).split(',')) {
-    const trimmed = part.trim();
+  for (const part of parts) {
+    const trimmed = String(part).trim();
     if (trimmed && !seen.has(mergeKey(trimmed))) {
       seen.add(mergeKey(trimmed));
       result.push(trimmed);

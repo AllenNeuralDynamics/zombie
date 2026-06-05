@@ -2,7 +2,7 @@
  * dynamic-foraging.js — Foraging session detail panel.
  *
  * Renders a metadata card + pre-rendered choice_history PNG for a given
- * dynamic foraging session. Data comes from the `zs_foraging_sessions`
+ * dynamic foraging session. Data comes from the `foraging_sessions`
  * DuckDB table (session-level metadata) and the public S3 bucket
  * `aind-behavior-data` (pre-rendered images).
  */

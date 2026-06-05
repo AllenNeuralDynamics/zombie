@@ -18,10 +18,14 @@ export const S3_REGION = 'us-west-2';
 export const S3_BUCKET = 'allen-data-views';
 
 /**
- * URL of the squirrel JSON metadata file.
- * Fetched once at startup to discover all available datasets ("acorns").
+ * URL of the top-level version index listing all available zombie-squirrel
+ * version folders.  Fetched once at startup; the latest version is chosen
+ * and the corresponding `squirrel.json` is loaded from its subfolder.
  */
-export const SQUIRREL_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/squirrel.json`;
+export const VERSIONS_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/zombie-squirrels.json`;
+
+/** Base prefix for data-asset-cache (used by modules that build versioned URLs). */
+export const DATA_CACHE_PREFIX = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache`;
 
 // ---------------------------------------------------------------------------
 // AIND brand colours (ported from src/zombie/layout.py)

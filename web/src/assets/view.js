@@ -9,6 +9,7 @@
  */
 
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { queryRows } from '../lib/arrow.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -155,15 +156,15 @@ export function renderAssetRow(row, visibleColumns) {
     acquisition_start_time: acqTime,
     acquisition_end_time: acqEndTime,
     project_name: row.project_name ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>` : '',
-    modalities: row.modalities ?? '',
+    modalities: Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''),
     data_level: row.data_level ?? '',
     acquisition_type: row.acquisition_type ?? '',
     genotype: row.genotype ?? '',
     age: row.age != null ? String(row.age) : '',
-    experimenters: escHtml(row.experimenters ?? ''),
-    experimenters_normalized: escHtml(row.experimenters_normalized ?? ''),
-    investigators: escHtml(row.investigators ?? ''),
-    investigators_normalized: escHtml(row.investigators_normalized ?? ''),
+    experimenters: escHtml(Array.isArray(row.experimenters) ? row.experimenters.join(', ') : (row.experimenters ?? '')),
+    experimenters_normalized: escHtml(Array.isArray(row.experimenters_normalized) ? row.experimenters_normalized.join(', ') : (row.experimenters_normalized ?? '')),
+    investigators: escHtml(Array.isArray(row.investigators) ? row.investigators.join(', ') : (row.investigators ?? '')),
+    investigators_normalized: escHtml(Array.isArray(row.investigators_normalized) ? row.investigators_normalized.join(', ') : (row.investigators_normalized ?? '')),
     instrument_id: escHtml(row.instrument_id ?? ''),
     instrument_id_normalized: escHtml(row.instrument_id_normalized ?? ''),
     location: row.location ?? '',
@@ -234,12 +235,9 @@ export function createAssetsView(coord) {
     ORDER BY acquisition_start_time DESC NULLS LAST
   `;
 
-  coord.query(sql, { type: 'json' })
-    .then((result) => {
+  queryRows(coord, sql)
+    .then((rows) => {
       loadingEl.remove();
-      const rows = Array.isArray(result) ? result
-        : Array.isArray(result?.data) ? result.data
-        : Array.from(result ?? []);
       buildTable(rows, settingsBtn);
     })
     .catch((err) => {
