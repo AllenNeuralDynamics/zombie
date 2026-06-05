@@ -5384,6 +5384,11 @@ body {
   text-overflow: ellipsis;
 }
 
+.names-count {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+}
+
 .names-graph-scroll {
 }
 
@@ -5391,6 +5396,3 @@ body {
   user-select: none;
 }
 
-.names-cluster {
-  transition: opacity 0.15s ease;
-}

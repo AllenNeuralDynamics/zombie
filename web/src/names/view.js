@@ -75,7 +75,9 @@ function parseNames(val) {
  * @returns {Map<string, Set<string>>} normalized name → set of raw name variants
  */
 function buildMapping(rows) {
-  const map = new Map();
+  const normToRaws = new Map();
+  const rawCounts = new Map();   // raw name → asset count
+  const normCounts = new Map();  // normalized name → asset count
   for (const row of rows) {
     const originals = parseNames(row.experimenters);
     const normalized = parseNames(row.experimenters_normalized);
@@ -84,11 +86,13 @@ function buildMapping(rows) {
       const orig = originals[i];
       const norm = normalized[i];
       if (!orig || !norm) continue;
-      if (!map.has(norm)) map.set(norm, new Set());
-      map.get(norm).add(orig);
+      if (!normToRaws.has(norm)) normToRaws.set(norm, new Set());
+      normToRaws.get(norm).add(orig);
+      rawCounts.set(orig, (rawCounts.get(orig) ?? 0) + 1);
+      normCounts.set(norm, (normCounts.get(norm) ?? 0) + 1);
     }
   }
-  return map;
+  return { normToRaws, rawCounts, normCounts };
 }
 
 // ---------------------------------------------------------------------------
@@ -217,7 +221,8 @@ function renderGraph(el, data) {
       label.setAttribute('font-size', '12');
       label.setAttribute('fill', 'var(--text-secondary)');
       label.setAttribute('font-family', 'monospace');
-      label.textContent = item.originals[j];
+      const rawCount = item.rawAssetCounts?.[j] ?? 0;
+      label.textContent = `${item.originals[j]} (${rawCount})`;
       g.appendChild(label);
     }
 
@@ -235,24 +240,10 @@ function renderGraph(el, data) {
     normLabel.setAttribute('font-size', '13');
     normLabel.setAttribute('fill', 'var(--text-primary)');
     normLabel.setAttribute('font-weight', '500');
-    normLabel.textContent = `${item.norm} (${item.count})`;
+    normLabel.textContent = `${item.norm} (${item.normAssetCount})`;
     g.appendChild(normLabel);
 
     svg.appendChild(g);
-  }
-
-  // Hover: dim all other clusters, highlight this one
-  for (let i = 0; i < groups.length; i++) {
-    const g = groups[i];
-    g.style.cursor = 'default';
-    g.addEventListener('mouseenter', () => {
-      for (let k = 0; k < groups.length; k++) {
-        groups[k].style.opacity = k === i ? '1' : '0.18';
-      }
-    });
-    g.addEventListener('mouseleave', () => {
-      for (const grp of groups) grp.style.opacity = '1';
-    });
   }
 
   el.appendChild(svg);
@@ -315,25 +306,23 @@ async function _load(container, coordinator) {
     const rows = arrowTableToRows(result);
 
     const mapping = buildMapping(rows);
-    const normalizedNames = [...mapping.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const normalizedNames = [...mapping.normToRaws.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
 
     if (normalizedNames.length === 0) {
       loadingEl.textContent = 'No experimenter normalization data found in asset_basics.';
       return;
     }
 
-    // const cipher = buildCipher(normalizedNames);
-
     // Build view data with character-substitution anonymization
     const viewData = normalizedNames.map((norm, i) => {
-      const originals = [...mapping.get(norm)].sort((a, b) => a.localeCompare(b));
+      const originals = [...mapping.normToRaws.get(norm)].sort((a, b) => a.localeCompare(b));
       return {
-        // norm: anonymizeName(norm),
-        // originals: originals.map(anonymizeName),
         norm,
         originals,
         color: PALETTE[i % PALETTE.length],
         count: originals.length,
+        normAssetCount: mapping.normCounts.get(norm) ?? 0,
+        rawAssetCounts: originals.map((o) => mapping.rawCounts.get(o) ?? 0),
       };
     });
 
@@ -351,9 +340,10 @@ async function _load(container, coordinator) {
     `;
 
     // Populate sidebar: all unique raw names across all clusters, sorted alpha
+    const rawCountMap = new Map(viewData.flatMap((d) => d.originals.map((o, i) => [o, d.rawAssetCounts[i]])));
     const allRaw = [...new Set(viewData.flatMap((d) => d.originals))].sort((a, b) => a.localeCompare(b));
     const rawList = container.querySelector('#names-raw-list');
-    rawList.innerHTML = allRaw.map((n) => `<li>${escHtml(n)}</li>`).join('');
+    rawList.innerHTML = allRaw.map((n) => `<li>${escHtml(n)} <span class="names-count">(${rawCountMap.get(n) ?? 0})</span></li>`).join('');
 
     renderGraph(container.querySelector('#names-graph'), viewData);
   } catch (err) {
