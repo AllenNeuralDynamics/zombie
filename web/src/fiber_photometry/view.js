@@ -8,7 +8,7 @@
  */
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
-import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { escHtml, formatDatetime, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 
 const FIB_S3_PATH = `https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/zs_platform_fib.pqt`;
@@ -28,7 +28,7 @@ const BASICS_LABELS = {
 const BASICS_KEYS_FROM_JOIN = [
   'subject_id', 'project_name', 'acquisition_start_time',
   'data_level', 'modalities', 'genotype', 'location',
-  'code_ocean', 'experimenters',
+  'code_ocean', 'investigators', 'experimenters',
 ];
 
 // ---------------------------------------------------------------------------
@@ -136,6 +136,56 @@ export function detectChannelColumns(wideRows) {
     cols.push(`Fiber_${idx}/Target`, `Fiber_${idx}/Channels`);
   }
   return cols;
+}
+
+// ---------------------------------------------------------------------------
+// Grouping: one group per (subject_id, project_name, fiber signature)
+// ---------------------------------------------------------------------------
+
+/**
+ * Group wide-form rows by (subject_id, project_name, all channelCols values).
+ * Returns an array of group objects: { groupRow, assets }.
+ * groupRow contains: subject_id, project_name, all fiber cols, acquisition_start_time (latest).
+ * assets: array of wideRow objects, sorted by acquisition_start_time descending.
+ */
+export function groupWideRows(wideRows, channelCols) {
+  const groupMap = new Map();
+  for (const row of wideRows) {
+    const keyParts = [
+      row.subject_id ?? '',
+      row.project_name ?? '',
+      ...channelCols.map((col) => String(row[col] ?? '')),
+    ];
+    const key = keyParts.join('\x00');
+    if (!groupMap.has(key)) {
+      const groupRow = {
+        subject_id: row.subject_id ?? '',
+        project_name: row.project_name ?? '',
+        acquisition_start_time: row.acquisition_start_time ?? null,
+      };
+      for (const col of channelCols) groupRow[col] = row[col] ?? '';
+      groupMap.set(key, { groupRow, assets: [] });
+    }
+    const group = groupMap.get(key);
+    group.assets.push(row);
+    // Track the latest acquisition time for sort purposes
+    if (
+      row.acquisition_start_time &&
+      (!group.groupRow.acquisition_start_time ||
+        row.acquisition_start_time > group.groupRow.acquisition_start_time)
+    ) {
+      group.groupRow.acquisition_start_time = row.acquisition_start_time;
+    }
+  }
+  // Sort assets within each group by acquisition time descending
+  for (const group of groupMap.values()) {
+    group.assets.sort((a, b) => {
+      const av = a.acquisition_start_time ?? '';
+      const bv = b.acquisition_start_time ?? '';
+      return String(bv).localeCompare(String(av));
+    });
+  }
+  return Array.from(groupMap.values());
 }
 
 // ---------------------------------------------------------------------------
@@ -283,18 +333,80 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
 }
 
 // ---------------------------------------------------------------------------
+// Group renderer: header row + child asset rows
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a group header row (shared subject/project/fiber info, no links) followed
+ * by one child row per asset showing the asset name and outbound links.
+ *
+ * @param {{ groupRow: object, assets: object[] }} group
+ * @param {string[]} visibleColumns
+ * @param {string[]} channelCols
+ * @returns {string} HTML string
+ */
+export function renderFibGroupRows(group, visibleColumns, channelCols) {
+  const { groupRow, assets } = group;
+
+  // --- Group header row (subject / project / fiber cols, no links) ---
+  const headerCells = visibleColumns.map((col) => {
+    if (col === 'links') return '<td></td>';
+    if (col === 'subject_id') {
+      return groupRow.subject_id
+        ? `<td><a href="/subject?subject_id=${encodeURIComponent(String(groupRow.subject_id))}">${escHtml(String(groupRow.subject_id))}</a></td>`
+        : '<td></td>';
+    }
+    if (col === 'project_name') {
+      return groupRow.project_name
+        ? `<td><a href="/project?project=${encodeURIComponent(String(groupRow.project_name))}">${escHtml(String(groupRow.project_name))}</a></td>`
+        : '<td></td>';
+    }
+    if (col.endsWith('/Channels')) {
+      const lines = String(groupRow[col] ?? '').split('\n').filter(Boolean);
+      return `<td>${lines.map((l) => escHtml(l)).join('<br>')}</td>`;
+    }
+    const val = groupRow[col];
+    return `<td>${val != null && val !== '' ? escHtml(String(val)) : ''}</td>`;
+  });
+
+  let html = `<tr class="fib-group-row">${headerCells.join('')}</tr>`;
+
+  // --- Asset child rows (↳ name + links only) ---
+  const nonLinksCount = visibleColumns.filter((c) => c !== 'links').length;
+  const hasLinksCol = visibleColumns.includes('links');
+
+  for (const asset of assets) {
+    const assetName = escHtml(asset.asset_name ?? '');
+    const s3Href = buildS3ConsoleUrl(asset.location ?? null);
+    const qcHref = buildQcLink(asset.asset_name ?? null);
+    const metaHref = buildMetadataLink(asset.asset_name ?? null);
+    const coHref = buildCoLink(asset.code_ocean ?? null);
+    const linksHtml =
+      `${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ` +
+      `${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}`;
+
+    html +=
+      `<tr class="fib-asset-row">` +
+      `<td colspan="${nonLinksCount}" class="fib-asset-name-cell">↳ ${assetName}</td>` +
+      (hasLinksCol ? `<td class="link-cell">${linksHtml}</td>` : '') +
+      `</tr>`;
+  }
+
+  return html;
+}
+
+// ---------------------------------------------------------------------------
 // Missing-info alert table
 // ---------------------------------------------------------------------------
 
 /**
  * For each subject, collect unique "channel: no intended measurement" problems
- * across all their assets. Returns [{subject_id, investigators, assetCount, incompleteInfo}].
+ * across all their assets. Returns [{asset_name, code_ocean, investigators, incompleteInfo}].
  */
 export function buildMissingTable(wideRows) {
-  const subjectMap = new Map();
+  const result = [];
 
   for (const row of wideRows) {
-    const sid = row.subject_id ?? '';
     const problems = [];
 
     // Group Fiber_N/* keys by fiber index
@@ -302,44 +414,43 @@ export function buildMissingTable(wideRows) {
     for (const [k, v] of Object.entries(row)) {
       if (!k.startsWith('Fiber_')) continue;
       if (k.endsWith('/Channels')) continue; // synthetic summary, skip
-      const m = k.match(/^Fiber_(\d+)\//);
+      const m = k.match(/^Fiber_(\d+)\//); 
       if (!m) continue;
       if (!fiberKeys.has(m[1])) fiberKeys.set(m[1], []);
       fiberKeys.get(m[1]).push([k, v]);
     }
 
-    for (const pairs of fiberKeys.values()) {
+    for (const [fiberIdx, pairs] of fiberKeys) {
       // Skip fibers with no data at all — they don't exist for this asset
       if (!pairs.some(([, v]) => v != null && v !== '')) continue;
-      for (const [k, v] of pairs) {
-        if (v == null || v === '') {
-          const suffix = k.endsWith('/Target') ? 'no targeted structure' : 'no intended measurement';
-          problems.push(`${k}: ${suffix}`);
-        }
+
+      // Flag if targeted structure is missing
+      const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
+      if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
+        problems.push(`Fiber_${fiberIdx}/Target: no targeted structure`);
+      }
+
+      // Flag only if ALL color channel measurements are missing
+      const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
+      if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
+        problems.push(`Fiber_${fiberIdx}: no intended measurement`);
       }
     }
 
     if (problems.length === 0) continue;
 
-    if (!subjectMap.has(sid)) {
-      subjectMap.set(sid, { subject_id: sid, investigators: new Set(), assetCount: 0, problems: new Set() });
-    }
-    const entry = subjectMap.get(sid);
-    entry.assetCount++;
-    problems.forEach((p) => entry.problems.add(p));
+    const invs = row.investigators ?? '';
+    const investigators = String(invs);
 
-    const exps = row.experimenters ?? '';
-    String(exps).split(',').map((e) => e.trim()).filter(Boolean).forEach((e) => entry.investigators.add(e));
+    result.push({
+      asset_name: row.asset_name ?? '',
+      code_ocean: row.code_ocean ?? null,
+      investigators,
+      incompleteInfo: problems.sort().join('; '),
+    });
   }
 
-  return Array.from(subjectMap.values())
-    .sort((a, b) => String(a.subject_id).localeCompare(String(b.subject_id)))
-    .map((e) => ({
-      subject_id: e.subject_id,
-      investigators: Array.from(e.investigators).join(', '),
-      assetCount: e.assetCount,
-      incompleteInfo: Array.from(e.problems).sort().join('; '),
-    }));
+  return result.sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name)));
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +493,7 @@ export function createFiberPhotometryView(coord) {
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities, b.genotype, b.location,
-                b.code_ocean, b.experimenters
+                b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters
          FROM platform_fib f
          LEFT JOIN asset_basics b ON b.name = f.asset_name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
@@ -469,21 +580,20 @@ export function createFiberPhotometryView(coord) {
 
       const alertHeader = document.createElement('h3');
       alertHeader.className = 'fib-alert-title';
-      alertHeader.textContent = `Subjects with incomplete fiber info (${missing.length})`;
+      alertHeader.textContent = `Assets with incomplete fiber info (${missing.length})`;
       alertSection.appendChild(alertHeader);
 
       const alertDesc = document.createElement('p');
       alertDesc.className = 'fib-alert-desc';
-      alertDesc.textContent = 'These subjects have assets where at least one fiber channel is missing an intended measurement.';
+      alertDesc.textContent = 'These assets have at least one fiber missing a targeted structure or all intended measurements.';
       alertSection.appendChild(alertDesc);
 
       const alertTable = document.createElement('table');
       alertTable.className = 'assets-table fib-alert-table';
       alertTable.innerHTML = `
         <thead><tr>
-          <th>Subject</th>
+          <th>Asset</th>
           <th>Investigators</th>
-          <th>Affected assets</th>
           <th>Incomplete info</th>
         </tr></thead>
         <tbody></tbody>
@@ -500,13 +610,13 @@ export function createFiberPhotometryView(coord) {
         const start = alertPage * ALERT_PAGE_SIZE;
         const pageRows = missing.slice(start, start + ALERT_PAGE_SIZE);
         alertTbody.innerHTML = pageRows.map((m) => {
-          const subjectLink = m.subject_id
-            ? `<a href="/subject?subject_id=${encodeURIComponent(m.subject_id)}">${escHtml(String(m.subject_id))}</a>`
-            : '—';
+          const coHref = buildCoLink(m.code_ocean);
+          const assetCell = coHref
+            ? `<a href="${escHtml(coHref)}" target="_blank" rel="noopener noreferrer">${escHtml(m.asset_name)}</a>`
+            : escHtml(m.asset_name) || '—';
           return `<tr>
-            <td>${subjectLink}</td>
+            <td>${assetCell}</td>
             <td>${escHtml(m.investigators || '—')}</td>
-            <td>${m.assetCount}</td>
             <td>${escHtml(m.incompleteInfo)}</td>
           </tr>`;
         }).join('');
@@ -566,8 +676,29 @@ export function createFiberPhotometryView(coord) {
       sortedBase = null;
     }
 
+    function sortGroups(groups, col, dir) {
+      return [...groups].sort((a, b) => {
+        const av = a.groupRow[col] ?? '';
+        const bv = b.groupRow[col] ?? '';
+        if (av < bv) return dir === 'asc' ? -1 : 1;
+        if (av > bv) return dir === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    function filterGroups(groups, filters) {
+      const entries = Object.entries(filters).filter(([, v]) => v !== '');
+      if (entries.length === 0) return groups;
+      return groups.filter((group) =>
+        entries.every(([col, val]) => {
+          const cell = String(group.groupRow[col] ?? '').toLowerCase();
+          return cell.includes(val.toLowerCase());
+        }),
+      );
+    }
+
     function rebuildSortedBase() {
-      sortedBase = sortRows([...getBaseRows()], sortCol, sortDir);
+      sortedBase = sortGroups(groupWideRows(getBaseRows(), channelCols), sortCol, sortDir);
     }
 
     const uniques = {};
@@ -667,24 +798,24 @@ export function createFiberPhotometryView(coord) {
       });
     }
 
-    function visibleRows() {
+    function visibleGroups() {
       if (!sortedBase) rebuildSortedBase();
-      return filterRows(sortedBase, filters);
+      return filterGroups(sortedBase, filters);
     }
 
     function refresh() {
-      const rows = visibleRows();
-      const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      const groups = visibleGroups();
+      const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
       if (page >= totalPages) page = totalPages - 1;
 
-      const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map((row) => renderFibRow(row, visibleColumns, channelCols, columnLabels)).join('');
+      const pageGroups = groups.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+      tbody.innerHTML = pageGroups.map((group) => renderFibGroupRows(group, visibleColumns, channelCols)).join('');
 
-      const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
-      const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
+      const start = groups.length === 0 ? 0 : page * PAGE_SIZE + 1;
+      const end = Math.min((page + 1) * PAGE_SIZE, groups.length);
       pagingBar.innerHTML = `
         <button class="page-btn" id="fib-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
-        <span class="page-info">${start}–${end} of ${rows.length.toLocaleString()}</span>
+        <span class="page-info">${start}–${end} of ${groups.length.toLocaleString()} groups</span>
         <button class="page-btn" id="fib-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
       `;
       pagingBar.querySelector('#fib-prev-page').addEventListener('click', () => { page--; refresh(); });

@@ -38,6 +38,7 @@ export default defineConfig({
         contributions_view: resolve(__dirname, 'contributions/view.html'),
         contributions_edit: resolve(__dirname, 'contributions/edit.html'),
         contributions_add: resolve(__dirname, 'contributions/add.html'),
+        contributions_demo: resolve(__dirname, 'contributions/demo.html'),
         subject: resolve(__dirname, 'subject.html'),
         project: resolve(__dirname, 'project.html'),
         smartspim: resolve(__dirname, 'smartspim.html'),

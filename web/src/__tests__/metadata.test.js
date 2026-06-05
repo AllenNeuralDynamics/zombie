@@ -78,9 +78,10 @@ describe('validateAcorn', () => {
       .toThrow(/columns must be an array/);
   });
 
-  it('throws when type is not "metadata" or "asset"', () => {
-    expect(() => validateAcorn({ ...METADATA_ACORN, type: 'unknown' }))
-      .toThrow(/type must be "metadata" or "asset"/);
+  it('does not throw when type is an unrecognised value (e.g. "platform")', () => {
+    // Unknown types are valid — pages that need them use them directly.
+    expect(() => validateAcorn({ ...METADATA_ACORN, type: 'platform' })).not.toThrow();
+    expect(() => validateAcorn({ ...METADATA_ACORN, type: 'unknown' })).not.toThrow();
   });
 
   it('includes the index in the error label when provided', () => {
@@ -118,6 +119,20 @@ describe('parseSquirrelJson', () => {
   it('throws when an acorn entry is invalid', () => {
     expect(() => parseSquirrelJson({ acorns: [{ bad: true }] }))
       .toThrow(/acorns\[0\]/);
+  });
+
+  it('passes through acorns with unrecognised types without crashing', () => {
+    // Regression: squirrel.json added type "platform" which crashed the app.
+    // Unknown-type acorns must be preserved so platform pages can use them.
+    const platformAcorn = { ...METADATA_ACORN, name: 'plat', type: 'platform' };
+    const result = parseSquirrelJson({ acorns: [METADATA_ACORN, platformAcorn] });
+    expect(result.acorns).toHaveLength(2);
+    expect(result.acorns.find((a) => a.name === 'plat')).toBeDefined();
+  });
+
+  it('keeps all acorns when all types are known', () => {
+    const result = parseSquirrelJson({ ...SAMPLE_SQUIRREL });
+    expect(result.acorns).toHaveLength(2);
   });
 });
 

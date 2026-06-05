@@ -6,20 +6,28 @@
  * per group (rig or experimenter) × metric name.
  *
  * Schema of each platform QC parquet:
- *   asset_name, subject_id, instrument_id, experimenter,
- *   tag, status, timestamp
+ *   asset_name               VARCHAR
+ *   instrument_id_normalized VARCHAR    — rig grouping column
+ *   experimenters_normalized VARCHAR[]  — experimenter grouping (array)
+ *   tag                      VARCHAR
+ *   status                   VARCHAR
+ *   timestamp                TIMESTAMP
+ *
+ * instrument_id_normalized and experimenters_normalized are produced by
+ * zombie-squirrel at build time (joined from asset_basics), so the browser
+ * query needs no JOIN — avoiding OOM in WASM DuckDB.
  *
  * Users can filter which metric columns are visible via the gear settings.
  *
  * @module
  */
 
-import { escHtml, normalizeInstrumentIdSql } from './utils.js';
+import { escHtml } from './utils.js';
 
 const S3_BASE =
   'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache';
 
-/** S3 URL for each platform's pre-computed QC parquet. */
+/** S3 URLs for each platform's pre-computed QC parquet. */
 const PLATFORM_QC_URLS = {
   spim:             `${S3_BASE}/zs_platform_qc/spim.pqt`,
   fib:              `${S3_BASE}/zs_platform_qc/fib.pqt`,
@@ -46,16 +54,6 @@ async function ensurePlatformTable(coord, platformKey) {
   return _tableReady.get(platformKey);
 }
 
-/**
- * SQL expression that produces the group label from a row.
- * - 'rig': normalize instrument_id, stripping legacy <loc>_<name>_<date> patterns
- * - 'experimenter': use the experimenter column directly (already one value per row)
- */
-function groupExprFor(groupBy) {
-  if (groupBy === 'experimenter') return 'experimenter';
-  return normalizeInstrumentIdSql('instrument_id');
-}
-
 /** Validate that a value is a YYYY-MM-DD date string before using in SQL. */
 const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -63,46 +61,100 @@ const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s
  * Query DuckDB and return flat rows:
  *   { grp, n_sessions, tag, n_pass, n_fail, n_pending, n_total }
  *
- * n_sessions counts distinct assets across ALL metrics (not filtered by
- * visible selection), so it always reflects the full group size.
+ * The platform QC parquets include instrument_id_normalized and
+ * experimenters_normalized (pre-joined by zombie-squirrel at build time)
+ * so no JOIN with asset_basics is required — eliminating the OOM issue in
+ * browser-side WASM DuckDB.
+ *
+ * n_sessions counts distinct assets across ALL metrics (not per-metric),
+ * so it always reflects the full group size.
  */
 async function fetchStats(coord, { platformKey, groupBy, since }) {
   await ensurePlatformTable(coord, platformKey);
   const tbl = tableNameFor(platformKey);
-  const grp = groupExprFor(groupBy);
-  const where = (since && isValidDate(since)) ? `WHERE timestamp >= '${since}'` : '';
+  const whereCond = (since && isValidDate(since)) ? `AND timestamp >= '${since}'` : '';
 
-  const sql = `
-    WITH grp_sessions AS (
-      SELECT ${grp} AS grp,
-             COUNT(DISTINCT asset_name) AS n_sessions
-      FROM ${tbl}
-      ${where}
-      GROUP BY grp
-    ),
-    grp_metrics AS (
-      SELECT ${grp} AS grp,
-             tag,
-             COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
-             COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
-             COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
-             COUNT(*) AS n_total
-      FROM ${tbl}
-      ${where}
-      GROUP BY grp, tag
-    )
-    SELECT s.grp,
-           s.n_sessions,
-           m.tag,
-           m.n_pass,
-           m.n_fail,
-           m.n_pending,
-           m.n_total
-    FROM grp_sessions s
-    JOIN grp_metrics m ON m.grp = s.grp
-    WHERE s.grp IS NOT NULL AND s.grp != ''
-    ORDER BY s.n_sessions DESC, s.grp, m.tag
-  `;
+  let sql;
+  if (groupBy === 'experimenter') {
+    // Filter first, then UNNEST the experimenters_normalized array that is
+    // already embedded in the parquet — no JOIN with asset_basics needed.
+    sql = `
+      WITH filtered AS (
+        SELECT asset_name, tag, status, experimenters_normalized
+        FROM ${tbl}
+        WHERE 1=1 ${whereCond}
+      ),
+      unnested AS (
+        SELECT asset_name, tag, status,
+               TRIM(exp.name) AS grp
+        FROM filtered
+        CROSS JOIN LATERAL (SELECT UNNEST(experimenters_normalized) AS name) exp
+      ),
+      grp_sessions AS (
+        SELECT grp,
+               COUNT(DISTINCT asset_name) AS n_sessions
+        FROM unnested
+        GROUP BY grp
+      ),
+      grp_metrics AS (
+        SELECT grp,
+               tag,
+               COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
+               COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
+               COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
+               COUNT(*) AS n_total
+        FROM unnested
+        GROUP BY grp, tag
+      )
+      SELECT s.grp,
+             s.n_sessions,
+             m.tag,
+             m.n_pass,
+             m.n_fail,
+             m.n_pending,
+             m.n_total
+      FROM grp_sessions s
+      JOIN grp_metrics m ON m.grp = s.grp
+      WHERE s.grp IS NOT NULL AND s.grp != ''
+      ORDER BY s.n_sessions DESC, s.grp, m.tag
+    `;
+  } else {
+    // Rig mode: instrument_id_normalized is already in the parquet — no JOIN.
+    sql = `
+      WITH filtered AS (
+        SELECT asset_name, tag, status, instrument_id_normalized
+        FROM ${tbl}
+        WHERE 1=1 ${whereCond}
+      ),
+      grp_sessions AS (
+        SELECT instrument_id_normalized AS grp,
+               COUNT(DISTINCT asset_name) AS n_sessions
+        FROM filtered
+        GROUP BY instrument_id_normalized
+      ),
+      grp_metrics AS (
+        SELECT instrument_id_normalized AS grp,
+               tag,
+               COUNT(*) FILTER (WHERE status = 'Pass')    AS n_pass,
+               COUNT(*) FILTER (WHERE status = 'Fail')    AS n_fail,
+               COUNT(*) FILTER (WHERE status = 'Pending') AS n_pending,
+               COUNT(*) AS n_total
+        FROM filtered
+        GROUP BY instrument_id_normalized, tag
+      )
+      SELECT s.grp,
+             s.n_sessions,
+             m.tag,
+             m.n_pass,
+             m.n_fail,
+             m.n_pending,
+             m.n_total
+      FROM grp_sessions s
+      JOIN grp_metrics m ON m.grp = s.grp
+      WHERE s.grp IS NOT NULL AND s.grp != ''
+      ORDER BY s.n_sessions DESC, s.grp, m.tag
+    `;
+  }
 
   const result = await coord.query(sql, { type: 'json' });
   return Array.isArray(result) ? result

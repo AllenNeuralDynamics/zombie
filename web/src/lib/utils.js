@@ -113,60 +113,145 @@ export function filterRows(rows, filters) {
 }
 
 /**
- * Shared regex (as a string) used by both the JS and SQL instrument-ID
- * normalisers. Keeping it in one place ensures they can never silently diverge.
+ * Merge key for deduplication: lowercase with all spaces removed.
+ * "John Doe" and "JohnDoe" both produce "johndoe".
  *
- * Pattern: ^<location>[_-]<name>_<date>$
- * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23-26).
- */
-export const INSTRUMENT_ID_REGEX =
-  '^[^_-]+[_-](.+)_(\\d{8}|\\d{4}-\\d{2}-\\d{2}|2[3-6]\\d{4})$';
-
-/**
- * Normalize a raw instrument_id by extracting just the <name> portion from
- * legacy naming patterns:
- *   <location>_<name>_<date>
- *   <location>-<name>_<date>
- *
- * where <date> is YYYYMMDD, YYYY-MM-DD, or YYMMDD (short year 23–26).
- * IDs that don't match are returned unchanged.
- * Spacer characters (- and _) are stripped from the result in both cases.
- *
- * @param {string|null} id
+ * @param {string} displayName - Already normalized display name.
  * @returns {string}
  */
-export function normalizeInstrumentId(id) {
-  if (!id) return id ?? '';
-  const m = String(id).match(new RegExp(INSTRUMENT_ID_REGEX));
-  return (m ? m[1] : String(id)).replace(/[_-]/g, '');
+export function mergeKey(displayName) {
+  return displayName.toLowerCase().replace(/ /g, '');
 }
 
 /**
- * Return a DuckDB SQL expression that normalises an instrument_id column,
- * stripping the legacy <location>_<name>_<date> prefix/suffix and then
- * removing spacer characters (- and _).
+ * Parse a comma-separated experimenter field into an array of deduplicated
+ * display names. Names are expected to already be normalized by the backend.
  *
- * Uses the same regex as INSTRUMENT_ID_REGEX.
- *
- * @param {string} col - SQL column reference, e.g. 'instrument_id'
- * @returns {string} SQL expression
+ * @param {string|null} val
+ * @returns {string[]}
  */
-export function normalizeInstrumentIdSql(col) {
-  return `regexp_replace(
-    COALESCE(
-      NULLIF(
-        regexp_extract(
-          COALESCE(${col}, ''),
-          '${INSTRUMENT_ID_REGEX}',
-          1
-        ),
-        ''
-      ),
-      ${col},
-      '(unknown)'
-    ),
-    '[_-]', '', 'g'
-  )`;
+export function parseExperimenters(val) {
+  if (!val) return [];
+  const seen = new Set();
+  const result = [];
+  for (const part of String(val).split(',')) {
+    const trimmed = part.trim();
+    if (trimmed && !seen.has(mergeKey(trimmed))) {
+      seen.add(mergeKey(trimmed));
+      result.push(trimmed);
+    }
+  }
+  return result;
+}
+
+/**
+ * Collect unique experimenter display names from rows, deduplicated by
+ * mergeKey, sorted alphabetically. Reads the `experimenters` column.
+ *
+ * @param {object[]} rows
+ * @returns {string[]}
+ */
+export function uniqueExperimenters(rows) {
+  const seen = new Set();
+  const result = [];
+  for (const row of rows) {
+    for (const name of parseExperimenters(row.experimenters)) {
+      const key = mergeKey(name);
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(name);
+      }
+    }
+  }
+  return result.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Aggregate raw session rows by experimenter and optionally filter to a
+ * selected set.  The `experimenters` field may be a comma-separated raw
+ * string such as `"anna.katelyn.mcdougal, nick.ponvert"` — it is parsed and
+ * normalised by `parseExperimenters` before comparison.
+ *
+ * @param {Array<{experimenters: string|null, session_seconds: number|string|null}>} rawRows
+ * @param {Set<string>|null} selectedExperimenters
+ *   Normalised display names to include (produced by `parseExperimenters`),
+ *   or `null` to include all.
+ * @returns {Array<{group: string, sessionCount: number, totalSeconds: number}>}
+ *   Sorted descending by sessionCount.
+ */
+export function aggregateByExperimenter(rawRows, selectedExperimenters) {
+  const expMap = new Map();
+  for (const r of rawRows) {
+    const exps = parseExperimenters(r.experimenters);
+    const secs = Number(r.session_seconds ?? 0);
+    if (exps.length === 0) {
+      const entry = expMap.get('(none)') ?? { sessionCount: 0, totalSeconds: 0 };
+      entry.sessionCount++;
+      entry.totalSeconds += secs;
+      expMap.set('(none)', entry);
+    } else {
+      for (const exp of exps) {
+        const entry = expMap.get(exp) ?? { sessionCount: 0, totalSeconds: 0 };
+        entry.sessionCount++;
+        entry.totalSeconds += secs;
+        expMap.set(exp, entry);
+      }
+    }
+  }
+
+  let rows = [...expMap.entries()].map(([group, d]) => ({
+    group,
+    sessionCount: d.sessionCount,
+    totalSeconds: d.totalSeconds,
+  }));
+  rows.sort((a, b) => b.sessionCount - a.sessionCount);
+
+  if (selectedExperimenters !== null) {
+    const allowedKeys = new Set([...selectedExperimenters].map(mergeKey));
+    rows = rows.filter(
+      (r) => r.group === '(none)' || allowedKeys.has(mergeKey(r.group)),
+    );
+  }
+
+  return rows;
+}
+
+/**
+ * Aggregate raw session rows by project, optionally filtered to a selected
+ * set of experimenters.  Each raw row must have:
+ *   - group_key: project name (already COALESCE'd to '(none)')
+ *   - experimenters: comma-separated display names, or null
+ *   - session_seconds: session duration in seconds
+ *
+ * Experimenter filtering happens in JS rather than SQL because
+ * experimenters_normalized is a VARCHAR[] in DuckDB and LIKE on arrays
+ * throws a Binder Error.
+ *
+ * @param {Array<{group_key: string, experimenters: string|null, session_seconds: number|string|null}>} rawRows
+ * @param {Set<string>|null} selectedExperimenters
+ *   Normalised display names to include, or null to include all.
+ * @returns {Array<{group: string, sessionCount: number, totalSeconds: number}>}
+ *   Sorted descending by sessionCount.
+ */
+export function aggregateByProject(rawRows, selectedExperimenters) {
+  const allowedKeys = selectedExperimenters
+    ? new Set([...selectedExperimenters].map(mergeKey))
+    : null;
+  const projMap = new Map();
+  for (const r of rawRows) {
+    if (allowedKeys) {
+      const exps = parseExperimenters(r.experimenters);
+      if (exps.length === 0 || !exps.some((e) => allowedKeys.has(mergeKey(e)))) continue;
+    }
+    const key = r.group_key ?? '(none)';
+    const entry = projMap.get(key) ?? { sessionCount: 0, totalSeconds: 0 };
+    entry.sessionCount++;
+    entry.totalSeconds += Number(r.session_seconds ?? 0);
+    projMap.set(key, entry);
+  }
+  return [...projMap.entries()]
+    .map(([group, d]) => ({ group, sessionCount: d.sessionCount, totalSeconds: d.totalSeconds }))
+    .sort((a, b) => b.sessionCount - a.sessionCount);
 }
 
 /**

@@ -9,7 +9,7 @@
  */
 
 import { registerAcornTable } from '../lib/metadata.js';
-import { escHtml, formatDate, sortRows, uniqueValues, normalizeInstrumentId, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
+import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,56 +36,6 @@ export function getQuarterLabel(iso) {
 }
 
 /**
- * Split a comma-separated experimenter field into an array of trimmed names.
- *
- * @param {string|null} val
- * @returns {string[]}
- */
-/**
- * Normalize a single experimenter name:
- *  1. Replace non-alphanumeric/non-space chars (dots, underscores, etc.) with a space
- *  2. Collapse multiple spaces and strip leading/trailing whitespace
- *  3. Lowercase everything
- *  4. Re-capitalize the first letter of each word (title case)
- *
- * @param {string} name
- * @returns {string} Display name (may contain spaces)
- */
-export function normalizeName(name) {
-  return String(name)
-    .replace(/[^a-zA-Z0-9 ]/g, ' ')   // special chars -> space
-    .replace(/\s+/g, ' ')              // collapse whitespace
-    .trim()
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase()); // title case
-}
-
-/**
- * Merge key for deduplication: lowercase with all spaces removed.
- * "John Doe" and "JohnDoe" both produce "johndoe".
- *
- * @param {string} displayName - Already normalized display name.
- * @returns {string}
- */
-export function mergeKey(displayName) {
-  return displayName.toLowerCase().replace(/ /g, '');
-}
-
-export function parseExperimenters(val) {
-  if (!val) return [];
-  const seen = new Set();
-  const result = [];
-  for (const part of String(val).split(',')) {
-    const normalized = normalizeName(part);
-    if (normalized && !seen.has(mergeKey(normalized))) {
-      seen.add(mergeKey(normalized));
-      result.push(normalized);
-    }
-  }
-  return result;
-}
-
-/**
  * Collect all unique quarter labels from rows, sorted descending.
  *
  * @param {object[]} rows
@@ -100,27 +50,6 @@ export function collectQuarters(rows) {
   return Array.from(seen).sort().reverse();
 }
 
-
-/**
- * Collect unique experimenter display names from rows, deduplicated by mergeKey, sorted.
- *
- * @param {object[]} rows
- * @returns {string[]}
- */
-export function uniqueExperimenters(rows) {
-  const seen = new Set();
-  const result = [];
-  for (const row of rows) {
-    for (const name of parseExperimenters(row.experimenters)) {
-      const key = mergeKey(name);
-      if (!seen.has(key)) {
-        seen.add(key);
-        result.push(name);
-      }
-    }
-  }
-  return result.sort((a, b) => a.localeCompare(b));
-}
 
 /**
  * Apply the active filters to the full row set.
@@ -304,8 +233,10 @@ export function createSessionsView(coord, metadata) {
   registerPromise
     .then(() =>
       coord.query(
-        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name, instrument_id,
-                experimenters, modalities, genotype, name, location
+        `SELECT subject_id, acquisition_start_time, acquisition_end_time, project_name,
+                instrument_id_normalized AS instrument_id,
+                experimenters_normalized AS experimenters,
+                modalities, genotype, name, location
          FROM asset_basics
          WHERE lower(modalities) LIKE '%behavior%'
          ORDER BY acquisition_start_time DESC NULLS LAST`,
@@ -329,9 +260,8 @@ export function createSessionsView(coord, metadata) {
   // -------------------------------------------------------------------------
 
   function buildPage(allRows) {
-    // Normalize instrument_ids once so all downstream filtering and display
-    // sees clean names rather than <location>_<name>_<date> variants.
-    allRows = allRows.map((r) => ({ ...r, instrument_id: normalizeInstrumentId(r.instrument_id) }));
+    // instrument_id and experimenters are already normalized by the backend
+    // (instrument_id_normalized / experimenters_normalized columns).
     // -- URL state helpers ---------------------------------------------------
     function readUrlState() {
       const p = new URLSearchParams(window.location.search);

@@ -431,7 +431,7 @@ body {
   background: var(--surface-bg);
   border-radius: var(--radius);
   padding: 20px;
-  max-width: 400px;
+  max-width: 900px;
   width: 90%;
   max-height: 80vh;
   display: flex;
@@ -439,11 +439,54 @@ body {
   box-shadow: var(--shadow);
 }
 
-.settings-modal-content h3 {
-  margin: 0 0 16px 0;
+.settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-bottom: 14px;
+}
+
+.settings-modal-header h3 {
+  margin: 0;
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.settings-modal-close-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.settings-modal-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover, #f3f4f6);
+}
+
+.settings-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 8px;
+  margin: 0 -8px;
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.settings-modal-col {
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .settings-checkbox-list {
@@ -483,6 +526,8 @@ body {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  flex-shrink: 0;
+  padding-top: 12px;
 }
 
 .settings-modal-actions button {
@@ -3988,6 +4033,27 @@ body {
   padding: 5px 10px;
 }
 
+/* Fiber photometry grouped table rows */
+.assets-table .fib-group-row {
+  background: var(--surface-bg, #fff);
+  font-weight: 500;
+}
+
+.assets-table .fib-group-row td {
+  border-top: 2px solid var(--surface-border, #e5e7eb);
+}
+
+.assets-table .fib-asset-row {
+  opacity: 0.82;
+  background: var(--surface-card, #f8f8f8);
+}
+
+.assets-table .fib-asset-name-cell {
+  padding-left: 1.5rem;
+  color: var(--color-muted, #666);
+  font-size: 0.85rem;
+}
+
 /* ---------------------------------------------------------------------------
  * Project page — info card with inline histogram
  * ------------------------------------------------------------------------ */
@@ -4372,6 +4438,47 @@ body {
 }
 
 /* ===========================================================================
+   Contributions — Shared button styles (btn-primary / btn-secondary)
+   Used throughout contributions pages (editor, wizard, token panel).
+   =========================================================================== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--color-primary, #4338ca);
+  color: #fff;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary, #4338ca) 85%, #000); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-secondary:hover:not(:disabled) { background: var(--surface-hover, #f3f4f6); border-color: var(--text-secondary); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===========================================================================
    Contributions — Landing Page
    =========================================================================== */
 
@@ -4573,6 +4680,13 @@ body {
   font-size: 0.8rem;
 }
 
+.cv-token-copied-badge {
+  font-size: 0.8rem;
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .cv-token-author-list {
   display: flex;
   flex-direction: column;
@@ -4597,6 +4711,33 @@ body {
   font-size: 0.8rem;
   padding: 4px 10px;
 }
+
+/* Inline link generation button (per-author row) */
+.cv-token-cell { width: 28px; text-align: center; }
+.cv-link-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.cv-link-btn:hover { opacity: 1; }
+.cv-link-btn--done { opacity: 1; border-color: var(--color-accent, #4338ca); }
+.cv-link-btn:disabled { cursor: wait; opacity: 0.4; }
+
+/* Add row actions (Add author + Invite) */
+.cv-add-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.cv-add-row-actions .cv-add-row-btn { margin-top: 0; }
+.cv-invite-btn { font-size: 0.82rem; padding: 4px 12px; }
 
 /* ===========================================================================
    Contributions — Add Page / Wizard
@@ -4695,6 +4836,27 @@ body {
   margin-top: 8px;
 }
 
+.cv-orcid-result-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cv-orcid-verify-link {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cv-orcid-verify-link:hover { text-decoration: underline; color: var(--color-primary, #4338ca); }
+
+.cv-orcid-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
 .cv-wizard-nav {
   display: flex;
   justify-content: space-between;
@@ -4703,6 +4865,121 @@ body {
   padding-top: 16px;
   border-top: 1px solid var(--surface-border);
 }
+
+.cv-wizard-nav .btn-primary,
+.cv-wizard-nav .btn-secondary {
+  padding: 10px 24px;
+  font-size: 0.95rem;
+}
+
+/* Affiliations checklist (step 1) */
+.cv-wizard-aff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cv-wizard-aff-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.cv-wizard-aff-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.cv-wizard-custom-aff-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
+  border: 1px solid color-mix(in srgb, var(--color-primary, #4338ca) 30%, transparent);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.cv-wizard-aff-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cv-wizard-aff-add-row .cv-wizard-input {
+  flex: 1;
+}
+
+/* Role name tooltip (cv-role-tip)
+   Uses position:fixed on the popup to escape overflow:auto containers. */
+.cv-role-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.cv-role-tip-icon {
+  font-size: 0.7em;
+  opacity: 0.5;
+  line-height: 1;
+}
+
+.cv-role-tip-popup {
+  position: fixed;
+  z-index: 9999;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  background: #fff;
+  color: #111827;
+  font-weight: 400;
+  font-style: normal;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius, 6px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 12px 14px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.cv-role-tip-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #111827;
+}
+
+.cv-role-tip-def {
+  display: block;
+  font-style: normal;
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #111827;
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples li {
+  margin-bottom: 4px;
+}
+.cv-role-tip-examples li:last-child { margin-bottom: 0; }
 
 /* Roles grid (step 2) */
 .cv-wizard-roles-grid {
@@ -4720,6 +4997,8 @@ body {
   justify-content: space-between;
   gap: 8px;
   transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  user-select: none;
 }
 
 .cv-wizard-role-active {
@@ -4798,4 +5077,225 @@ body {
 /* Edit page container */
 .contributions-edit-page {
   padding: 0;
+}
+
+/* ============================================================
+   Dynamic Foraging — Acquisition Figures section
+   ============================================================ */
+
+.df-figures-section {
+  margin-top: 28px;
+}
+
+.df-figures-heading {
+  margin-bottom: 12px;
+}
+
+/* Two-column layout: narrow filter panel on left, figures area on right */
+.df-figures-layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .df-figures-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.df-filter-panel {
+  position: sticky;
+  top: 12px;
+}
+
+/* ---- Figures panel (right side) ---- */
+
+.df-figures-panel {
+  min-height: 120px;
+}
+
+.df-figures-count {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+/* Card grid */
+.df-figures-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.df-figure-card {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+.df-figure-card--no-img .df-figure-caption {
+  border-top: none;
+}
+
+.df-figure-img-link {
+  display: block;
+  background: var(--surface-bg);
+}
+
+.df-figure-img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.df-figure-missing {
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.df-figure-caption {
+  padding: 7px 10px 8px;
+  border-top: 1px solid var(--surface-border);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.df-figure-subject {
+  font-weight: 600;
+  color: var(--color-red, #c0392b);
+  text-decoration: none;
+}
+
+.df-figure-subject:hover {
+  text-decoration: underline;
+}
+
+.df-figure-date {
+  color: var(--text-secondary);
+}
+
+.df-figure-meta {
+  color: var(--text-secondary);
+  font-size: 0.77rem;
+}
+
+.df-figure-stage {
+  display: inline-block;
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin-top: 1px;
+}
+
+/* ---- Date filter (Show sessions since) ---- */
+
+.df-since-select {
+  width: 100%;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  padding: 3px 6px;
+  margin-bottom: 4px;
+}
+
+.df-since-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.df-since-date {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  padding: 3px 6px;
+}
+
+/* ---- DF timeline ---- */
+
+.df-figures-inner {
+  /* figures count + grid stacked below the timeline */
+}
+
+.df-timeline-wrap {
+  overflow-x: auto;
+  margin-bottom: 16px;
+  padding-bottom: 4px;
+}
+
+.df-timeline-range {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.df-figure-card--highlighted {
+  outline: 3px solid var(--accent, #0078d4);
+  outline-offset: 2px;
+}
+
+/* ---- Platform overview: side-by-side dropdowns row ---- */
+
+.platform-dropdowns-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.platform-dropdown-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.platform-summary-section {
+  margin-top: 4px;
+}
+
+.platform-summary-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.platform-summary-table {
+  width: 100%;
+}
+
+/* ---- Settings modal: QC settings box ---- */
+
+.settings-section-box {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.settings-section-box-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
 }
