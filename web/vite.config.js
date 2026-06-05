@@ -49,6 +49,7 @@ export default defineConfig({
         vr_foraging: resolve(__dirname, 'vr_foraging.html'),
         dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
         tables: resolve(__dirname, 'tables.html'),
+        names: resolve(__dirname, 'names.html'),
       },
     },
   },

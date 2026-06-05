@@ -2511,7 +2511,7 @@ body {
 .cv-credit-desc-textarea:focus { outline: 2px solid #4338ca; border-color: transparent; }
 
 /* Authors table */
-.cv-authors-table-wrap { overflow-x: auto; }
+.cv-authors-table-wrap { overflow-x: auto; padding-bottom: 12px; }
 .cv-table-scroll { overflow-x: auto; }
 .cv-authors-table {
   border-collapse: collapse;
@@ -5298,4 +5298,65 @@ body {
   letter-spacing: 0.05em;
   color: var(--text-secondary);
   margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Names page — experimenter normalization graph (/names)
+ * ------------------------------------------------------------------------ */
+
+.names-view {
+  padding: 24px;
+  max-width: 900px;
+}
+
+.names-header {
+  margin-bottom: 20px;
+}
+
+.names-header h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.names-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.names-stats {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.names-stats span::before {
+  content: '● ';
+  color: var(--color-red);
+}
+
+.names-graph-container {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: 16px;
+}
+
+.names-graph-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 80vh;
+}
+
+.names-graph-scroll svg text {
+  user-select: none;
+}
+
+.names-cluster {
+  transition: opacity 0.15s ease;
 }
