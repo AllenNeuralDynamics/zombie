@@ -5306,7 +5306,6 @@ body {
 
 .names-view {
   padding: 24px;
-  max-width: 900px;
 }
 
 .names-header {
@@ -5347,10 +5346,45 @@ body {
   padding: 16px;
 }
 
+.names-body {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.names-sidebar {
+  flex: 0 0 180px;
+  min-width: 140px;
+  border-right: 1px solid var(--surface-border);
+  padding-right: 16px;
+}
+
+.names-sidebar-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.names-raw-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.8rem;
+  font-family: monospace;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.names-raw-list li {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .names-graph-scroll {
-  overflow-x: auto;
-  overflow-y: auto;
-  max-height: 80vh;
 }
 
 .names-graph-scroll svg text {

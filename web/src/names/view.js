@@ -283,7 +283,13 @@ export function createNamesView(coordinator) {
     <div id="names-loading" class="loading-message">Querying DuckDB…</div>
     <div id="names-graph-container" class="names-graph-container" style="display:none">
       <div id="names-stats" class="names-stats"></div>
-      <div id="names-graph" class="names-graph-scroll"></div>
+      <div class="names-body">
+        <div class="names-sidebar">
+          <h3 class="names-sidebar-title">All raw names</h3>
+          <ul id="names-raw-list" class="names-raw-list"></ul>
+        </div>
+        <div id="names-graph" class="names-graph-scroll"></div>
+      </div>
     </div>
   `;
 
@@ -331,8 +337,8 @@ async function _load(container, coordinator) {
       };
     });
 
-    // Sort clusters: most variants first (most interesting), then alpha
-    viewData.sort((a, b) => b.count - a.count || a.norm.localeCompare(b.norm));
+    // Sort clusters alphabetically by normalized name
+    viewData.sort((a, b) => a.norm.localeCompare(b.norm));
 
     loadingEl.remove();
     graphContainer.style.display = '';
@@ -343,6 +349,11 @@ async function _load(container, coordinator) {
       <span>${escHtml(String(normalizedNames.length))} normalized identities</span>
       <span>${escHtml(String(totalVariants))} raw name variants</span>
     `;
+
+    // Populate sidebar: all unique raw names across all clusters, sorted alpha
+    const allRaw = [...new Set(viewData.flatMap((d) => d.originals))].sort((a, b) => a.localeCompare(b));
+    const rawList = container.querySelector('#names-raw-list');
+    rawList.innerHTML = allRaw.map((n) => `<li>${escHtml(n)}</li>`).join('');
 
     renderGraph(container.querySelector('#names-graph'), viewData);
   } catch (err) {
