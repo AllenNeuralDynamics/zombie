@@ -50,7 +50,7 @@ async function ensurePlatformTable(coord, platformKey) {
     }
     // Load only the specific partition for this platform
     const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
-    const url = `${base}/platform=${platformKey}/**`;
+    const url = `${base}/platform=${platformKey}/data.pqt`;
     const tbl = tableNameFor(platformKey);
     const p = coord
       .exec(`CREATE OR REPLACE TABLE ${tbl} AS SELECT * FROM read_parquet('${url}', hive_partitioning=true, union_by_name=true)`)
