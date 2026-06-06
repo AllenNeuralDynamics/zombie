@@ -285,9 +285,9 @@ function buildAssetsOverview(coord) {
       const fmt = (n) => Number(n ?? 0).toLocaleString();
       const stats = [
         { count: fmt(row.total_assets),        label: 'Total assets' },
-        { count: fmt(row.total_subjects),      label: 'Unique subjects' },
+        { count: fmt(row.total_subjects),      label: 'Subjects' },
         { count: fmt(row.total_projects),      label: 'Projects' },
-        { count: fmt(row.total_investigators), label: 'Unique investigators' },
+        { count: fmt(row.total_investigators), label: 'Investigators' },
       ];
       statList.textContent = '';
       for (const { count, label } of stats) {
