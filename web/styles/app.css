@@ -4243,6 +4243,10 @@ body {
   flex-wrap: wrap;
 }
 
+.platform-overview-body[hidden] {
+  display: none;
+}
+
 .platform-overview-left {
   flex: 0 0 auto;
   min-width: 160px;
@@ -5393,5 +5397,36 @@ body {
 
 .names-graph-scroll svg text {
   user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * Assets overview stat list (assets/view.js)
+ * ------------------------------------------------------------------------ */
+
+.assets-stat-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.assets-stat-item {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.assets-stat-count {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  min-width: 5ch;
+  text-align: right;
+}
+
+.assets-stat-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
 }
 

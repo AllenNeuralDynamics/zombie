@@ -46,9 +46,11 @@ function _isoDate(d) {
  *
  * @param {object[]} assets        - Raw assets with acquisition_start_time and modalities.
  * @param {number}   containerWidth - Available pixel width for sizing the chart.
+ * @param {object}   [opts]
+ * @param {'month'|'year'} [opts.xTicks='month'] - Tick granularity on the x-axis.
  * @returns {HTMLElement|null} The plot element, or null if there is no data.
  */
-export function buildModalityHistogram(assets, containerWidth = 700) {
+export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'month' } = {}) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
@@ -84,11 +86,13 @@ export function buildModalityHistogram(assets, containerWidth = 700) {
     marginBottom: 50,
     x: {
       type: 'utc',
-      ticks: 'month',
-      tickFormat: (d) =>
-        d.getUTCMonth() === 0
-          ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
-          : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+      ticks: xTicks,
+      tickFormat: xTicks === 'year'
+        ? (d) => String(d.getUTCFullYear())
+        : (d) =>
+            d.getUTCMonth() === 0
+              ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+              : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
     },
     y: { label: 'Acquisitions', grid: true },
     color: { domain: colorDomain, range: colorRange, legend: true },

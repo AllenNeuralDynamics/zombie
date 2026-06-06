@@ -10,6 +10,7 @@
 
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
+import { buildModalityHistogram } from '../lib/charts.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -192,6 +193,157 @@ export function renderAssetRow(row, visibleColumns) {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Assets overview
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the "Data Overview" section — total counts + modality histogram.
+ * Appended before the table in createAssetsView.
+ *
+ * @param {import('@uwdata/vgplot').Coordinator} coord
+ * @returns {HTMLElement}
+ */
+const OVERVIEW_COOKIE = 'assets_overview_collapsed';
+
+function _readCookie(name) {
+  const m = ('; ' + document.cookie).split(`; ${name}=`);
+  if (m.length < 2) return null;
+  return decodeURIComponent(m.pop().split(';')[0]);
+}
+
+function _writeCookie(name, value) {
+  const exp = new Date(Date.now() + 365 * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${exp}; path=/; SameSite=Lax`;
+}
+
+function buildAssetsOverview(coord) {
+  let collapsed = _readCookie(OVERVIEW_COOKIE) === '1';
+
+  const section = document.createElement('div');
+  section.className = 'platform-overview';
+
+  const collapseBtn = document.createElement('button');
+  collapseBtn.className = 'platform-qc-toggle';
+  collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+
+  const arrow = document.createElement('span');
+  arrow.className = 'platform-qc-toggle-arrow';
+  arrow.textContent = collapsed ? '▶' : '▼';
+  collapseBtn.appendChild(arrow);
+
+  const labelText = document.createTextNode(' Data overview');
+  collapseBtn.appendChild(labelText);
+
+  section.appendChild(collapseBtn);
+
+  const bodyRow = document.createElement('div');
+  bodyRow.className = 'platform-overview-body';
+  bodyRow.hidden = collapsed;
+  section.appendChild(bodyRow);
+
+  collapseBtn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    bodyRow.hidden = collapsed;
+    arrow.textContent = collapsed ? '▶' : '▼';
+    collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+    _writeCookie(OVERVIEW_COOKIE, collapsed ? '1' : '0');
+  });
+
+  // ── Left: stat list ──────────────────────────────────────────────────────
+  const leftCol = document.createElement('div');
+  leftCol.className = 'platform-overview-left';
+  bodyRow.appendChild(leftCol);
+
+  const statList = document.createElement('div');
+  statList.className = 'assets-stat-list';
+  statList.textContent = 'Loading…';
+  leftCol.appendChild(statList);
+
+  // ── Right: modality histogram ─────────────────────────────────────────────
+  const histCol = document.createElement('div');
+  histCol.className = 'platform-overview-histogram';
+  bodyRow.appendChild(histCol);
+
+  const histPlot = document.createElement('div');
+  histPlot.className = 'platform-overview-histogram-plot';
+  histCol.appendChild(histPlot);
+
+  // ── Stats query ────────────────────────────────────────────────────────────
+  coord
+    .query(`
+      SELECT
+        (SELECT COUNT(*) FROM asset_basics) AS total_assets,
+        (SELECT COUNT(DISTINCT subject_id) FROM asset_basics WHERE subject_id IS NOT NULL) AS total_subjects,
+        (SELECT COUNT(*) FROM unique_project_names) AS total_projects,
+        (SELECT COUNT(DISTINCT investigator)
+          FROM (SELECT UNNEST(investigators_normalized) AS investigator
+                FROM asset_basics
+                WHERE investigators_normalized IS NOT NULL)) AS total_investigators
+    `)
+    .then((result) => {
+      const row = result.get(0) ?? {};
+      const fmt = (n) => Number(n ?? 0).toLocaleString();
+      const stats = [
+        { count: fmt(row.total_assets),        label: 'Total assets' },
+        { count: fmt(row.total_subjects),      label: 'Unique subjects' },
+        { count: fmt(row.total_projects),      label: 'Projects' },
+        { count: fmt(row.total_investigators), label: 'Unique investigators' },
+      ];
+      statList.textContent = '';
+      for (const { count, label } of stats) {
+        const item = document.createElement('div');
+        item.className = 'assets-stat-item';
+        const countEl = document.createElement('span');
+        countEl.className = 'assets-stat-count';
+        countEl.textContent = count;
+        const labelEl = document.createElement('span');
+        labelEl.className = 'assets-stat-label';
+        labelEl.textContent = label;
+        item.appendChild(countEl);
+        item.appendChild(labelEl);
+        statList.appendChild(item);
+      }
+    })
+    .catch((err) => {
+      statList.textContent = `Summary unavailable: ${err?.message ?? err}`;
+    });
+
+  // ── Histogram query ────────────────────────────────────────────────────────
+  coord
+    .query(`
+      SELECT acquisition_start_time, modalities
+      FROM asset_basics
+      WHERE (data_level IS NULL OR data_level != 'derived')
+        AND acquisition_start_time IS NOT NULL
+        AND modalities IS NOT NULL
+    `)
+    .then((result) => {
+      // arrowTableToRows handles list-typed modalities columns
+      const fields = result.schema.fields.map((f) => f.name);
+      const rows = [];
+      for (let i = 0; i < result.numRows; i++) {
+        const r = {};
+        for (const f of fields) {
+          const col = result.getChild(f);
+          if (!col) { r[f] = null; continue; }
+          const val = col.get(i);
+          r[f] = (val != null && typeof val === 'object' && typeof val.toArray === 'function' && !Array.isArray(val))
+            ? Array.from(val.toArray()) : val;
+        }
+        rows.push(r);
+      }
+      const width = histPlot.getBoundingClientRect().width || 500;
+      const plot = buildModalityHistogram(rows, width, { xTicks: 'year' });
+      if (plot) histPlot.appendChild(plot);
+    })
+    .catch((err) => {
+      console.error('[AssetsOverview] histogram query failed:', err?.message ?? err);
+    });
+
+  return section;
+}
+
+// ---------------------------------------------------------------------------
 // View factory
 // ---------------------------------------------------------------------------
 
@@ -219,6 +371,7 @@ export function createAssetsView(coord) {
   header.appendChild(settingsBtn);
   
   container.appendChild(header);
+  container.appendChild(buildAssetsOverview(coord));
 
   const loadingEl = document.createElement('p');
   loadingEl.className = 'loading-message';
