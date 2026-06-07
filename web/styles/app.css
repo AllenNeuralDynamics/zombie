@@ -5822,3 +5822,212 @@ body {
   text-underline-offset: 2px;
 }
 
+/* ===== Instrument Panel ================================================== */
+
+.instrument-panel {
+  max-width: 1200px;
+}
+
+.inst-devices-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.inst-device-card {
+  border: 2px solid var(--device-color, #7f8c8d);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fafbfc;
+  font-size: 0.85rem;
+  position: relative;
+  transition: box-shadow 0.15s;
+}
+
+.inst-device-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+
+.inst-device-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.inst-device-type {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--device-color, #7f8c8d);
+}
+
+.inst-device-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 6px;
+  color: #1a1a2e;
+}
+
+.inst-device-fields {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.inst-device-fields dt {
+  color: #666;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.inst-device-fields dd {
+  margin: 0;
+  color: #333;
+  word-break: break-word;
+}
+
+.inst-na {
+  color: #bbb;
+}
+
+.inst-acq-badge {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #fff;
+  background: #27ae60;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.inst-acq-configs {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.78rem;
+}
+
+.inst-acq-type {
+  display: inline-block;
+  background: #eaf4fe;
+  color: #2980b9;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  margin: 2px 4px 0 0;
+}
+
+.inst-device-notes {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.75rem;
+  color: #888;
+  font-style: italic;
+}
+
+.inst-connections {
+  margin-top: 16px;
+}
+
+.inst-conn-arrow {
+  text-align: center;
+  font-size: 1.1rem;
+  color: #666;
+}
+
+/* Positioned devices — spatial top-down grid */
+
+.inst-positioned-section {
+  margin-top: 20px;
+}
+
+.inst-positioned-section h4 {
+  margin-bottom: 8px;
+}
+
+.inst-pos-hint {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: #888;
+}
+
+.inst-pos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 8px;
+  position: relative;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 32px 12px 12px;
+  background: #f8f9fa;
+  min-height: 200px;
+}
+
+.inst-pos-cell {
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.inst-pos-cell .inst-device-card {
+  width: 100%;
+  max-width: 280px;
+}
+
+.inst-pos-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #999;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+/* Compass rose in top-left of grid */
+.inst-pos-compass {
+  position: absolute;
+  top: 6px;
+  left: 10px;
+  width: 40px;
+  height: 40px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #888;
+}
+
+.inst-pos-compass-n {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.inst-pos-compass-s {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.inst-pos-compass-w {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.inst-pos-compass-e {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+}

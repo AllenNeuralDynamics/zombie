@@ -17,6 +17,8 @@ import {
 import { createBrainVizCanvas } from './brain-viz.js';
 import { createBrainViz3D } from './brain-viz-3d.js';
 import { createEphysViz3D, extractEphysProbes } from './ephys-viz-3d.js';
+import { createInstrumentPanel } from './instrument-view.js';
+import { hasImagingConfig, createImagingDetailsPanel } from './imaging-viz-3d.js';
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 import {
   isForagingAcquisition,
@@ -186,9 +188,13 @@ export function buildSpecimenProcedureDetail(event) {
  * Create a simple tab widget element.
  *
  * @param {Array<{label: string, content: HTMLElement|string}>} tabs
+ * @param {object} [opts]
+ * @param {string} [opts.activeLabel] - Label of the tab to show initially (falls back to first).
+ * @param {HTMLElement} [opts.parentContainer] - If provided, the active tab label is persisted
+ *   on this element so a subsequent call can restore the same tab.
  * @returns {HTMLElement}
  */
-function createTabWidget(tabs) {
+function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
   const container = document.createElement('div');
   container.className = 'detail-tabs';
 
@@ -207,6 +213,13 @@ function createTabWidget(tabs) {
     return panel;
   });
 
+  // Determine which tab to show first
+  let initialIdx = 0;
+  if (activeLabel) {
+    const found = tabs.findIndex(t => t.label === activeLabel);
+    if (found >= 0) initialIdx = found;
+  }
+
   tabs.forEach(({ label }, i) => {
     const btn = document.createElement('button');
     btn.className = 'detail-tab-btn';
@@ -216,15 +229,17 @@ function createTabWidget(tabs) {
       tabBar.querySelectorAll('.detail-tab-btn').forEach((b, j) => {
         b.classList.toggle('active', j === i);
       });
+      if (parentContainer) parentContainer._activeTabLabel = label;
     });
     tabBar.appendChild(btn);
     container.appendChild(panels[i]);
   });
 
-  // Show first tab by default
+  // Show the chosen tab
   if (panels.length) {
-    panels[0].style.display = '';
-    tabBar.querySelectorAll('.detail-tab-btn')[0]?.classList.add('active');
+    panels[initialIdx].style.display = '';
+    tabBar.querySelectorAll('.detail-tab-btn')[initialIdx]?.classList.add('active');
+    if (parentContainer) parentContainer._activeTabLabel = tabs[initialIdx].label;
   }
 
   container.insertBefore(tabBar, container.firstChild);
@@ -501,11 +516,12 @@ function createEphysPanel(acquisitionData) {
 }
 
 /**
- * Render an Acquisition event detail: overview card, with an optional
- * "Ephys Assembly" tab when ephys data is present.
+ * Render an Acquisition event detail: overview card, with optional
+ * "Ephys Assembly", "Imaging Details", and "Instrument" tabs.
  */
 function renderAcquisitionDetail(event, container, context = {}) {
   const { data = {} } = event;
+  const prevTab = container._activeTabLabel;
 
   // Dynamic foraging sessions get a dedicated panel
   if (isForagingAcquisition(event)) {
@@ -518,27 +534,46 @@ function renderAcquisitionDetail(event, container, context = {}) {
       { label: 'Foraging',  content: foragingEl },
       { label: 'Overview',  content: overviewEl },
     ];
-    container.appendChild(createTabWidget(tabDefs));
+    container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
     return;
   }
 
-  if (!hasEphysAssemblies(data)) {
-    // Simple case: just the overview card
+  const hasEphys = hasEphysAssemblies(data);
+  const hasImaging = hasImagingConfig(data);
+
+  // Look up matching instrument for this acquisition
+  const instrumentId = data.instrument_id ?? null;
+  const instruments = context.instruments ?? new Map();
+  const instrumentData = instrumentId ? instruments.get(instrumentId) ?? null : null;
+
+  // Simple case: no special data
+  if (!hasEphys && !hasImaging && !instrumentData) {
     container.innerHTML = buildAcquisitionDetail(event);
     return;
   }
 
-  // Tab layout: Overview + Ephys Assembly
+  // Tab layout
   const overviewEl = document.createElement('div');
   overviewEl.innerHTML = buildAcquisitionDetail(event);
 
   const tabDefs = [
-    { label: 'Overview',        content: overviewEl },
-    { label: 'Ephys Assembly',  content: createEphysPanel(data) },
+    { label: 'Overview', content: overviewEl },
   ];
 
+  if (hasEphys) {
+    tabDefs.push({ label: 'Ephys Assembly', content: createEphysPanel(data) });
+  }
+
+  if (hasImaging) {
+    tabDefs.push({ label: 'Imaging Details', content: createImagingDetailsPanel(data) });
+  }
+
+  if (instrumentData) {
+    tabDefs.push({ label: 'Instrument', content: createInstrumentPanel(instrumentData, data) });
+  }
+
   container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs));
+  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
 }
 
 function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
@@ -570,8 +605,9 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
     tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys) });
   }
 
+  const prevSurgTab = container._activeTabLabel;
   container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs));
+  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevSurgTab, parentContainer: container }));
 }
 
 // ---------------------------------------------------------------------------

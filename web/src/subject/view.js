@@ -81,6 +81,7 @@ export function organizeSubjectData(records, subjectId) {
     subject: {},
     procedures: { subject_procedures: [], specimen_procedures: [], coordinate_system: null },
     acquisitions: [],
+    instruments: new Map(), // instrument_id → instrument data
   };
 
   const subjectProcKeys = new Set();
@@ -111,6 +112,11 @@ export function organizeSubjectData(records, subjectId) {
           bundle.procedures.specimen_procedures.push(proc);
         }
       }
+    }
+
+    // Instrument — index by instrument_id
+    if (rec.instrument?.instrument_id && !bundle.instruments.has(rec.instrument.instrument_id)) {
+      bundle.instruments.set(rec.instrument.instrument_id, rec.instrument);
     }
 
     // Acquisitions — store asset name alongside acquisition data.
@@ -288,7 +294,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     const timelineSvg = createSubjectTimeline(events, {
       onSelect: (ev) => {
-        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator });
+        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator, instruments: bundle.instruments });
         if (assetsTableEl && ev?.type === 'Acquisition') {
           const targetName = ev.data?._assetName ?? '';
           if (targetName) assetsTableEl.goToAsset?.(targetName);
