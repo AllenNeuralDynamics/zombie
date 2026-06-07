@@ -11,6 +11,7 @@
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
 import { buildModalityHistogram } from '../lib/charts.js';
+import { buildQueryBuilder } from './query-builder.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -388,6 +389,9 @@ export function createAssetsView(coord) {
     ORDER BY acquisition_start_time DESC NULLS LAST
   `;
 
+  // Query builder placeholder — inserted once rows are loaded
+  let queryBuilderEl = null;
+
   queryRows(coord, sql)
     .then((rows) => {
       loadingEl.remove();
@@ -404,6 +408,21 @@ export function createAssetsView(coord) {
     let visibleColumns = [...DEFAULT_DISPLAY_COLUMNS, 'links'];
     let filters = Object.fromEntries(ALL_AVAILABLE_COLUMNS.map((c) => [c, '']));
     let page = 0;
+    let queryFilterNames = null; // Set by query builder: array of asset names or null
+
+    // Insert query builder before the table
+    queryBuilderEl = buildQueryBuilder(allRows, (names) => {
+      queryFilterNames = names;
+      page = 0;
+      refresh();
+    });
+    // Insert after the overview section
+    const overviewEl = container.querySelector('.platform-overview');
+    if (overviewEl && overviewEl.nextSibling) {
+      container.insertBefore(queryBuilderEl, overviewEl.nextSibling);
+    } else {
+      container.insertBefore(queryBuilderEl, container.querySelector('.assets-table'));
+    }
 
     const uniques = {};
     for (const col of ALL_AVAILABLE_COLUMNS) {
@@ -563,7 +582,13 @@ export function createAssetsView(coord) {
     }
 
     function visibleRows() {
-      const filtered = filterRows(allRows, filters);
+      let base = allRows;
+      // Apply query builder name filter first
+      if (queryFilterNames) {
+        const nameSet = new Set(queryFilterNames);
+        base = base.filter((row) => nameSet.has(row.name));
+      }
+      const filtered = filterRows(base, filters);
       const sorted = sortRows(filtered, sortCol, sortDir);
       return sorted;
     }
