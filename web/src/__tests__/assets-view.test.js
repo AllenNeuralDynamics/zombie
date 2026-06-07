@@ -83,9 +83,9 @@ describe('buildQcLink', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildMetadataLink', () => {
-  it('returns the metadata portal URL with encoded asset name', () => {
+  it('returns the local record viewer URL with encoded asset name', () => {
     const url = buildMetadataLink('my-asset');
-    expect(url).toBe('https://metadata-portal.allenneuraldynamics.org/view?name=my-asset');
+    expect(url).toBe('/record?name=my-asset');
   });
 
   it('returns null for falsy input', () => {
@@ -193,7 +193,7 @@ describe('renderAssetRow', () => {
   it('includes QC, metadata, and CO links', () => {
     const html = renderAssetRow(row, visibleColumns);
     expect(html).toContain('/quality_control');
-    expect(html).toContain('metadata-portal.allenneuraldynamics.org');
+    expect(html).toContain('/record?name=');
     expect(html).toContain('codeocean.allenneuraldynamics.org');
   });
 

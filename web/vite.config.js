@@ -50,6 +50,7 @@ export default defineConfig({
         dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
         tables: resolve(__dirname, 'tables.html'),
         names: resolve(__dirname, 'names.html'),
+        record: resolve(__dirname, 'record.html'),
       },
     },
   },

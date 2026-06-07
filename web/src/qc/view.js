@@ -84,7 +84,7 @@ function buildHeader(name, projectName, codeOceanId, modalities, stages) {
   }
 
   const metaLink = document.createElement('a');
-  metaLink.href = `https://metadata-portal.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`;
+  metaLink.href = `/record?name=${encodeURIComponent(name)}`;
   metaLink.target = '_blank';
   metaLink.rel = 'noopener noreferrer';
   metaLink.textContent = 'Metadata viewer';

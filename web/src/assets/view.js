@@ -61,7 +61,7 @@ export function buildQcLink(name) {
  */
 export function buildMetadataLink(name) {
   if (!name) return null;
-  return `https://metadata-portal.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`;
+  return `/record?name=${encodeURIComponent(name)}`;
 }
 
 /**

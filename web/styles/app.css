@@ -5715,3 +5715,110 @@ body {
   cursor: not-allowed;
 }
 
+/* ===========================================================================
+   Record viewer  (/record)
+   =========================================================================== */
+
+.record-view {
+  padding: 1.5rem 2rem;
+  max-width: 1100px;
+}
+
+.record-heading {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 1rem;
+  word-break: break-all;
+  color: var(--text);
+}
+
+.record-status {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.record-error {
+  color: var(--danger, #c0392b);
+  font-size: 0.9rem;
+}
+
+.record-tree {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+/* Strip default list decorations from JSON tree */
+.json-object,
+.json-array {
+  list-style: none;
+  margin: 0 0 0 1.4rem;
+  padding: 0;
+  border-left: 1px solid var(--border);
+}
+
+.json-object li,
+.json-array li {
+  padding: 0.05rem 0 0.05rem 0.4rem;
+}
+
+/* summary / toggle row */
+.record-tree details > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--text-muted);
+}
+
+.record-tree details > summary::before {
+  content: '▾';
+  display: inline-block;
+  width: 0.8rem;
+  transition: transform 0.15s;
+}
+
+.record-tree details:not([open]) > summary::before {
+  transform: rotate(-90deg);
+}
+
+/* Syntax colours */
+.json-key {
+  color: var(--accent, #0078d4);
+  font-weight: 500;
+}
+
+.json-string {
+  color: var(--success, #27ae60);
+}
+
+.json-number {
+  color: var(--warning, #e67e22);
+}
+
+.json-bool {
+  color: var(--purple, #8e44ad);
+}
+
+.json-null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.json-empty {
+  color: var(--text-muted);
+}
+
+.json-index {
+  color: var(--text-muted);
+}
+
+/* Links inside the JSON tree inherit monospace, distinct colour */
+.record-tree a {
+  color: var(--link, var(--accent, #0078d4));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
