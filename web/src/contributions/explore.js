@@ -622,31 +622,10 @@ function _renderGraph(svgEl, nodes, edges, width, height) {
   }
   svgEl.appendChild(defs);
 
-  // ── Edges layer ──
+  // ── Edges layer — hidden (nodes only) ──
   const edgesG   = _svg('g', { class: 'ae-explore-edges' });
   const edgeData = [];
-
-  for (const edge of edges) {
-    const g = _svg('g', {
-      class: 'ae-explore-edge',
-      'data-source': String(edge.source),
-      'data-target': String(edge.target),
-    });
-    const strands = [];
-    for (const role of edge.roles) {
-      const line = _svg('line', {
-        class: 'ae-explore-strand',
-        stroke: _ROLE_COLOR[role] || '#888',
-        'stroke-width': '2.2',
-        'stroke-opacity': '0.12',
-      });
-      line.dataset.role = role;
-      g.appendChild(line);
-      strands.push(line);
-    }
-    edgesG.appendChild(g);
-    edgeData.push({ edge, g, strands });
-  }
+  // edges are not rendered; the array is kept for hover-state compatibility
   svgEl.appendChild(edgesG);
 
   // ── Nodes layer ──
@@ -869,11 +848,7 @@ function _buildRightLegend(el, clusterMap, onHover, onLeave) {
 
   const entries = Object.values(clusterMap).filter(c => c.nodeIndices.length > 0);
 
-  // Hide the right panel when there's only one distinct affiliation
-  if (entries.length <= 1) {
-    el.style.display = 'none';
-    return;
-  }
+  // Always show the affiliations panel
   el.style.display = '';
 
   const title = document.createElement('div');
@@ -991,17 +966,31 @@ export function createExploreView(container, authors, zoomState) {
     edgeData = result.edgeData;
 
     // ── Zoom / pan state ──
-    // We fit the world into the visible viewport on load, then let the user zoom from there.
     const vw = svgWrap.clientWidth  || 600;
     const vh = _CH;
-    const fitScale = Math.min(vw / w, vh / h) * 0.92; // initial fit-to-view with a little margin
-    // Zoom limits: can't zoom out past ~fit view (+ 10% breathing room), can zoom in to ~2.5× fit
-    const minScale = fitScale * 0.90;
-    const maxScale = fitScale * 2.5;
+
+    // Compute the bounding box of actual node positions (with node-radius padding).
+    let bxMin = Infinity, byMin = Infinity, bxMax = -Infinity, byMax = -Infinity;
+    for (const nd of nodes) {
+      bxMin = Math.min(bxMin, nd.x - _NR);
+      byMin = Math.min(byMin, nd.y - _NR);
+      bxMax = Math.max(bxMax, nd.x + _NR);
+      byMax = Math.max(byMax, nd.y + _NR);
+    }
+    const bboxW = bxMax - bxMin || w;
+    const bboxH = byMax - byMin || h;
+    // Initial scale: nodes fill exactly 75% of the constraining viewport dimension.
+    const fitScale = Math.min(vw / bboxW, vh / bboxH) * 0.75;
+    // Zoom limits relative to the computed fit scale: 25 % … 200 %
+    const minScale = fitScale * 0.25;
+    const maxScale = fitScale * 2.00;
+    // Center the node bounding box in the viewport at fitScale
+    const fitTx = (vw - bboxW * fitScale) / 2 - bxMin * fitScale;
+    const fitTy = (vh - bboxH * fitScale) / 2 - byMin * fitScale;
     // Restore saved zoom/pan if available; otherwise start at fit-to-view
     let scale = (zoomState && zoomState.scale != null) ? zoomState.scale : fitScale;
-    let tx    = (zoomState && zoomState.tx    != null) ? zoomState.tx    : (vw - w * scale) / 2;
-    let ty    = (zoomState && zoomState.ty    != null) ? zoomState.ty    : (vh - h * scale) / 2;
+    let tx    = (zoomState && zoomState.tx    != null) ? zoomState.tx    : fitTx;
+    let ty    = (zoomState && zoomState.ty    != null) ? zoomState.ty    : fitTy;
 
     // Helper: write current transform back to the shared zoomState object
     function saveZoom() {
@@ -1129,8 +1118,8 @@ export function createExploreView(container, authors, zoomState) {
     btnReset.style.fontSize = '13px';
     btnReset.addEventListener('click', () => {
       scale = fitScale;
-      tx    = (vw - w * scale) / 2;
-      ty    = (vh - h * scale) / 2;
+      tx    = fitTx;
+      ty    = fitTy;
       applyTransform();
     });
     zoomBtns.appendChild(btnIn);

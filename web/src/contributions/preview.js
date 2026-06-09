@@ -72,33 +72,45 @@ function ensureWidgetCSS() {
     /* Matrix centering — override upstream width:100% */
     .ae-matrix-wrap {
       overflow-x: auto;
+      padding-right: 120px;
     }
     .ae-matrix {
       width: auto !important;
     }
-    /* Flipped matrix: role headers as columns */
+    /* Diagonal column headers */
     .ae-matrix-role-col-th {
-      padding: 2px 2px 0;
+      padding: 0 !important;
       vertical-align: bottom;
-      text-align: center;
-      min-width: 28px;
-      width: 28px;
+      text-align: left;
+      min-width: 30px;
+      width: 30px;
+      height: 130px;
+      position: relative;
+      overflow: visible;
     }
     .ae-matrix-role-col-header {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding-bottom: 6px;
+      display: block !important;
+      flex-direction: unset !important;
+      align-items: unset !important;
+      padding: 0 !important;
+      width: 30px;
+      height: 130px;
+      position: relative;
     }
     .ae-matrix-role-col-label {
-      writing-mode: vertical-lr;
-      transform: rotate(180deg);
-      font-size: 11px;
+      position: absolute;
+      bottom: 6px;
+      left: 15px;
+      writing-mode: horizontal-tb !important;
+      transform: rotate(-45deg) !important;
+      transform-origin: left bottom;
+      white-space: nowrap;
+      font-size: 11.5px !important;
       font-weight: 500;
-      color: #4b5563;
-      max-height: 90px;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      color: #374151;
+      max-height: none !important;
+      overflow: visible !important;
+      text-overflow: unset !important;
       line-height: 1.2;
     }
     /* Author sticky row-header cell */
@@ -110,19 +122,33 @@ function ensureWidgetCSS() {
       text-align: right;
     }
     .ae-matrix-author-row-name {
-      font-size: 11px;
-      font-weight: 500;
-      color: #374151;
+      font-size: 12px;
+      font-weight: 700;
+      color: #111827;
       cursor: pointer;
     }
     .ae-matrix-author-row-name:hover {
       color: #4338ca;
       text-decoration: underline;
     }
-    /* Corner cell (empty top-left) */
+    /* Corner cell (empty top-left) — must match header height */
     .ae-matrix-corner-cell {
       background: #fff;
+      height: 130px;
     }
+    /* Flat square cells matching the canvas PNG style */
+    .ae-matrix-cell {
+      padding: 1px !important;
+      width: 30px;
+      min-width: 30px;
+    }
+    .ae-cell-sq {
+      width: 28px;
+      height: 28px;
+    }
+    .ae-cell-sq-lead       { background: rgba(99,102,241,0.75); }
+    .ae-cell-sq-equal      { background: rgba(99,102,241,0.40); }
+    .ae-cell-sq-supporting { background: rgba(99,102,241,0.18); }
     /* Dark mode overrides */
     .ae-dark .ae-matrix-role-col-label { color: #9ca3af; }
     .ae-dark .ae-matrix-author-row-td { background: #1f2937; border-bottom-color: #374151; }
@@ -130,6 +156,9 @@ function ensureWidgetCSS() {
     .ae-dark .ae-matrix-author-row-name:hover { color: #a5b4fc; }
     .ae-dark .ae-matrix-corner-cell { background: #1f2937; }
     .ae-dark .ae-matrix { --ae-matrix-bg: #1f2937; }
+    .ae-dark .ae-cell-sq-lead       { background: rgba(165,180,252,0.75); }
+    .ae-dark .ae-cell-sq-equal      { background: rgba(165,180,252,0.40); }
+    .ae-dark .ae-cell-sq-supporting { background: rgba(165,180,252,0.18); }
     /* Preview wrapper */
     .ae-preview-wrap {
       margin-top: 24px;
@@ -199,9 +228,9 @@ function ensureWidgetCSS() {
     }
     /* Vertical colored-word legend */
     .ae-matrix-legend {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: flex-start !important;
       justify-content: center;
       gap: 6px;
       padding: 0 0 0 20px;
@@ -293,6 +322,11 @@ function ensureWidgetCSS() {
       gap: 12px;
     }
     .ae-dark .ae-author-level-legend { color: #9ca3af; }
+    /* Ensure the tab row stretches so the feedback link can be right-aligned */
+    .ae-tabs {
+      display: flex !important;
+      align-items: center;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -529,7 +563,7 @@ export function createPreview(container, authors) {
   // State
   let sortKey = 'alpha';
   let expanded = true;
-  let activeTab = container.dataset.cvTab || 'explore';
+  let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;
   let searchQuery = '';
   let useAuthorLevels = container.dataset.cvUseAuthorLevels === 'true';
@@ -624,7 +658,7 @@ export function createPreview(container, authors) {
         const td = el('td', { className: 'ae-matrix-cell' });
         if (level) {
           td.appendChild(el('div', {
-            className: `ae-dot ae-dot-${level}`,
+            className: `ae-cell-sq ae-cell-sq-${level.toLowerCase()}`,
             title: `${author.name}: ${level}`,
           }));
         }
@@ -637,7 +671,10 @@ export function createPreview(container, authors) {
     wrap.appendChild(table);
 
     // Legend
-    const legend = el('div', { className: 'ae-matrix-legend' });
+    const legend = el('div', {
+      className: 'ae-matrix-legend',
+      style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', padding: '0 0 0 20px', flexShrink: '0' },
+    });
     legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-lead' }, 'Lead'));
     legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-equal' }, 'Equal'));
     legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-supporting' }, 'Supporting'));
@@ -655,14 +692,6 @@ export function createPreview(container, authors) {
 
     // Sort bar
     const sortBar = el('div', { className: 'ae-sort-bar' });
-    const sortHeader = el('div', { className: 'ae-sort-header' },
-      el('span', { className: 'ae-label' }, 'Authors'),
-      el('span', { className: 'ae-count' }, String(activeAuthors.length)),
-      el('span', { className: 'ae-sep' }, '|'),
-      el('span', { className: 'ae-sublabel' }, 'Order by:'),
-    );
-    sortBar.appendChild(sortHeader);
-
     const chips = el('div', { className: 'ae-chips' });
 
     chips.appendChild(el('button', {
@@ -1054,15 +1083,15 @@ export function createPreview(container, authors) {
 
     const container2 = el('div', { className: `ae-widget ${isDark ? 'ae-dark' : ''}` });
 
-    // Tabs: matrix, sections, authors, profiles, explore (no timeline)
+    // Tabs: matrix, authors, profiles, explore (sections disabled for now)
     const panel = el('div', { className: 'ae-panel' });
     const tabs = el('div', { className: 'ae-tabs', role: 'tablist', 'aria-label': 'Authorship views' });
     const tabDefs = [
-      { id: 'explore',  label: 'Explore' },
       { id: 'matrix',   label: 'CRediT' },
       { id: 'authors',  label: 'Sorted List' },
       { id: 'profiles', label: 'Profiles' },
-      { id: 'sections', label: 'Sections' },
+      { id: 'explore',  label: 'Explore' },
+      // { id: 'sections', label: 'Sections' },  // disabled for now
     ];
     for (let ti = 0; ti < tabDefs.length; ti++) {
       const t = tabDefs[ti];
@@ -1092,6 +1121,107 @@ export function createPreview(container, authors) {
       });
       tabs.appendChild(tabBtn);
     }
+    // Feedback link — right-aligned in the tab row
+    // ── Help tooltip (question mark) ──────────────────────────────────────
+    const TAB_HELP = {
+      matrix: {
+        title: 'CRediT Matrix',
+        body: 'CRediT (Contributor Roles Taxonomy) matrix. Each row is an author; each column is one of the 14 standardised roles. Cell shading indicates contribution level: dark = Lead, medium = Equal, light = Supporting. Hover any author name for a full profile.',
+      },
+      authors: {
+        title: 'Sorted List',
+        body: 'Use the sort chips to reorder alphabetically, by a specific CRediT role, or by who has the most roles. Authors with a Lead contribution to the selected role float to the top. Turn on the Author Levels toggle to split the author list by first, middle, and senior author designation.',
+      },
+      profiles: {
+        title: 'Profiles',
+        body: 'View of each contributor showing their affiliation, ORCID, and the full set of CRediT roles they hold..',
+      },
+      explore: {
+        title: 'Explore',
+        body: 'Force-directed network where nodes are authors. Clusters emerge from shared institutional affiliation and shared CRediT roles. Zoom with the scroll wheel or +/- buttons; drag to pan; hover the legend to spotlight authors by role or institution and hover individuals to view their profile.',
+      },
+    };
+
+    let _helpTooltipEl = null;
+    function _removeHelpTooltip() {
+      if (_helpTooltipEl) { _helpTooltipEl.remove(); _helpTooltipEl = null; }
+    }
+
+    const helpBtn = el('button', {
+      type: 'button',
+      'aria-label': 'About these views',
+      style: [
+        'margin-left:auto',
+        'background:none',
+        'border:none',
+        'cursor:pointer',
+        'font-size:15px',
+        'font-weight:700',
+        'line-height:1',
+        'padding:2px 6px',
+        'color:#ff00ff',
+        'align-self:center',
+        'flex-shrink:0',
+      ].join(';'),
+    }, '?');
+
+    helpBtn.addEventListener('mouseenter', () => {
+      _removeHelpTooltip();
+      const info = TAB_HELP[activeTab];
+      if (!info) return;
+      const tip = document.createElement('div');
+      tip.className = 'cv-role-tip-popup';
+      tip.style.cssText = 'pointer-events:none;';
+      const title = document.createElement('strong');
+      title.className = 'cv-role-tip-title';
+      title.textContent = info.title;
+      const body = document.createElement('em');
+      body.className = 'cv-role-tip-def';
+      body.style.fontStyle = 'normal';
+      body.textContent = info.body;
+      tip.appendChild(title);
+      tip.appendChild(body);
+      document.body.appendChild(tip);
+      _helpTooltipEl = tip;
+      // Position above the button
+      const r = helpBtn.getBoundingClientRect();
+      const TIP_W = 300;
+      const GAP = 8;
+      const x = Math.min(Math.max(GAP, r.right - TIP_W), window.innerWidth - TIP_W - GAP);
+      tip.style.left = x + 'px';
+      tip.style.top  = (r.bottom + 6) + 'px';
+    });
+    helpBtn.addEventListener('mouseleave', _removeHelpTooltip);
+    tabs.appendChild(helpBtn);
+
+    // Feedback link
+    const feedbackLink = el('a', {
+      href: 'https://github.com/AllenNeuralDynamics/aind-scientific-computing/issues',
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      style: [
+        'font-size:11px',
+        'font-family:inherit',
+        'font-weight:500',
+        'padding:3px 10px',
+        'border-radius:4px',
+        'background-color:#cdeb05',
+        'color:#4b5563',
+        'text-decoration:none',
+        'white-space:nowrap',
+        'align-self:center',
+        'transition:color 0.15s',
+        'flex-shrink:0',
+      ].join(';'),
+    }, 'Provide feedback');
+    feedbackLink.addEventListener('mouseenter', () => {
+      feedbackLink.style.color = '#000';
+    });
+    feedbackLink.addEventListener('mouseleave', () => {
+      feedbackLink.style.color = '#4b5563';
+    });
+    tabs.appendChild(feedbackLink);
+
     panel.appendChild(tabs);
 
     // Search bar
