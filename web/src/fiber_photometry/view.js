@@ -799,19 +799,47 @@ export function createFiberPhotometryView(coord) {
       return filterGroups(sortedBase, filters);
     }
 
+    /**
+     * Split groups into pages such that each page's total DOM rows
+     * (1 header + N asset child rows per group) stays within maxRows.
+     * A single group that exceeds maxRows on its own still gets its own page.
+     * Returns an array of { start, end, rowCount } index ranges into groups[].
+     */
+    function buildPageBoundaries(groups, maxRows) {
+      const boundaries = [];
+      let i = 0;
+      while (i < groups.length) {
+        let rowCount = 0;
+        let j = i;
+        while (j < groups.length) {
+          const groupRows = 1 + groups[j].assets.length;
+          if (rowCount > 0 && rowCount + groupRows > maxRows) break;
+          rowCount += groupRows;
+          j++;
+        }
+        boundaries.push({ start: i, end: j, rowCount });
+        i = j;
+      }
+      return boundaries;
+    }
+
     function refresh() {
       const groups = visibleGroups();
-      const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
+      const pageBounds = buildPageBoundaries(groups, PAGE_SIZE);
+      const totalPages = Math.max(1, pageBounds.length);
       if (page >= totalPages) page = totalPages - 1;
 
-      const pageGroups = groups.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+      const { start: startIdx, end: endIdx, rowCount } = pageBounds[page] ?? { start: 0, end: 0, rowCount: 0 };
+      const pageGroups = groups.slice(startIdx, endIdx);
       tbody.innerHTML = pageGroups.map((group) => renderFibGroupRows(group, visibleColumns, channelCols)).join('');
 
-      const start = groups.length === 0 ? 0 : page * PAGE_SIZE + 1;
-      const end = Math.min((page + 1) * PAGE_SIZE, groups.length);
+      const rowsBefore = pageBounds.slice(0, page).reduce((sum, b) => sum + b.rowCount, 0);
+      const totalRows = pageBounds.reduce((sum, b) => sum + b.rowCount, 0);
+      const dispStart = totalRows === 0 ? 0 : rowsBefore + 1;
+      const dispEnd = rowsBefore + rowCount;
       pagingBar.innerHTML = `
         <button class="page-btn" id="fib-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
-        <span class="page-info">${start}–${end} of ${groups.length.toLocaleString()} groups</span>
+        <span class="page-info">${dispStart}–${dispEnd} of ${totalRows.toLocaleString()} rows</span>
         <button class="page-btn" id="fib-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
       `;
       pagingBar.querySelector('#fib-prev-page').addEventListener('click', () => { page--; refresh(); });

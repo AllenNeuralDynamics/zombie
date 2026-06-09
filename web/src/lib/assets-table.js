@@ -171,7 +171,7 @@ export async function fetchAssetsWithSources(coordinator, whereClause) {
      FROM asset_basics a
      LEFT JOIN source_data sd ON sd.name = a.name AND sd.source_data IS NOT NULL AND sd.source_data != ''
      WHERE ${whereClause}
-     ORDER BY a.acquisition_start_time`,
+     ORDER BY a.acquisition_start_time DESC NULLS LAST`,
   );
   const rows = arrowTableToRows(result);
 

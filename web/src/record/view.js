@@ -182,10 +182,21 @@ export function createRecordView() {
   // Update the page title to reflect the asset name
   document.title = `${name} — Metadata`;
 
+  const headingRow = document.createElement('div');
+  headingRow.className = 'record-heading-row';
+
   const heading = document.createElement('h1');
   heading.className = 'record-heading';
   heading.textContent = name;
-  root.appendChild(heading);
+  headingRow.appendChild(heading);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'record-copy-btn';
+  copyBtn.textContent = 'Copy JSON';
+  copyBtn.disabled = true;
+  headingRow.appendChild(copyBtn);
+
+  root.appendChild(headingRow);
 
   const status = document.createElement('p');
   status.className = 'record-status';
@@ -203,6 +214,15 @@ export function createRecordView() {
         return;
       }
       status.remove();
+      const rawJson = JSON.stringify(results[0], null, 2);
+      copyBtn.disabled = false;
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(rawJson).then(() => {
+          const prev = copyBtn.textContent;
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = prev; }, 1500);
+        });
+      });
       tree.appendChild(renderJsonValue(results[0]));
     })
     .catch((err) => {

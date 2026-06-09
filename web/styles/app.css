@@ -5724,12 +5724,42 @@ body {
   max-width: 1100px;
 }
 
+.record-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 0 1rem;
+}
+
 .record-heading {
   font-size: 1.1rem;
   font-weight: 600;
-  margin: 0 0 1rem;
+  margin: 0;
   word-break: break-all;
   color: var(--text);
+}
+
+.record-copy-btn {
+  flex-shrink: 0;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.record-copy-btn:hover:not(:disabled) {
+  background: var(--hover, var(--border));
+}
+
+.record-copy-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .record-status {
