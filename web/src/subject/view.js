@@ -398,7 +398,7 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
 }
 
 async function _fetchMetadataServiceFallback(path, signal) {
-  const url = `http://aind-metadata-service/api/v2/${path}`;
+  const url = `https://aind-metadata-service/api/v2/${path}`;
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), 180_000);
   if (signal) {
