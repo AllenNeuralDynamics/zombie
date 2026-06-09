@@ -6031,3 +6031,262 @@ body {
   right: 0;
   transform: translateY(-50%);
 }
+
+/* ===========================================================================
+   Metadata Upgrade Status page (/upgrade)
+   =========================================================================== */
+
+.upgrade-page {
+  padding: 1rem 1.5rem;
+  max-width: 1100px;
+}
+
+.upgrade-summary {
+  margin: 0.5rem 0 1.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface, #f8f9fa);
+  border: 1px solid var(--color-border, #dee2e6);
+  border-radius: 6px;
+  font-size: 1.05rem;
+}
+
+.upgrade-summary-pct {
+  margin-left: 0.4rem;
+  color: var(--color-muted, #666);
+}
+
+/* Charts */
+.upgrade-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.upgrade-chart-wrap {
+  overflow-x: auto;
+}
+
+.upgrade-chart-heading {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* Table */
+.upgrade-table-section {
+  margin-bottom: 2.5rem;
+}
+
+.upgrade-table-wrap {
+  width: 100%;
+}
+
+.upgrade-table-count {
+  margin: 0 0 0.4rem;
+  font-size: 0.875rem;
+  color: var(--color-muted, #666);
+}
+
+.upgrade-table td,
+.upgrade-table th {
+  white-space: nowrap;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.upgrade-table td:first-child,
+.upgrade-table th:first-child {
+  max-width: 40ch;
+}
+
+/* Status badges */
+.upgrade-status {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.upgrade-status.status-success,
+.status-success {
+  color: #1D8649;
+}
+
+.upgrade-status.status-failed,
+.status-failed {
+  color: #c0392b;
+}
+
+/* Upgrade runner */
+.upgrade-runner {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border, #dee2e6);
+}
+
+.upgrade-runner-controls {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+  align-items: center;
+}
+
+.upgrade-asset-input {
+  flex: 1;
+  min-width: 260px;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border, #ccc);
+  border-radius: 4px;
+  font-size: 0.95rem;
+  background: var(--color-input-bg, #fff);
+  color: inherit;
+}
+
+.upgrade-loading {
+  color: var(--color-muted, #666);
+  font-style: italic;
+}
+
+/* Results */
+.upgrade-results {
+  margin-top: 1rem;
+}
+
+.upgrade-results-header {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 0.75rem;
+}
+
+.upgrade-results-asset {
+  font-size: 0.9rem;
+  font-weight: normal;
+}
+
+.upgrade-status-success {
+  background: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.upgrade-status-partial {
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffeeba;
+}
+
+.upgrade-status-failed {
+  background: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.upgrade-results-error {
+  color: #c0392b;
+  font-weight: 500;
+}
+
+.upgrade-results-summary {
+  margin: 0.5rem 0 1rem;
+}
+
+.upgrade-results-err-block summary,
+.upgrade-file-section summary {
+  cursor: pointer;
+}
+
+/* Per-file collapsible sections */
+.upgrade-file-section {
+  margin: 0.5rem 0;
+  border: 1px solid var(--color-border, #dee2e6);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.upgrade-file-section.file-success > summary {
+  background: #d4edda;
+  color: #155724;
+}
+
+.upgrade-file-section.file-failed > summary {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.upgrade-file-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  list-style: none;
+}
+
+.upgrade-file-summary::-webkit-details-marker { display: none; }
+
+.upgrade-file-icon {
+  font-weight: bold;
+  font-size: 1rem;
+}
+
+.upgrade-file-body {
+  padding: 0.75rem 1rem;
+}
+
+.upgrade-conversion-notice {
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: #e3f2fd;
+  border-left: 4px solid #555;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.9rem;
+}
+
+.upgrade-json-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 720px) {
+  .upgrade-json-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.upgrade-json-col h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.upgrade-json-pre {
+  margin: 0;
+  padding: 0.75rem;
+  background: var(--color-surface, #f8f9fa);
+  border: 1px solid var(--color-border, #dee2e6);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  overflow: auto;
+  max-height: 400px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.upgrade-file-error p {
+  margin: 0 0 0.5rem;
+}
+
+.upgrade-file-error pre {
+  font-size: 0.78rem;
+  background: var(--color-surface, #f8f9fa);
+  border: 1px solid var(--color-border, #dee2e6);
+  padding: 0.5rem;
+  overflow: auto;
+  max-height: 300px;
+  border-radius: 4px;
+}

@@ -25,15 +25,23 @@ HOST = "127.0.0.1"
 logging.basicConfig(level=logging.INFO, format="[docdb-proxy] %(message)s")
 log = logging.getLogger(__name__)
 
-client = MetadataDbClient(host="api.allenneuraldynamics.org", version="v2")
+client_v2 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v2")
+client_v1 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v1")
+
+# Legacy alias used by existing code paths
+client = client_v2
 
 
 class DocDbProxyHandler(BaseHTTPRequestHandler):
     def do_POST(self):
-        if self.path != "/metadata/search":
+        if self.path == "/v1/metadata/search":
+            self._handle_search(client_v1)
+        elif self.path == "/metadata/search":
+            self._handle_search(client_v2)
+        else:
             self._respond(404, {"error": "Not found"})
-            return
 
+    def _handle_search(self, db_client):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) if length else b"{}")
@@ -49,7 +57,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             kwargs = dict(filter_query=filter_query, limit=limit)
             if projection:
                 kwargs["projection"] = projection
-            records = client.retrieve_docdb_records(**kwargs)
+            records = db_client.retrieve_docdb_records(**kwargs)
             self._respond(200, records)
         except Exception as e:
             log.error("DocDB query failed: %s", e)

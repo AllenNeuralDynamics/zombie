@@ -9,6 +9,12 @@ export default defineConfig({
     proxy: {
       // Forward /docdb/* to the local Python proxy on :3001 (avoids CORS;
       // the proxy reaches the internal-network AIND API server-side).
+      // /docdb-v1 must appear before /docdb so Vite's prefix match doesn't
+      // swallow it with the shorter key.
+      '/docdb-v1': {
+        target: 'http://localhost:3001',
+        rewrite: (path) => path.replace(/^\/docdb-v1/, '/v1'),
+      },
       '/docdb': {
         target: 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/docdb/, ''),
@@ -22,6 +28,13 @@ export default defineConfig({
       '/metadata-viz': {
         target: 'http://localhost:8000',
         rewrite: (path) => path.replace(/^\/metadata-viz/, ''),
+      },
+      // Dev proxy for metadata portal upgrade endpoint.
+      // Remove this entry before deploying; nginx handles it in production.
+      '/metadata-portal': {
+        target: 'http://localhost:5006',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/metadata-portal/, ''),
       },
     },
   },
@@ -52,6 +65,7 @@ export default defineConfig({
         tables: resolve(__dirname, 'tables.html'),
         names: resolve(__dirname, 'names.html'),
         record: resolve(__dirname, 'record.html'),
+        upgrade: resolve(__dirname, 'upgrade.html'),
       },
     },
   },
