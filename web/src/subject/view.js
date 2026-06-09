@@ -257,8 +257,12 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
       loadingEl.className = 'loading-message';
       loadingEl.textContent = 'No DocDB records found. Trying procedures service\u2026';
       let procData = null;
+      let subjectData = null;
       try {
-        procData = await _fetchProceduresFallback(subjectId, signal);
+        [procData, subjectData] = await Promise.all([
+          _fetchMetadataServiceFallback(`procedures/${encodeURIComponent(subjectId)}`, signal),
+          _fetchMetadataServiceFallback(`subject/${encodeURIComponent(subjectId)}`, signal),
+        ]);
       } catch (err) {
         if (err?.name === 'AbortError' || signal?.aborted) {
           console.debug('[SubjectView] fallback aborted for', subjectId);
@@ -272,7 +276,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
         return;
       }
       bundle = {
-        subject: { subject_id: subjectId },
+        subject: subjectData ?? { subject_id: subjectId },
         procedures: {
           subject_procedures: procData.subject_procedures ?? [],
           specimen_procedures: procData.specimen_procedures ?? [],
@@ -393,8 +397,8 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   return { tableEl, assets };
 }
 
-async function _fetchProceduresFallback(subjectId, signal) {
-  const url = `https://aind-metadata-service/api/v2/procedures/${encodeURIComponent(subjectId)}`;
+async function _fetchMetadataServiceFallback(path, signal) {
+  const url = `http://aind-metadata-service/api/v2/${path}`;
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), 180_000);
   if (signal) {
