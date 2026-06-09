@@ -697,8 +697,8 @@ function DemoPage() {
           <div>
             <h1>Allen Institute Publications</h1>
             <p class="demo-page-subtitle">
-              Recent publications with author contribution tracking.
-              Click <strong>Explore</strong> to view the full contribution widget.
+              Recent publications with exploratory author contribution tracking.
+              Click <strong>Explore</strong> to view details about each publication.
             </p>
           </div>
           <${SettingsGear}
