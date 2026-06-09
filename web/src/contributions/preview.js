@@ -514,6 +514,8 @@ function sortAuthors(authors, sortKey) {
   }
 
   switch (sortKey) {
+    case 'publication-order':
+      return sorted.sort((a, b) => (a.publication_order ?? 9999) - (b.publication_order ?? 9999));
     case 'alpha':
       return sorted.sort((a, b) => getLastName(a.name).localeCompare(getLastName(b.name)));
     case 'most-roles':
@@ -561,7 +563,8 @@ export function createPreview(container, authors) {
   let isDark = detectDarkMode();
 
   // State
-  let sortKey = 'alpha';
+  const hasPubOrder = (authors || []).some(a => a.publication_order != null);
+  let sortKey = hasPubOrder ? 'publication-order' : 'alpha';
   let expanded = true;
   let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;
@@ -694,6 +697,14 @@ export function createPreview(container, authors) {
     const sortBar = el('div', { className: 'ae-sort-bar' });
     const chips = el('div', { className: 'ae-chips' });
 
+    if (hasPubOrder) {
+      chips.appendChild(el('button', {
+        type: 'button',
+        className: `ae-chip ${sortKey === 'publication-order' ? 'ae-chip-active' : ''}`,
+        onClick: () => { sortKey = 'publication-order'; rerender(); },
+      }, 'Publication order'));
+    }
+
     chips.appendChild(el('button', {
       type: 'button',
       className: `ae-chip ${sortKey === 'alpha' ? 'ae-chip-active' : ''}`,
@@ -763,7 +774,8 @@ export function createPreview(container, authors) {
     sortBar.appendChild(chips);
 
     let sortDesc = 'Alphabetical by last name';
-    if (sortKey === 'most-roles') sortDesc = 'By number of CRediT roles';
+    if (sortKey === 'publication-order') sortDesc = 'As listed in the publication';
+    else if (sortKey === 'most-roles') sortDesc = 'By number of CRediT roles';
     else if (isCreditSort) sortDesc = `By "${sortKey.slice(7)}" — lead → equal → supporting → none`;
     sortBar.appendChild(el('p', { className: 'ae-sort-desc' }, `Sorted: ${sortDesc}`));
     wrap.appendChild(sortBar);
@@ -1138,7 +1150,7 @@ export function createPreview(container, authors) {
       },
       explore: {
         title: 'Explore',
-        body: 'Force-directed network where nodes are authors. Clusters emerge from shared institutional affiliation and shared CRediT roles. Zoom with the scroll wheel or +/- buttons; drag to pan; hover the legend to spotlight authors by role or institution and hover individuals to view their profile.',
+        body: 'Force-directed network where nodes are authors. Clusters emerge from shared institutional affiliation and shared CRediT roles. Zoom with the scroll wheel or +/- buttons; drag to pan; hover the legend to spotlight authors by role or institution and hover individuals to view their profile. Open the settings gear to control how much weight is assigned to shared institutions vs shared roles.',
       },
     };
 

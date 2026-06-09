@@ -194,6 +194,58 @@ export function hashStr(s) {
 }
 
 /**
+ * Assign an author to their primary CRediT group given per-group multipliers.
+ * @param {{ credit_levels?: Array }} author
+ * @param {{ leadership: number, methods: number, data: number, analysis: number }} multipliers
+ * @returns {string}
+ */
+function authorPrimaryGroup(author, multipliers) {
+  const counts = { leadership: 0, methods: 0, data: 0, analysis: 0 };
+  if (author.credit_levels) {
+    for (const cl of author.credit_levels) {
+      if (!cl.role) continue;
+      const grp = ROLE_GROUP[normalizeRole(cl.role)];
+      if (grp) counts[grp] += multipliers[grp];
+    }
+  }
+  const best = Math.max(counts.leadership, counts.methods, counts.data, counts.analysis);
+  if (best === 0) return ['leadership', 'methods', 'data', 'analysis'][hashStr(author.name) % 4];
+  const tied = Object.entries(counts).filter(([, v]) => v === best).map(([k]) => k);
+  return tied.length === 1 ? tied[0] : tied[hashStr(author.name) % tied.length];
+}
+
+// Cache so we don't recompute on every per-author call.
+let _gmCache = null;
+let _gmCacheKey = null;
+
+/**
+ * Compute per-group dampening multipliers so no single group dominates.
+ * Iterates up to 3 times: each pass halves the multiplier of the most-populated
+ * group if it contains more than half the authors.
+ */
+function computeGroupMultipliers(allAuthors) {
+  const key = allAuthors.map(a => a.name).join('\x00');
+  if (key === _gmCacheKey) return _gmCache;
+
+  const multipliers = { leadership: 1, methods: 1, data: 1, analysis: 1 };
+
+  if (allAuthors.length >= 2) {
+    const threshold = Math.ceil(allAuthors.length / 2);
+    for (let iter = 0; iter < 3; iter++) {
+      const gc = { leadership: 0, methods: 0, data: 0, analysis: 0 };
+      for (const a of allAuthors) gc[authorPrimaryGroup(a, multipliers)]++;
+      const [dominant, count] = Object.entries(gc).sort((a, b) => b[1] - a[1])[0];
+      if (count <= threshold) break;
+      multipliers[dominant] *= 0.5;
+    }
+  }
+
+  _gmCache = multipliers;
+  _gmCacheKey = key;
+  return multipliers;
+}
+
+/**
  * Compute an HSL color for an author based on their majority CRediT group.
  *
  * @param {{ name: string, credit_levels?: Array<{role:string,level:string}> }} author
@@ -201,6 +253,7 @@ export function hashStr(s) {
  * @returns {string} CSS hsl() color
  */
 export function authorColor(author, allAuthors = []) {
+  const multipliers = computeGroupMultipliers(allAuthors);
   const counts = { leadership: 0, methods: 0, data: 0, analysis: 0 };
   const ownRoles = new Set();
   if (author.credit_levels) {
@@ -209,7 +262,7 @@ export function authorColor(author, allAuthors = []) {
       const norm = normalizeRole(cl.role);
       ownRoles.add(norm);
       const grp = ROLE_GROUP[norm];
-      if (grp) counts[grp]++;
+      if (grp) counts[grp] += multipliers[grp];
     }
   }
   if (allAuthors.length > 0 && ownRoles.size > 0) {
@@ -220,7 +273,7 @@ export function authorColor(author, allAuthors = []) {
       for (const cl of other.credit_levels) {
         if (!cl.role) continue;
         const grp = ROLE_GROUP[normalizeRole(cl.role)];
-        if (grp) counts[grp] += 0.1;
+        if (grp) counts[grp] += 0.1 * multipliers[grp];
       }
     }
   }
