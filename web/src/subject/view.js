@@ -394,7 +394,7 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
 }
 
 async function _fetchProceduresFallback(subjectId, signal) {
-  const url = `http://aind-metadata-service/api/v2/procedures/${encodeURIComponent(subjectId)}`;
+  const url = `https://aind-metadata-service/api/v2/procedures/${encodeURIComponent(subjectId)}`;
   const timeoutController = new AbortController();
   const timeoutId = setTimeout(() => timeoutController.abort(), 180_000);
   if (signal) {
