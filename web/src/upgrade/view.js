@@ -291,9 +291,10 @@ function buildUpgradeTable(rows) {
 /**
  * Render the upgrade results object returned by the metadata portal.
  * @param {object} results
+ * @param {string} [fallbackName] - The asset name/id typed by the user, used if results.asset_name is missing.
  * @returns {HTMLElement}
  */
-function renderUpgradeResults(results) {
+function renderUpgradeResults(results, fallbackName) {
   const container = document.createElement('div');
   container.className = 'upgrade-results';
 
@@ -305,7 +306,7 @@ function renderUpgradeResults(results) {
     return container;
   }
 
-  const assetName = results.asset_name ?? 'Unknown';
+  const assetName = results.name ?? results.asset_name ?? fallbackName ?? 'Unknown';
   const overall = results.overall_success;
   const partial = results.partial_success;
 
@@ -314,7 +315,7 @@ function renderUpgradeResults(results) {
 
   const header = document.createElement('div');
   header.className = `upgrade-results-header ${statusClass}`;
-  header.innerHTML = `<strong>${escHtml(statusText)}</strong><br><span class="upgrade-results-asset">Asset: ${escHtml(assetName)}</span>`;
+  header.innerHTML = `<strong>${escHtml(statusText)}</strong> — ${escHtml(assetName)}`;
   container.appendChild(header);
 
   // Summary counts
@@ -476,7 +477,7 @@ function buildUpgradeRunner() {
 
       const results = await resp.json();
       output.innerHTML = '';
-      output.appendChild(renderUpgradeResults(results));
+      output.appendChild(renderUpgradeResults(results, idOrName));
       copyBtn.disabled = false;
     } catch (err) {
       output.innerHTML = `<p class="upgrade-results-error">Error: ${escHtml(err.message)}</p>`;
