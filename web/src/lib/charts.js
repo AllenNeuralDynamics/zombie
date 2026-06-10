@@ -38,6 +38,30 @@ function _isoDate(d) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
+function _selectTickStrategy(chartWidth, dated) {
+  const times = dated.map((a) => new Date(a.acquisition_start_time).getTime()).filter((t) => !isNaN(t));
+  if (times.length === 0) return 'month';
+  const yearsSpan = Math.max(1, (Math.max(...times) - Math.min(...times)) / (365.25 * 24 * 3600 * 1000));
+  const pixelsPerMonth = chartWidth / (yearsSpan * 12);
+  if (pixelsPerMonth >= 26) return 'month';
+  if (pixelsPerMonth >= 15) return 'quarter';
+  return 'year';
+}
+
+function _quarterlyTicks(dated) {
+  const times = dated.map((a) => new Date(a.acquisition_start_time).getTime()).filter((t) => !isNaN(t));
+  if (times.length === 0) return [];
+  const minYear = new Date(Math.min(...times)).getUTCFullYear();
+  const maxYear = new Date(Math.max(...times)).getUTCFullYear();
+  const ticks = [];
+  for (let y = minYear; y <= maxYear; y++) {
+    for (const m of [0, 3, 6, 9]) {
+      ticks.push(new Date(Date.UTC(y, m, 1)));
+    }
+  }
+  return ticks;
+}
+
 /**
  * Build a stacked bar chart of acquisitions per month, coloured by modality.
  *
@@ -47,10 +71,11 @@ function _isoDate(d) {
  * @param {object[]} assets        - Raw assets with acquisition_start_time and modalities.
  * @param {number}   containerWidth - Available pixel width for sizing the chart.
  * @param {object}   [opts]
- * @param {'month'|'year'} [opts.xTicks='month'] - Tick granularity on the x-axis.
+ * @param {'auto'|'month'|'quarter'|'year'} [opts.xTicks='auto'] - Tick granularity on the
+ *   x-axis. 'auto' selects the best fit based on containerWidth and data date range.
  * @returns {HTMLElement|null} The plot element, or null if there is no data.
  */
-export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'month' } = {}) {
+export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'auto' } = {}) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
@@ -73,6 +98,27 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
+  const strategy = xTicks === 'auto' ? _selectTickStrategy(chartWidth, dated) : xTicks;
+
+  let axisTicks;
+  let tickFormat;
+  if (strategy === 'quarter') {
+    axisTicks = _quarterlyTicks(dated);
+    tickFormat = (d) =>
+      d.getUTCMonth() === 0
+        ? String(d.getUTCFullYear())
+        : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  } else if (strategy === 'year') {
+    axisTicks = 'year';
+    tickFormat = (d) => String(d.getUTCFullYear());
+  } else {
+    axisTicks = 'month';
+    tickFormat = (d) =>
+      d.getUTCMonth() === 0
+        ? String(d.getUTCFullYear())
+        : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+  }
+
   const totalByModality = new Map();
   for (const r of rows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
   const presentModalities = Array.from(totalByModality.keys())
@@ -86,13 +132,8 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
     marginBottom: 50,
     x: {
       type: 'utc',
-      ticks: xTicks,
-      tickFormat: xTicks === 'year'
-        ? (d) => String(d.getUTCFullYear())
-        : (d) =>
-            d.getUTCMonth() === 0
-              ? d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' })
-              : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' }),
+      ticks: axisTicks,
+      tickFormat,
     },
     y: { label: 'Acquisitions', grid: true },
     color: { domain: colorDomain, range: colorRange, legend: true },
