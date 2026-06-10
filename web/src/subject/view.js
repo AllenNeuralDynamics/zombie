@@ -256,13 +256,45 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
     const records = await queryDocDb({ 'subject.subject_id': subjectId }, { signal });
     console.debug('[SubjectView] queryDocDb returned', records.length, 'records for', subjectId, 'aborted:', signal?.aborted);
 
-    if (!records.length) {
-      loadingEl.replaceWith(_errorEl(`No records found for subject ID "${subjectId}".`));
-      return;
-    }
+    let bundle;
+    let hasProceduresFallback = false;
 
-    // Organise into a bundle
-    const bundle = organizeSubjectData(records, subjectId);
+    if (!records.length) {
+      loadingEl.className = 'loading-message';
+      loadingEl.textContent = 'No DocDB records found. Trying procedures service\u2026';
+      let procData = null;
+      let subjectData = null;
+      try {
+        [procData, subjectData] = await Promise.all([
+          _fetchMetadataServiceFallback(`procedures/${encodeURIComponent(subjectId)}`, signal),
+          _fetchMetadataServiceFallback(`subject/${encodeURIComponent(subjectId)}`, signal),
+        ]);
+      } catch (err) {
+        if (err?.name === 'AbortError' || signal?.aborted) {
+          console.debug('[SubjectView] fallback aborted for', subjectId);
+          return;
+        }
+        console.warn('[SubjectView] Procedures fallback failed:', err);
+      }
+      if (signal?.aborted) return;
+      if (!procData || (!procData.subject_procedures?.length && !procData.specimen_procedures?.length)) {
+        loadingEl.replaceWith(_errorEl(`No records found for subject ID "${subjectId}".`));
+        return;
+      }
+      bundle = {
+        subject: subjectData ?? { subject_id: subjectId },
+        procedures: {
+          subject_procedures: procData.subject_procedures ?? [],
+          specimen_procedures: procData.specimen_procedures ?? [],
+          coordinate_system: null,
+        },
+        acquisitions: [],
+        instruments: new Map(),
+      };
+      hasProceduresFallback = true;
+    } else {
+      bundle = organizeSubjectData(records, subjectId);
+    }
 
     // Build timeline events
     const events = buildTimelineEvents(bundle);
@@ -285,7 +317,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     const assetsSection = document.createElement('div');
     assetsSection.className = 'subject-assets-section';
-    assetsSection.innerHTML = '<h3>Assets</h3><p class="subject-loading">Loading assets…</p>';
+    assetsSection.innerHTML = hasProceduresFallback
+      ? '<h3>Assets</h3><p class="detail-placeholder">Asset data unavailable (procedures-only fallback).</p>'
+      : '<h3>Assets</h3><p class="subject-loading">Loading assets\u2026</p>';
 
     // Render the initial placeholder
     renderEventDetail(null, detailContainer);
@@ -311,7 +345,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
     contentEl.appendChild(assetsSection);
 
     // Async: fetch DuckDB asset data (projects + grouped assets table)
-    if (coordinator) {
+    if (!hasProceduresFallback && coordinator) {
       _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then((result) => {
         if (!result) return;
         const { tableEl, assets } = result;
@@ -333,7 +367,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
         console.error('[SubjectView] Asset fetch failed:', err);
         assetsSection.innerHTML = `<h3>Assets</h3><p class="error-banner">Failed to load assets: ${err.message}</p>`;
       });
-    } else {
+    } else if (!hasProceduresFallback) {
       assetsSection.innerHTML = '<h3>Assets</h3><p class="detail-placeholder">No data connection available.</p>';
     }
 
@@ -367,6 +401,23 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   const tableEl = buildAssetsTable(assets, sourceMap);
   assetsSection.appendChild(tableEl);
   return { tableEl, assets };
+}
+
+async function _fetchMetadataServiceFallback(path, signal) {
+  const url = `https://aind-metadata-service/api/v2/${path}`;
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), 180_000);
+  if (signal) {
+    signal.addEventListener('abort', () => timeoutController.abort(), { once: true });
+  }
+  try {
+    const resp = await fetch(url, { signal: timeoutController.signal });
+    clearTimeout(timeoutId);
+    return await resp.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    throw err;
+  }
 }
 
 function _errorEl(msg) {

@@ -1041,9 +1041,18 @@ function loadHistogram(coord, { assetFilter }, containerEl) {
     )
     .then((result) => {
       const rows = arrowTableToRows(result);
-      const width = containerEl.getBoundingClientRect().width || 500;
-      const plot = buildModalityHistogram(rows, width);
-      if (plot) containerEl.appendChild(plot);
+
+      function render() {
+        const width = containerEl.getBoundingClientRect().width || 500;
+        const plot = buildModalityHistogram(rows, width);
+        containerEl.innerHTML = '';
+        if (plot) containerEl.appendChild(plot);
+      }
+
+      render();
+
+      const ro = new ResizeObserver(() => render());
+      ro.observe(containerEl);
     })
     .catch((err) => {
       console.error('[PlatformOverview] histogram query failed:', err?.message ?? err);

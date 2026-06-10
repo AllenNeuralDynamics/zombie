@@ -48,10 +48,26 @@ const PUBLICATIONS = [
     journal: 'Cell Reports',
     year: 2025,
     doi: '10.1016/j.celrep.2025.116363',
+    abstract: 'Neurons display remarkable diversity in their anatomical, molecular, and physiological properties. Although observed stereotypy in subsets of neurons is a pillar of neuroscience, clustering in high-dimensional feature spaces, such as those defined by single-cell RNA sequencing (RNA-seq) data, is often inconclusive, with cells seemingly occupying continuous, rather than discrete, regions. In the retina, a layered structure, neurons of the same discrete type avoid spatial proximity with each other. While this principle, which is independent of clustering in feature space, has been a gold standard for retinal cell types, its applicability to the cortex has been only sparsely explored. Here, we provide evidence for such a mosaic hypothesis by developing a statistical point process analysis framework for spatial transcriptomic data. We demonstrate spatial avoidance across many excitatory and inhibitory neuronal types. Spatial avoidance disappears when cell types are merged, potentially offering a gold-standard metric for evaluating the purity of putative cell types.',
     authors: [
-      { name: 'Yiliu Wang' },
-      { name: 'Christof Koch' },
-      { name: 'Uygar Sümbül' },
+      { name: 'Yiliu Wang', publication_order: 1, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'lead' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Formal analysis', level: 'lead' },
+        { role: 'Writing – original draft', level: 'equal' },
+      ]},
+      { name: 'Christof Koch', publication_order: 2, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+      ]},
+      { name: 'Uygar Sümbül', publication_order: 3, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'lead' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+      ]},
     ],
   },
   {
@@ -59,19 +75,110 @@ const PUBLICATIONS = [
     journal: 'Neurobiology of Disease',
     year: 2025,
     doi: '10.1016/j.nbd.2025.107072',
+    abstract: 'Tauopathies are progressive neurodegenerative diseases characterized by cellular accumulation of the microtubule-associated protein tau. Evidence suggests tau is a prion, propagating pathology across brain networks via unique transmissible assemblies which mediate distinct neuropathologies in model systems. Neuroimaging has identified network alterations reflecting distinct patterns of brain atrophy in tauopathy patients. Preclinical studies confirmed transmission of pathological tau between connected brain areas, but relied on inoculation of pathogenic tau protein, leaving a gap in experimental evidence that spontaneous tau aggregates act as prions. We used anti-phospho-tau nanobodies in combination with serial two-photon tomography to immunostain and image whole brains from male and female PS19 mice, which have pan-neuronal expression of full-length human tau containing the P301S mutation. We analyzed patterns of phospho-tau deposition across established brain networks at multiple ages, testing the relationship between structural connectivity and patterns of progressive pathology. We identified core regions with early phospho-tau deposition, and used network propagation modeling to determine the link between tau pathology and connectivity strength. We found that tauopathy progression correlated with structural connectivity, consistent with the prion model. Spontaneous tau propagation was biased in the retrograde direction. These data suggest that despite widespread pathological human tau expression in PS19 mice, spontaneous phospho-tau pathology initiates and propagates along specific brain networks.',
     authors: [
-      { name: 'Denise M.O. Ramirez' },
-      { name: 'Jennifer D. Whitesell' },
-      { name: 'Nikhil Bhagwat' },
-      { name: 'Talitha L. Thomas' },
-      { name: 'Apoorva D. Ajay' },
-      { name: 'Ariana Nawaby' },
-      { name: 'Benoît Delatour' },
-      { name: 'Sylvie Bay' },
-      { name: 'Pierre LaFaye' },
-      { name: 'Julie A. Harris' },
-      { name: 'Julian P. Meeks' },
-      { name: 'Marc I. Diamond' },
+      { name: 'Denise M.O. Ramirez', publication_order: 1, affiliations: ['Department of Neurology, Peter O’Donnell Jr. Brain Institute, University of Texas Southwestern Medical Center, Dallas, TX, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Data curation', level: 'equal' },
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Project Administration', level: 'equal' },
+        { role: 'Validation', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Jennifer D. Whitesell', publication_order: 2, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA', 'Cajal Neuroscience, Seattle, WA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+        { role: 'Software', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Nikhil Bhagwat', publication_order: 3, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA', 'McConnell Brain Imaging Centre, The Neuro (Montreal Neurological Institute-Hospital), McGill University, Montreal, Quebec, Canada'], credit_levels: [
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Software', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Talitha L. Thomas', publication_order: 4, affiliations: ['Center for Alzheimer’s and Neurodegenerative Diseases, Peter O’Donnell Jr. Brain Institute, University of Texas Southwestern Medical Center, Dallas, TX, USA'], credit_levels: [
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Project Administration', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+      ]},
+      { name: 'Apoorva D. Ajay', publication_order: 5, affiliations: ['Department of Neurology, Peter O’Donnell Jr. Brain Institute, University of Texas Southwestern Medical Center, Dallas, TX, USA'], credit_levels: [
+        { role: 'Data curation', level: 'equal' },
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+        { role: 'Software', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Ariana Nawaby', publication_order: 6, affiliations: ['Department of Neurology, Peter O’Donnell Jr. Brain Institute, University of Texas Southwestern Medical Center, Dallas, TX, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+        { role: 'Software', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Benoît Delatour', publication_order: 7, affiliations: ['Paris Brain Institute (ICM), CNRS UMR 7225, INSERM U1127, Sorbonne Université, Hôpital de la Pitié-Salpêtrière, Paris, France'], credit_levels: [
+        { role: 'Resources', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Sylvie Bay', publication_order: 8, affiliations: ['Unité de Chimie des Biomolécules, Institut Pasteur, Université Paris Cité, CNRS UMR 3523, Paris, France'], credit_levels: [
+        { role: 'Resources', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Pierre LaFaye', publication_order: 9, affiliations: ['Antibody Engineering Platform, Institut Pasteur, Université Paris Cité, CNRS UMR 3528, Paris, France'], credit_levels: [
+        { role: 'Resources', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Julie A. Harris', publication_order: 10, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Funding Acquisition', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Project Administration', level: 'equal' },
+        { role: 'Supervision', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Julian P. Meeks', publication_order: 11, affiliations: ['Department of Neuroscience, University of Rochester Medical School, Rochester, NY, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Data curation', level: 'equal' },
+        { role: 'Formal analysis', level: 'equal' },
+        { role: 'Funding Acquisition', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Project Administration', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+        { role: 'Software', level: 'equal' },
+        { role: 'Supervision', level: 'equal' },
+        { role: 'Validation', level: 'equal' },
+        { role: 'Visualization', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Marc I. Diamond', publication_order: 12, affiliations: ['Center for Alzheimer’s and Neurodegenerative Diseases, Peter O’Donnell Jr. Brain Institute, University of Texas Southwestern Medical Center, Dallas, TX, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Funding Acquisition', level: 'equal' },
+        { role: 'Investigation', level: 'equal' },
+        { role: 'Project Administration', level: 'equal' },
+        { role: 'Resources', level: 'equal' },
+        { role: 'Supervision', level: 'equal' },
+        { role: 'Writing – original draft', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
     ],
   },
   {
@@ -79,16 +186,57 @@ const PUBLICATIONS = [
     journal: 'Nature Communications',
     year: 2025,
     doi: '10.1038/s41467-025-64259-4',
+    abstract: 'Spatial transcriptomics offers unique opportunities to define the spatial organization of tissues and organs, such as the mouse brain. We address a key bottleneck in the analysis of organ-scale spatial transcriptomic data by establishing a workflow for self-supervised spatial domain detection that is scalable to multimillion-cell datasets. This workflow uses a self-supervised framework for learning latent representations of tissue spatial domains or niches. We use an encoder-decoder architecture, which we named CellTransformer, to hierarchically learn higher-order tissue features from lower-level cellular and molecular statistical patterns. Coupling our representation learning workflow with minibatched GPU-accelerated clustering algorithms allows us to scale to multi-million cell MERFISH datasets where other methods cannot. CellTransformer is effective at integrating cells across tissue sections, identifying domains highly similar to ones in existing ontologies such as Allen Mouse Brain Common Coordinate Framework (CCF) while allowing discovery of hundreds of uncataloged areas with minimal loss of domain spatial coherence. CellTransformer domains recapitulate previous neuroanatomical studies of areas in the subiculum and superior colliculus and characterize putatively uncataloged subregions in subcortical areas, which currently lack subregion annotation. CellTransformer advances the state of the art for spatial transcriptomics by providing a performant solution for the detection of fine-grained tissue domains from spatial transcriptomics data.',
     authors: [
-      { name: 'Alex J. Lee' },
-      { name: 'Alma Dubuc' },
-      { name: 'Michael Kunst' },
-      { name: 'Shenqin Yao' },
-      { name: 'Nicholas Lusk' },
-      { name: 'Lydia Ng' },
-      { name: 'Hongkui Zeng' },
-      { name: 'Bosiljka Tasic' },
-      { name: 'Reza Abbasi-Asl' },
+      { name: 'Alex J. Lee', publication_order: 1, affiliations: ['Department of Neurology, University of California, San Francisco, CA, USA', 'UCSF Weill Institute for Neurosciences, San Francisco, CA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Formal analysis', level: 'lead' },
+        { role: 'Investigation', level: 'lead' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Writing – original draft', level: 'lead' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Alma Dubuc', publication_order: 2, affiliations: ['Department of Neurology, University of California, San Francisco, CA, USA', 'UCSF Weill Institute for Neurosciences, San Francisco, CA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Michael Kunst', publication_order: 3, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Shenqin Yao', publication_order: 4, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Nicholas Lusk', publication_order: 5, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Lydia Ng', publication_order: 6, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Hongkui Zeng', publication_order: 7, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Bosiljka Tasic', publication_order: 8, affiliations: ['Allen Institute for Brain Science, Seattle, WA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Formal analysis', level: 'supporting' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Writing – original draft', level: 'supporting' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
+      { name: 'Reza Abbasi-Asl', publication_order: 9, affiliations: ['Department of Neurology, University of California, San Francisco, CA, USA', 'UCSF Weill Institute for Neurosciences, San Francisco, CA, USA', 'Department of Bioengineering and Therapeutic Sciences, University of California, San Francisco, CA, USA'], credit_levels: [
+        { role: 'Conceptualization', level: 'equal' },
+        { role: 'Formal analysis', level: 'lead' },
+        { role: 'Investigation', level: 'lead' },
+        { role: 'Methodology', level: 'equal' },
+        { role: 'Writing – original draft', level: 'lead' },
+        { role: 'Writing – review & editing', level: 'equal' },
+      ]},
     ],
   },
   {
@@ -472,7 +620,15 @@ function PubCard({ pub, displayMode, bouncing, expanded, onToggle, cardStyle }) 
         </div>
       </div>
       ${expanded && html`
-        <div class="demo-card-preview" ref=${previewRef}></div>
+        <div class="demo-card-preview">
+          ${pub.abstract && html`
+            <div class="demo-abstract">
+              <div class="demo-abstract-label">Abstract</div>
+              <p class="demo-abstract-text">${pub.abstract}</p>
+            </div>
+          `}
+          <div ref=${previewRef}></div>
+        </div>
       `}
     </div>
   `;
@@ -504,8 +660,8 @@ function DemoPage() {
     ? PUBLICATIONS.findIndex(p => p.doi === expandedDoi)
     : -1;
 
-  // Compute per-card style: expanded card spans full width; cards that share its
-  // row but sit to its left get pushed below via CSS `order`.
+  // Compute per-card style: expanded card spans full width; all cards get an
+  // explicit `order` so later-row cards don't float before the expanded card.
   function cardStyle(idx) {
     if (expandedIdx === -1 || cols <= 1) {
       return idx === expandedIdx ? { gridColumn: '1 / -1' } : {};
@@ -525,8 +681,9 @@ function DemoPage() {
         : idx - rowStart - 1;        // peer was to the right
       return { order: rowStart + 1 + peerPos };
     }
-    // All other cards keep their natural order
-    return {};
+    // All other cards: explicit natural order so they don't default to 0
+    // and accidentally sort before the expanded card.
+    return { order: idx };
   }
 
   function toggleCard(doi) {
@@ -540,8 +697,8 @@ function DemoPage() {
           <div>
             <h1>Allen Institute Publications</h1>
             <p class="demo-page-subtitle">
-              Recent publications with author contribution tracking.
-              Click <strong>Explore</strong> to view the full contribution widget.
+              Recent publications with exploratory author contribution tracking.
+              Click <strong>Explore</strong> to view details about each publication.
             </p>
           </div>
           <${SettingsGear}
@@ -783,6 +940,25 @@ function injectDemoStyles() {
       padding-top: 20px;
       border-top: 1px solid rgba(0, 0, 0, 0.1);
     }
+    .demo-abstract {
+      margin-bottom: 20px;
+    }
+    .demo-abstract-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6b7280;
+      margin-bottom: 6px;
+    }
+    .demo-abstract-text {
+      font-size: 13px;
+      line-height: 1.65;
+      color: #374151;
+      margin: 0;
+    }
+    [data-theme="dark"] .demo-abstract-label { color: #9ca3af; }
+    [data-theme="dark"] .demo-abstract-text { color: #d1d5db; }
 
     /* Settings gear */
     .demo-settings {
