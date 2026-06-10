@@ -4042,6 +4042,23 @@ body {
   border-top: 2px solid var(--surface-border, #e5e7eb);
 }
 
+.fib-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 5px 0 0;
+  color: var(--color-muted, #666);
+  font-size: 0.7em;
+  line-height: 1;
+  vertical-align: middle;
+  display: inline-block;
+  transition: transform 0.15s;
+}
+
+.fib-group-expanded .fib-toggle-btn {
+  transform: rotate(90deg);
+}
+
 .assets-table .fib-asset-row {
   opacity: 0.82;
   background: var(--surface-card, #f8f8f8);

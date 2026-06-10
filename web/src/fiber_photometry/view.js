@@ -164,7 +164,7 @@ export function groupWideRows(wideRows, channelCols) {
         acquisition_start_time: row.acquisition_start_time ?? null,
       };
       for (const col of channelCols) groupRow[col] = row[col] ?? '';
-      groupMap.set(key, { groupRow, assets: [] });
+      groupMap.set(key, { groupKey: encodeURIComponent(key), groupRow, assets: [] });
     }
     const group = groupMap.get(key);
     group.assets.push(row);
@@ -337,59 +337,65 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
 // ---------------------------------------------------------------------------
 
 /**
- * Render a group header row (shared subject/project/fiber info, no links) followed
- * by one child row per asset showing the asset name and outbound links.
+ * Render a group header row (shared subject/project/fiber info, no links) and,
+ * when not collapsed, one child row per asset showing the asset name and outbound links.
  *
- * @param {{ groupRow: object, assets: object[] }} group
+ * @param {{ groupKey: string, groupRow: object, assets: object[] }} group
  * @param {string[]} visibleColumns
  * @param {string[]} channelCols
+ * @param {boolean} collapsed — when true, child asset rows are hidden
  * @returns {string} HTML string
  */
-export function renderFibGroupRows(group, visibleColumns, channelCols) {
-  const { groupRow, assets } = group;
+export function renderFibGroupRows(group, visibleColumns, channelCols, collapsed) {
+  const { groupKey, groupRow, assets } = group;
+  const toggleArrow = `<button class="fib-toggle-btn" aria-label="${collapsed ? 'Expand' : 'Collapse'} group">▶</button>`;
+  const expandedClass = collapsed ? '' : ' fib-group-expanded';
 
-  // --- Group header row (subject / project / fiber cols, no links) ---
-  const headerCells = visibleColumns.map((col) => {
-    if (col === 'links') return '<td></td>';
-    if (col === 'subject_id') {
-      return groupRow.subject_id
-        ? `<td><a href="/subject?subject_id=${encodeURIComponent(String(groupRow.subject_id))}">${escHtml(String(groupRow.subject_id))}</a></td>`
-        : '<td></td>';
-    }
-    if (col === 'project_name') {
-      return groupRow.project_name
-        ? `<td><a href="/project?project=${encodeURIComponent(String(groupRow.project_name))}">${escHtml(String(groupRow.project_name))}</a></td>`
-        : '<td></td>';
-    }
-    if (col.endsWith('/Channels')) {
+  const headerCells = visibleColumns.map((col, i) => {
+    let content;
+    if (col === 'links') {
+      content = '';
+    } else if (col === 'subject_id') {
+      content = groupRow.subject_id
+        ? `<a href="/subject?subject_id=${encodeURIComponent(String(groupRow.subject_id))}">${escHtml(String(groupRow.subject_id))}</a>`
+        : '';
+    } else if (col === 'project_name') {
+      content = groupRow.project_name
+        ? `<a href="/project?project=${encodeURIComponent(String(groupRow.project_name))}">${escHtml(String(groupRow.project_name))}</a>`
+        : '';
+    } else if (col.endsWith('/Channels')) {
       const lines = String(groupRow[col] ?? '').split('\n').filter(Boolean);
-      return `<td>${lines.map((l) => escHtml(l)).join('<br>')}</td>`;
+      content = lines.map((l) => escHtml(l)).join('<br>');
+    } else {
+      const val = groupRow[col];
+      content = val != null && val !== '' ? escHtml(String(val)) : '';
     }
-    const val = groupRow[col];
-    return `<td>${val != null && val !== '' ? escHtml(String(val)) : ''}</td>`;
+    if (i === 0) return `<td>${toggleArrow}${content}</td>`;
+    return `<td>${content}</td>`;
   });
 
-  let html = `<tr class="fib-group-row">${headerCells.join('')}</tr>`;
+  let html = `<tr class="fib-group-row${expandedClass}" data-group-key="${escHtml(groupKey)}">${headerCells.join('')}</tr>`;
 
-  // --- Asset child rows (↳ name + links only) ---
-  const nonLinksCount = visibleColumns.filter((c) => c !== 'links').length;
-  const hasLinksCol = visibleColumns.includes('links');
+  if (!collapsed) {
+    const nonLinksCount = visibleColumns.filter((c) => c !== 'links').length;
+    const hasLinksCol = visibleColumns.includes('links');
 
-  for (const asset of assets) {
-    const assetName = escHtml(asset.asset_name ?? '');
-    const s3Href = buildS3ConsoleUrl(asset.location ?? null);
-    const qcHref = buildQcLink(asset.asset_name ?? null);
-    const metaHref = buildMetadataLink(asset.asset_name ?? null);
-    const coHref = buildCoLink(asset.code_ocean ?? null);
-    const linksHtml =
-      `${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ` +
-      `${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}`;
+    for (const asset of assets) {
+      const assetName = escHtml(asset.asset_name ?? '');
+      const s3Href = buildS3ConsoleUrl(asset.location ?? null);
+      const qcHref = buildQcLink(asset.asset_name ?? null);
+      const metaHref = buildMetadataLink(asset.asset_name ?? null);
+      const coHref = buildCoLink(asset.code_ocean ?? null);
+      const linksHtml =
+        `${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ` +
+        `${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}`;
 
-    html +=
-      `<tr class="fib-asset-row">` +
-      `<td colspan="${nonLinksCount}" class="fib-asset-name-cell">↳ ${assetName}</td>` +
-      (hasLinksCol ? `<td class="link-cell">${linksHtml}</td>` : '') +
-      `</tr>`;
+      html +=
+        `<tr class="fib-asset-row">` +
+        `<td colspan="${nonLinksCount}" class="fib-asset-name-cell">↳ ${assetName}</td>` +
+        (hasLinksCol ? `<td class="link-cell">${linksHtml}</td>` : '') +
+        `</tr>`;
+    }
   }
 
   return html;
@@ -715,6 +721,22 @@ export function createFiberPhotometryView(coord) {
     table.appendChild(thead);
     table.appendChild(tbody);
 
+    const expandedGroups = new Set();
+
+    tbody.addEventListener('click', (e) => {
+      const btn = e.target.closest('.fib-toggle-btn');
+      if (!btn) return;
+      const tr = btn.closest('tr.fib-group-row');
+      if (!tr) return;
+      const key = tr.dataset.groupKey;
+      if (expandedGroups.has(key)) {
+        expandedGroups.delete(key);
+      } else {
+        expandedGroups.add(key);
+      }
+      refresh();
+    });
+
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
 
@@ -799,47 +821,23 @@ export function createFiberPhotometryView(coord) {
       return filterGroups(sortedBase, filters);
     }
 
-    /**
-     * Split groups into pages such that each page's total DOM rows
-     * (1 header + N asset child rows per group) stays within maxRows.
-     * A single group that exceeds maxRows on its own still gets its own page.
-     * Returns an array of { start, end, rowCount } index ranges into groups[].
-     */
-    function buildPageBoundaries(groups, maxRows) {
-      const boundaries = [];
-      let i = 0;
-      while (i < groups.length) {
-        let rowCount = 0;
-        let j = i;
-        while (j < groups.length) {
-          const groupRows = 1 + groups[j].assets.length;
-          if (rowCount > 0 && rowCount + groupRows > maxRows) break;
-          rowCount += groupRows;
-          j++;
-        }
-        boundaries.push({ start: i, end: j, rowCount });
-        i = j;
-      }
-      return boundaries;
-    }
-
     function refresh() {
       const groups = visibleGroups();
-      const pageBounds = buildPageBoundaries(groups, PAGE_SIZE);
-      const totalPages = Math.max(1, pageBounds.length);
+      const totalPages = Math.max(1, Math.ceil(groups.length / PAGE_SIZE));
       if (page >= totalPages) page = totalPages - 1;
 
-      const { start: startIdx, end: endIdx, rowCount } = pageBounds[page] ?? { start: 0, end: 0, rowCount: 0 };
-      const pageGroups = groups.slice(startIdx, endIdx);
-      tbody.innerHTML = pageGroups.map((group) => renderFibGroupRows(group, visibleColumns, channelCols)).join('');
+      const start = page * PAGE_SIZE;
+      const end = Math.min(start + PAGE_SIZE, groups.length);
+      const pageGroups = groups.slice(start, end);
 
-      const rowsBefore = pageBounds.slice(0, page).reduce((sum, b) => sum + b.rowCount, 0);
-      const totalRows = pageBounds.reduce((sum, b) => sum + b.rowCount, 0);
-      const dispStart = totalRows === 0 ? 0 : rowsBefore + 1;
-      const dispEnd = rowsBefore + rowCount;
+      tbody.innerHTML = pageGroups.map((group) =>
+        renderFibGroupRows(group, visibleColumns, channelCols, !expandedGroups.has(group.groupKey)),
+      ).join('');
+
+      const dispStart = groups.length === 0 ? 0 : start + 1;
       pagingBar.innerHTML = `
         <button class="page-btn" id="fib-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
-        <span class="page-info">${dispStart}–${dispEnd} of ${totalRows.toLocaleString()} rows</span>
+        <span class="page-info">${dispStart}–${end} of ${groups.length.toLocaleString()} groups</span>
         <button class="page-btn" id="fib-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
       `;
       pagingBar.querySelector('#fib-prev-page').addEventListener('click', () => { page--; refresh(); });
