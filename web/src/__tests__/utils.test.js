@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escHtml, formatDatetime, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter, aggregateByProject } from '../lib/utils.js';
+import { escHtml, formatDatetime, formatDatetimeRaw, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter, aggregateByProject } from '../lib/utils.js';
 
 describe('escHtml', () => {
   it('escapes ampersands', () => expect(escHtml('a&b')).toBe('a&amp;b'));
@@ -23,6 +23,14 @@ describe('formatDate', () => {
   it('returns empty for null', () => expect(formatDate(null)).toBe(''));
   it('returns raw string for invalid date', () => expect(formatDate('not-a-date')).toBe('not-a-date'));
   it('handles empty string', () => expect(formatDate('')).toBe(''));
+});
+
+describe('formatDatetimeRaw', () => {
+  it('returns wall-clock time from a UTC string unchanged', () => expect(formatDatetimeRaw('2024-01-31T16:23:16Z')).toBe('2024-01-31 16:23'));
+  it('returns wall-clock time from a string with offset unchanged', () => expect(formatDatetimeRaw('2024-01-31T08:05:00-08:00')).toBe('2024-01-31 08:05'));
+  it('returns empty for null', () => expect(formatDatetimeRaw(null)).toBe(''));
+  it('returns raw string for non-datetime input', () => expect(formatDatetimeRaw('not-a-date')).toBe('not-a-date'));
+  it('handles empty string', () => expect(formatDatetimeRaw('')).toBe(''));
 });
 
 describe('sortRows', () => {

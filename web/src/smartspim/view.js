@@ -9,7 +9,7 @@
  */
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
-import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { escHtml, formatDatetime, formatDatetimeRaw, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
@@ -43,7 +43,7 @@ const COLUMN_LABELS = {
   subject_id: 'Subject',
   project_name: 'Project',
   genotype: 'Genotype',
-  acquisition_start_time: 'Acquired (UTC)',
+  acquisition_start_time: 'Acquired',
   processing_end_time: 'Processed (UTC)',
   channels: 'Channels',
   processed: 'Processed',
@@ -154,7 +154,7 @@ export function renderSmartSpimRow(row, visibleColumns) {
       ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
       : '',
     genotype: escHtml(String(row.genotype ?? '')),
-    acquisition_start_time: escHtml(formatDatetime(row.acquisition_start_time ?? null)),
+    acquisition_start_time: escHtml(formatDatetimeRaw(row.acquisition_start_time ?? null)),
     processing_end_time: escHtml(formatDatetime(row.processing_end_time ?? null)),
     channels: String(row.channels ?? '').split('\n').filter(Boolean).map(escHtml).join('<br>'),
     processed: processedLabel,

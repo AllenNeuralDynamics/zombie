@@ -39,6 +39,18 @@ export function formatDatetime(iso) {
 }
 
 /**
+ * Format an ISO datetime string to "YYYY-MM-DD HH:MM" by reading the
+ * wall-clock digits directly from the string — no timezone conversion.
+ * @param {string|null} iso
+ * @returns {string}
+ */
+export function formatDatetimeRaw(iso) {
+  if (!iso) return '';
+  const m = String(iso).match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : String(iso);
+}
+
+/**
  * Format an ISO datetime string to "YYYY-MM-DD" (UTC, date only).
  * @param {string|null} iso
  * @returns {string}
