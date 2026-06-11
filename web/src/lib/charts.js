@@ -38,21 +38,18 @@ function _isoDate(d) {
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
 }
 
-function _selectTickStrategy(chartWidth, dated) {
-  const times = dated.map((a) => new Date(a.acquisition_start_time).getTime()).filter((t) => !isNaN(t));
-  if (times.length === 0) return 'month';
-  const yearsSpan = Math.max(1, (Math.max(...times) - Math.min(...times)) / (365.25 * 24 * 3600 * 1000));
+function _selectTickStrategy(chartWidth, spanMs) {
+  if (spanMs <= 0) return 'month';
+  const yearsSpan = Math.max(1, spanMs / (365.25 * 24 * 3600 * 1000));
   const pixelsPerMonth = chartWidth / (yearsSpan * 12);
   if (pixelsPerMonth >= 26) return 'month';
   if (pixelsPerMonth >= 15) return 'quarter';
   return 'year';
 }
 
-function _quarterlyTicks(dated) {
-  const times = dated.map((a) => new Date(a.acquisition_start_time).getTime()).filter((t) => !isNaN(t));
-  if (times.length === 0) return [];
-  const minYear = new Date(Math.min(...times)).getUTCFullYear();
-  const maxYear = new Date(Math.max(...times)).getUTCFullYear();
+function _quarterlyTicks(domainMin, domainMax) {
+  const minYear = domainMin.getUTCFullYear();
+  const maxYear = domainMax.getUTCFullYear();
   const ticks = [];
   for (let y = minYear; y <= maxYear; y++) {
     for (const m of [0, 3, 6, 9]) {
@@ -102,12 +99,28 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
-  const strategy = xTicks === 'auto' ? _selectTickStrategy(chartWidth, dated) : xTicks;
+  const ONE_YEAR_MS = 365.25 * 24 * 3600 * 1000;
+  const visibleTimes = rows.map((r) => r.week.getTime()).filter((t) => !isNaN(t));
+  let xDomain;
+  if (visibleTimes.length > 0) {
+    const rawMin = Math.min(...visibleTimes);
+    const rawMax = Math.max(...visibleTimes);
+    if (rawMax - rawMin < ONE_YEAR_MS) {
+      const median = (rawMin + rawMax) / 2;
+      const half = ONE_YEAR_MS / 2;
+      xDomain = [new Date(median - half), new Date(median + half)];
+    } else {
+      xDomain = [new Date(rawMin), new Date(rawMax)];
+    }
+  }
+
+  const domainSpanMs = xDomain ? xDomain[1].getTime() - xDomain[0].getTime() : 0;
+  const strategy = xTicks === 'auto' ? _selectTickStrategy(chartWidth, domainSpanMs) : xTicks;
 
   let axisTicks;
   let tickFormat;
   if (strategy === 'quarter') {
-    axisTicks = _quarterlyTicks(dated);
+    axisTicks = xDomain ? _quarterlyTicks(xDomain[0], xDomain[1]) : [];
     tickFormat = (d) =>
       d.getUTCMonth() === 0
         ? String(d.getUTCFullYear())
@@ -139,6 +152,7 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
       type: 'utc',
       ticks: axisTicks,
       tickFormat,
+      domain: xDomain,
     },
     y: { label: 'Acquisitions', grid: true },
     color: { domain: colorDomain, range: colorRange, legend: showLegend },
