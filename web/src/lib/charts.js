@@ -75,7 +75,7 @@ function _quarterlyTicks(dated) {
  *   x-axis. 'auto' selects the best fit based on containerWidth and data date range.
  * @returns {HTMLElement|null} The plot element, or null if there is no data.
  */
-export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'auto' } = {}) {
+export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'auto', hiddenModalities = new Set(), showLegend = true } = {}) {
   const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
   if (dated.length === 0) return null;
 
@@ -91,10 +91,14 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
     }
   }
 
-  const rows = Array.from(counts.entries()).map(([key, n]) => {
+  const allRows = Array.from(counts.entries()).map(([key, n]) => {
     const [week, modality] = key.split('|');
     return { week: new Date(week), modality, n };
   });
+
+  const rows = hiddenModalities.size > 0
+    ? allRows.filter((r) => !hiddenModalities.has(r.modality))
+    : allRows;
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
@@ -120,8 +124,9 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
   }
 
   const totalByModality = new Map();
-  for (const r of rows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
+  for (const r of allRows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
   const presentModalities = Array.from(totalByModality.keys())
+    .filter((m) => !hiddenModalities.has(m))
     .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
   const colorDomain = presentModalities;
   const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
@@ -136,7 +141,7 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
       tickFormat,
     },
     y: { label: 'Acquisitions', grid: true },
-    color: { domain: colorDomain, range: colorRange, legend: true },
+    color: { domain: colorDomain, range: colorRange, legend: showLegend },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
       Plot.rectY(rows, Plot.stackY({
@@ -148,6 +153,83 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
       })),
     ],
   });
+}
+
+/**
+ * Build an interactive modality histogram with a clickable HTML legend.
+ *
+ * Wraps `buildModalityHistogram` — clicking a legend item toggles that modality
+ * on/off and re-renders only the plot portion.
+ *
+ * @param {object[]} assets        - Raw assets (same as buildModalityHistogram).
+ * @param {number}   containerWidth - Available pixel width.
+ * @param {object}   [opts]        - Same options as buildModalityHistogram (except hiddenModalities/showLegend).
+ * @returns {HTMLElement|null}
+ */
+export function buildInteractiveModalityHistogram(assets, containerWidth = 700, opts = {}) {
+  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
+  if (dated.length === 0) return null;
+
+  const totalByModality = new Map();
+  for (const a of dated) {
+    for (const m of (Array.isArray(a.modalities) ? a.modalities : String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean))) {
+      totalByModality.set(m, (totalByModality.get(m) ?? 0) + 1);
+    }
+  }
+  const allModalities = Array.from(totalByModality.keys())
+    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
+
+  const hidden = new Set();
+  const container = document.createElement('div');
+  container.className = 'modality-histogram-interactive';
+
+  const legend = document.createElement('div');
+  legend.className = 'modality-legend';
+  for (const m of allModalities) {
+    const item = document.createElement('span');
+    item.className = 'modality-legend-item';
+    item.dataset.modality = m;
+
+    const swatch = document.createElement('span');
+    swatch.className = 'modality-legend-swatch';
+    swatch.style.background = MODALITY_COLOR[m] ?? '#aaaaaa';
+    swatch.style.borderColor = MODALITY_COLOR[m] ?? '#aaaaaa';
+
+    const label = document.createTextNode(m);
+    item.appendChild(swatch);
+    item.appendChild(label);
+
+    item.addEventListener('click', () => {
+      if (hidden.has(m)) {
+        hidden.delete(m);
+        item.classList.remove('faded');
+        swatch.style.background = MODALITY_COLOR[m] ?? '#aaaaaa';
+      } else {
+        hidden.add(m);
+        item.classList.add('faded');
+        swatch.style.background = 'transparent';
+      }
+      const newPlot = buildModalityHistogram(assets, containerWidth, { ...opts, hiddenModalities: hidden, showLegend: false });
+      const old = container.querySelector('.modality-plot');
+      if (old) old.remove();
+      if (newPlot) {
+        newPlot.classList.add('modality-plot');
+        container.appendChild(newPlot);
+      }
+    });
+
+    legend.appendChild(item);
+  }
+
+  container.appendChild(legend);
+
+  const initialPlot = buildModalityHistogram(assets, containerWidth, { ...opts, hiddenModalities: hidden, showLegend: false });
+  if (initialPlot) {
+    initialPlot.classList.add('modality-plot');
+    container.appendChild(initialPlot);
+  }
+
+  return container;
 }
 
 /** Fixed colours for known institutions; others fall back to grey shades. */

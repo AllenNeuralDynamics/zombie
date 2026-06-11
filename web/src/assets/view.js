@@ -10,7 +10,7 @@
 
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
-import { buildModalityHistogram } from '../lib/charts.js';
+import { buildInteractiveModalityHistogram } from '../lib/charts.js';
 import { buildQueryBuilder } from './query-builder.js';
 
 // Re-export for backward compatibility with tests
@@ -334,7 +334,7 @@ function buildAssetsOverview(coord) {
         rows.push(r);
       }
       const width = histPlot.getBoundingClientRect().width || 500;
-      const plot = buildModalityHistogram(rows, width, { xTicks: 'year' });
+      const plot = buildInteractiveModalityHistogram(rows, width, { xTicks: 'year' });
       if (plot) histPlot.appendChild(plot);
     })
     .catch((err) => {

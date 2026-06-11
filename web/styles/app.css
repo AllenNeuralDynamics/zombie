@@ -6337,3 +6337,45 @@ body {
   max-height: 300px;
   border-radius: 4px;
 }
+
+/* ── Interactive modality histogram legend ─────────────────────────────── */
+.modality-histogram-interactive {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modality-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  padding: 0 0 0.25rem;
+}
+
+.modality-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  user-select: none;
+  opacity: 1;
+  transition: opacity 0.15s;
+}
+
+.modality-legend-item:hover {
+  opacity: 0.75;
+}
+
+.modality-legend-item.faded {
+  opacity: 0.35;
+}
+
+.modality-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1.5px solid currentColor;
+  flex-shrink: 0;
+}
