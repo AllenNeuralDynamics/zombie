@@ -1,5 +1,5 @@
 /**
- * vr_foraging/view.js — VR Foraging Platform dashboard.
+ * vr_foraging/view.js — Patch Foraging Platform dashboard.
  *
  * Shows the platform overview section (summary stats + QC table) for all
  * assets with acquisition_type = 'AindVrForaging'.

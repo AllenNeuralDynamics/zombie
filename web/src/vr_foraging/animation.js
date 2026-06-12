@@ -1,7 +1,7 @@
 /**
  * vr_foraging/animation.js — VRF pixel-art session animator (horizontal).
  *
- * Side-view of a mouse running left→right through the VR foraging corridor.
+ * Side-view of a mouse running left→right through the patch foraging corridor.
  * Camera follows the mouse: the mouse's current position_cm always maps to
  * MOUSE_X on the canvas. Past sites scroll off to the left, upcoming sites
  * appear on the right.
