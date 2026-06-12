@@ -67,7 +67,6 @@ export default defineConfig({
         names: resolve(__dirname, 'names.html'),
         record: resolve(__dirname, 'record.html'),
         upgrade: resolve(__dirname, 'upgrade.html'),
-        vrf_play: resolve(__dirname, 'vrf_play.html'),
       },
     },
   },

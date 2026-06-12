@@ -6,6 +6,7 @@
  */
 
 import { createPlatformOverview } from '../lib/platform-overview.js';
+import { createSessionPlayer }    from './player.js';
 
 export function createVrForagingView(coord) {
   const container = document.createElement('div');
@@ -17,6 +18,8 @@ export function createVrForagingView(coord) {
       platformKey: 'vr',
     }),
   );
+
+  container.appendChild(createSessionPlayer(coord));
 
   return container;
 }

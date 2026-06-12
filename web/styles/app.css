@@ -6379,3 +6379,131 @@ body {
   border: 1.5px solid currentColor;
   flex-shrink: 0;
 }
+
+/* ====================================================================== */
+/* VR Foraging — Session playback widget                                  */
+/* ====================================================================== */
+
+.vrf-player {
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  background: var(--surface, #ffffff);
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.vrf-player-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.vrf-player-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.vrf-player-selector {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.vrf-player-selector label {
+  color: var(--text-mut, #6a6a6a);
+}
+.vrf-player-selector select {
+  padding: 3px 6px;
+  font: inherit;
+  background: #fff;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px;
+  min-width: 280px;
+}
+
+.vrf-player-status {
+  font-size: 12px;
+  color: var(--text-mut, #6a6a6a);
+  font-style: italic;
+  margin: 4px 0 8px;
+}
+
+/* Cards row */
+.vrf-player .vrf-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.vrf-player .vrf-card {
+  background: #fff;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  padding: 10px 12px;
+  flex: 0 0 auto;
+}
+.vrf-player .vrf-card-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-mut, #6a6a6a);
+  margin-bottom: 6px;
+}
+
+.vrf-player #vrf-stats { line-height: 1.7; min-width: 240px; }
+.vrf-player #vrf-stats b { color: var(--text, #111); }
+.vrf-player .vrf-state-rew { color: #2980b9; font-weight: 600; }
+.vrf-player .vrf-state-no  { color: #c0392b; font-weight: 600; }
+.vrf-player .vrf-state-up  { color: var(--text-mut, #6a6a6a); }
+
+.vrf-player .vrf-card--depletion { width: 300px; }
+.vrf-player #vrf-depletion { min-height: 80px; }
+.vrf-player #vrf-depletion svg { overflow: visible; }
+.vrf-player .vrf-prew { font-size: 11px; color: var(--text-mut, #6a6a6a); margin-bottom: 4px; }
+.vrf-player .vrf-prew b { color: var(--text, #111); font-variant-numeric: tabular-nums; }
+
+.vrf-player .vrf-card--transport { flex: 1 1 320px; min-width: 280px; }
+.vrf-player .vrf-transport {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.vrf-player #vrf-play {
+  background: #fff; border: 1px solid var(--border, #e1e1e1); color: var(--text, #111);
+  border-radius: 4px; padding: 4px 12px; cursor: pointer;
+  font-size: 16px; line-height: 1; min-width: 36px;
+}
+.vrf-player #vrf-play:hover { background: #f5f5f5; }
+.vrf-player #vrf-time { font-size: 12px; font-variant-numeric: tabular-nums; }
+.vrf-player .vrf-scrub-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.vrf-player #vrf-scrub { flex: 1; cursor: pointer; accent-color: #c0392b; }
+.vrf-player .vrf-speed-row {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.vrf-player .vrf-speed-row label { color: var(--text-mut, #6a6a6a); font-size: 11px; }
+.vrf-player #vrf-speed {
+  background: #fff; border: 1px solid var(--border, #e1e1e1); color: var(--text, #111);
+  border-radius: 3px; padding: 2px 6px; cursor: pointer;
+}
+.vrf-player .vrf-keys { font-size: 10px; color: var(--text-mut, #6a6a6a); line-height: 1.8; }
+.vrf-player .vrf-keys kbd {
+  background: #f5f5f5; border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px; padding: 1px 5px; font-family: inherit;
+}
+
+/* Animation stage */
+.vrf-player .vrf-stage-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-mut, #6a6a6a); margin-bottom: 6px;
+}
+.vrf-player #vrf-canvas {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: 240px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  border: 1px solid var(--border, #e1e1e1);
+  background: #fff;
+}

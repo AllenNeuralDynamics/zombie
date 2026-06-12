@@ -20,11 +20,12 @@ OUT.mkdir(parents=True, exist_ok=True)
 # ----------------------------------------------------------------------------
 P = {
     ".": None,             # transparent
-    "F": "#f4d6c4",        # mouse fur (warm light)
-    "f": "#d9a98a",        # mouse fur shadow
-    "E": "#ff9bb3",        # ear / nose pink
+    "F": "#9a9a9a",        # mouse fur (grey)
+    "f": "#bcbcbc",        # mouse belly (lighter grey)
+    "E": "#f4b6c2",        # ear / nose / paw pink
+    "e": "#e07595",        # ear interior darker pink
     "K": "#1a1a1a",        # eye / outline black
-    "T": "#b87a5a",        # tail
+    "T": "#7a7a7a",        # tail (slightly darker grey)
     "W": "#5fb4ff",        # water / reward
     "w": "#b9e0ff",        # water highlight
     "G": "#3a8a4a",        # patch ground green
@@ -67,87 +68,95 @@ def write(name: str, grid: list[str], w: int, h: int):
 
 
 # ============================================================================
-# Mouse — top-down, head pointed up (north). 16x16.
-# K = black outline so the silhouette reads at any zoom.
-# Forepaws (rows 11-12) and hindlegs (rows 13-14) alternate between frames.
+# Mouse — SIDE-VIEW, facing right. 24w × 16h.
+# Classic chunky pixel mouse: grey fur, round head with two ears on top,
+# pointy snout with pink nose, single black eye, plump body, curly tail
+# trailing left, two short pink feet underneath.
 # ============================================================================
 
-mouse_run_a = [
-    # 0123456789012345
-    "................",  # 0
-    "....KEK..KEK....",  # 1 ear outlines + pink
-    "...KEEK..KEEK...",  # 2
-    "...KEFKKKKFEK...",  # 3
-    "....KFFFFFFK....",  # 4
-    "....FKFFFFKF....",  # 5 eyes (K)
-    "...KFFFEEFFFK...",  # 6 pink nose
-    "...KFFFFFFFFK...",  # 7
-    "..KFFffffFFFFK..",  # 8 shoulders + shading
-    "..KFffffffffFK..",  # 9
-    "..KFffffffffFK..",  # 10
-    ".KFK..FFFF..KFK.",  # 11 forepaws extended
-    "..K....FF....K..",  # 12
-    "...KF.FFFF.FK...",  # 13 hindlegs tucked
-    "....KKKTTKKK....",  # 14 rump + tail base
-    "........TT......",  # 15 tail
-]
-
-mouse_run_b = [
-    "................",
-    "....KEK..KEK....",
-    "...KEEK..KEEK...",
-    "...KEFKKKKFEK...",
-    "....KFFFFFFK....",
-    "....FKFFFFKF....",
-    "...KFFFEEFFFK...",
-    "...KFFFFFFFFK...",
-    "..KFFffffFFFFK..",
-    "..KFffffffffFK..",
-    "..KFffffffffFK..",
-    "...KFFFFFFFFK...",  # forepaws tucked
-    "...KFFFFFFFFK...",
-    ".KFK.FFFFFF.KFK.",  # hindlegs extended
-    "..K..KKTTKK..K..",
-    ".......TT.......",
-]
+# Outline (K) wraps everything; F fur, f belly highlight, E pink (ears/nose/feet)
+# e dark pink (ear interior), T tail.
+#
+#  0         1         2
+#  012345678901234567890123
 
 mouse_idle = [
-    "................",
-    "....KEK..KEK....",
-    "...KEEK..KEEK...",
-    "...KEFKKKKFEK...",
-    "....KFFFFFFK....",
-    "....FKFFFFKF....",
-    "...KFFFEEFFFK...",
-    "...KFFFFFFFFK...",
-    "..KFFffffFFFFK..",
-    "..KFffffffffFK..",
-    "..KFffffffffFK..",
-    "...KFFFFFFFFK...",
-    "...KFFFFFFFFK...",
-    "....KFFFFFFK....",
-    "....KKKTTKKK....",
-    "........TT......",
+    "........KK.....KK.......",  # 0  ear tops
+    ".......KEeK...KEeK......",  # 1
+    ".......KEeKKKKKEeK......",  # 2
+    ".......KFFFFFFFFFFK.....",  # 3  head top
+    "......KFFFFFFFFFFFFK....",  # 4
+    "KKKK..KFFFFFKFFFFFFKKK..",  # 5  eye, snout start
+    "KTTKKKFFFFFFFFFFFFFFFEK.",  # 6  tail + snout + nose (E)
+    "K..TKFFFFFFFFFFFFFFFFEK.",  # 7
+    "KTTKFFFFFFFFFFFFFFFFFFK.",  # 8
+    "KK.KFFfffffffffffffFFFK.",  # 9  belly highlight
+    ".KKKFFfffffffffffffFFFK.",  # 10
+    "...KFFfffffffffffffFFK..",  # 11
+    "...KFFKKKFFFFKKKFFFFFK..",  # 12  underside / leg sockets
+    "....KEEKKKKKKKEEKKKKK...",  # 13  feet
+    "....KEEK......KEEK......",  # 14
+    ".....KK........KK.......",  # 15
 ]
 
-# Lick pose: head dipped, big pink tongue sticking up from nose
+# Frame A: front feet planted forward, back feet tucked back.
+mouse_run_a = [
+    "........KK.....KK.......",
+    ".......KEeK...KEeK......",
+    ".......KEeKKKKKEeK......",
+    ".......KFFFFFFFFFFK.....",
+    "......KFFFFFFFFFFFFK....",
+    "KKKK..KFFFFFKFFFFFFKKK..",
+    "KTTKKKFFFFFFFFFFFFFFFEK.",
+    "K..TKFFFFFFFFFFFFFFFFEK.",
+    "KTTKFFFFFFFFFFFFFFFFFFK.",
+    "KK.KFFfffffffffffffFFFK.",
+    ".KKKFFfffffffffffffFFFK.",
+    "...KFFfffffffffffffFFK..",
+    "...KFFFFKFFFFFFFFKFFFK..",  # back leg slightly back
+    "....KKKEEKKKKKKKEEKKK...",
+    "....KEEK........KEEK....",  # back foot trailing, front foot forward
+    "....KKK..........KKK....",
+]
+
+# Frame B: feet swapped (back foot forward, front foot trailing).
+mouse_run_b = [
+    "........KK.....KK.......",
+    ".......KEeK...KEeK......",
+    ".......KEeKKKKKEeK......",
+    ".......KFFFFFFFFFFK.....",
+    "......KFFFFFFFFFFFFK....",
+    "KKKK..KFFFFFKFFFFFFKKK..",
+    "KTTKKKFFFFFFFFFFFFFFFEK.",
+    "K..TKFFFFFFFFFFFFFFFFEK.",
+    "KTTKFFFFFFFFFFFFFFFFFFK.",
+    "KK.KFFfffffffffffffFFFK.",
+    ".KKKFFfffffffffffffFFFK.",
+    "...KFFfffffffffffffFFK..",
+    "...KFFFFKFFFFFFFFKFFFK..",
+    "....KKKKEEKKKKKKEEKKK...",
+    "......KEEK......KEEK....",  # opposite phase
+    "......KKK........KKK....",
+]
+
+# Lick pose: idle + tiny pink tongue at the nose.
 mouse_lick = [
-    "........L.......",  # 0 tongue tip
-    "....KEK.LL.KEK..",
-    "...KEEK.LL.KEEK.",
-    "...KEFKLLLLFEK..",
-    "....KFFLLFFK....",
-    "....FKFLLFKF....",  # eyes squinted
-    "...KFFFLLFFFK...",
-    "...KFFFFFFFFK...",
-    "..KFFffffFFFFK..",
-    "..KFffffffffFK..",
-    "..KFffffffffFK..",
-    "...KFFFFFFFFK...",
-    "...KFFFFFFFFK...",
-    "....KFFFFFFK....",
-    "....KKKTTKKK....",
-    "........TT......",
+    "........KK.....KK.......",
+    ".......KEeK...KEeK......",
+    ".......KEeKKKKKEeK......",
+    ".......KFFFFFFFFFFK.....",
+    "......KFFFFFFFFFFFFK....",
+    "KKKK..KFFFFFKFFFFFFKKK..",
+    "KTTKKKFFFFFFFFFFFFFFFEKE",  # tongue (E) sticking out right
+    "K..TKFFFFFFFFFFFFFFFFEKE",
+    "KTTKFFFFFFFFFFFFFFFFFFK.",
+    "KK.KFFfffffffffffffFFFK.",
+    ".KKKFFfffffffffffffFFFK.",
+    "...KFFfffffffffffffFFK..",
+    "...KFFKKKFFFFKKKFFFFFK..",
+    "....KEEKKKKKKKEEKKKKK...",
+    "....KEEK......KEEK......",
+    ".....KK........KK.......",
 ]
 
 # ============================================================================
@@ -258,23 +267,10 @@ void_tile = [
 # ============================================================================
 if __name__ == "__main__":
     print(f"Writing sprites to {OUT}")
-    write("mouse_run_a.svg",  mouse_run_a, 16, 16)
-    write("mouse_run_b.svg",  mouse_run_b, 16, 16)
-    write("mouse_idle.svg",   mouse_idle,  16, 16)
-    write("mouse_lick.svg",   mouse_lick,  16, 16)
+    write("mouse_run_a.svg",  mouse_run_a, 24, 16)
+    write("mouse_run_b.svg",  mouse_run_b, 24, 16)
+    write("mouse_idle.svg",   mouse_idle,  24, 16)
+    write("mouse_lick.svg",   mouse_lick,  24, 16)
     write("reward_drop.svg",  reward_drop,  8, 10)
     write("lick_burst.svg",   lick_burst,  12, 12)
-    write("odor_swirl_O.svg", odor_swirl("O"), 16, 16)
-    # Two tinted variants — odor_60 (warm) and odor_90 (cool) — using
-    # alternate palette keys substituted at write-time:
-    alt = dict(P)
-    alt["O"] = "#ffb33a"  # odor_60 amber
-    Path(OUT / "odor_swirl_60.svg").write_text(grid_to_svg(odor_swirl("O"), 16, 16, alt))
-    alt["O"] = "#3aaaff"  # odor_90 azure
-    Path(OUT / "odor_swirl_90.svg").write_text(grid_to_svg(odor_swirl("O"), 16, 16, alt))
-    alt["O"] = "#888888"  # odor_0 grey (control)
-    Path(OUT / "odor_swirl_0.svg").write_text(grid_to_svg(odor_swirl("O"), 16, 16, alt))
-    print("  odor_swirl_{60,90,0}.svg")
-    write("patch_tile.svg",   patch_tile,  16, 16)
-    write("void_tile.svg",    void_tile,   16, 16)
     print("Done.")
