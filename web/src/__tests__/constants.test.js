@@ -30,10 +30,10 @@ describe('constants', () => {
     expect(S3_BUCKET.length).toBeGreaterThan(0);
   });
 
-  it('VERSIONS_URL points to the zombie-squirrels.json versions index', () => {
+  it('VERSIONS_URL points to the cache_versions.json versions index', () => {
     expect(VERSIONS_URL).toContain('allen-data-views');
     expect(VERSIONS_URL).toContain('data-asset-cache');
-    expect(VERSIONS_URL).toContain('zombie-squirrels.json');
+    expect(VERSIONS_URL).toContain('cache_versions.json');
   });
 
   it('DATA_CACHE_PREFIX is the base URL for data-asset-cache', () => {

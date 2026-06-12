@@ -18,11 +18,11 @@ export const S3_REGION = 'us-west-2';
 export const S3_BUCKET = 'allen-data-views';
 
 /**
- * URL of the top-level version index listing all available zombie-squirrel
+ * URL of the top-level version index listing all available biodata-cache
  * version folders.  Fetched once at startup; the latest version is chosen
- * and the corresponding `squirrel.json` is loaded from its subfolder.
+ * and the corresponding `cache_registry.json` is loaded from its subfolder.
  */
-export const VERSIONS_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/zombie-squirrels.json`;
+export const VERSIONS_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache/cache_versions.json`;
 
 /** Base prefix for data-asset-cache (used by modules that build versioned URLs). */
 export const DATA_CACHE_PREFIX = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache`;

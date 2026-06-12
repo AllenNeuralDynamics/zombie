@@ -44,7 +44,7 @@ export function setMetadata(metadata) {
 
 /**
  * Ensure a table is registered in DuckDB.  Uses the acorn definition from
- * squirrel.json — no hardcoded URLs needed.
+ * cache_registry.json — no hardcoded URLs needed.
  *
  * Safe to call multiple times — returns the same promise on subsequent calls
  * for the same table name (singleton pattern).

@@ -1,5 +1,5 @@
 /**
- * metadata.js — Fetch, parse, and register squirrel.json dataset definitions.
+ * metadata.js — Fetch, parse, and register cache_registry.json dataset definitions.
  *
  * Pure helper functions are exported individually so they can be unit-tested
  * without a live DuckDB-WASM instance.  Functions that touch the Mosaic
@@ -42,20 +42,22 @@ export function validateAcorn(acorn, index = -1) {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse and validate the raw squirrel JSON object.
+ * Parse and validate the raw cache registry JSON object.
  *
  * @param {unknown} json - Parsed JSON value (not a string).
  * @returns {{ acorns: object[] }} Validated metadata object.
  * @throws {Error} on structural problems.
  */
-export function parseSquirrelJson(json) {
+export function parseCacheRegistryJson(json) {
   if (json === null || typeof json !== 'object') {
-    throw new Error('squirrel.json must be a JSON object');
+    throw new Error('cache_registry.json must be a JSON object');
   }
-  if (!('acorns' in json) || !Array.isArray(json.acorns)) {
-    throw new Error('squirrel.json must have an "acorns" array');
+  if (!('tables' in json) || !Array.isArray(json.tables)) {
+    throw new Error('cache_registry.json must have a "tables" array');
   }
-  json.acorns.forEach((acorn, i) => validateAcorn(acorn, i));
+  json.tables.forEach((acorn, i) => validateAcorn(acorn, i));
+  // Alias tables → acorns so all internal consumers remain unchanged.
+  json.acorns = json.tables;
   return json;
 }
 
@@ -106,7 +108,7 @@ export function buildParquetArg(acorn) {
 /**
  * Column-level type casts applied when registering specific acorn tables.
  *
- * zombie-squirrel currently writes some columns with incorrect types (e.g.
+ * biodata-cache currently writes some columns with incorrect types (e.g.
  * acquisition timestamps stored as VARCHAR instead of TIMESTAMPTZ). These
  * overrides fix them at ingest time via DuckDB's `SELECT * REPLACE(...)` so
  * the rest of the app always sees proper typed columns.
@@ -155,7 +157,9 @@ export function buildRegisterSql(acorn, columnCasts = {}, subjectIds = null) {
   if (acorn.type === 'asset' && subjectIds != null && subjectIds.length > 0) {
     const hasSubjectId =
       acorn.partition_key === 'subject_id' ||
-      (Array.isArray(acorn.columns) && acorn.columns.includes('subject_id'));
+      (Array.isArray(acorn.columns) && acorn.columns.some(
+        (c) => (typeof c === 'string' ? c : c.name) === 'subject_id',
+      ));
     if (hasSubjectId) {
       const quotedIds = subjectIds
         .map((id) => "'" + String(id).replace(/'/g, "''") + "'")
@@ -234,10 +238,10 @@ function compareSemver(a, b) {
 
 /**
  * Fetch the versions index, pick the latest version, and return the
- * squirrel.json URL for that version.
+ * cache_registry.json URL for that version.
  *
- * @param {string} versionsUrl - HTTPS URL of zombie-squirrels.json.
- * @returns {Promise<{squirrelUrl: string, baseUrl: string}>}
+ * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
+ * @returns {Promise<{registryUrl: string, baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
   const resp = await fetch(versionsUrl, { cache: 'no-cache' });
@@ -246,19 +250,18 @@ async function resolveLatestVersion(versionsUrl) {
   }
   const versions = await resp.json();
   if (!Array.isArray(versions) || versions.length === 0) {
-    throw new Error('zombie-squirrels.json must be a non-empty array');
+    throw new Error('cache_versions.json must be a non-empty array');
   }
-  // versions may be folder names like "zs-v0.28.1" or bare version strings "0.28.1"
+  // versions are folder names like "bc-v0.1.0" or bare version strings "0.1.0"
   const parsed = versions.map((v) => {
-    const bare = String(v).replace(/^zs-v/, '');
+    const bare = String(v).replace(/^[a-z]+-v/, '');
     return { raw: v, bare };
   });
   parsed.sort((a, b) => compareSemver(a.bare, b.bare));
   const latest = parsed[parsed.length - 1];
-  const folder = latest.raw.startsWith('zs-v') ? latest.raw : `zs-v${latest.bare}`;
-  const baseUrl = `${DATA_CACHE_PREFIX}/${folder}`;
-  const squirrelUrl = `${baseUrl}/squirrel.json`;
-  return { squirrelUrl, baseUrl };
+  const baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
+  const registryUrl = `${baseUrl}/cache_registry.json`;
+  return { registryUrl, baseUrl };
 }
 
 // ---------------------------------------------------------------------------
@@ -266,32 +269,32 @@ async function resolveLatestVersion(versionsUrl) {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the zombie-squirrels.json version index, resolve the latest version,
- * fetch the corresponding squirrel.json metadata file, and register all
+ * Fetch the cache_versions.json version index, resolve the latest version,
+ * fetch the corresponding cache_registry.json metadata file, and register all
  * `"metadata"`-type acorns as DuckDB tables via the provided coordinator.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
- * @param {string} versionsUrl - HTTPS URL of zombie-squirrels.json.
- * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed squirrel JSON + base URL.
+ * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
+ * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry JSON + base URL.
  */
 export async function fetchAndRegisterMetadata(coordinator, versionsUrl) {
   // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
   // All parquet URLs are converted to HTTPS so no S3 credentials are required.
 
   // 1. Resolve the latest version from the versions index.
-  const { squirrelUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
+  const { registryUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
   _resolvedBaseUrl = baseUrl;
 
   // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
   // cache: 'no-cache' forces a conditional revalidation request so that a
-  // stale browser-cached copy of squirrel.json is never used after the file
-  // on S3 is updated (e.g. after removing an acorn entry).
-  const resp = await fetch(squirrelUrl, { cache: 'no-cache' });
+  // stale browser-cached copy of cache_registry.json is never used after the
+  // file on S3 is updated (e.g. after removing an acorn entry).
+  const resp = await fetch(registryUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
   }
   const json = await resp.json();
-  const metadata = parseSquirrelJson(json);
+  const metadata = parseCacheRegistryJson(json);
 
   // 3. Register all metadata-type acorns as persistent DuckDB tables.
   //    Skip individual failures so one broken/empty parquet file doesn't

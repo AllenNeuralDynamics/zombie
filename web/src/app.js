@@ -26,7 +26,7 @@ async function init() {
     // 1. Connect the Mosaic coordinator to the local duckdb-server.
     coordinator().databaseConnector(wasmConnector());
 
-    // 2. Fetch squirrel.json and register metadata tables in DuckDB.
+    // 2. Fetch cache_registry.json and register metadata tables in DuckDB.
     const metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL);
 
     console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
@@ -54,7 +54,7 @@ async function init() {
  * Build the main data-explorer element (TimeView + DataViews + settings).
  * Called once; the returned element is re-attached when navigating back to '/'.
  *
- * @param {object} metadata - Parsed squirrel metadata.
+ * @param {object} metadata - Parsed cache registry metadata.
  * @returns {HTMLElement}
  */
 function buildExplorer(metadata) {

@@ -2,7 +2,7 @@
  * foraging-metadata.js — Query helpers for the foraging_sessions DuckDB table.
  *
  * The table is registered from a parquet file on S3 (allen-data-views bucket)
- * via squirrel.json acorn definitions (centralized in lib/registry.js).
+ * via cache_registry.json acorn definitions (centralized in lib/registry.js).
  */
 
 import { ensureTable } from '../registry.js';

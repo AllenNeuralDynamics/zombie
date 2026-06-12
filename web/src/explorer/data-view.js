@@ -269,7 +269,7 @@ async function fetchDistinctValues(tableName, colName, colType = null) {
  *
  * @param {string|number}                           id             - Unique identifier.
  * @param {import('@uwdata/mosaic-core').Selection}  $timeSelection - Crossfilter from TimeView.
- * @param {{ acorns: object[] }}                    metadata       - Parsed squirrel.json.
+ * @param {{ acorns: object[] }}                    metadata       - Parsed cache_registry.json.
  * @returns {{
  *   el: HTMLDivElement,
  *   notifyTableRegistered: (name: string) => void,

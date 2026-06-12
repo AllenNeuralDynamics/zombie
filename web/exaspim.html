@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SLAP2 Platform</title>
+    <title>ExaSPIM</title>
     <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
     <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
     <link rel="stylesheet" href="/styles/app.css" />
@@ -14,7 +14,7 @@
         <img src="/images/logo.svg" class="app-logo" alt="Allen Institute" width="26" height="32">
         <div class="app-brand-text">
           <span class="app-brand-top">allen institute / <span class="app-brand-dept">neural dynamics /</span></span>
-          <span class="app-brand-sub">slap2 platform</span>
+          <span class="app-brand-sub">exaspim platform</span>
         </div>
       </a>
       <nav class="app-nav" aria-label="Main navigation">
@@ -25,11 +25,11 @@
           <button class="app-nav-dropdown-btn active">Platforms &#x25BE;</button>
           <div class="app-nav-dropdown-menu">
             <a href="/smartspim">SmartSPIM</a>
-            <a href="/exaspim">ExaSPIM</a>
+            <a href="/exaspim" aria-current="page">ExaSPIM</a>
             <a href="/fiber_photometry">Fiber Photometry</a>
             <a href="/vr_foraging">VR Foraging</a>
             <a href="/dynamic_foraging">Dynamic Foraging</a>
-            <a href="/slap2" aria-current="page">SLAP2</a>
+            <a href="/slap2">SLAP2</a>
           </div>
         </div>
         <div class="app-nav-dropdown">
@@ -50,7 +50,7 @@
       </div>
     </main>
 
-    <script type="module" src="/src/slap2-entry.js"></script>
+    <script type="module" src="/src/exaspim-entry.js"></script>
     <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'☀':'☾';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
   </body>
 </html>

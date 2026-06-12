@@ -535,7 +535,7 @@ function buildExtraFiltersSection(coord, availableColumns, initialFilters, onCha
  * - URL state sync on every change.
  *
  * @param {object}               coord    - Mosaic coordinator instance.
- * @param {{ acorns: object[] }} metadata - Parsed squirrel.json.
+ * @param {{ acorns: object[] }} metadata - Parsed cache_registry.json.
  * @returns {{
  *   $queryFilter:    import('@uwdata/mosaic-core').Param,
  *   getEnabledTypes: () => Map<string, boolean>,

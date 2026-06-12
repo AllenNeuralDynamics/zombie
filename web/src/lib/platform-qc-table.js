@@ -14,7 +14,7 @@
  *   timestamp                TIMESTAMP
  *
  * instrument_id_normalized and experimenters_normalized are produced by
- * zombie-squirrel at build time (joined from asset_basics), so the browser
+ * biodata-cache at build time (joined from asset_basics), so the browser
  * query needs no JOIN — avoiding OOM in WASM DuckDB.
  *
  * Users can filter which metric columns are visible via the gear settings.
@@ -68,7 +68,7 @@ const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s
  *   { grp, n_sessions, tag, n_pass, n_fail, n_pending, n_total }
  *
  * The platform QC parquets include instrument_id_normalized and
- * experimenters_normalized (pre-joined by zombie-squirrel at build time)
+ * experimenters_normalized (pre-joined by biodata-cache at build time)
  * so no JOIN with asset_basics is required — eliminating the OOM issue in
  * browser-side WASM DuckDB.
  *

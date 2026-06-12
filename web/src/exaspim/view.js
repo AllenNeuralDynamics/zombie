@@ -1,21 +1,20 @@
 /**
- * smartspim/view.js — SmartSPIM Assets page.
+ * exaspim/view.js — ExaSPIM Assets page.
  *
- * Loads `platform_smartspim` (long-form: one row per asset+channel) from S3,
- * joins with `asset_basics`, then pivots to one row per asset.
- * Channel names are real (e.g. "Ex_488_Em_525"), displayed stacked in one column.
+ * Loads `platform_exaspim` (one row per asset) from S3,
+ * joins with `asset_basics` for subject metadata.
  *
  * Pure helpers are exported for unit tests.
  */
 
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
-import { escHtml, formatDatetime, formatDatetimeRaw, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
+import { escHtml, formatDatetimeRaw, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
 
 // Re-export for backward compatibility with tests
-export { formatDatetime, sortRows, uniqueValues, filterRows };
+export { sortRows, uniqueValues, filterRows };
 
 // Fields pulled from asset_basics via JOIN
 const BASICS_KEYS = [
@@ -26,16 +25,14 @@ const BASICS_KEYS = [
 // Always-shown columns (cannot be hidden)
 const ALWAYS_SHOWN = ['subject_id'];
 
-// Default visible columns (before links)
+// Default visible columns
 const DEFAULT_COLS = [
-  'subject_id', 'project_name', 'genotype', 'acquisition_start_time',
-  'processing_end_time', 'channels', 'processed',
+  'subject_id', 'project_name', 'genotype', 'acquisition_start_time', 'processed',
 ];
 
 // All available columns (for settings modal)
 const ALL_COLS = [
-  'subject_id', 'project_name', 'genotype', 'acquisition_start_time',
-  'processing_end_time', 'channels', 'processed', 'institution',
+  'subject_id', 'project_name', 'genotype', 'acquisition_start_time', 'processed',
   'investigators', 'experimenters', 'raw_name',
 ];
 
@@ -44,17 +41,14 @@ const COLUMN_LABELS = {
   project_name: 'Project',
   genotype: 'Genotype',
   acquisition_start_time: 'Acquired',
-  processing_end_time: 'Processed (UTC)',
-  channels: 'Channels',
-  processed: 'Processed',
-  institution: 'Institution',
+  processed: 'Fused',
   investigators: 'Investigators',
   experimenters: 'Experimenters',
   raw_name: 'Asset Name',
 };
 
 // ---------------------------------------------------------------------------
-// Link helper
+// Link helpers
 // ---------------------------------------------------------------------------
 
 export function buildNeuroglancerLink(href, label) {
@@ -72,70 +66,11 @@ export function isProcessed(row) {
   return row.processed === true || row.processed === 'true' || row.processed === 'Yes';
 }
 
-
-// ---------------------------------------------------------------------------
-// Long-form → wide-form pivot
-// ---------------------------------------------------------------------------
-
-/**
- * Pivot long-form rows (one per asset+channel) to wide-form (one per asset).
- * Each wide row gets:
- *   - All BASICS_KEYS fields from the first long-form row for that asset
- *   - processing_end_time, stitched_link, processed, institution from first row
- *   - channels: newline-joined list of channel names that have any link data
- *   - per-channel segmentation/quantification links keyed by channel name
- */
-export function pivotLongFormRows(longRows) {
-  const assetMap = new Map();
-
-  for (const row of longRows) {
-    const assetName = row.name;
-    if (!assetMap.has(assetName)) {
-      const wide = { name: assetName, _channels: [] };
-      wide.raw_name = row.raw_name;
-      for (const k of BASICS_KEYS) wide[k] = row[k];
-      wide.processing_end_time = row.processing_end_time;
-      wide.raw_link = row.raw_link;
-      wide.stitched_link = row.stitched_link;
-      wide.alignment_link = row.alignment_link;
-      wide.processed = row.processed;
-      wide.institution = row.institution;
-      wide.proc_location = row.proc_location;
-      wide.proc_code_ocean = row.proc_code_ocean;
-      assetMap.set(assetName, wide);
-    }
-
-    const wide = assetMap.get(assetName);
-    const ch = row.channel;
-    if (!ch) continue;
-
-    wide._channels.push(ch);
-    wide[`_seg_${ch}`] = row.segmentation_link;
-    wide[`_quant_${ch}`] = row.quantification_link;
-  }
-
-  // Build the display channels string (newline-separated)
-  for (const wide of assetMap.values()) {
-    wide.channels = wide._channels.join('\n');
-  }
-
-  return Array.from(assetMap.values());
-}
-
 // ---------------------------------------------------------------------------
 // Row renderer
 // ---------------------------------------------------------------------------
 
-export function renderSmartSpimRow(row, visibleColumns) {
-  const stitchedHtml = buildNeuroglancerLink(row.stitched_link ?? null, 'Stitched');
-
-  const channelLinks = (row._channels ?? []).map((ch) => {
-    const seg = row[`_seg_${ch}`];
-    const quant = row[`_quant_${ch}`];
-    const label = escHtml(String(ch));
-    return `<span class="ch-links">${label}: ${buildNeuroglancerLink(seg, 'Seg')} ${buildNeuroglancerLink(quant, 'Quant')}</span>`;
-  }).filter(Boolean).join(' ');
-
+export function renderExaSpimRow(row, visibleColumns) {
   const processedLabel = isProcessed(row)
     ? '<span class="badge badge-yes">Yes</span>'
     : '<span class="badge badge-no">No</span>';
@@ -155,10 +90,7 @@ export function renderSmartSpimRow(row, visibleColumns) {
       : '',
     genotype: escHtml(String(row.genotype ?? '')),
     acquisition_start_time: escHtml(formatDatetimeRaw(row.acquisition_start_time ?? null)),
-    processing_end_time: escHtml(formatDatetime(row.processing_end_time ?? null)),
-    channels: String(row.channels ?? '').split('\n').filter(Boolean).map(escHtml).join('<br>'),
     processed: processedLabel,
-    institution: escHtml(String(row.institution ?? '')),
     investigators: escHtml(String(row.investigators ?? '')),
     experimenters: escHtml(String(row.experimenters ?? '')),
     raw_name: escHtml(String(row.raw_name ?? '')),
@@ -168,10 +100,10 @@ export function renderSmartSpimRow(row, visibleColumns) {
   const cells = [...cols, 'links'].map((col) => {
     if (col === 'links') {
       const rawHtml = buildNeuroglancerLink(row.raw_link ?? null, 'Raw');
-      const alignmentHtml = buildNeuroglancerLink(row.alignment_link ?? null, 'Alignment');
+      const fusedHtml = buildNeuroglancerLink(row.fused_link ?? null, 'Fused');
       return `<td class="link-cell">` +
         `<div class="link-cell-split">` +
-        `<span class="link-group-left">${rawHtml} ${stitchedHtml} ${alignmentHtml} ${channelLinks}</span>` +
+        `<span class="link-group-left">${rawHtml} ${fusedHtml}</span>` +
         `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
         `</div>` +
         `</td>`;
@@ -186,36 +118,36 @@ export function renderSmartSpimRow(row, visibleColumns) {
 // View factory
 // ---------------------------------------------------------------------------
 
-export function createSmartSpimView(coord) {
+export function createExaSpimView(coord) {
   const container = document.createElement('div');
-  container.className = 'assets-view smartspim-view';
+  container.className = 'assets-view exaspim-view';
 
   const loadingEl = document.createElement('p');
   loadingEl.className = 'loading-message';
-  loadingEl.textContent = 'Loading SmartSPIM assets…';
+  loadingEl.textContent = 'Loading ExaSPIM assets…';
   container.appendChild(loadingEl);
 
-  ensureTable(coord, 'platform_smartspim')
+  ensureTable(coord, 'platform_exaspim')
     .then(() =>
       queryRows(coord,
-        `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
-                s.processing_end_time, s.stitched_link, s.raw_link, s.alignment_link, s.processed, s.institution,
+        `SELECT s.name, s.raw_name, s.processed, s.raw_link, s.fused_link,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.genotype, b.location, b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters,
+                b.genotype, b.location, b.code_ocean,
+                b.investigators_normalized AS investigators,
+                b.experimenters_normalized AS experimenters,
                 p.location AS proc_location, p.code_ocean AS proc_code_ocean
-         FROM platform_smartspim s
+         FROM platform_exaspim s
          LEFT JOIN asset_basics b ON b.name = s.raw_name
          LEFT JOIN asset_basics p ON p.name = s.name
          ORDER BY b.acquisition_start_time DESC NULLS LAST, s.name`,
       ),
     )
-    .then((longRows) => {
+    .then((rows) => {
       loadingEl.remove();
-      const wideRows = pivotLongFormRows(longRows);
-      buildPage(wideRows);
+      buildPage(rows);
     })
     .catch((err) => {
-      loadingEl.textContent = `Failed to load SmartSPIM assets: ${err?.message ?? err}`;
+      loadingEl.textContent = `Failed to load ExaSPIM assets: ${err?.message ?? err}`;
       loadingEl.className = 'loading-message error';
     });
 
@@ -232,10 +164,10 @@ export function createSmartSpimView(coord) {
     layout.appendChild(filterPanel);
     layout.appendChild(mainContent);
     container.appendChild(createPlatformOverview(coord, {
-      platformTableName: 'platform_smartspim',
+      platformTableName: 'platform_exaspim',
       assetNameCol: 'name',
-      assetFilter: { type: 'instrument_id_contains', value: 'smart' },
-      platformKey: 'spim',
+      assetFilter: { type: 'instrument_id_contains', value: 'exa' },
+      platformKey: 'exaspim',
     }));
     container.appendChild(layout);
 
@@ -330,9 +262,6 @@ export function createSmartSpimView(coord) {
 
     const header = document.createElement('div');
     header.className = 'assets-header';
-    header.innerHTML = '<span class="assets-header-ext-link">If your asset does not appear here, look at the ' +
-      '<a href="https://app.smartsheet.com/dashboards/cJ7W8rJHRv9c2xRrFjg5FRMH99v6XFFCHgV6w3W1" ' +
-      'target="_blank" rel="noopener noreferrer">Processing Dashboard</a></span>';
 
     const settingsBtn = document.createElement('button');
     settingsBtn.className = 'assets-settings-btn icon-btn';
@@ -356,7 +285,7 @@ export function createSmartSpimView(coord) {
 
     const uniques = {};
     for (const col of ALL_COLS) {
-      uniques[col] = uniqueValues(allRows, col, { split: col === 'channels' ? '\n' : null });
+      uniques[col] = uniqueValues(allRows, col);
     }
 
     const useSelect = {};
@@ -460,17 +389,17 @@ export function createSmartSpimView(coord) {
       if (page >= totalPages) page = totalPages - 1;
 
       const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map((row) => renderSmartSpimRow(row, visibleColumns)).join('');
+      tbody.innerHTML = pageRows.map((row) => renderExaSpimRow(row, visibleColumns)).join('');
 
       const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
       const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
       pagingBar.innerHTML = `
-        <button class="page-btn" id="spim-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
+        <button class="page-btn" id="exaspim-prev-page" ${page === 0 ? 'disabled' : ''}>‹ Prev</button>
         <span class="page-info">${start}–${end} of ${rows.length.toLocaleString()}</span>
-        <button class="page-btn" id="spim-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
+        <button class="page-btn" id="exaspim-next-page" ${page >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
       `;
-      pagingBar.querySelector('#spim-prev-page').addEventListener('click', () => { page--; refresh(); });
-      pagingBar.querySelector('#spim-next-page').addEventListener('click', () => { page++; refresh(); });
+      pagingBar.querySelector('#exaspim-prev-page').addEventListener('click', () => { page--; refresh(); });
+      pagingBar.querySelector('#exaspim-next-page').addEventListener('click', () => { page++; refresh(); });
 
       updateSortIndicators();
     }

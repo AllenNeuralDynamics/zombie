@@ -2,7 +2,7 @@
 
 [Access the Data Portal](https://data.allenneuraldynamics.org)
 
-The data portal is a series of client-side dashboards used to access [cached data and metadata](https://github.com/AllenNeuralDynamics/zombie-squirrel/) from AIND data assets. Current views include an overview of all [Assets](https://data.allenneuraldynamics.org/assets), individual [Subject](https://data.allenneuraldynamics.org/subject) pages, a tool for tracking [Contributions](https://data.allenneuraldynamics.org/contributions), and a [Project](todo) view.
+The data portal is a series of client-side dashboards used to access [cached data and metadata](https://github.com/AllenNeuralDynamics/biodata-cache/) from AIND data assets. Current views include an overview of all [Assets](https://data.allenneuraldynamics.org/assets), individual [Subject](https://data.allenneuraldynamics.org/subject) pages, a tool for tracking [Contributions](https://data.allenneuraldynamics.org/contributions), and a [Project](todo) view.
 
 The data portal also hosts semi-hidden dashboards that are for specific projects or purposes. These include a [Behavior Sessions](https://data.allenneuraldynamics.org/sessions) dashboard used to track which projects and experimenters are running behavioral training at AIND, the [SmartSPIM](https://data.allenneuraldynamics.org/smartspim) dashboard used to view all SmartSPIM platform data assets and easily view them, and a client-side only version of the [QC Portal](https://data.allenneuraldynamics.org/quality_control) which reduces load on the Panel app used for interactive editing.
 

@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateAcorn,
-  parseSquirrelJson,
+  parseCacheRegistryJson,
   s3PathToHttps,
   buildParquetArg,
   buildRegisterSql,
@@ -43,7 +43,7 @@ const ASSET_ACORN_PARTITIONED = {
 };
 
 const SAMPLE_SQUIRREL = {
-  acorns: [METADATA_ACORN, ASSET_ACORN_PARTITIONED],
+  tables: [METADATA_ACORN, ASSET_ACORN_PARTITIONED],
 };
 
 // ---------------------------------------------------------------------------
@@ -94,44 +94,44 @@ describe('validateAcorn', () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseSquirrelJson
+// parseCacheRegistryJson
 // ---------------------------------------------------------------------------
 
-describe('parseSquirrelJson', () => {
+describe('parseCacheRegistryJson', () => {
   it('returns the same object when valid', () => {
-    const result = parseSquirrelJson({ ...SAMPLE_SQUIRREL });
+    const result = parseCacheRegistryJson({ ...SAMPLE_SQUIRREL });
     expect(result.acorns).toHaveLength(2);
   });
 
   it('throws when input is not an object', () => {
-    expect(() => parseSquirrelJson('string')).toThrow(/must be a JSON object/);
-    expect(() => parseSquirrelJson(null)).toThrow(/must be a JSON object/);
+    expect(() => parseCacheRegistryJson('string')).toThrow(/must be a JSON object/);
+    expect(() => parseCacheRegistryJson(null)).toThrow(/must be a JSON object/);
   });
 
-  it('throws when "acorns" key is missing', () => {
-    expect(() => parseSquirrelJson({})).toThrow(/must have an "acorns" array/);
+  it('throws when "tables" key is missing', () => {
+    expect(() => parseCacheRegistryJson({})).toThrow(/must have a "tables" array/);
   });
 
-  it('throws when "acorns" is not an array', () => {
-    expect(() => parseSquirrelJson({ acorns: 'nope' })).toThrow(/must have an "acorns" array/);
+  it('throws when "tables" is not an array', () => {
+    expect(() => parseCacheRegistryJson({ tables: 'nope' })).toThrow(/must have a "tables" array/);
   });
 
-  it('throws when an acorn entry is invalid', () => {
-    expect(() => parseSquirrelJson({ acorns: [{ bad: true }] }))
+  it('throws when an entry is invalid', () => {
+    expect(() => parseCacheRegistryJson({ tables: [{ bad: true }] }))
       .toThrow(/acorns\[0\]/);
   });
 
-  it('passes through acorns with unrecognised types without crashing', () => {
-    // Regression: squirrel.json added type "platform" which crashed the app.
+  it('passes through entries with unrecognised types without crashing', () => {
+    // Regression: cache_registry.json added type "platform" which crashed the app.
     // Unknown-type acorns must be preserved so platform pages can use them.
     const platformAcorn = { ...METADATA_ACORN, name: 'plat', type: 'platform' };
-    const result = parseSquirrelJson({ acorns: [METADATA_ACORN, platformAcorn] });
+    const result = parseCacheRegistryJson({ tables: [METADATA_ACORN, platformAcorn] });
     expect(result.acorns).toHaveLength(2);
     expect(result.acorns.find((a) => a.name === 'plat')).toBeDefined();
   });
 
-  it('keeps all acorns when all types are known', () => {
-    const result = parseSquirrelJson({ ...SAMPLE_SQUIRREL });
+  it('keeps all entries when all types are known', () => {
+    const result = parseCacheRegistryJson({ ...SAMPLE_SQUIRREL });
     expect(result.acorns).toHaveLength(2);
   });
 });
@@ -209,7 +209,7 @@ describe('buildParquetArg', () => {
 
 describe('getMetadataAcorns', () => {
   it('returns only metadata-type acorns', () => {
-    const result = getMetadataAcorns(SAMPLE_SQUIRREL.acorns);
+    const result = getMetadataAcorns(SAMPLE_SQUIRREL.tables);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('asset_basics');
   });
@@ -221,7 +221,7 @@ describe('getMetadataAcorns', () => {
 
 describe('getAssetAcorns', () => {
   it('returns only asset-type acorns', () => {
-    const result = getAssetAcorns(SAMPLE_SQUIRREL.acorns);
+    const result = getAssetAcorns(SAMPLE_SQUIRREL.tables);
     expect(result).toHaveLength(1);
     expect(result[0].name).toBe('quality_control');
   });
@@ -233,12 +233,12 @@ describe('getAssetAcorns', () => {
 
 describe('getAcornByName', () => {
   it('finds an acorn by name', () => {
-    const result = getAcornByName(SAMPLE_SQUIRREL.acorns, 'asset_basics');
+    const result = getAcornByName(SAMPLE_SQUIRREL.tables, 'asset_basics');
     expect(result).toBe(METADATA_ACORN);
   });
 
   it('returns undefined when not found', () => {
-    expect(getAcornByName(SAMPLE_SQUIRREL.acorns, 'nonexistent')).toBeUndefined();
+    expect(getAcornByName(SAMPLE_SQUIRREL.tables, 'nonexistent')).toBeUndefined();
   });
 });
 

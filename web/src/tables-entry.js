@@ -10,11 +10,11 @@ const ACORN_FUNCTION_MAP = {
 };
 
 function buildPythonSnippet(acornName, version, partValue) {
-  const bare = version.replace(/^zs-v/, '');
+  const bare = version.replace(/^[a-z]+-v/, '');
   const fnName = ACORN_FUNCTION_MAP[acornName] ?? acornName;
   const lines = [
-    `# pip install zombie-squirrel==${bare}`,
-    `from zombie_squirrel import ${fnName}`,
+    `# pip install biodata-cache==${bare}`,
+    `from biodata_cache import ${fnName}`,
   ];
   if (partValue !== null) {
     lines.push(`df = ${fnName}("${partValue.replace(/"/g, '\\"')}")`);
@@ -49,11 +49,11 @@ async function fetchVersions() {
 }
 
 async function fetchAcorns(version) {
-  const url = `${DATA_CACHE_PREFIX}/${version}/squirrel.json`;
+  const url = `${DATA_CACHE_PREFIX}/${version}/cache_registry.json`;
   const resp = await fetch(url, { cache: 'no-cache' });
-  if (!resp.ok) throw new Error(`Failed to fetch squirrel.json for ${version}: ${resp.status}`);
+  if (!resp.ok) throw new Error(`Failed to fetch cache_registry.json for ${version}: ${resp.status}`);
   const json = await resp.json();
-  return json.acorns;
+  return json.tables;
 }
 
 async function init() {

@@ -37,6 +37,7 @@ function buildFilterCondition(assetFilter) {
   if (assetFilter.type === 'modality') return `list_contains(modalities, '${safeVal}')`;
   if (assetFilter.type === 'acquisition_type') return `acquisition_type = '${safeVal}'`;
   if (assetFilter.type === 'acquisition_type_regex') return `regexp_matches(acquisition_type, '${safeVal}')`;
+  if (assetFilter.type === 'instrument_id_contains') return `instrument_id IS NOT NULL AND instrument_id ILIKE '%${safeVal}%'`;
   return '1=1';
 }
 
@@ -911,7 +912,7 @@ export function createPlatformOverview(coord, {
  * Populate the stats element with total asset count and failed-upgrade count.
  *
  * If platformTableName is provided, counts distinct assetNameCol values from
- * that table (e.g. 'assets_smartspim').  Otherwise, counts from asset_basics
+ * that table (e.g. 'platform_smartspim').  Otherwise, counts from asset_basics
  * filtered by assetFilter.
  */
 function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, statsEl) {
