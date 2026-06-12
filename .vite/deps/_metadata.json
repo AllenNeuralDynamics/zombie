@@ -1,0 +1,25 @@
+{
+  "hash": "ca59075d",
+  "configHash": "089bb2ae",
+  "lockfileHash": "e3b0c442",
+  "browserHash": "cc57f86c",
+  "optimized": {
+    "three": {
+      "src": "../../web/node_modules/three/build/three.module.js",
+      "file": "three.js",
+      "fileHash": "f75f36f2",
+      "needsInterop": false
+    },
+    "three/addons/loaders/OBJLoader.js": {
+      "src": "../../web/node_modules/three/examples/jsm/loaders/OBJLoader.js",
+      "file": "three_addons_loaders_OBJLoader__js.js",
+      "fileHash": "c63ad337",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-UKJ2EWJH": {
+      "file": "chunk-UKJ2EWJH.js"
+    }
+  }
+}
