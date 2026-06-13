@@ -1,0 +1,144 @@
+<!doctype html>
+<!--
+  Self-hosted Neuroglancer viewer for the embedded ExaSPIM morphology section.
+
+  Vendors the unmodified neuroglancer-demo.appspot.com build (~1.8 MB total).
+  By serving these files from the same origin as the rest of the app, we can:
+    1. read window.viewer from the parent frame (or via postMessage),
+    2. push layer updates without forcing a full hash-reparse, which means
+       the camera position the user has rotated to is preserved.
+
+  postMessage protocol (parent ↔ this page):
+    parent  → child: { type: 'init',      state: <ng-state-json> }
+    parent  → child: { type: 'setLayers', layers: [...] }
+    parent  → child: { type: 'setState',  state: <ng-state-json> }
+    parent  → child: { type: 'resetView', state: <ng-state-json> }   // also restores camera
+    child   → parent: { type: 'ready' }                              // viewer is mounted
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>neuroglancer</title>
+  <script defer src="453.1ee2edccf4d1a9d6.js"></script>
+  <script defer src="71.ba084d2296886765.js"></script>
+  <script defer src="948.a953587def7ac810.js"></script>
+  <script defer src="741.fb4c3157bfdf6c1a.js"></script>
+  <script defer src="main.3a7dde5d57460951.js"></script>
+  <link href="main.3a7dde5d57460951.css" rel="stylesheet">
+  <style>
+    /* Light page background — Neuroglancer renders its perspective canvas on
+       top, and the morphology portal uses a very-light gray here. */
+    html, body { margin: 0; padding: 0; height: 100%; background: #f3f4f5; }
+
+    /* Hide every bit of Neuroglancer chrome: top toolbar, position widget,
+       layer-tab strip, side panels, panel borders, layout-controls. The
+       morphology portal applies the same overrides so only the 3D
+       perspective canvas is visible. */
+    .neuroglancer-viewer-top-row,
+    .neuroglancer-position-widget,
+    .neuroglancer-layer-panel,
+    .neuroglancer-layer-panel-container,
+    .neuroglancer-layer-side-panel,
+    .neuroglancer-viewer-side-panel,
+    .neuroglancer-tab-titles,
+    .neuroglancer-data-panel-layout-controls,
+    .neuroglancer-side-panel-drop-zone,
+    .neuroglancer-layer-panel-drop-zone,
+    .neuroglancer-selection-details,
+    .neuroglancer-layer-list-panel,
+    .neuroglancer-help-body,
+    .neuroglancer-settings-body {
+      display: none !important;
+    }
+
+    /* Strip the dividers between panels so we get one clean canvas. */
+    .neuroglancer-show-panel-borders { border: none !important; }
+    .neuroglancer-rendered-data-panel { border: none !important; }
+    .neuroglancer-resize-gutter-vertical,
+    .neuroglancer-resize-gutter-horizontal { display: none !important; }
+
+    /* Hide the small x/y/z dimension labels overlaid on each panel. */
+    .neuroglancer-axes-display,
+    .neuroglancer-perspective-axes-display,
+    .neuroglancer-display-dimensions-widget { display: none !important; }
+
+    /* Don't show the per-panel "make panel fullscreen" / split icons. */
+    .neuroglancer-data-panel-layout-controls,
+    .neuroglancer-data-panel-layout-controls * { display: none !important; }
+  </style>
+</head>
+<body>
+<script>
+(function () {
+  'use strict';
+
+  // The neuroglancer bundle exposes `window.viewer` once it finishes mounting.
+  // It does so synchronously from the main bundle's top-level script, so we
+  // poll briefly until it's available.
+  function whenReady(cb) {
+    if (window.viewer && window.viewer.state) return cb(window.viewer);
+    const t0 = Date.now();
+    const h = setInterval(() => {
+      if (window.viewer && window.viewer.state) {
+        clearInterval(h);
+        cb(window.viewer);
+      } else if (Date.now() - t0 > 15000) {
+        clearInterval(h);
+        console.error('[ng-embed] viewer never appeared');
+      }
+    }, 50);
+  }
+
+  /** Merge a partial state onto current state, preserving the camera. */
+  function applyLayers(viewer, layers) {
+    const cur = viewer.state.toJSON() || {};
+    const next = Object.assign({}, cur, { layers: layers });
+    viewer.state.reset();
+    viewer.state.restoreState(next);
+  }
+
+  /** Replace the full state. Used for initial load + explicit reset. */
+  function applyState(viewer, state) {
+    viewer.state.reset();
+    viewer.state.restoreState(state);
+  }
+
+  /** Send only after we're confident the parent is listening. */
+  function notifyReady() {
+    try { window.parent.postMessage({ type: 'ng-ready' }, '*'); } catch (_) {}
+  }
+
+  // Buffer messages that arrive before the viewer mounts.
+  const pending = [];
+  let viewerRef = null;
+
+  function handle(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    if (!viewerRef) { pending.push(msg); return; }
+    try {
+      switch (msg.type) {
+        case 'init':
+        case 'setState':
+        case 'resetView':
+          if (msg.state) applyState(viewerRef, msg.state);
+          break;
+        case 'setLayers':
+          if (Array.isArray(msg.layers)) applyLayers(viewerRef, msg.layers);
+          break;
+      }
+    } catch (e) {
+      console.error('[ng-embed] failed to apply', msg.type, e);
+    }
+  }
+
+  window.addEventListener('message', (ev) => handle(ev.data));
+
+  whenReady((v) => {
+    viewerRef = v;
+    while (pending.length > 0) handle(pending.shift());
+    notifyReady();
+  });
+})();
+</script>
+</body>
+</html>

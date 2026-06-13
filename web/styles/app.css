@@ -6507,3 +6507,354 @@ body {
   border: 1px solid var(--border, #e1e1e1);
   background: #fff;
 }
+
+/* ---------------------------------------------------------------------------
+ * ExaSPIM — Embedded Neuron Morphology viewer (exaspim/morphology.js)
+ * ------------------------------------------------------------------------ */
+
+.exaspim-morphology {
+  margin: 16px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+}
+
+.exaspim-morphology-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.exaspim-morphology-header .platform-summary-heading {
+  margin: 0;
+}
+
+.exaspim-morphology-portal-link {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.exaspim-morphology-summary {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.exaspim-morphology-summary.error {
+  color: var(--danger, #b00020);
+}
+
+.exaspim-morphology-body {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  min-height: 560px;
+}
+
+.exaspim-morphology-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 0 0 280px;
+  min-width: 240px;
+}
+
+.exaspim-morphology-viewer {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.exaspim-morphology-link-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.exaspim-morphology-reset-btn {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+}
+
+.exaspim-morphology-popout-link {
+  font-size: 0.8rem;
+}
+
+.exaspim-morphology-iframe {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 560px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  background: #181818;
+}
+
+/* ── checkbox panels ────────────────────────────────────────────────────── */
+
+.morph-panel {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  padding: 8px;
+  background: var(--surface-alt, #fafafa);
+}
+
+.morph-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.morph-panel-title {
+  margin: 0;
+}
+
+.morph-panel-count {
+  font-size: 0.72rem;
+  color: var(--text-muted, #6a6a6a);
+  font-variant-numeric: tabular-nums;
+}
+
+.morph-panel-search {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.morph-panel-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.morph-panel-actions .sessions-filter-clear {
+  flex: 1 1 0;
+}
+
+.morph-panel-list {
+  flex: 1 1 auto;
+  min-height: 120px;
+  max-height: 100%;
+  overflow-y: auto;
+  border-top: 1px solid var(--border, #e1e1e1);
+  padding-top: 4px;
+}
+
+.morph-panel-item {
+  gap: 4px;
+  padding: 1px 2px;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.morph-panel-item-text {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.morph-panel-item-sub {
+  color: var(--text-muted, #6a6a6a);
+  font-size: 0.72rem;
+  margin-left: 4px;
+}
+
+.morph-color-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  border: 1px solid rgba(0,0,0,0.2);
+  flex: 0 0 auto;
+}
+
+/* ── CCF tree rows ──────────────────────────────────────────────────────── */
+
+.morph-tree-list {
+  font-size: 0.78rem;
+}
+
+.morph-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 2px;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.morph-tree-toggle {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--text-muted, #6a6a6a);
+  line-height: 1;
+}
+
+.morph-tree-toggle:disabled,
+.morph-tree-toggle-empty {
+  cursor: default;
+  opacity: 0;
+}
+
+.morph-tree-no-geom {
+  display: inline-block;
+  width: 13px;
+  flex: 0 0 13px;
+}
+
+.morph-tree-label {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.morph-tree-sub {
+  color: var(--text-muted, #6a6a6a);
+  margin-left: 6px;
+  font-size: 0.72rem;
+}
+
+/* ── Neuron rows with compartment dropdown ──────────────────────────────── */
+
+.morph-neuron-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 2px;
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.morph-compartment-select {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  padding: 1px 2px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px;
+  background: var(--surface, #fff);
+}
+
+/* ── Filter bar (gear + summary) ────────────────────────────────────────── */
+
+.morph-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 0.72rem;
+}
+
+.morph-filter-summary {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted, #6a6a6a);
+}
+
+.morph-gear-btn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  background: var(--surface, #fff);
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.morph-gear-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+}
+
+/* ── Modal ──────────────────────────────────────────────────────────────── */
+
+.morph-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.morph-modal {
+  background: var(--surface, #fff);
+  border-radius: 6px;
+  padding: 16px 20px;
+  min-width: 360px;
+  max-width: 480px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.morph-modal-title {
+  margin: 0 0 4px 0;
+  font-size: 0.95rem;
+}
+
+.morph-modal-label {
+  font-size: 0.8rem;
+  color: var(--text-muted, #6a6a6a);
+  margin-top: 4px;
+}
+
+.morph-modal-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.morph-modal-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.morph-modal-apply {
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .exaspim-morphology-body {
+    flex-direction: column;
+  }
+  .exaspim-morphology-controls {
+    flex-basis: auto;
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .morph-panel {
+    flex: 0 0 280px;
+  }
+}

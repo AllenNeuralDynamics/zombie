@@ -12,6 +12,7 @@ import { escHtml, formatDatetimeRaw, sortRows, uniqueValues, filterRows, PAGE_SI
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
+import { createExaSpimMorphologySection } from './morphology.js';
 
 // Re-export for backward compatibility with tests
 export { sortRows, uniqueValues, filterRows };
@@ -169,6 +170,7 @@ export function createExaSpimView(coord) {
       assetFilter: { type: 'instrument_id_contains', value: 'exa' },
       platformKey: 'exaspim',
     }));
+    container.appendChild(createExaSpimMorphologySection());
     container.appendChild(layout);
 
     // Subject sidebar
