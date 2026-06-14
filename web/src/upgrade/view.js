@@ -7,7 +7,7 @@
  */
 
 import * as Plot from '@observablehq/plot';
-import { escHtml, formatDatetime, PAGE_SIZE } from '../lib/utils.js';
+import { escHtml, PAGE_SIZE } from '../lib/utils.js';
 import { arrowTableToRows } from '../lib/arrow.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { buildTableHead, buildPagingBar } from '../lib/paginated-table.js';
@@ -22,14 +22,13 @@ const UPGRADE_API = '/metadata-portal/upgrade';
 /** DocDB v1 base URL — returns the original (pre-upgrade) record. */
 const DOCDB_V1_BASE = '/docdb-v1';
 
-const COLUMNS = ['name', 'project_name', 'data_level', 'status', 'upgrader_version', 'upgrade_datetime'];
+const COLUMNS = ['name', 'project_name', 'data_level', 'status', 'upgrader_version'];
 const COLUMN_LABELS = {
   name: 'Name',
   project_name: 'Project',
   data_level: 'Data Level',
   status: 'Status',
   upgrader_version: 'Upgrader Version',
-  upgrade_datetime: 'Upgrade Date',
 };
 
 // ---------------------------------------------------------------------------
@@ -123,7 +122,7 @@ function buildProjectChart(projectData, projectOrder) {
   wrap.appendChild(
     Plot.plot({
       width: 700,
-      height: Math.max(200, 25 * projectOrder.length + 80),
+      height: Math.min(Math.max(200, 25 * projectOrder.length + 80), 400),
       marginBottom: 120,
       style: { background: 'transparent', fontFamily: 'inherit' },
       x: { label: 'Project', tickRotate: -45, domain: projectOrder },
@@ -151,7 +150,7 @@ function buildPctChart(pctData, projectOrder) {
   wrap.appendChild(
     Plot.plot({
       width: 700,
-      height: Math.max(200, 25 * projectOrder.length + 80),
+      height: Math.min(Math.max(200, 25 * projectOrder.length + 80), 400),
       marginBottom: 120,
       style: { background: 'transparent', fontFamily: 'inherit' },
       x: { label: 'Project', tickRotate: -45, domain: projectOrder },
@@ -220,8 +219,7 @@ function buildUpgradeTable(rows) {
         const statusClass = row.status === 'success' ? 'status-success' : row.status === 'failed' ? 'status-failed' : '';
         return `<tr>
           ${COLUMNS.map((col) => {
-            let val = row[col];
-            if (col === 'upgrade_datetime' && val) val = formatDatetime(val);
+            const val = row[col];
             if (col === 'name' && val) {
               return `<td><a href="/record?name=${encodeURIComponent(val)}">${escHtml(String(val))}</a></td>`;
             }
@@ -234,7 +232,7 @@ function buildUpgradeTable(rows) {
       })
       .join('');
 
-    tableContainer.innerHTML = `<table class="data-table upgrade-table">
+    tableContainer.innerHTML = `<table class="assets-table upgrade-table">
       ${theadHtml}
       <tbody>${tbodyRows}</tbody>
     </table>`;
@@ -528,8 +526,7 @@ export async function createUpgradeView({ coordinator }) {
   let rows;
   try {
     const result = await coordinator.query(
-      `SELECT _id, name, project_name, data_level, status, upgrader_version,
-              CAST(upgrade_datetime AS VARCHAR) AS upgrade_datetime
+      `SELECT _id, name, project_name, data_level, status, upgrader_version
        FROM metadata_upgrade
        ORDER BY name`,
     );
