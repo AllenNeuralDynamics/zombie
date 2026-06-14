@@ -14,17 +14,17 @@ A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. Brow
 
 ## How Data Works
 
-1. At startup, `web/src/lib/metadata.js:fetchAndRegisterMetadata()` fetches `squirrel.json` from S3. This lists all available datasets ("acorns") with their S3 locations and column definitions.
+1. At startup, `web/src/lib/metadata.js:fetchAndRegisterMetadata()` fetches `cache_versions.json` from S3 (`allen-data-views` bucket, `data-asset-cache/` prefix), picks the latest version, then loads the corresponding `cache_registry.json`. This lists all available datasets ("acorns"/"tables") with their S3 locations and column definitions.
 2. Each acorn is registered as a DuckDB table via `CREATE OR REPLACE TABLE … AS SELECT … FROM read_parquet(…)`.
 3. Pages query those tables through `coordinator.query(sql)` which returns Apache Arrow results. Use `arrowTableToRows(result)` from `web/src/lib/assets-table.js` to convert to plain JS objects.
 
-**The key table is `asset_basics`** (always loaded). Columns: `name`, `subject_id`, `project_name`, `modalities`, `data_level`, `acquisition_start_time`, `acquisition_end_time`, `acquisition_type`, `code_ocean`, `location`, `genotype`, `age`, `experimenters`, `instrument_id`, `process_date`. Source of truth is `squirrel.json` on S3 — always check it before assuming a column doesn't exist.
+**The key table is `asset_basics`** (always loaded). Columns: `name`, `subject_id`, `project_name`, `modalities`, `data_level`, `acquisition_start_time`, `acquisition_end_time`, `acquisition_type`, `code_ocean`, `location`, `genotype`, `age`, `experimenters`, `instrument_id`, `process_date`. Source of truth is `cache_registry.json` on S3 — always check it before assuming a column doesn't exist.
 
 ## File Map — Read These First
 
 | File | Why |
 |------|-----|
-| `web/src/constants.js` | `SQUIRREL_URL`, `SERVER_WS_URL`, colour tokens |
+| `web/src/constants.js` | `VERSIONS_URL`, `DATA_CACHE_PREFIX`, `S3_BUCKET`, colour tokens |
 | `web/src/lib/metadata.js` | `fetchAndRegisterMetadata`, `fetchAllSubjectIds`, `arrowTableToRows` pattern |
 | `web/src/lib/assets-table.js` | Shared: `buildAssetsTable`, `fetchAssetsWithSources`, `arrowTableToRows` |
 | `web/src/lib/utils.js` | `formatDate`, `formatDatetime`, `escHtml`, `sortRows` |
