@@ -6845,6 +6845,19 @@ body {
   font-weight: 600;
 }
 
+.morph-modal-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.morph-modal-checkbox-label input[type="checkbox"] {
+  margin: 0;
+  flex-shrink: 0;
+}
+
 @media (max-width: 900px) {
   .exaspim-morphology-body {
     flex-direction: column;
@@ -6857,4 +6870,218 @@ body {
   .morph-panel {
     flex: 0 0 280px;
   }
+}
+
+/* ===========================================================================
+   /migrate — two-actor metadata migration page (hidden)
+   =========================================================================== */
+
+.migrate-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 12px 48px;
+  color: var(--text-primary);
+}
+
+.migrate-page h1 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.migrate-intro {
+  margin: 0 0 24px;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.migrate-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-border, #e5e7eb);
+}
+.migrate-section:first-of-type { border-top: none; padding-top: 0; }
+.migrate-section h2 {
+  font-size: 1.05rem;
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.migrate-controls-row {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.migrate-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.migrate-control label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.migrate-toggle {
+  display: inline-flex;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.migrate-toggle-btn {
+  padding: 6px 14px;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  border: none;
+  border-right: 1px solid var(--surface-border);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+.migrate-toggle-btn:last-child { border-right: none; }
+.migrate-toggle-btn.is-active {
+  background: var(--color-primary, #4338ca);
+  color: #fff;
+}
+
+.migrate-lookup-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.migrate-asset-input {
+  flex: 1 1 320px;
+  max-width: 540px;
+  padding: 7px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+/* ---- Asset table -------------------------------------------------------- */
+
+.migrate-table-wrap { display: flex; flex-direction: column; gap: 8px; }
+.migrate-table-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.migrate-table-filter {
+  flex: 1 1 280px;
+  max-width: 420px;
+  padding: 6px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+.migrate-table-count { color: var(--text-secondary); font-size: 0.8rem; }
+.migrate-table-responsive { max-height: 480px; overflow: auto; }
+.migrate-table { font-size: 0.85rem; width: 100%; }
+.migrate-table tbody tr { cursor: pointer; }
+.migrate-table tbody tr:hover { background: var(--surface-hover, #f3f4f6); }
+.migrate-row-selected { background: color-mix(in srgb, var(--color-primary, #4338ca) 18%, transparent) !important; }
+.migrate-id-cell { font-family: var(--font-mono, monospace); font-size: 0.78rem; color: var(--text-secondary); }
+.migrate-empty { text-align: center; color: var(--text-secondary); padding: 16px 0; }
+
+.btn-small { padding: 3px 10px; font-size: 0.78rem; }
+
+/* ---- Selected info ------------------------------------------------------ */
+
+.migrate-selected {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  margin-bottom: 12px;
+}
+.migrate-selected code { font-family: var(--font-mono, monospace); font-size: 0.82rem; }
+
+/* ---- Diff view ---------------------------------------------------------- */
+
+.migrate-diff { margin-top: 16px; }
+.migrate-diff-title { font-size: 0.95rem; margin: 0 0 8px; font-weight: 600; }
+.migrate-diff-empty {
+  margin: 12px 0;
+  padding: 10px 14px;
+  background: color-mix(in srgb, #1D8649 14%, transparent);
+  border-left: 4px solid #1D8649;
+  border-radius: var(--radius);
+}
+.migrate-diff-table { width: 100%; table-layout: fixed; font-size: 0.82rem; }
+.migrate-diff-table th { text-align: left; padding: 6px 8px; }
+.migrate-diff-table td { padding: 6px 8px; vertical-align: top; border-bottom: 1px solid var(--surface-border); }
+.migrate-diff-path { font-family: var(--font-mono, monospace); font-size: 0.78rem; word-break: break-all; width: 26%; }
+.migrate-diff-kind { width: 80px; text-transform: uppercase; font-weight: 600; font-size: 0.7rem; }
+.migrate-diff-value {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  max-height: 220px;
+  overflow: auto;
+}
+.migrate-diff-added .migrate-diff-kind { color: #1D8649; }
+.migrate-diff-removed .migrate-diff-kind { color: #c0392b; }
+.migrate-diff-changed .migrate-diff-kind { color: #d97706; }
+.migrate-diff-added td:nth-child(4) { background: color-mix(in srgb, #1D8649 12%, transparent); }
+.migrate-diff-removed td:nth-child(3) { background: color-mix(in srgb, #c0392b 12%, transparent); }
+.migrate-diff-changed td:nth-child(3) { background: color-mix(in srgb, #c0392b 10%, transparent); }
+.migrate-diff-changed td:nth-child(4) { background: color-mix(in srgb, #1D8649 10%, transparent); }
+
+/* ---- Submit / status ---------------------------------------------------- */
+
+.migrate-submit-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.migrate-action-btn { min-width: 180px; }
+
+.migrate-submit-banner {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border-left: 4px solid #888;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.migrate-pending {
+  background: color-mix(in srgb, #d97706 12%, transparent);
+  border-left-color: #d97706;
+}
+.migrate-pending-poll {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+.migrate-success {
+  background: color-mix(in srgb, #1D8649 12%, transparent);
+  border-left-color: #1D8649;
+}
+.migrate-failed,
+.migrate-error {
+  background: color-mix(in srgb, #c0392b 12%, transparent);
+  border-left-color: #c0392b;
+}
+.migrate-submit-detail {
+  margin-top: 8px;
+  background: var(--surface-bg);
+  padding: 8px;
+  border-radius: var(--radius);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  max-height: 220px;
+  overflow: auto;
 }

@@ -566,12 +566,13 @@ function buildNeuronSearchPanel({
   panel.appendChild(list);
 
   // ── Filter state ─────────────────────────────────────────────────────
-  /** @type {{regionIds:string[], keyword:string, limit:number}} */
+  /** @type {{regionIds:string[], keyword:string, limit:number, meshesOnly:boolean}} */
   const filter = {
     /** numeric CCF structure ids (we resolve to UUIDs at query time) */
     regionIds: [],
     keyword: '',
     limit: 50,
+    meshesOnly: true,
   };
   let lastResults = []; // [{uuid, segmentId|null, label, region, regionId}]
   let totalCount = 0;
@@ -595,6 +596,7 @@ function buildNeuronSearchPanel({
       parts.push(`region: ${names}${extra}`);
     }
     if (filter.keyword) parts.push(`kw: "${filter.keyword}"`);
+    if (!filter.meshesOnly) parts.push('all neurons');
     filterSummary.textContent = parts.length === 0 ? 'All neurons' : parts.join(' · ');
   }
 
@@ -717,7 +719,7 @@ function buildNeuronSearchPanel({
       if (token !== queryToken) return;
       const items = data?.candidateNeurons?.items ?? [];
       totalCount = data?.candidateNeurons?.totalCount ?? items.length;
-      lastResults = items.map((n) => {
+      const mapped = items.map((n) => {
         const label = n.label || '';
         const segmentId = labelToSegmentId?.get(label) ?? null;
         return {
@@ -728,6 +730,7 @@ function buildNeuronSearchPanel({
           regionId: n.atlasStructure?.structureId ?? null,
         };
       });
+      lastResults = filter.meshesOnly ? mapped.filter((n) => n.segmentId) : mapped;
       loading = false;
     } catch (e) {
       if (e?.name === 'AbortError') return;
@@ -790,6 +793,16 @@ function buildNeuronSearchPanel({
     limInput.value = String(filter.limit);
     dialog.appendChild(limInput);
 
+    // Meshes-only toggle
+    const meshLabel = document.createElement('label');
+    meshLabel.className = 'morph-modal-label morph-modal-checkbox-label';
+    const meshCb = document.createElement('input');
+    meshCb.type = 'checkbox';
+    meshCb.checked = filter.meshesOnly;
+    meshLabel.appendChild(meshCb);
+    meshLabel.append(' Only show neurons with available meshes');
+    dialog.appendChild(meshLabel);
+
     // Buttons
     const btns = document.createElement('div');
     btns.className = 'morph-modal-buttons';
@@ -841,6 +854,7 @@ function buildNeuronSearchPanel({
       filter.keyword = kwInput.value.trim();
       const lim = Number(limInput.value);
       filter.limit = Number.isFinite(lim) && lim > 0 ? Math.min(500, Math.floor(lim)) : 50;
+      filter.meshesOnly = meshCb.checked;
       updateFilterSummary();
       close();
       runQuery();

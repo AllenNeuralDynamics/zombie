@@ -52,6 +52,9 @@ export function buildDocDbUrl(base) {
  * @param {object} [options]
  * @param {string}  [options.baseUrl=DOCDB_BASE_URL]
  * @param {number}  [options.limit=DOCDB_DEFAULT_LIMIT]
+ * @param {Record<string, 0|1>} [options.projection] - Optional MongoDB-style
+ *   projection, e.g. `{ _id: 1, name: 1 }`. When omitted, the full record is
+ *   returned.
  * @param {AbortSignal} [options.signal] - Optional AbortSignal for cancellation.
  * @returns {Promise<Array<Record<string, unknown>>>} - Resolved array of matching records.
  */
@@ -59,15 +62,19 @@ export async function queryDocDb(filterQuery, options = {}) {
   const {
     baseUrl = DOCDB_BASE_URL,
     limit = DOCDB_DEFAULT_LIMIT,
+    projection,
     signal,
   } = options;
 
   const url = buildDocDbUrl(baseUrl);
 
+  const body = { filter: filterQuery, limit };
+  if (projection) body.projection = projection;
+
   const resp = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ filter: filterQuery, limit }),
+    body: JSON.stringify(body),
     signal,
   });
 

@@ -73,6 +73,22 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
   : '/metadata-viz';
 
 // ---------------------------------------------------------------------------
+// QC portal metadata-auth flow (see METADATA-AUTH.md in aind-qc-portal/dev)
+// ---------------------------------------------------------------------------
+
+/**
+ * Base URL for the QC portal hosting the two-party metadata-auth endpoints:
+ *   GET  /metadata/token?id=<id>&redirect=<url>
+ *   POST /metadata/v1?auth-token=<token>
+ *   POST /metadata/v2?auth-token=<token>
+ *
+ * The token cookies (`qc_auth_token`, `qc_auth_token_expires_at`) are set
+ * on `.allenneuraldynamics.org`, so the migrate page only works when served
+ * from an `*.allenneuraldynamics.org` host.
+ */
+export const QC_PORTAL_BASE = 'https://qc.allenneuraldynamics.org';
+
+// ---------------------------------------------------------------------------
 // DuckDB server connector
 // ---------------------------------------------------------------------------
 

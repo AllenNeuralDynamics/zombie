@@ -19,6 +19,11 @@ export default defineConfig({
         target: 'http://localhost:3001',
         rewrite: (path) => path.replace(/^\/docdb/, ''),
       },
+      // Forward /metadata-service/* → docdb_proxy.py, which calls
+      // https://aind-metadata-service/* (internal-only, self-signed cert).
+      '/metadata-service': {
+        target: 'http://localhost:3001',
+      },
       '/qc-presign': {
         target: 'https://qc.allenneuraldynamics.org',
         changeOrigin: true,
@@ -67,6 +72,7 @@ export default defineConfig({
         names: resolve(__dirname, 'names.html'),
         record: resolve(__dirname, 'record.html'),
         upgrade: resolve(__dirname, 'upgrade.html'),
+        migrate: resolve(__dirname, 'migrate.html'),
       },
     },
   },
