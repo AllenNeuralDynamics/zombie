@@ -209,6 +209,9 @@ async function fetchMetadataServiceSection(db, endpoint, subjectId, signal) {
   const path = METADATA_SERVICE_PATHS[db][endpoint](subjectId);
   const resp = await fetch(path, { signal });
   if (!resp.ok) {
+    if (resp.status === 502) {
+      throw new Error('You must be on the Allen Institute internal network or VPN to use the migration tools');
+    }
     let text = '';
     try { text = await resp.text(); } catch { /* ignore */ }
     throw new Error(`metadata service ${resp.status} ${resp.statusText}${text ? ` — ${text}` : ''}`);
