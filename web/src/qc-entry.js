@@ -21,8 +21,24 @@ async function init() {
       app.innerHTML = `<p class="qc-error">Asset "${assetName}" not found in DocDB.</p>`;
       return;
     }
+
+    // Look up raw (source) asset S3 location so ephys GUI URLs can be fully resolved.
+    let rawS3Loc = '';
+    const sourceDataName = records[0]?.data_description?.source_data?.[0];
+    if (sourceDataName) {
+      try {
+        const rawRecords = await queryDocDb(
+          { name: sourceDataName },
+          { limit: 1, projection: { location: 1 } },
+        );
+        if (rawRecords.length) rawS3Loc = rawRecords[0].location ?? '';
+      } catch {
+        // Non-fatal: proceed without the raw asset location.
+      }
+    }
+
     app.innerHTML = '';
-    app.appendChild(createQCView(records[0]));
+    app.appendChild(createQCView(records[0], rawS3Loc));
   } catch (err) {
     app.innerHTML = `<p class="qc-error">Failed to load: ${err.message}</p>`;
   }

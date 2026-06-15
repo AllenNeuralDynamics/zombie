@@ -36,7 +36,7 @@ function applyPresignedUrl(el, tagName, assetName, reference) {
     });
 }
 
-export function renderMedia(reference, s3Bucket, s3Prefix, assetName) {
+export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc = '') {
   if (!reference) {
     const empty = document.createElement('div');
     return empty;
@@ -47,12 +47,12 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName) {
     const wrapper = document.createElement('div');
     wrapper.className = 'qc-media-multi';
     for (const part of parts) {
-      wrapper.appendChild(renderMedia(part, s3Bucket, s3Prefix, assetName));
+      wrapper.appendChild(renderMedia(part, s3Bucket, s3Prefix, assetName, rawS3Loc));
     }
     return wrapper;
   }
 
-  const { url, type } = resolveReference(reference, s3Bucket, s3Prefix);
+  const { url, type } = resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc);
   const presign = needsPresign(reference, s3Bucket, type);
 
   const wrapper = document.createElement('div');

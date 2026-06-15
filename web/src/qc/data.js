@@ -21,7 +21,9 @@ export function parseQCRecord(record) {
   const coIds = record.other_identifiers?.['Code Ocean'] ?? [];
   const codeOceanId = coIds[0] ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping };
+  const rawAssetName = record.data_description?.source_data?.[0] ?? '';
+
+  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping };
 }
 
 function decodeJsonField(val) {
@@ -54,7 +56,7 @@ function cleanRef(ref) {
   return ref.replace(/^\//, '').replace(/^results\//, '');
 }
 
-export function resolveReference(reference, s3Bucket, s3Prefix) {
+export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   if (!reference) return { url: '', type: 'text' };
 
   if (reference.includes(';')) {
@@ -75,7 +77,19 @@ export function resolveReference(reference, s3Bucket, s3Prefix) {
 
   const lower = url.toLowerCase();
 
-  if (lower.includes('neuroglancer') || lower.includes('sortingview') || lower.includes('figurl') || lower.includes('ephys.allenneuraldynamics.org')) {
+  if (lower.includes('ephys.allenneuraldynamics.org')) {
+    // Decode URL-encoded placeholders, then substitute asset locations.
+    let processed = decodeURIComponent(url);
+    processed = processed.replace(/\{derived_asset_location\}/g, `s3://${s3Bucket}/${s3Prefix}`);
+    if (rawS3Loc) {
+      processed = processed.replace(/\{raw_asset_location\}/g, rawS3Loc);
+    } else {
+      processed = processed.replace(/\{raw_asset_location\}/g, '');
+    }
+    return { url: processed, type: 'iframe' };
+  }
+
+  if (lower.includes('neuroglancer') || lower.includes('sortingview') || lower.includes('figurl')) {
     return { url, type: 'iframe' };
   }
 
@@ -119,6 +133,8 @@ export function buildTreeNodes(metrics, defaultGrouping) {
       let val;
       if (level === 'modality') {
         val = m.modality?.abbreviation ?? 'unknown';
+      } else if (level === 'stage') {
+        val = m.stage ?? (m.tags ?? {})['stage'] ?? 'unknown';
       } else {
         val = (m.tags ?? {})[level] ?? 'unknown';
       }

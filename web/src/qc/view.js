@@ -2,7 +2,7 @@ import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
 import { renderMetrics } from './metrics.js';
 
-export function createQCView(record) {
+export function createQCView(record, rawS3Loc = '') {
   const parsed = parseQCRecord(record);
   const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping } = parsed;
 
@@ -21,7 +21,7 @@ export function createQCView(record) {
 
   const onSelect = (node) => {
     contentArea.innerHTML = '';
-    contentArea.appendChild(renderMetrics(node.metrics, s3Bucket, s3Prefix, name));
+    contentArea.appendChild(renderMetrics(node.metrics, s3Bucket, s3Prefix, name, rawS3Loc));
   };
 
   const tree = createTree(treeNodes, onSelect);
@@ -29,7 +29,7 @@ export function createQCView(record) {
   body.appendChild(contentArea);
 
   if (metrics.length) {
-    contentArea.appendChild(renderMetrics(metrics, s3Bucket, s3Prefix, name));
+    contentArea.appendChild(renderMetrics(metrics, s3Bucket, s3Prefix, name, rawS3Loc));
   } else {
     const empty = document.createElement('p');
     empty.className = 'qc-empty';

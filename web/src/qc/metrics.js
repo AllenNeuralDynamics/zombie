@@ -24,6 +24,23 @@ function renderValue(val) {
   }
 
   if (Array.isArray(val)) {
+    // Arrays of objects (e.g., curation history): show the last (most recent) entry as JSON.
+    if (val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
+      const latest = val[val.length - 1];
+      const pre = document.createElement('pre');
+      pre.className = 'qc-value-json';
+      pre.textContent = JSON.stringify(latest, null, 2);
+      if (val.length > 1) {
+        const note = document.createElement('p');
+        note.className = 'metric-tags';
+        note.textContent = `Showing latest of ${val.length} curation entries.`;
+        const wrap = document.createElement('div');
+        wrap.appendChild(note);
+        wrap.appendChild(pre);
+        return wrap;
+      }
+      return pre;
+    }
     const table = document.createElement('table');
     table.className = 'qc-value-table';
     const thead = table.createTHead();
@@ -83,12 +100,21 @@ function renderValue(val) {
 
 function buildMetricCard(metric) {
   const card = document.createElement('div');
-  card.className = 'qc-metric-card';
+  const isCuration = metric.object_type === 'Curation metric';
+  card.className = isCuration ? 'qc-metric-card qc-metric-curation' : 'qc-metric-card';
 
   const name = document.createElement('div');
   name.className = 'metric-name';
   name.textContent = metric.name ?? '';
   card.appendChild(name);
+
+  // Show curation type badge (e.g., "Spike sorting curation")
+  if (isCuration && metric.type) {
+    const badge = document.createElement('div');
+    badge.className = 'metric-curation-type';
+    badge.textContent = metric.type;
+    card.appendChild(badge);
+  }
 
   if (metric.description) {
     const desc = document.createElement('div');
@@ -133,7 +159,7 @@ function buildMetricCard(metric) {
   return card;
 }
 
-export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName) {
+export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc = '') {
   const container = document.createElement('div');
   container.className = 'qc-accordion';
 
@@ -166,7 +192,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName) {
     body.appendChild(leftCol);
 
     if (ref) {
-      const media = renderMedia(ref, s3Bucket, s3Prefix, assetName);
+      const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
       body.appendChild(media);
     }
 

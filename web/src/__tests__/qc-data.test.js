@@ -46,6 +46,21 @@ describe('parseQCRecord', () => {
     expect(parseQCRecord(record).codeOceanId).toBe('co-123');
   });
 
+  it('extracts rawAssetName from data_description.source_data', () => {
+    const record = {
+      name: 'derived-asset',
+      location: 's3://bucket/prefix',
+      data_description: { source_data: ['raw-asset-name'] },
+      quality_control: { metrics: [] },
+    };
+    expect(parseQCRecord(record).rawAssetName).toBe('raw-asset-name');
+  });
+
+  it('returns empty rawAssetName when source_data is absent', () => {
+    const record = { name: 'x', location: 's3://bucket/prefix', quality_control: { metrics: [] } };
+    expect(parseQCRecord(record).rawAssetName).toBe('');
+  });
+
   it('decodes json: prefixed tags', () => {
     const record = {
       name: 'x',
@@ -171,6 +186,32 @@ describe('resolveReference', () => {
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
   });
 
+  it('classifies ephys.allenneuraldynamics.org URL as iframe', () => {
+    const ref = 'https://ephys.allenneuraldynamics.org/app?a=1';
+    expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
+  });
+
+  it('substitutes {derived_asset_location} placeholder in ephys URLs', () => {
+    const ref = 'https://ephys.allenneuraldynamics.org/app?loc=%7Bderived_asset_location%7D';
+    const { url } = resolveReference(ref, 'my-bucket', 'my-prefix');
+    expect(url).toContain('s3://my-bucket/my-prefix');
+    expect(url).not.toContain('{derived_asset_location}');
+  });
+
+  it('substitutes {raw_asset_location} placeholder when rawS3Loc is provided', () => {
+    const ref = 'https://ephys.allenneuraldynamics.org/app?raw=%7Braw_asset_location%7D';
+    const { url } = resolveReference(ref, 'my-bucket', 'my-prefix', 's3://raw-bucket/raw-prefix');
+    expect(url).toContain('s3://raw-bucket/raw-prefix');
+    expect(url).not.toContain('{raw_asset_location}');
+  });
+
+  it('removes {raw_asset_location} placeholder when rawS3Loc is absent', () => {
+    const ref = 'https://ephys.allenneuraldynamics.org/app?raw=%7Braw_asset_location%7D';
+    const { url } = resolveReference(ref, 'my-bucket', 'my-prefix');
+    expect(url).not.toContain('{raw_asset_location}');
+    expect(url).not.toContain('%7B');
+  });
+
   it('wraps .rrd as rerun iframe URL', () => {
     const ref = 'figures/output_v0.19.1.rrd';
     const { url, type } = resolveReference(ref, bucket, prefix);
@@ -234,5 +275,25 @@ describe('buildTreeNodes', () => {
     ];
     const nodes = buildTreeNodes(metrics, ['probe']);
     expect(nodes[0].value).toBe('unknown');
+  });
+
+  it('groups by stage using the first-class stage field, not tags', () => {
+    const metrics = [
+      makeMetric({ stage: 'Raw data', tags: {} }),
+      makeMetric({ stage: 'Raw data', tags: {} }),
+      makeMetric({ stage: 'Processed', tags: {} }),
+    ];
+    const nodes = buildTreeNodes(metrics, ['stage']);
+    expect(nodes.length).toBe(2);
+    const vals = nodes.map(n => n.value).sort();
+    expect(vals).toEqual(['Processed', 'Raw data']);
+  });
+
+  it('falls back to tags.stage when stage field is absent', () => {
+    const metrics = [
+      { ...makeMetric({ stage: undefined }), tags: { stage: 'Curated' } },
+    ];
+    const nodes = buildTreeNodes(metrics, ['stage']);
+    expect(nodes[0].value).toBe('Curated');
   });
 });

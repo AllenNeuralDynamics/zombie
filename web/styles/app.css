@@ -3693,6 +3693,9 @@ body {
 .qc-metric-card .status-dot.pass { background: #1D8649; }
 .qc-metric-card .status-dot.fail { background: #c0392b; }
 .qc-metric-card .status-dot.pending { background: #888888; }
+.qc-metric-curation { border-left: 3px solid var(--color-blue, #4a8fc4); }
+.metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--color-blue, #4a8fc4); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.qc-value-json { max-height: 300px; overflow-y: auto; }
 .qc-media { flex: 1; min-width: 0; position: relative; }
 .qc-media img { max-width: 100%; height: auto; border-radius: var(--radius); display: block; }
 .qc-media video { max-width: 100%; border-radius: var(--radius); display: block; }
