@@ -3189,6 +3189,22 @@ body {
   margin-bottom: var(--gap);
 }
 
+.warning-banner {
+  background: #fffbe6;
+  border-left: 4px solid #f0a500;
+  padding: var(--gap);
+  border-radius: var(--radius);
+  margin-bottom: var(--gap);
+}
+
+.info-banner {
+  background: #f0f7ff;
+  border-left: 4px solid #2196f3;
+  padding: var(--gap);
+  border-radius: var(--radius);
+  margin-bottom: var(--gap);
+}
+
 /* Subject loading state */
 .subject-loading {
   color: var(--color-muted, #888);

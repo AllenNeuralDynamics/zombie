@@ -40,14 +40,15 @@ const DOCDB_BASES = {
   v1: 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets',
   v2: 'https://api.allenneuraldynamics.org/v2/metadata_index/data_assets',
 };
+const METADATA_SERVICE_BASE = 'https://aind-metadata-service';
 const METADATA_SERVICE_PATHS = {
   v1: {
-    subject: (id) => `/metadata-service/subject/${encodeURIComponent(id)}`,
-    procedures: (id) => `/metadata-service/procedures/${encodeURIComponent(id)}`,
+    subject: (id) => `${METADATA_SERVICE_BASE}/subject/${encodeURIComponent(id)}`,
+    procedures: (id) => `${METADATA_SERVICE_BASE}/procedures/${encodeURIComponent(id)}`,
   },
   v2: {
-    subject: (id) => `/metadata-service/api/v2/subject/${encodeURIComponent(id)}`,
-    procedures: (id) => `/metadata-service/api/v2/procedures/${encodeURIComponent(id)}`,
+    subject: (id) => `${METADATA_SERVICE_BASE}/api/v2/subject/${encodeURIComponent(id)}`,
+    procedures: (id) => `${METADATA_SERVICE_BASE}/api/v2/procedures/${encodeURIComponent(id)}`,
   },
 };
 const ENDPOINTS = ['subject', 'procedures'];
@@ -208,19 +209,61 @@ async function fetchFullRecord(db, assetId, signal) {
   return records[0];
 }
 
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function metadataCacheKey(db, endpoint, subjectId) {
+  return `migrate_cache:${db}:${endpoint}:${subjectId}`;
+}
+
+function readMetadataCache(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (Date.now() - entry.ts > CACHE_TTL_MS) {
+      localStorage.removeItem(key);
+      return null;
+    }
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function writeMetadataCache(key, data, warning) {
+  try {
+    localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data, warning }));
+  } catch { /* storage full — ignore */ }
+}
+
+export function clearMetadataCache(db, endpoint, subjectId) {
+  try {
+    localStorage.removeItem(metadataCacheKey(db, endpoint, subjectId));
+  } catch { /* ignore */ }
+}
+
 async function fetchMetadataServiceSection(db, endpoint, subjectId, signal) {
+  const cacheKey = metadataCacheKey(db, endpoint, subjectId);
+  const cached = readMetadataCache(cacheKey);
+  if (cached) {
+    return { data: cached.data, warning: cached.warning, fromCache: true };
+  }
+
   const path = METADATA_SERVICE_PATHS[db][endpoint](subjectId);
   const resp = await fetch(path, { signal });
+  let warning = null;
   if (!resp.ok) {
-    if (resp.status === 502) {
-      throw new Error('You must be on the Allen Institute internal network or VPN to use the migration tools');
+    if (resp.status >= 500) {
+      let text = '';
+      try { text = await resp.text(); } catch { /* ignore */ }
+      throw new Error(`metadata service ${resp.status} ${resp.statusText}${text ? ` — ${text}` : ''}`);
     }
-    let text = '';
-    try { text = await resp.text(); } catch { /* ignore */ }
-    throw new Error(`metadata service ${resp.status} ${resp.statusText}${text ? ` — ${text}` : ''}`);
+    warning = `Metadata service returned ${resp.status} — model may not be fully valid, but changes will still be applied.`;
   }
   const body = await resp.json();
-  return extractServicePayload(body, db);
+  const data = extractServicePayload(body, db);
+  writeMetadataCache(cacheKey, data, warning);
+  return { data, warning, fromCache: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -286,6 +329,8 @@ export function MigratePage() {
   const [candidate, setCandidate] = useState(null);
   const [loadStatus, setLoadStatus] = useState('idle');  // idle | loading | ready | error
   const [loadError, setLoadError] = useState('');
+  const [serviceWarning, setServiceWarning] = useState(null);
+  const [cacheHit, setCacheHit] = useState(false);
 
   // ── Token + submission state ────────────────────────────────────────────
   const [token, setToken] = useState(() => readCookie('qc_auth_token'));
@@ -333,11 +378,14 @@ export function MigratePage() {
       setCandidate(null);
       setLoadStatus('idle');
       setLoadError('');
+      setServiceWarning(null);
       return undefined;
     }
     const ctrl = new AbortController();
     setLoadStatus('loading');
     setLoadError('');
+    setServiceWarning(null);
+    setCacheHit(false);
     setCurrentRecord(null);
     setCandidate(null);
     setSubmitState('idle');
@@ -364,8 +412,10 @@ export function MigratePage() {
         if (!subjectId) {
           throw new Error('Selected asset has no subject.subject_id — cannot query metadata service.');
         }
-        const section = await fetchMetadataServiceSection(db, endpoint, subjectId, ctrl.signal);
+        const { data: section, warning: svcWarning, fromCache } = await fetchMetadataServiceSection(db, endpoint, subjectId, ctrl.signal);
         if (ctrl.signal.aborted) return;
+        setServiceWarning(svcWarning ?? null);
+        setCacheHit(fromCache);
         setCandidate(section);
         setLoadStatus('ready');
       } catch (err) {
@@ -550,6 +600,16 @@ export function MigratePage() {
             disabled=${!assetInput.trim() || loadStatus === 'loading'}
             onClick=${handleFetch}
           >${loadStatus === 'loading' ? 'Loading…' : 'Fetch'}</button>
+          <button
+            class="btn-secondary"
+            title="Clear cached metadata-service response for this asset+endpoint"
+            disabled=${!assetInput.trim() || loadStatus === 'loading'}
+            onClick=${() => {
+              const subjectId = currentRecord?.subject?.subject_id ?? assetInput.trim();
+              clearMetadataCache(db, endpoint, subjectId);
+              setCacheHit(false);
+            }}
+          >Clear cache</button>
         </div>
         ${loadStatus === 'error'
           ? html`<p class="error-banner" style="margin-top:8px">${loadError}</p>`
@@ -571,11 +631,17 @@ export function MigratePage() {
               </div>
 
               ${loadStatus === 'loading'
-                ? html`<p class="loading-message">Fetching from DocDB + metadata service${endpoint === 'procedures' ? ' (procedures can take ~45s)' : ''}…</p>`
+                ? html`<p class="loading-message">Fetching from DocDB + metadata service${endpoint === 'procedures' ? ' (procedures can take ~45s — results are cached for 24 h)' : ''}…</p>`
                 : null}
 
               ${loadStatus === 'ready'
                 ? html`
+                    ${cacheHit
+                      ? html`<p class="info-banner" style="margin-top:8px">Metadata service response loaded from cache (24 h). Use "Clear cache" to force a fresh fetch.</p>`
+                      : null}
+                    ${serviceWarning
+                      ? html`<p class="warning-banner" style="margin-top:8px">${serviceWarning}</p>`
+                      : null}
                     <${DiffView}
                       entries=${sectionDiff}
                       title=${`Changes to '${endpoint}' if submitted`}
