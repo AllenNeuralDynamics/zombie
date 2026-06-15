@@ -11,7 +11,7 @@
  * streamed from S3 only after the user picks a session.
  */
 
-import { VrfAnimation, loadSprites, findSiteAt } from './animation.js';
+import { VrfAnimation, loadSprites, findSiteAt, buildOdorPalette } from './animation.js';
 import { buildPatchIndex, updateDepletion }       from './depletion.js';
 import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
@@ -48,7 +48,10 @@ export function createSessionPlayer(coord) {
 
     <div class="vrf-player-body" hidden>
       <div class="vrf-top">
-        <div class="vrf-card" id="vrf-stats">–</div>
+        <div class="vrf-card" id="vrf-stats">
+          <div id="vrf-stats-status">–</div>
+          <div id="vrf-odor-legend" class="vrf-odor-legend" hidden></div>
+        </div>
 
         <div class="vrf-card vrf-card--depletion">
           <div class="vrf-card-label">Patch depletion</div>
@@ -58,25 +61,19 @@ export function createSessionPlayer(coord) {
         <div class="vrf-card vrf-card--transport">
           <div class="vrf-transport">
             <button id="vrf-play" type="button">▶</button>
+            <button id="vrf-prev" type="button">◀ Patch</button>
+            <button id="vrf-next" type="button">Patch ▶</button>
             <span id="vrf-time">00:00 / 00:00</span>
           </div>
           <div class="vrf-scrub-row">
-            <input type="range" id="vrf-scrub" min="0" max="1000" step="1" value="0" />
+            <div class="vrf-scrub-wrap">
+              <canvas id="vrf-scrub-bg"></canvas>
+              <input type="range" id="vrf-scrub" min="0" max="1000" step="1" value="0" />
+            </div>
           </div>
           <div class="vrf-speed-row">
-            <label for="vrf-speed">Speed</label>
-            <select id="vrf-speed">
-              <option value="1">1×</option>
-              <option value="5">5×</option>
-              <option value="10" selected>10×</option>
-              <option value="20">20×</option>
-              <option value="60">60×</option>
-            </select>
-          </div>
-          <div class="vrf-keys">
-            <kbd>Space</kbd> play/pause &nbsp;
-            <kbd>←</kbd> <kbd>→</kbd> prev/next patch &nbsp;
-            <kbd>,</kbd> <kbd>.</kbd> speed
+            <label>Speed <span id="vrf-speed-label">10×</span></label>
+            <input type="range" id="vrf-speed" min="0" max="3" step="1" value="2" />
           </div>
         </div>
       </div>
@@ -196,16 +193,27 @@ function formatSessionLabel(row) {
 // ---------------------------------------------------------------------------
 
 function wireAnimation(root, sites, sprites, traces) {
-  const canvas    = root.querySelector('#vrf-canvas');
-  const statsEl   = root.querySelector('#vrf-stats');
-  const depEl     = root.querySelector('#vrf-depletion');
-  const timeLbl   = root.querySelector('#vrf-time');
-  const playBtn   = root.querySelector('#vrf-play');
-  const scrubInput = root.querySelector('#vrf-scrub');
-  const speedSel  = root.querySelector('#vrf-speed');
+  const canvas      = root.querySelector('#vrf-canvas');
+  const statsEl     = root.querySelector('#vrf-stats-status');
+  const legendEl    = root.querySelector('#vrf-odor-legend');
+  const depEl       = root.querySelector('#vrf-depletion');
+  const timeLbl     = root.querySelector('#vrf-time');
+  const playBtn     = root.querySelector('#vrf-play');
+  const prevBtn     = root.querySelector('#vrf-prev');
+  const nextBtn     = root.querySelector('#vrf-next');
+  const scrubInput  = root.querySelector('#vrf-scrub');
+  const scrubBg     = root.querySelector('#vrf-scrub-bg');
+  const speedSlider = root.querySelector('#vrf-speed');
+  const speedLabel  = root.querySelector('#vrf-speed-label');
 
-  const patchIndex = buildPatchIndex(sites);
-  const anim = new VrfAnimation(canvas, sites, sprites, traces);
+  const SPEED_STEPS = [1, 5, 10, 20];
+
+  const patchIndex  = buildPatchIndex(sites);
+  const odorPalette = buildOdorPalette(sites);
+  renderOdorLegend(legendEl, odorPalette);
+  const anim = new VrfAnimation(canvas, sites, sprites, traces, { odorPalette });
+
+  requestAnimationFrame(() => drawScrubBg(scrubBg, sites, odorPalette, anim.duration));
 
   let lastSiteIdx = -1;
   anim.onFrame = (t, site) => {
@@ -223,8 +231,11 @@ function wireAnimation(root, sites, sprites, traces) {
     }
 
     const totalPatches = sites[sites.length - 1].patch_index + 1;
+    const swatch = site.site_label !== 'InterPatch' && odorPalette.has(site.patch_label)
+      ? `<span class="vrf-odor-dot" style="background:${odorPalette.get(site.patch_label)}"></span>`
+      : '';
     statsEl.innerHTML =
-      `<b>Patch ${site.patch_index + 1}/${totalPatches}</b> · ${site.patch_label} · ` +
+      `<b>Patch ${site.patch_index + 1}/${totalPatches}</b> · ${swatch}${site.patch_label} · ` +
       `site ${site.site_in_patch_index + 1}<br>` +
       `${stateHtml} · rewards <b>${cumRew}/${anim.totalRewards}</b>`;
 
@@ -243,30 +254,19 @@ function wireAnimation(root, sites, sprites, traces) {
     else              { anim.play();  playBtn.textContent = '⏸'; }
   };
 
-  playBtn.onclick = togglePlay;
+  playBtn.onclick  = togglePlay;
+  prevBtn.onclick  = () => jumpPatch(anim, sites, -1);
+  nextBtn.onclick  = () => jumpPatch(anim, sites, +1);
   scrubInput.oninput = () => {
     const t = (scrubInput.value / 1000) * anim.duration;
     lastSiteIdx = -1;
     anim.seekTo(t);
   };
-  speedSel.onchange = () => anim.setSpeed(Number(speedSel.value));
-
-  // Keyboard shortcuts (scoped to when canvas is in viewport for sanity, but
-  // simple: listen on document and bail if focus is in another widget).
-  if (!root._kbHandler) {
-    const handler = (e) => {
-      // If a different player got swapped in, the latest one wins.
-      if (!root.isConnected || root.querySelector('#vrf-canvas') !== canvas) return;
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-      if (e.key === ' ')          { e.preventDefault(); togglePlay(); }
-      else if (e.key === 'ArrowRight') jumpPatch(anim, sites, +1);
-      else if (e.key === 'ArrowLeft')  jumpPatch(anim, sites, -1);
-      else if (e.key === ',') anim.setSpeed(Math.max(1, anim.speed - 5));
-      else if (e.key === '.') anim.setSpeed(Math.min(60, anim.speed + 5));
-    };
-    document.addEventListener('keydown', handler);
-    root._kbHandler = handler;
-  }
+  speedSlider.oninput = () => {
+    const v = SPEED_STEPS[Number(speedSlider.value)] ?? 10;
+    speedLabel.textContent = `${v}×`;
+    anim.setSpeed(v);
+  };
 
   // Keep play-button label in sync when animation auto-pauses at end.
   const origLoop = anim._loop.bind(anim);
@@ -282,10 +282,47 @@ function wireAnimation(root, sites, sprites, traces) {
 // Helpers
 // ---------------------------------------------------------------------------
 
+function drawScrubBg(canvas, sites, odorPalette, duration) {
+  const w = canvas.offsetWidth || canvas.parentElement?.offsetWidth || 400;
+  canvas.width  = w;
+  canvas.height = canvas.offsetHeight || 12;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#e8e8e8';
+  ctx.fillRect(0, 0, w, canvas.height);
+  for (const s of sites) {
+    if (s.stop_time_s == null) continue;
+    const x1 = (s.start_time_s / duration) * w;
+    const x2 = (s.stop_time_s  / duration) * w;
+    ctx.fillStyle = s.site_label === 'InterPatch'
+      ? '#d8d8d8'
+      : (odorPalette.get(s.patch_label) ?? '#ddd');
+    ctx.fillRect(x1, 0, Math.max(1, x2 - x1), canvas.height);
+  }
+}
+
 function fmtTime(s) {
   const m   = Math.floor(s / 60).toString().padStart(2, '0');
   const sec = Math.floor(s % 60).toString().padStart(2, '0');
   return `${m}:${sec}`;
+}
+
+function renderOdorLegend(el, palette) {
+  if (!el) return;
+  if (palette.size === 0) { el.hidden = true; el.innerHTML = ''; return; }
+  const items = [...palette].map(([label, color]) =>
+    `<span class="vrf-odor-legend-item">` +
+      `<span class="vrf-odor-dot" style="background:${color}"></span>` +
+      `${escapeHtml(String(label))}` +
+    `</span>`
+  ).join('');
+  el.innerHTML = `<span class="vrf-odor-legend-label">Odors</span>${items}`;
+  el.hidden = false;
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
 }
 
 function jumpPatch(anim, sites, delta) {

@@ -20,12 +20,12 @@ OUT.mkdir(parents=True, exist_ok=True)
 # ----------------------------------------------------------------------------
 P = {
     ".": None,             # transparent
-    "F": "#9a9a9a",        # mouse fur (grey)
-    "f": "#bcbcbc",        # mouse belly (lighter grey)
+    "F": "#f2f2f2",        # mouse fur (off-white, totoro-ish)
+    "f": "#d0d0d0",        # belly / shadow (light grey on white)
     "E": "#f4b6c2",        # ear / nose / paw pink
     "e": "#e07595",        # ear interior darker pink
     "K": "#1a1a1a",        # eye / outline black
-    "T": "#7a7a7a",        # tail (slightly darker grey)
+    "T": "#cfcfcf",        # tail (light grey, slightly darker than body)
     "W": "#5fb4ff",        # water / reward
     "w": "#b9e0ff",        # water highlight
     "G": "#3a8a4a",        # patch ground green
@@ -69,94 +69,94 @@ def write(name: str, grid: list[str], w: int, h: int):
 
 # ============================================================================
 # Mouse — SIDE-VIEW, facing right. 24w × 16h.
-# Classic chunky pixel mouse: grey fur, round head with two ears on top,
-# pointy snout with pink nose, single black eye, plump body, curly tail
-# trailing left, two short pink feet underneath.
+# Chubby totoro-ish silhouette: big round white body, small head merged into
+# body on the right with two short pointed pink-lined ears, single black dot
+# eye, tiny pink nose, long trailing tail to the left, two stubby pink feet.
 # ============================================================================
 
-# Outline (K) wraps everything; F fur, f belly highlight, E pink (ears/nose/feet)
-# e dark pink (ear interior), T tail.
+# Outline (K) wraps everything; F body fill (white), f belly shadow,
+# E pink (ears/nose/feet), e dark pink (ear interior), T tail (light grey).
 #
 #  0         1         2
 #  012345678901234567890123
 
 mouse_idle = [
-    "........KK.....KK.......",  # 0  ear tops
-    ".......KEeK...KEeK......",  # 1
-    ".......KEeKKKKKEeK......",  # 2
-    ".......KFFFFFFFFFFK.....",  # 3  head top
-    "......KFFFFFFFFFFFFK....",  # 4
-    "KKKK..KFFFFFKFFFFFFKKK..",  # 5  eye, snout start
-    "KTTKKKFFFFFFFFFFFFFFFEK.",  # 6  tail + snout + nose (E)
-    "K..TKFFFFFFFFFFFFFFFFEK.",  # 7
-    "KTTKFFFFFFFFFFFFFFFFFFK.",  # 8
-    "KK.KFFfffffffffffffFFFK.",  # 9  belly highlight
-    ".KKKFFfffffffffffffFFFK.",  # 10
-    "...KFFfffffffffffffFFK..",  # 11
-    "...KFFKKKFFFFKKKFFFFFK..",  # 12  underside / leg sockets
-    "....KEEKKKKKKKEEKKKKK...",  # 13  feet
-    "....KEEK......KEEK......",  # 14
-    ".....KK........KK.......",  # 15
+    "...............K....K...",  # 0  ear tips
+    "..............KEK..KEK..",  # 1  ear bodies
+    "............KKKEeKKKEeK.",  # 2  ears widen, head crown appears
+    "..........KKFFFFFFFFFFK.",  # 3  head/body top
+    "........KKFFFFFFFFFFFFFK",  # 4  big upper bulge
+    ".......KFFFFFFFFFFKFFEEK",  # 5  eye(K) col 18, pink nose
+    "..TTKKKFFFffffffFFFFFFEK",  # 6  tail joins, belly + nose tip
+    ".TT.TKFFffffffffffFFFFFK",  # 7
+    "TT...KFFfffffffffffFFFFK",  # 8
+    ".TTTTKFFfffffffffffFFFFK",  # 9
+    "....KFFFffffffffffFFFFFK",  # 10 body widest
+    "....KFFFFFFFFFFFFFFFFFFK",  # 11 body bottom curve
+    ".....KKKKKKKKKKKKKKKKKK.",  # 12 underside
+    "......KEEK.....KEEK.....",  # 13 feet
+    "......KEEK.....KEEK.....",  # 14
+    ".......KK.......KK......",  # 15 toe tips
 ]
 
-# Frame A: front feet planted forward, back feet tucked back.
+# Frame A: front foot forward, back foot trailing.
 mouse_run_a = [
-    "........KK.....KK.......",
-    ".......KEeK...KEeK......",
-    ".......KEeKKKKKEeK......",
-    ".......KFFFFFFFFFFK.....",
-    "......KFFFFFFFFFFFFK....",
-    "KKKK..KFFFFFKFFFFFFKKK..",
-    "KTTKKKFFFFFFFFFFFFFFFEK.",
-    "K..TKFFFFFFFFFFFFFFFFEK.",
-    "KTTKFFFFFFFFFFFFFFFFFFK.",
-    "KK.KFFfffffffffffffFFFK.",
-    ".KKKFFfffffffffffffFFFK.",
-    "...KFFfffffffffffffFFK..",
-    "...KFFFFKFFFFFFFFKFFFK..",  # back leg slightly back
-    "....KKKEEKKKKKKKEEKKK...",
-    "....KEEK........KEEK....",  # back foot trailing, front foot forward
-    "....KKK..........KKK....",
+    "...............K....K...",
+    "..............KEK..KEK..",
+    "............KKKEeKKKEeK.",
+    "..........KKFFFFFFFFFFK.",
+    "........KKFFFFFFFFFFFFFK",
+    ".......KFFFFFFFFFFKFFEEK",
+    "..TTKKKFFFffffffFFFFFFEK",
+    "TTT.TKFFffffffffffFFFFFK",
+    ".TT..KFFfffffffffffFFFFK",
+    "..TTTKFFfffffffffffFFFFK",
+    "....KFFFffffffffffFFFFFK",
+    "....KFFFFFFFFFFFFFFFFFFK",
+    ".....KKKKKKKKKKKKKKKKKK.",
+    ".....KEEK.......KEEKKK..",  # back foot back, front foot under-front
+    ".....KEEK........KEEK...",
+    "......KK..........KK....",
 ]
 
-# Frame B: feet swapped (back foot forward, front foot trailing).
+# Frame B: feet swapped (back foot under-back, front foot stretched forward).
 mouse_run_b = [
-    "........KK.....KK.......",
-    ".......KEeK...KEeK......",
-    ".......KEeKKKKKEeK......",
-    ".......KFFFFFFFFFFK.....",
-    "......KFFFFFFFFFFFFK....",
-    "KKKK..KFFFFFKFFFFFFKKK..",
-    "KTTKKKFFFFFFFFFFFFFFFEK.",
-    "K..TKFFFFFFFFFFFFFFFFEK.",
-    "KTTKFFFFFFFFFFFFFFFFFFK.",
-    "KK.KFFfffffffffffffFFFK.",
-    ".KKKFFfffffffffffffFFFK.",
-    "...KFFfffffffffffffFFK..",
-    "...KFFFFKFFFFFFFFKFFFK..",
-    "....KKKKEEKKKKKKEEKKK...",
-    "......KEEK......KEEK....",  # opposite phase
-    "......KKK........KKK....",
+    "...............K....K...",
+    "..............KEK..KEK..",
+    "............KKKEeKKKEeK.",
+    "..........KKFFFFFFFFFFK.",
+    "........KKFFFFFFFFFFFFFK",
+    ".......KFFFFFFFFFFKFFEEK",
+    "..TTKKKFFFffffffFFFFFFEK",
+    ".TT.TKFFffffffffffFFFFFK",
+    "TTT..KFFfffffffffffFFFFK",
+    ".TTTTKFFfffffffffffFFFFK",
+    "....KFFFffffffffffFFFFFK",
+    "....KFFFFFFFFFFFFFFFFFFK",
+    ".....KKKKKKKKKKKKKKKKKK.",
+    "......KKKEEK.....KEEK...",
+    "........KEEK......KEEK..",
+    ".........KK........KK...",
 ]
 
-# Lick pose: idle + tiny pink tongue at the nose.
+# Lick pose: idle + tiny pink tongue (L) peeking out by the nose.
 mouse_lick = [
-    "........KK.....KK.......",
-    ".......KEeK...KEeK......",
-    ".......KEeKKKKKEeK......",
-    ".......KFFFFFFFFFFK.....",
-    "......KFFFFFFFFFFFFK....",
-    "KKKK..KFFFFFKFFFFFFKKK..",
-    "KTTKKKFFFFFFFFFFFFFFFEKE",  # tongue (E) sticking out right
-    "K..TKFFFFFFFFFFFFFFFFEKE",
-    "KTTKFFFFFFFFFFFFFFFFFFK.",
-    "KK.KFFfffffffffffffFFFK.",
-    ".KKKFFfffffffffffffFFFK.",
-    "...KFFfffffffffffffFFK..",
-    "...KFFKKKFFFFKKKFFFFFK..",
-    "....KEEKKKKKKKEEKKKKK...",
-    "....KEEK......KEEK......",
-    ".....KK........KK.......",
+    "...............K....K...",
+    "..............KEK..KEK..",
+    "............KKKEeKKKEeK.",
+    "..........KKFFFFFFFFFFK.",
+    "........KKFFFFFFFFFFFFFK",
+    ".......KFFFFFFFFFFKFFEEK",
+    "..TTKKKFFFffffffFFFFFFEK",
+    ".TT.TKFFffffffffffFFFFLL",  # tongue (L) flicking out
+    "TT...KFFfffffffffffFFFFK",
+    ".TTTTKFFfffffffffffFFFFK",
+    "....KFFFffffffffffFFFFFK",
+    "....KFFFFFFFFFFFFFFFFFFK",
+    ".....KKKKKKKKKKKKKKKKKK.",
+    "......KEEK.....KEEK.....",
+    "......KEEK.....KEEK.....",
+    ".......KK.......KK......",
 ]
 
 # ============================================================================

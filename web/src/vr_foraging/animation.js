@@ -34,13 +34,60 @@ const MOUSE_Y      = CORR_Y + CORR_H - 14;
 const C = {
   bg:                 '#ffffff',
   void:               '#f3f3f3',
-  patch:              '#fafafa',
+  patch:              '#fafafa',     // fallback when patch_label has no color
   corridorEdge:       '#dcdcdc',
-  rewardSite:         '#f39c12',
+  rewardSite:         '#f39c12',     // legacy orange (unused for sites now)
   rewardSiteRing:     '#222222',
   rewardBlue:         '#2980b9',
   rewardRed:          '#c0392b',
+  siteFillUnknown:    '#ffffff',     // before the mouse "finds out"
 };
+
+// Categorical palette for odor / patch_label tints. Soft pastels so they
+// work as tile backgrounds without overpowering the foreground site markers.
+// Odors must not use red or blue (reserved for reward outcome).
+const ODOR_COLORS = [
+  '#ffe0b3', // peach
+  '#d6efd2', // mint
+  '#e6d6f5', // lavender
+  '#fff1a8', // pale yellow
+  '#f5e6c8', // warm tan
+  '#d4f0e8', // sea foam
+  '#fce4c0', // apricot
+  '#e4d6f0', // soft lilac
+];
+
+/**
+ * Build a stable Map<patch_label, color> using order of first appearance.
+ * InterPatch rows are skipped (they always render as void).
+ */
+export function buildOdorPalette(sites) {
+  const map = new Map();
+  for (const s of sites) {
+    if (s.site_label === 'InterPatch') continue;
+    const label = s.patch_label;
+    if (label == null || map.has(label)) continue;
+    map.set(label, ODOR_COLORS[map.size % ODOR_COLORS.length]);
+  }
+  return map;
+}
+
+/**
+ * Time at which the mouse "finds out" the outcome of a reward site.
+ * Rewarded trials: when the reward drops (`reward_onset_time_s`).
+ * Unrewarded trials: when the choice cue + delay has elapsed.
+ * Returns null if the mouse never committed to a choice.
+ */
+function findOutTime(s) {
+  if (s.has_reward && Number.isFinite(s.reward_onset_time_s)) {
+    return s.reward_onset_time_s;
+  }
+  if (Number.isFinite(s.choice_cue_time_s) && Number.isFinite(s.reward_delay_duration_s)) {
+    return s.choice_cue_time_s + s.reward_delay_duration_s;
+  }
+  if (Number.isFinite(s.choice_cue_time_s)) return s.choice_cue_time_s;
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Lookup helpers
@@ -117,13 +164,19 @@ export function loadSprites(baseUrl) {
 // ---------------------------------------------------------------------------
 
 export class VrfAnimation {
-  constructor(canvas, sites, sprites, traces) {
+  constructor(canvas, sites, sprites, traces, opts = {}) {
     this.canvas   = canvas;
     this.ctx      = canvas.getContext('2d');
     this.sites    = sites;
     this.sprites  = sprites;
     this.traces   = traces ?? { pos_t: [], pos_cm: [], lick_t: [] };
     this.duration = sites[sites.length - 1].stop_time_s;
+    this.odorPalette = opts.odorPalette ?? buildOdorPalette(sites);
+
+    // Precompute the moment each site's outcome becomes known to the mouse.
+    this._findOut = sites.map(findOutTime);
+    // Stable background triangles for patch zones.
+    this._bgTriangles = this._buildBgTriangles();
 
     this.t       = 0;
     this.playing = false;
@@ -196,6 +249,24 @@ export class VrfAnimation {
     const dur = s.stop_time_s - s.start_time_s;
     const frac = dur > 0 ? (t - s.start_time_s) / dur : 1;
     return s.start_position_cm + frac * s.length_cm;
+  }
+
+  _buildBgTriangles() {
+    const tris = [];
+    let seed = 42;
+    const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 0xffffffff; };
+    for (const s of this.sites) {
+      if (s.site_label === 'InterPatch') continue;
+      const n = Math.max(2, Math.round(s.length_cm * 0.3));
+      for (let i = 0; i < n; i++) {
+        tris.push({
+          cm:     s.start_position_cm + rand() * s.length_cm,
+          y_frac: 0.15 + rand() * 0.7,
+          angle:  rand() * Math.PI,
+        });
+      }
+    }
+    return tris;
   }
 
   _buildCumRewards() {
@@ -323,8 +394,31 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      ctx.fillStyle = s.site_label === 'InterPatch' ? C.void : C.patch;
+      if (s.site_label === 'InterPatch') {
+        ctx.fillStyle = C.void;
+      } else {
+        ctx.fillStyle = '#efefef';
+      }
       ctx.fillRect(xLeft, CORR_Y, segW, CORR_H);
+    }
+
+    // Background triangles (stable, slightly darker grey) in patch zones.
+    ctx.fillStyle = '#cccccc';
+    for (const tri of this._bgTriangles) {
+      if (tri.cm < west - 6 || tri.cm > east + 6) continue;
+      const tx = this._cmToX(tri.cm, mousePosCm);
+      const ty = CORR_Y + CORR_H * tri.y_frac;
+      const r = 4;
+      ctx.save();
+      ctx.translate(tx, ty);
+      ctx.rotate(tri.angle);
+      ctx.beginPath();
+      ctx.moveTo(0, -r);
+      ctx.lineTo(r * 0.866, r * 0.5);
+      ctx.lineTo(-r * 0.866, r * 0.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     // Corridor rails (top + bottom)
@@ -348,24 +442,22 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      const visited = s.has_choice && s.start_time_s < nowT;
-      let fill, alpha;
-      if (visited) {
-        fill  = s.has_reward ? C.rewardBlue : C.rewardRed;
-        alpha = 0.85;
-      } else {
-        fill  = C.rewardSite;
-        const rp = s.reward_probability ?? 0.5;
-        alpha = 0.35 + rp * 0.6;
-      }
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = fill;
+      const odorColor   = this.odorPalette.get(s.patch_label) ?? C.patch;
+      const outcomeColor = s.has_reward ? C.rewardBlue : C.rewardRed;
+      const foT  = this._findOut[i];
+      const known = foT != null && nowT >= foT;
+
+      // Fill: always odor color.
+      ctx.fillStyle   = odorColor;
+      ctx.globalAlpha = 0.9;
       ctx.fillRect(xLeft, CORR_Y + 4, segW, CORR_H - 8);
       ctx.globalAlpha = 1;
 
-      ctx.strokeStyle = C.rewardSiteRing;
-      ctx.lineWidth = 1;
-      ctx.strokeRect(xLeft + 0.5, CORR_Y + 4 + 0.5, segW - 1, CORR_H - 9);
+      // Edge: odor color → outcome color once the mouse finds out.
+      ctx.strokeStyle = known ? outcomeColor : odorColor;
+      ctx.lineWidth   = 2;
+      ctx.strokeRect(xLeft + 1, CORR_Y + 4 + 1, segW - 2, CORR_H - 8 - 2);
+      ctx.lineWidth   = 1;
     }
   }
 
