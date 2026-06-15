@@ -7,18 +7,6 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      // Forward /docdb/* to the local Python proxy on :3001 (avoids CORS;
-      // the proxy reaches the internal-network AIND API server-side).
-      // /docdb-v1 must appear before /docdb so Vite's prefix match doesn't
-      // swallow it with the shorter key.
-      '/docdb-v1': {
-        target: 'http://localhost:3001',
-        rewrite: (path) => path.replace(/^\/docdb-v1/, '/v1'),
-      },
-      '/docdb': {
-        target: 'http://localhost:3001',
-        rewrite: (path) => path.replace(/^\/docdb/, ''),
-      },
       // Forward /metadata-service/* → docdb_proxy.py, which calls
       // https://aind-metadata-service/* (internal-only, self-signed cert).
       '/metadata-service': {

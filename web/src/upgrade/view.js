@@ -20,7 +20,7 @@ import { buildTableHead, buildPagingBar } from '../lib/paginated-table.js';
 const UPGRADE_API = '/metadata-portal/upgrade';
 
 /** DocDB v1 base URL — returns the original (pre-upgrade) record. */
-const DOCDB_V1_BASE = '/docdb-v1';
+const DOCDB_V1_BASE = 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets';
 
 const COLUMNS = ['name', 'project_name', 'data_level', 'status', 'upgrader_version'];
 const COLUMN_LABELS = {

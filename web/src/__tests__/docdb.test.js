@@ -13,16 +13,16 @@ import { buildDocDbUrl, queryDocDb, fetchDocDbRecordsByName, DOCDB_BASE_URL } fr
 // ---------------------------------------------------------------------------
 
 describe('buildDocDbUrl', () => {
-  it('appends /metadata/search to the base URL', () => {
-    expect(buildDocDbUrl('https://api.example.com/v2')).toBe(
-      'https://api.example.com/v2/metadata/search',
+  it('appends /find to the base URL', () => {
+    expect(buildDocDbUrl('https://api.example.com/v2/metadata_index/data_assets')).toBe(
+      'https://api.example.com/v2/metadata_index/data_assets/find',
     );
   });
 
   it('works with the default DOCDB_BASE_URL', () => {
     const url = buildDocDbUrl(DOCDB_BASE_URL);
-    expect(url).toContain('/docdb');
-    expect(url).toContain('/metadata/search');
+    expect(url).toContain('allenneuraldynamics.org');
+    expect(url).toContain('/find');
   });
 });
 
@@ -66,15 +66,15 @@ describe('queryDocDb', () => {
     await expect(queryDocDb({}, { baseUrl: 'http://test' })).rejects.toThrow('500');
   });
 
-  it('sends filter and limit in POST body', async () => {
+  it('sends filter and limit as GET query params', async () => {
     fetch.mockResolvedValueOnce({ ok: true, json: async () => [] });
 
     await queryDocDb({ name: 'x' }, { baseUrl: 'http://test', limit: 42 });
 
-    const [, init] = fetch.mock.calls[0];
-    const body = JSON.parse(init.body);
-    expect(body.filter).toEqual({ name: 'x' });
-    expect(body.limit).toBe(42);
+    const [url] = fetch.mock.calls[0];
+    const params = new URLSearchParams(url.split('?')[1]);
+    expect(JSON.parse(params.get('filter'))).toEqual({ name: 'x' });
+    expect(params.get('limit')).toBe('42');
   });
 });
 

@@ -1,12 +1,11 @@
 /**
  * docdb.js — Shared helper for querying the AIND DocDB REST API.
  *
- * The DocDB API (https://api.allenneuraldynamics.org/v2/) supports CORS for
- * browser clients.  All requests are POST to /metadata/search with a MongoDB-
- * style filter object.
- *
- * If the deployment adds an nginx `/api/` proxy, set DOCDB_BASE_URL to '/api/v2'
- * (see deploy/nginx.conf comments).
+ * The DocDB API (https://api.allenneuraldynamics.org) returns
+ * access-control-allow-origin: * so requests can be made directly from the
+ * browser without any proxy.  All requests are GET to
+ * /v2/metadata_index/data_assets/find with a MongoDB-style filter serialised
+ * as a JSON query-string parameter.
  *
  * Pure helpers (buildDocDbUrl) are exported for unit-testing without network I/O.
  */
@@ -15,13 +14,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Base URL for the DocDB proxy.
- * Requests go through the Vite dev proxy (local) or nginx (production)
- * to the local Python docdb_proxy.py server, which forwards them to the
- * internal-network AIND API via aind_data_access_api.
- */
-export const DOCDB_BASE_URL = '/docdb';
+export const DOCDB_BASE_URL = 'https://api.allenneuraldynamics.org/v2/metadata_index/data_assets';
 
 /** Default maximum number of records to return per query. */
 export const DOCDB_DEFAULT_LIMIT = 1000;
@@ -31,13 +24,13 @@ export const DOCDB_DEFAULT_LIMIT = 1000;
 // ---------------------------------------------------------------------------
 
 /**
- * Build the search endpoint URL.
+ * Build the find endpoint URL.
  *
  * @param {string} base - Base URL, e.g. DOCDB_BASE_URL.
  * @returns {string}
  */
 export function buildDocDbUrl(base) {
-  return `${base}/metadata/search`;
+  return `${base}/find`;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,7 +38,7 @@ export function buildDocDbUrl(base) {
 // ---------------------------------------------------------------------------
 
 /**
- * Query the DocDB search endpoint.
+ * Query the DocDB find endpoint.
  *
  * @param {Record<string, unknown>} filterQuery - MongoDB-style filter object,
  *   e.g. `{ name: 'my-asset' }`.
@@ -66,17 +59,15 @@ export async function queryDocDb(filterQuery, options = {}) {
     signal,
   } = options;
 
-  const url = buildDocDbUrl(baseUrl);
-
-  const body = { filter: filterQuery, limit };
-  if (projection) body.projection = projection;
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal,
+  const params = new URLSearchParams({
+    filter: JSON.stringify(filterQuery),
+    limit: String(limit),
   });
+  if (projection) params.set('projection', JSON.stringify(projection));
+
+  const url = `${buildDocDbUrl(baseUrl)}?${params}`;
+
+  const resp = await fetch(url, { signal });
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');

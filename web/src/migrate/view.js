@@ -36,7 +36,10 @@ import { queryDocDb } from '../lib/docdb.js';
 // Constants
 // ---------------------------------------------------------------------------
 
-const DOCDB_BASES = { v1: '/docdb-v1', v2: '/docdb' };
+const DOCDB_BASES = {
+  v1: 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets',
+  v2: 'https://api.allenneuraldynamics.org/v2/metadata_index/data_assets',
+};
 const METADATA_SERVICE_PATHS = {
   v1: {
     subject: (id) => `/metadata-service/subject/${encodeURIComponent(id)}`,
