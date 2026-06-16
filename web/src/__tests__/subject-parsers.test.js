@@ -359,6 +359,41 @@ describe('extractFiberMetadata', () => {
     expect(f.angle).toBe(15);
     expect(f.targetedStructure).toBe('V1');
   });
+
+  it('reads angle from t.angles (new backend format)', () => {
+    const dc = {
+      device_name: 'FP_0',
+      transform: [
+        { object_type: 'Translation', translation: [0.5, -0.9, 3.9] },
+        { object_type: 'Rotation', angles: [10.0, 0.0, 0.0], angles_unit: 'degrees' },
+      ],
+    };
+    const f = extractFiberMetadata(dc);
+    expect(f.angle).toBe(10.0);
+  });
+
+  it('parses AP/ML/depth correctly with BREGMA_ARD surgery coord sys', () => {
+    const bregmaArd = {
+      axes: [
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Left_to_right' },
+        { direction: 'Up_to_down' },
+      ],
+    };
+    const dc = {
+      device_name: 'Fiber_0',
+      transform: [
+        { object_type: 'Translation', translation: [0.5, -0.9, 3.9] },
+        { object_type: 'Rotation', angles: [10.0, 0.0, 0.0], angles_unit: 'degrees' },
+      ],
+    };
+    const f = extractFiberMetadata(dc, bregmaArd);
+    expect(f.ap).toBeCloseTo(0.5);
+    expect(f.ml).toBeCloseTo(-0.9);
+    expect(f.depth).toBeCloseTo(3.9);
+    expect(f.dv).toBeNull();
+    expect(f.angle).toBe(10.0);
+  });
 });
 
 describe('extractFibersFromSurgery', () => {
@@ -383,6 +418,64 @@ describe('extractFibersFromSurgery', () => {
     const fibers = extractFibersFromSurgery(surgery);
     expect(fibers).toHaveLength(1);
     expect(fibers[0].name).toBe('FP_0');
+  });
+
+  it('uses surgeryData.coordinate_system when defined, ignoring proceduresCoordSys', () => {
+    const surgeryCoordSys = {
+      axes: [
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Left_to_right' },
+        { direction: 'Inferior_to_superior' },
+      ],
+    };
+    const topLevelCoordSys = {
+      axes: [
+        { direction: 'Left_to_right' },
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Inferior_to_superior' },
+      ],
+    };
+    const surgery = {
+      coordinate_system: surgeryCoordSys,
+      procedures: [
+        {
+          object_type: 'Probe implant',
+          device_config: {
+            device_name: 'FP_0',
+            transform: [{ object_type: 'Translation', translation: [1, 2, 3] }],
+          },
+        },
+      ],
+    };
+    const fibers = extractFibersFromSurgery(surgery, topLevelCoordSys);
+    expect(fibers[0].ap).toBe(1);
+    expect(fibers[0].ml).toBe(2);
+    expect(fibers[0].dv).toBe(3);
+  });
+
+  it('falls back to proceduresCoordSys when surgeryData has no coordinate_system', () => {
+    const topLevelCoordSys = {
+      axes: [
+        { direction: 'Left_to_right' },
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Inferior_to_superior' },
+      ],
+    };
+    const surgery = {
+      procedures: [
+        {
+          object_type: 'Probe implant',
+          device_config: {
+            device_name: 'FP_0',
+            transform: [{ object_type: 'Translation', translation: [1, 2, 3] }],
+          },
+        },
+      ],
+    };
+    const fibers = extractFibersFromSurgery(surgery, topLevelCoordSys);
+    expect(fibers[0].ml).toBe(1);
+    expect(fibers[0].ap).toBe(2);
+    expect(fibers[0].dv).toBe(3);
   });
 });
 

@@ -30,8 +30,9 @@
  *   ML: "Left_to_right", "Right_to_left"
  *   AP: "Anterior_to_posterior", "Posterior_to_anterior"
  *   DV: "Inferior_to_superior", "Superior_to_inferior"
+ *   Depth: "Up_to_down", "Down_to_up"
  *
- * Returns { dim: 'ap'|'ml'|'dv', sign: 1|-1 } or null if unrecognised.
+ * Returns { dim: 'ap'|'ml'|'dv'|'depth', sign: 1|-1 } or null if unrecognised.
  */
 function _directionToCanonical(direction) {
   if (!direction) return null;
@@ -48,6 +49,10 @@ function _directionToCanonical(direction) {
   // ── DV (canonical: dorsal = positive) ─────────────────────────────
   if (dir === 'superior_to_inferior') return { dim: 'dv', sign: -1 }; // positive direction is ventral → flip
   if (dir === 'inferior_to_superior') return { dim: 'dv', sign: 1 };  // positive direction is dorsal ✓
+
+  // ── Depth (insertion depth, always positive deeper) ───────────────
+  if (dir === 'up_to_down') return { dim: 'depth', sign: 1 };  // positive = deeper ✓
+  if (dir === 'down_to_up') return { dim: 'depth', sign: -1 };
 
   console.warn('[coord-systems] Unrecognised axis direction:', direction);
   return null;
@@ -67,29 +72,32 @@ export function parseTranslation(coordinateSystem, translation) {
   const v = Array.isArray(translation) ? translation : [];
   const safeNum = (x) => (x != null && isFinite(Number(x)) ? Number(x) : null);
 
-  // Always read depth from index 3 regardless of coordinate system
-  const depth = v.length > 3 ? Math.abs(safeNum(v[3]) ?? 0) : null;
-
   // Fallback: BREGMA_ARID convention (v0=AP anterior+, v1=ML right+, v2=DV dorsal+)
   if (!coordinateSystem || !Array.isArray(coordinateSystem.axes)) {
     return {
       ap:    safeNum(v[0]) ?? 0,
       ml:    safeNum(v[1]) ?? 0,
       dv:    safeNum(v[2]),
-      depth,
+      depth: v.length > 3 ? Math.abs(safeNum(v[3]) ?? 0) : null,
     };
   }
 
-  const result = { ap: 0, ml: 0, dv: null, depth };
+  const result = { ap: 0, ml: 0, dv: null, depth: null };
 
   coordinateSystem.axes.forEach((axis, i) => {
-    if (i >= 3) return; // only first 3 axis components
+    if (i >= 3) return;
     const val = safeNum(v[i]);
     if (val == null) return;
     const mapping = _directionToCanonical(axis?.direction);
     if (!mapping) return;
-    result[mapping.dim] = val * mapping.sign;
+    const computed = val * mapping.sign;
+    result[mapping.dim] = mapping.dim === 'depth' ? Math.abs(computed) : computed;
   });
+
+  // Fallback: if no depth axis found in coord sys but a 4th translation value exists
+  if (result.depth == null && v.length > 3) {
+    result.depth = Math.abs(safeNum(v[3]) ?? 0);
+  }
 
   return result;
 }

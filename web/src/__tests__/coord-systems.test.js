@@ -140,6 +140,45 @@ describe('parseTranslation', () => {
       const cs = { axes: [{ direction: 'Inferior_to_superior' }] };
       expect(parseTranslation(cs, [1, 0, 0, 0]).dv).toBeCloseTo(1);
     });
+
+    it('Up_to_down: positive value → positive depth (deeper)', () => {
+      const cs = { axes: [{ direction: 'Up_to_down' }] };
+      expect(parseTranslation(cs, [3.9, 0, 0]).depth).toBeCloseTo(3.9);
+    });
+
+    it('Down_to_up: positive value → positive depth (abs)', () => {
+      const cs = { axes: [{ direction: 'Down_to_up' }] };
+      expect(parseTranslation(cs, [3.9, 0, 0]).depth).toBeCloseTo(3.9);
+    });
+  });
+
+  describe('BREGMA_ARD coordinate system (new backend format)', () => {
+    const BREGMA_ARD = {
+      name: 'BREGMA_ARD',
+      axes: [
+        { direction: 'Posterior_to_anterior' },
+        { direction: 'Left_to_right' },
+        { direction: 'Up_to_down' },
+      ],
+    };
+
+    it('parses AP/ML/depth from 3-element translation', () => {
+      const result = parseTranslation(BREGMA_ARD, [0.5, -0.9, 3.9]);
+      expect(result.ap).toBeCloseTo(0.5);
+      expect(result.ml).toBeCloseTo(-0.9);
+      expect(result.depth).toBeCloseTo(3.9);
+      expect(result.dv).toBeNull();
+    });
+
+    it('depth is abs even when negative Up_to_down value', () => {
+      const result = parseTranslation(BREGMA_ARD, [0.5, -0.9, -3.9]);
+      expect(result.depth).toBeCloseTo(3.9);
+    });
+
+    it('does not use v[3] as depth fallback when depth axis is present', () => {
+      const result = parseTranslation(BREGMA_ARD, [0.5, -0.9, 3.9, 99]);
+      expect(result.depth).toBeCloseTo(3.9);
+    });
   });
 
   describe('null/missing coordinate system fallback', () => {

@@ -91,14 +91,23 @@ export function makeCCFMatrix(THREE) {
  */
 function extractProbes(surgeryData, proceduresCoordSys = null) {
   const probes = [];
+  const coordSys = surgeryData?.coordinate_system ?? proceduresCoordSys;
   for (const proc of (surgeryData?.procedures ?? [])) {
     if (proc?.object_type !== 'Probe implant' || !proc.device_config) continue;
     const cfg     = proc.device_config;
     const implant = proc.implanted_device ?? {};
 
-    // Use the procedures-level coordinate system (not device_config.coordinate_system)
+    // Use the most specific coordinate system available (surgery-level preferred over procedures-level)
     const translation = (cfg.transform ?? []).find(t => t?.object_type === 'Translation')?.translation ?? [];
-    const { ap: AP, ml: ML, depth: Depth } = parseTranslation(proceduresCoordSys, translation);
+    const { ap: AP, ml: ML, depth: Depth } = parseTranslation(coordSys, translation);
+
+    let angle = 0;
+    for (const t of cfg.transform ?? []) {
+      if (t?.object_type === 'Rotation') {
+        const r = t.angles ?? t.rotation ?? [];
+        if (r.length >= 1) angle = Number(r[0]) || 0;
+      }
+    }
 
     const length     = Number(implant.total_length) || 5.0;      // mm
     const diameterMm = (Number(implant.core_diameter) || 200) / 1000; // µm → mm
@@ -107,6 +116,7 @@ function extractProbes(surgeryData, proceduresCoordSys = null) {
     probes.push({
       name: cfg.device_name ?? 'Unknown',
       AP, ML, Depth: Depth ?? 0,
+      angle,
       length,
       diameterMm,
       structureId:     String(structure.id ?? ''),
@@ -310,7 +320,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 function _buildProbes(THREE, scene, probes) {
   for (let i = 0; i < probes.length; i++) {
     const probe = probes[i];
-    const { AP, ML, Depth, length, diameterMm } = probe;
+    const { AP, ML, Depth, angle, length, diameterMm } = probe;
     const color = cssHexToThree(ITEM_COLORS[i % ITEM_COLORS.length]);
     const radius = diameterMm / 2;
 
@@ -319,26 +329,31 @@ function _buildProbes(THREE, scene, probes) {
     const threeZ = AP;
 
     // Cylinder runs from brain surface (top) down to tip.
-    // Use Depth as the cylinder length so it doesn't protrude above the mesh.
     const sY = surfaceY(AP, ML);
-    const topY  = sY !== null ? sY : 0;
-    const tipY  = topY - Depth;
-    const tipPos = new THREE.Vector3(threeX, tipY, threeZ);
+    const topY = sY !== null ? sY : 0;
+    const tipY = topY - Depth;
 
-    // Cylinder extends from tip upward by total_length (may protrude above surface — that's correct)
+    // Pivot group at the probe tip — rotation around Z (AP axis) tilts the probe in the ML-DV plane.
+    // Right-hand rule: positive angle rotates the probe base toward -X (= +ML, right hemisphere).
+    const pivot = new THREE.Group();
+    pivot.position.set(threeX, tipY, threeZ);
+    pivot.rotation.z = (angle ?? 0) * Math.PI / 180;
+
+    // Cylinder: centered at (0, length/2, 0) in pivot space so its base is at the tip
     const geo = new THREE.CylinderGeometry(radius, radius, length, 12, 1);
     const mat = new THREE.MeshPhongMaterial({ color, transparent: true, opacity: 0.9, shininess: 40 });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(tipPos.x, tipY + length / 2, tipPos.z);
-    scene.add(mesh);
+    const cylMesh = new THREE.Mesh(geo, mat);
+    cylMesh.position.set(0, length / 2, 0);
+    pivot.add(cylMesh);
 
-    // Tip sphere
-    const tip = new THREE.Mesh(
+    // Tip sphere at pivot origin (= probe tip)
+    const tipMesh = new THREE.Mesh(
       new THREE.SphereGeometry(radius * 1.3, 10, 10),
       new THREE.MeshPhongMaterial({ color, shininess: 60 }),
     );
-    tip.position.copy(tipPos);
-    scene.add(tip);
+    pivot.add(tipMesh);
+
+    scene.add(pivot);
   }
 }
 

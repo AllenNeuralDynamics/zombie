@@ -488,7 +488,7 @@ export function extractFiberMetadata(deviceConfig, proceduresCoordSys = null) {
   let angle = 0;
   for (const t of deviceConfig?.transform ?? []) {
     if (t?.object_type === 'Rotation') {
-      const r = t.rotation ?? [];
+      const r = t.angles ?? t.rotation ?? [];
       if (r.length >= 1) angle = safeFloat(r[0]);
     }
   }
@@ -513,9 +513,10 @@ export function extractFiberMetadata(deviceConfig, proceduresCoordSys = null) {
  * @returns {Array<object>}
  */
 export function extractFibersFromSurgery(surgeryData, proceduresCoordSys = null) {
+  const coordSys = surgeryData?.coordinate_system ?? proceduresCoordSys;
   return (surgeryData?.procedures ?? [])
     .filter((p) => p?.object_type === 'Probe implant' && p.device_config)
-    .map((p) => extractFiberMetadata(p.device_config, proceduresCoordSys));
+    .map((p) => extractFiberMetadata(p.device_config, coordSys));
 }
 
 /**
