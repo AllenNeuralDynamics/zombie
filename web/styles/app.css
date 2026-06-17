@@ -5896,8 +5896,8 @@ body {
 
 .inst-devices-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
   margin: 12px 0;
 }
 
@@ -5909,6 +5909,11 @@ body {
   font-size: 0.85rem;
   position: relative;
   transition: box-shadow 0.15s;
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: visible;
 }
 
 .inst-device-card:hover {
@@ -5920,6 +5925,7 @@ body {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
+  gap: 4px;
 }
 
 .inst-device-type {
@@ -5928,6 +5934,28 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--device-color, #7f8c8d);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inst-info-btn {
+  background: none;
+  color: rgb(255, 0, 255);
+  border: none;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  position: relative;
+  line-height: 1;
+}
+
+.inst-info-btn:hover {
+  color: rgb(200, 0, 200);
 }
 
 .inst-device-name {
@@ -5935,6 +5963,8 @@ body {
   font-size: 0.95rem;
   margin-bottom: 6px;
   color: #1a1a2e;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inst-device-fields {
@@ -5957,6 +5987,33 @@ body {
   word-break: break-word;
 }
 
+.inst-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 4px;
+  max-width: 350px;
+  font-size: 0.78rem;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s, visibility 0.2s;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.inst-device-card:hover .inst-tooltip,
+.inst-info-btn:hover ~ .inst-tooltip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
 .inst-na {
   color: #bbb;
 }
@@ -5968,6 +6025,7 @@ body {
   background: #27ae60;
   padding: 1px 6px;
   border-radius: 3px;
+  display: inline-block;
 }
 
 .inst-acq-configs {
@@ -6001,16 +6059,20 @@ body {
   margin-top: 16px;
 }
 
-.inst-conn-arrow {
-  text-align: center;
-  font-size: 1.1rem;
-  color: #666;
+.inst-conn-graph {
+  overflow-x: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: #f8f9fa;
 }
 
 /* Positioned devices — spatial top-down grid */
 
 .inst-positioned-section {
-  margin-top: 20px;
+  flex: 0 0 60%;
+  width: 60%;
+  min-width: 0;
 }
 
 .inst-positioned-section h4 {
@@ -6047,6 +6109,11 @@ body {
 .inst-pos-cell .inst-device-card {
   width: 100%;
   max-width: 280px;
+  position: relative;
+}
+
+.inst-pos-cell .inst-tooltip {
+  max-width: 380px;
 }
 
 .inst-pos-label {
@@ -6096,6 +6163,22 @@ body {
   top: 50%;
   right: 0;
   transform: translateY(-50%);
+}
+
+.inst-unpositioned-section {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.inst-unpositioned-section h4 {
+  margin-bottom: 8px;
+}
+
+.inst-main-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  margin-top: 20px;
 }
 
 /* ===========================================================================

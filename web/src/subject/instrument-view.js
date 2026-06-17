@@ -46,7 +46,7 @@ function deviceFields(device) {
     if (typeof v === 'object' && !Array.isArray(v)) {
       // Show sub-devices inline (e.g. camera in Camera assembly, manipulator in Ephys assembly)
       if (v.object_type && v.name) {
-        fields.push([k, `${v.object_type}: ${v.name}${v.model ? ' (' + v.model + ')' : ''}`]);
+        fields.push([k, `${v.name}${v.model ? ' (' + v.model + ')' : ''}`]);
       }
       continue;
     }
@@ -173,17 +173,200 @@ function buildDeviceCardHtml(dev, index, acqConfigsByDevice) {
     ? `<div class="inst-device-notes">${esc(dev.notes)}</div>`
     : '';
 
+  // Build tooltip content (all details)
+  const tooltipContent = `<dl class="inst-device-fields">${fieldsHtml}</dl>${acqHtml}${notesHtml}`;
+
   return `
     <div class="inst-device-card" data-device-name="${esc(name)}" style="--device-color: ${color}">
       <div class="inst-device-header">
         <span class="inst-device-type">${esc(type)}</span>
-        ${acqBadge}
+        <button class="inst-info-btn" title="Show details" aria-label="Show details for ${esc(name)}">?</button>
       </div>
       <div class="inst-device-name">${esc(name)}</div>
-      <dl class="inst-device-fields">${fieldsHtml}</dl>
-      ${acqHtml}
-      ${notesHtml}
+      <div class="inst-tooltip" role="tooltip">${tooltipContent}</div>
     </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Connections SVG graph
+// ---------------------------------------------------------------------------
+
+function buildConnectionsGraphHtml(connections, components) {
+  if (!connections || !connections.length) return '';
+
+  // Build device-type lookup for coloring
+  const compTypes = new Map();
+  for (const c of (components ?? [])) {
+    if (c.name && c.object_type) compTypes.set(c.name, c.object_type);
+  }
+  const colorFor = (name) => deviceColor(compTypes.get(name));
+
+  // Layout constants
+  const PORT_H   = 22;   // vertical space per port slot inside a node
+  const NODE_PAD = 8;    // top/bottom padding inside a node
+  const NODE_MIN = 32;   // minimum node height when no named ports
+  const NODE_W   = 170;
+  const V_GAP    = 10;   // gap between stacked nodes
+  const MID_GAP  = 140;  // horizontal corridor for bezier curves
+  const PAD      = 10;
+
+  const COL_LEFT  = PAD;
+  const COL_RIGHT = COL_LEFT + NODE_W + MID_GAP;
+  const SVG_W     = COL_RIGHT + NODE_W + PAD;
+
+  // --- First pass: collect unique ports per device (in connection order) ---
+  // srcPorts / tgtPorts: device → ordered array of port keys (null = unnamed)
+  const srcPorts  = new Map();  // device → [port, ...]
+  const tgtPorts  = new Map();
+  const srcOrder  = [];
+  const tgtOrder  = [];
+
+  for (const conn of connections) {
+    const s = conn.source_device;
+    const t = conn.target_device;
+    const sp = conn.source_port ?? null;
+    const tp = conn.target_port ?? null;
+
+    if (!srcPorts.has(s)) { srcPorts.set(s, []); srcOrder.push(s); }
+    if (!tgtPorts.has(t)) { tgtPorts.set(t, []); tgtOrder.push(t); }
+
+    if (!srcPorts.get(s).includes(sp)) srcPorts.get(s).push(sp);
+    if (!tgtPorts.get(t).includes(tp)) tgtPorts.get(t).push(tp);
+  }
+
+  // Node height = padding + one row per named port (or 1 row minimum)
+  const nodeH = (ports) => {
+    const rows = ports.length === 1 && ports[0] === null ? 1 : ports.length;
+    return Math.max(NODE_MIN, NODE_PAD * 2 + rows * PORT_H);
+  };
+
+  // --- Second pass: compute top-Y for each device ---
+  const srcY = new Map();
+  const tgtY = new Map();
+
+  let y = PAD;
+  for (const dev of srcOrder) { srcY.set(dev, y); y += nodeH(srcPorts.get(dev)) + V_GAP; }
+  const srcTotalH = y;
+
+  y = PAD;
+  for (const dev of tgtOrder) { tgtY.set(dev, y); y += nodeH(tgtPorts.get(dev)) + V_GAP; }
+  const tgtTotalH = y;
+
+  const totalH = Math.max(srcTotalH, tgtTotalH) + PAD;
+
+  // Centre-Y for a specific port within a node
+  const portCY = (nodeTopY, ports, port) => {
+    const idx = ports.indexOf(port);
+    if (ports.length === 1 && ports[0] === null) {
+      return nodeTopY + nodeH(ports) / 2;
+    }
+    return nodeTopY + NODE_PAD + idx * PORT_H + PORT_H / 2;
+  };
+
+  // --- Arrow marker defs ---
+  // refX=0: base of arrowhead at path endpoint; tip extends 7px forward into the node.
+  const usedColors = new Set([...srcOrder].map(colorFor));
+  let defs = '';
+  for (const col of usedColors) {
+    const id = col.replace('#', '');
+    defs += `<marker id="ica-${id}" markerWidth="7" markerHeight="7" refX="0" refY="3.5" orient="auto">
+      <path d="M0,0 L0,7 L7,3.5 z" fill="${col}"/>
+    </marker>
+    <marker id="ica-r-${id}" markerWidth="7" markerHeight="7" refX="0" refY="3.5" orient="auto-start-reverse">
+      <path d="M0,0 L0,7 L7,3.5 z" fill="${col}"/>
+    </marker>`;
+  }
+
+  // --- Edges (drawn before nodes so nodes sit on top) ---
+  const x1 = COL_LEFT + NODE_W;
+  const x2 = COL_RIGHT;
+  let edges = '';
+  let portLabels = '';  // drawn after nodes so they're always visible
+  const drawnSrcLabels = new Set();
+  const drawnTgtLabels = new Set();
+
+  for (const conn of connections) {
+    const sp  = conn.source_port ?? null;
+    const tp  = conn.target_port ?? null;
+    const col = colorFor(conn.source_device);
+    const id  = col.replace('#', '');
+    const sy  = portCY(srcY.get(conn.source_device), srcPorts.get(conn.source_device), sp);
+    const ty  = portCY(tgtY.get(conn.target_device), tgtPorts.get(conn.target_device), tp);
+    const mEnd = `marker-end="url(#ica-${id})"`;
+
+    // For bidirectional: start path 7px into the corridor so the reverse arrowhead tip
+    // lands right at x1 (the source node right edge) without being hidden under the white rect.
+    const pathX1 = conn.send_and_receive ? x1 + 7 : x1;
+    const pathX2 = x2 - 7;  // forward arrowhead tip lands at x2
+    const pdx    = pathX2 - pathX1;
+    const mStart = conn.send_and_receive ? `marker-start="url(#ica-r-${id})"` : '';
+
+    edges += `<path d="M${pathX1},${sy} C${pathX1 + pdx * 0.42},${sy} ${pathX1 + pdx * 0.58},${ty} ${pathX2},${ty}" stroke="${col}" stroke-width="1.4" fill="none" opacity="0.6" ${mStart} ${mEnd}/>`;
+
+    // Port labels inside the cards, drawn after nodes so they're never covered.
+    // Source side: right-anchored just inside the right edge of the source card.
+    const srcKey = `${conn.source_device}::${sp}`;
+    if (sp && !drawnSrcLabels.has(srcKey)) {
+      drawnSrcLabels.add(srcKey);
+      portLabels += `<text x="${x1 - 6}" y="${sy + 4}" font-size="9" fill="${col}" font-family="monospace" text-anchor="end" opacity="0.9">${esc(sp)}</text>`;
+    }
+    // Target side: left-anchored just inside the left edge of the target card.
+    const tgtKey = `${conn.target_device}::${tp}`;
+    if (tp && !drawnTgtLabels.has(tgtKey)) {
+      drawnTgtLabels.add(tgtKey);
+      portLabels += `<text x="${x2 + 6}" y="${ty + 4}" font-size="9" fill="${col}" font-family="monospace" opacity="0.9">${esc(tp)}</text>`;
+    }
+  }
+
+  // --- Source nodes ---
+  let srcNodes = '';
+  for (const dev of srcOrder) {
+    const col   = colorFor(dev);
+    const ty    = srcY.get(dev);
+    const ports = srcPorts.get(dev);
+    const h     = nodeH(ports);
+    const label = dev.length > 23 ? dev.slice(0, 22) + '\u2026' : dev;
+    srcNodes += `<rect x="${COL_LEFT}" y="${ty}" width="${NODE_W}" height="${h}" rx="3" fill="white" stroke="${col}" stroke-width="1.5"/>`;
+    srcNodes += `<text x="${COL_LEFT + 8}" y="${ty + h / 2 + 4}" font-size="11" fill="#1a1a2e" font-family="inherit" font-weight="500">${esc(label)}</text>`;
+    // Connection dots on right edge
+    for (const port of ports) {
+      if (port === null) continue;
+      const cy = portCY(ty, ports, port);
+      srcNodes += `<circle cx="${x1}" cy="${cy}" r="3" fill="${col}"/>`;
+    }
+  }
+
+  // --- Target nodes ---
+  let tgtNodes = '';
+  for (const dev of tgtOrder) {
+    const col   = colorFor(dev);
+    const ty    = tgtY.get(dev);
+    const ports = tgtPorts.get(dev);
+    const h     = nodeH(ports);
+    const label = dev.length > 23 ? dev.slice(0, 22) + '\u2026' : dev;
+    tgtNodes += `<rect x="${COL_RIGHT}" y="${ty}" width="${NODE_W}" height="${h}" rx="3" fill="white" stroke="${col}" stroke-width="1.5"/>`;
+    // Name is right-anchored so port labels on the left don't collide with it
+    tgtNodes += `<text x="${COL_RIGHT + NODE_W - 8}" y="${ty + h / 2 + 4}" font-size="11" fill="#1a1a2e" font-family="inherit" font-weight="500" text-anchor="end">${esc(label)}</text>`;
+    // Connection dots on left edge
+    for (const port of ports) {
+      if (port === null) continue;
+      const cy = portCY(ty, ports, port);
+      tgtNodes += `<circle cx="${x2}" cy="${cy}" r="3" fill="${col}"/>`;
+    }
+  }
+
+  return `<div class="inst-connections">
+    <h4>Connections</h4>
+    <div class="inst-conn-graph">
+      <svg width="${SVG_W}" height="${totalH}" viewBox="0 0 ${SVG_W} ${totalH}" style="font-family: inherit; display: block; overflow: visible;">
+        <defs>${defs}</defs>
+        ${edges}
+        ${srcNodes}
+        ${tgtNodes}
+        ${portLabels}
+      </svg>
+    </div>
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,13 +432,6 @@ export function createInstrumentPanel(instrumentData, acquisitionData = null) {
     }
   }
 
-  // Non-positioned devices: standard grid
-  const unpositionedHtml = unpositioned.length
-    ? `<div class="inst-devices-grid">${unpositioned.map(({ dev, index }) =>
-        buildDeviceCardHtml(dev, index, acqConfigsByDevice)
-      ).join('')}</div>`
-    : '';
-
   // Positioned devices: spatial top-down layout (3×3 grid)
   let positionedHtml = '';
   if (positioned.length) {
@@ -297,30 +473,25 @@ export function createInstrumentPanel(instrumentData, acquisitionData = null) {
       </div>`;
   }
 
-  // Connections
-  const connections = instrumentData.connections ?? [];
-  const connectionsHtml = connections.length
-    ? `<div class="inst-connections">
-        <h4>Connections</h4>
-        <table class="detail-table">
-          <thead><tr>
-            <th>Source</th><th>Port</th><th></th><th>Target</th><th>Port</th><th>Bidirectional</th>
-          </tr></thead>
-          <tbody>${connections.map(conn => `<tr>
-            <td>${esc(conn.source_device)}</td>
-            <td>${esc(conn.source_port ?? '')}</td>
-            <td class="inst-conn-arrow">${conn.send_and_receive ? '⇄' : '→'}</td>
-            <td>${esc(conn.target_device)}</td>
-            <td>${esc(conn.target_port ?? '')}</td>
-            <td>${conn.send_and_receive ? 'Yes' : 'No'}</td>
-          </tr>`).join('')}</tbody>
-        </table>
+  // Non-positioned devices: standard grid
+  const unpositionedHtml = unpositioned.length
+    ? `<div class="inst-unpositioned-section">
+        <h4>Devices</h4>
+        <div class="inst-devices-grid">${unpositioned.map(({ dev, index }) =>
+          buildDeviceCardHtml(dev, index, acqConfigsByDevice)
+        ).join('')}</div>
       </div>`
     : '';
 
+  // Connections
+  const connections = instrumentData.connections ?? [];
+  const connectionsHtml = buildConnectionsGraphHtml(connections, instrumentData.components);
+
   container.innerHTML = `${headerHtml}
-    ${unpositionedHtml}
-    ${positionedHtml}
+    <div class="inst-main-layout">
+      ${positionedHtml}
+      ${unpositionedHtml}
+    </div>
     ${connectionsHtml}`;
 
   return container;
