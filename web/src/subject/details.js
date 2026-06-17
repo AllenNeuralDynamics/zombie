@@ -271,6 +271,7 @@ function buildSurgeryOverviewHtml(event) {
       ? `<dt>Experimenters</dt><dd>${data.experimenters.join(', ')}</dd>`
       : '',
   ].join('');
+  const sharePointUrl = 'https://alleninstitute.sharepoint.com/sites/NeuralDynamics/_layouts/15/listforms.aspx?cid=ZmI4NWY4OTAtMzM2NC00MDIwLWJkN2MtNGZmYWNkMGEyZTQw&nav=NjkxZmViMTEtZGNiMS00MGVkLWExNjQtODE3Zjc4ZGQ5ZjFi';
   return `
     <div class="detail-card">
       <h4>${title}</h4>
@@ -279,6 +280,8 @@ function buildSurgeryOverviewHtml(event) {
         <dt>Procedures</dt><dd>${details ?? ''}</dd>
         ${extra}
       </dl>
+      <br>
+      <a href="${sharePointUrl}" target="_blank" rel="noopener noreferrer" class="btn-external">Provide feedback to NSB</a>
     </div>`;
 }
 

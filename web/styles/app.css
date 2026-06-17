@@ -4051,6 +4051,21 @@ body {
   padding: 5px 10px;
 }
 
+.fib-alert-subject-row td:first-child {
+  white-space: nowrap;
+}
+
+.fib-alert-asset-row td {
+  background: var(--surface-row-alt, #f9fafb);
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.fib-alert-fibers {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
 /* Fiber photometry grouped table rows */
 .assets-table .fib-group-row {
   background: var(--surface-bg, #fff);
@@ -7239,4 +7254,27 @@ body {
   font-size: 0.72rem;
   max-height: 220px;
   overflow: auto;
+}
+
+.btn-external {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 14px;
+  border-radius: 8px;
+  border: none;
+  background: rgb(255, 110, 0);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.btn-external:hover {
+  background: rgb(230, 95, 0);
+}
+.btn-external:active {
+  transform: scale(0.97);
 }

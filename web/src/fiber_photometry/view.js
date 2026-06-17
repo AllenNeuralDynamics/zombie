@@ -406,57 +406,81 @@ export function renderFibGroupRows(group, visibleColumns, channelCols, collapsed
 // ---------------------------------------------------------------------------
 
 /**
- * For each subject, collect unique "channel: no intended measurement" problems
- * across all their assets. Returns [{asset_name, code_ocean, investigators, incompleteInfo}].
+ * Aggregate incomplete-info problems by subject_id.
+ * Returns [{subject_id, investigators,
+ *   missingTargets: string[], missingMeasurements: string[],
+ *   assets: [{asset_name, code_ocean, missingTargets: string[], missingMeasurements: string[]}]
+ * }], sorted by subject_id. Assets within each subject are sorted by asset_name.
+ * Fiber names use display format "Fiber N" (with space).
+ * missingTargets/missingMeasurements are deduplicated across assets for the subject row.
  */
 export function buildMissingTable(wideRows) {
-  const result = [];
+  const subjectMap = new Map();
 
   for (const row of wideRows) {
-    const problems = [];
+    const assetMissingTargets = [];
+    const assetMissingMeasurements = [];
 
-    // Group Fiber_N/* keys by fiber index
     const fiberKeys = new Map();
     for (const [k, v] of Object.entries(row)) {
       if (!k.startsWith('Fiber_')) continue;
-      if (k.endsWith('/Channels')) continue; // synthetic summary, skip
-      const m = k.match(/^Fiber_(\d+)\//); 
+      if (k.endsWith('/Channels')) continue;
+      const m = k.match(/^Fiber_(\d+)\//);
       if (!m) continue;
       if (!fiberKeys.has(m[1])) fiberKeys.set(m[1], []);
       fiberKeys.get(m[1]).push([k, v]);
     }
 
     for (const [fiberIdx, pairs] of fiberKeys) {
-      // Skip fibers with no data at all — they don't exist for this asset
       if (!pairs.some(([, v]) => v != null && v !== '')) continue;
 
-      // Flag if targeted structure is missing
+      const displayName = `Fiber ${fiberIdx}`;
+
       const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
       if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
-        problems.push(`Fiber_${fiberIdx}/Target: no targeted structure`);
+        assetMissingTargets.push(displayName);
       }
 
-      // Flag only if ALL color channel measurements are missing
       const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
       if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
-        problems.push(`Fiber_${fiberIdx}: no intended measurement`);
+        assetMissingMeasurements.push(displayName);
       }
     }
 
-    if (problems.length === 0) continue;
+    if (assetMissingTargets.length === 0 && assetMissingMeasurements.length === 0) continue;
 
-    const invs = row.investigators ?? '';
-    const investigators = String(invs);
+    const subjectId = row.subject_id ?? '';
+    const investigators = String(row.investigators ?? '');
 
-    result.push({
+    if (!subjectMap.has(subjectId)) {
+      subjectMap.set(subjectId, {
+        subject_id: subjectId,
+        investigators,
+        missingTargets: new Set(),
+        missingMeasurements: new Set(),
+        assets: [],
+      });
+    }
+
+    const entry = subjectMap.get(subjectId);
+    for (const f of assetMissingTargets) entry.missingTargets.add(f);
+    for (const f of assetMissingMeasurements) entry.missingMeasurements.add(f);
+    entry.assets.push({
       asset_name: row.asset_name ?? '',
       code_ocean: row.code_ocean ?? null,
-      investigators,
-      incompleteInfo: problems.sort().join('; '),
+      missingTargets: assetMissingTargets.sort(),
+      missingMeasurements: assetMissingMeasurements.sort(),
     });
   }
 
-  return result.sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name)));
+  return Array.from(subjectMap.values())
+    .map((entry) => ({
+      ...entry,
+      missingTargets: [...entry.missingTargets].sort(),
+      missingMeasurements: [...entry.missingMeasurements].sort(),
+      assets: entry.assets.sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name))),
+    }))
+    .sort((a, b) => String(a.subject_id).localeCompare(String(b.subject_id)));
 }
 
 // ---------------------------------------------------------------------------
@@ -582,21 +606,22 @@ export function createFiberPhotometryView(coord) {
 
       const alertHeader = document.createElement('h3');
       alertHeader.className = 'fib-alert-title';
-      alertHeader.textContent = `Assets with incomplete fiber info (${missing.length})`;
+      alertHeader.textContent = `Subjects with incomplete fiber info (${missing.length})`;
       alertSection.appendChild(alertHeader);
 
       const alertDesc = document.createElement('p');
       alertDesc.className = 'fib-alert-desc';
-      alertDesc.textContent = 'These assets have at least one fiber missing a targeted structure or all intended measurements.';
+      alertDesc.textContent = 'These subjects have assets with at least one fiber missing a targeted structure or all intended measurements.';
       alertSection.appendChild(alertDesc);
 
       const alertTable = document.createElement('table');
       alertTable.className = 'assets-table fib-alert-table';
       alertTable.innerHTML = `
         <thead><tr>
-          <th>Asset</th>
+          <th>Subject</th>
           <th>Investigators</th>
-          <th>Incomplete info</th>
+          <th>Missing targeted structure</th>
+          <th>Missing intended measurements</th>
         </tr></thead>
         <tbody></tbody>
       `;
@@ -604,38 +629,74 @@ export function createFiberPhotometryView(coord) {
 
       const ALERT_PAGE_SIZE = 10;
       let alertPage = 0;
+      const expandedSubjects = new Set();
 
       const alertPaging = document.createElement('div');
       alertPaging.className = 'assets-paging';
 
-      function renderAlertPage() {
+      function fiberList(fibers) {
+        if (!fibers || fibers.length === 0) return '—';
+        return fibers.map((f) => escHtml(f)).join(', ');
+      }
+
+      function renderAlertTable() {
         const start = alertPage * ALERT_PAGE_SIZE;
-        const pageRows = missing.slice(start, start + ALERT_PAGE_SIZE);
-        alertTbody.innerHTML = pageRows.map((m) => {
-          const coHref = buildCoLink(m.code_ocean);
-          const assetCell = coHref
-            ? `<a href="${escHtml(coHref)}" target="_blank" rel="noopener noreferrer">${escHtml(m.asset_name)}</a>`
-            : escHtml(m.asset_name) || '—';
-          return `<tr>
-            <td>${assetCell}</td>
-            <td>${escHtml(m.investigators || '—')}</td>
-            <td>${escHtml(m.incompleteInfo)}</td>
+        const pageEntries = missing.slice(start, start + ALERT_PAGE_SIZE);
+        alertTbody.innerHTML = pageEntries.map((entry) => {
+          const collapsed = !expandedSubjects.has(entry.subject_id);
+          const arrow = collapsed ? '▶' : '▼';
+          const subjectLink = entry.subject_id
+            ? `<a href="/subject?subject_id=${encodeURIComponent(entry.subject_id)}">${escHtml(entry.subject_id)}</a>`
+            : '—';
+          let html = `<tr class="fib-alert-subject-row${collapsed ? '' : ' fib-alert-subject-expanded'}" data-subject="${escHtml(entry.subject_id)}">
+            <td><button class="fib-toggle-btn" aria-label="${collapsed ? 'Expand' : 'Collapse'}">${arrow}</button>${subjectLink}</td>
+            <td>${escHtml(entry.investigators || '—')}</td>
+            <td class="fib-alert-fibers">${fiberList(entry.missingTargets)}</td>
+            <td class="fib-alert-fibers">${fiberList(entry.missingMeasurements)}</td>
           </tr>`;
+          if (!collapsed) {
+            for (const asset of entry.assets) {
+              const coHref = buildCoLink(asset.code_ocean);
+              const assetCell = coHref
+                ? `<a href="${escHtml(coHref)}" target="_blank" rel="noopener noreferrer">${escHtml(asset.asset_name)}</a>`
+                : escHtml(asset.asset_name) || '—';
+              html += `<tr class="fib-alert-asset-row">
+                <td colspan="2" class="fib-asset-name-cell">↳ ${assetCell}</td>
+                <td class="fib-alert-fibers">${fiberList(asset.missingTargets)}</td>
+                <td class="fib-alert-fibers">${fiberList(asset.missingMeasurements)}</td>
+              </tr>`;
+            }
+          }
+          return html;
         }).join('');
 
         const totalPages = Math.max(1, Math.ceil(missing.length / ALERT_PAGE_SIZE));
-        const displayStart = missing.length === 0 ? 0 : start + 1;
-        const displayEnd = Math.min(start + ALERT_PAGE_SIZE, missing.length);
+        const dispStart = missing.length === 0 ? 0 : start + 1;
+        const dispEnd = Math.min(start + ALERT_PAGE_SIZE, missing.length);
         alertPaging.innerHTML = `
           <button class="page-btn" id="alert-prev-page" ${alertPage === 0 ? 'disabled' : ''}>‹ Prev</button>
-          <span class="page-info">${displayStart}–${displayEnd} of ${missing.length}</span>
+          <span class="page-info">${dispStart}–${dispEnd} of ${missing.length}</span>
           <button class="page-btn" id="alert-next-page" ${alertPage >= totalPages - 1 ? 'disabled' : ''}>Next ›</button>
         `;
-        alertPaging.querySelector('#alert-prev-page').addEventListener('click', () => { alertPage--; renderAlertPage(); });
-        alertPaging.querySelector('#alert-next-page').addEventListener('click', () => { alertPage++; renderAlertPage(); });
+        alertPaging.querySelector('#alert-prev-page').addEventListener('click', () => { alertPage--; renderAlertTable(); });
+        alertPaging.querySelector('#alert-next-page').addEventListener('click', () => { alertPage++; renderAlertTable(); });
       }
 
-      renderAlertPage();
+      alertTbody.addEventListener('click', (e) => {
+        const btn = e.target.closest('.fib-toggle-btn');
+        if (!btn) return;
+        const tr = btn.closest('tr.fib-alert-subject-row');
+        if (!tr) return;
+        const subjectId = tr.dataset.subject;
+        if (expandedSubjects.has(subjectId)) {
+          expandedSubjects.delete(subjectId);
+        } else {
+          expandedSubjects.add(subjectId);
+        }
+        renderAlertTable();
+      });
+
+      renderAlertTable();
       alertSection.appendChild(alertTable);
       alertSection.appendChild(alertPaging);
       topCard.appendChild(alertSection);
