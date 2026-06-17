@@ -12,8 +12,12 @@ const ACORN_FUNCTION_MAP = {
 function buildPythonSnippet(acornName, version, partValue) {
   const bare = version.replace(/^[a-z]+-v/, '');
   const fnName = ACORN_FUNCTION_MAP[acornName] ?? acornName;
+  const parts = bare.split('.');
+  const major = parts[0] ?? '0';
+  const minor = parseInt(parts[1] ?? '0', 10);
+  const versionRange = `"biodata-cache>=${major}.${minor},<${major}.${minor + 1}"`;
   const lines = [
-    `# pip install biodata-cache==${bare}`,
+    `# pip install ${versionRange}`,
     `from biodata_cache import ${fnName}`,
   ];
   if (partValue !== null) {
