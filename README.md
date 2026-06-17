@@ -6,6 +6,18 @@ The data portal is a series of client-side dashboards used to access [cached dat
 
 The data portal also hosts semi-hidden dashboards that are for specific projects or purposes. These include a [Behavior Sessions](https://data.allenneuraldynamics.org/sessions) dashboard used to track which projects and experimenters are running behavioral training at AIND, the [SmartSPIM](https://data.allenneuraldynamics.org/smartspim) dashboard used to view all SmartSPIM platform data assets and easily view them, and a client-side only version of the [QC Portal](https://data.allenneuraldynamics.org/quality_control) which reduces load on the Panel app used for interactive editing.
 
+You can also directly view, download, and pull into Python code the backing cache [tables](https://data.allenneuraldynamics.org/tables.html).
+
+## Philosophy
+
+Data Portal apps are lightweight front-ends that pull all of their data from cached tables. The principle for the site is that while static immutable data assets with standardized metadata are critical for ensuring data meets the FAIR standards, they are often unwieldy for data analysis. The first thing that happens in almost every analysis is that data from a diverse set of incoming assets gets re-formatted into a set of tables. The second thing that happens is that the tables get materialized into figures -- this portal is intended to make this second step intuitive and interactive.
+
+Some of the properties we aim to embed in these portals:
+
+- Intuitive: Portals should be clear about what they are and pull users in without requiring reading, tutorials, or text-based interaction.
+- Interactive: Tables should be filterable, timelines should be windowable, figures that share axes should share filters, links should move you between portal views, 3D views should rotate and be clickable, etc...
+- Playful: Diverse affordances should create the possibility of discovering things in the data (and metadata) that weren't surfaced intentionally by the developers. 
+
 ## Development
 
 Set `AWS_PROFILE` before starting the server so it can read the S3 Parquet files.
@@ -57,13 +69,3 @@ A Docker container bundles the Vite build (static files), the duckdb-server, and
 docker build -t zombie .
 docker run -p 8000:8000 zombie
 ```
-
-## Philosophy
-
-Data Portal apps are lightweight front-ends that pull all of their data from cached tables. The principle for the site is that while static immutable data assets with standardized metadata are critical for ensuring data meets the FAIR standards, they are often unwieldy for data analysis. The first thing that happens in almost every analysis is that data from a diverse set of incoming assets gets re-formatted into a set of tables. The second thing that happens is that the tables get materialized into figures -- this portal is intended to make this second step intuitive and interactive.
-
-Some of the properties we aim to embed in these portals:
-
-- Intuitive: Portals should be clear about what they are and pull users in without requiring reading, tutorials, or text-based interaction.
-- Interactive: Tables should be filterable, timelines should be windowable, figures that share axes should share filters, links should move you between portal views, 3D views should rotate and be clickable, etc...
-- Playful: Diverse affordances should create the possibility of discovering things in the data (and metadata) that weren't surfaced intentionally by the developers. 
