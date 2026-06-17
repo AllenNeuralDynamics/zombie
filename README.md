@@ -69,3 +69,7 @@ A Docker container bundles the Vite build (static files), the duckdb-server, and
 docker build -t zombie .
 docker run -p 8000:8000 zombie
 ```
+
+## ZOMBIE?
+
+Because they eat brains!
