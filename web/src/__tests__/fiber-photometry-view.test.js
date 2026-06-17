@@ -18,6 +18,7 @@ describe('buildMissingTable', () => {
   function makeWideRow(overrides) {
     return {
       asset_name: 'asset_001',
+      subject_id: 'sub-001',
       code_ocean: null,
       investigators: 'Nick Ponvert, Anna Mcdougal', // pre-normalized
       'Fiber_0/Target': '',
@@ -39,7 +40,9 @@ describe('buildMissingTable', () => {
     ];
     const result = buildMissingTable(rows);
     expect(result).toHaveLength(1);
-    expect(result[0].incompleteInfo).toContain('Fiber_0/Target');
+    expect(result[0].missingTargets).toContain('Fiber 0');
+    expect(result[0].missingMeasurements).toHaveLength(0);
+    expect(result[0].assets[0].missingTargets).toContain('Fiber 0');
   });
 
   it('flags a fiber where all color channels are missing', () => {
@@ -48,7 +51,9 @@ describe('buildMissingTable', () => {
     ];
     const result = buildMissingTable(rows);
     expect(result).toHaveLength(1);
-    expect(result[0].incompleteInfo).toContain('Fiber_0: no intended measurement');
+    expect(result[0].missingMeasurements).toContain('Fiber 0');
+    expect(result[0].missingTargets).toHaveLength(0);
+    expect(result[0].assets[0].missingMeasurements).toContain('Fiber 0');
   });
 
   it('uses the investigators field directly without re-normalizing', () => {
@@ -68,14 +73,38 @@ describe('buildMissingTable', () => {
     expect(result[0].investigators).toBe('');
   });
 
-  it('sorts result by asset_name', () => {
+  it('aggregates multiple assets for the same subject into one row', () => {
     const rows = [
-      makeWideRow({ asset_name: 'b_asset', 'Fiber_0/Target': '' }),
-      makeWideRow({ asset_name: 'a_asset', 'Fiber_0/Target': '' }),
+      makeWideRow({ asset_name: 'b_asset', subject_id: 'sub-001', 'Fiber_0/Target': '' }),
+      makeWideRow({ asset_name: 'a_asset', subject_id: 'sub-001', 'Fiber_0/Target': '' }),
     ];
     const result = buildMissingTable(rows);
-    expect(result[0].asset_name).toBe('a_asset');
-    expect(result[1].asset_name).toBe('b_asset');
+    expect(result).toHaveLength(1);
+    expect(result[0].subject_id).toBe('sub-001');
+    expect(result[0].assets).toHaveLength(2);
+    expect(result[0].assets[0].asset_name).toBe('a_asset');
+    expect(result[0].assets[1].asset_name).toBe('b_asset');
+  });
+
+  it('sorts result by subject_id', () => {
+    const rows = [
+      makeWideRow({ asset_name: 'asset_b', subject_id: 'sub-002', 'Fiber_0/Target': '' }),
+      makeWideRow({ asset_name: 'asset_a', subject_id: 'sub-001', 'Fiber_0/Target': '' }),
+    ];
+    const result = buildMissingTable(rows);
+    expect(result[0].subject_id).toBe('sub-001');
+    expect(result[1].subject_id).toBe('sub-002');
+  });
+
+  it('deduplicates errors across assets for the same subject', () => {
+    const rows = [
+      makeWideRow({ asset_name: 'asset_a', subject_id: 'sub-001', 'Fiber_0/Target': '' }),
+      makeWideRow({ asset_name: 'asset_b', subject_id: 'sub-001', 'Fiber_0/Target': '' }),
+    ];
+    const result = buildMissingTable(rows);
+    expect(result[0].missingTargets).toHaveLength(1);
+    expect(result[0].missingTargets[0]).toBe('Fiber 0');
+    expect(result[0].missingMeasurements).toHaveLength(0);
   });
 });
 
