@@ -159,9 +159,9 @@ export function mountChatWidget(parent = document.body) {
 function loadInitialState() {
   try {
     const v = localStorage.getItem(STORAGE_KEY);
-    return v === 'closed' ? 'closed' : 'open';
+    return v === 'open' ? 'open' : 'closed';
   } catch {
-    return 'open';
+    return 'closed';
   }
 }
 
