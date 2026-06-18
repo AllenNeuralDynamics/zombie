@@ -23,7 +23,6 @@ import { createProbPlot } from './prob-plot.js';
 
 const SPEED_STEPS = [1, 2, 5, 10, 25, 50];   // playback speed multipliers
 const DEFAULT_SPEED_IDX = 0;                 // 1× — real timing by default
-const MAX_SESSIONS = 1500;                   // cap dropdown size
 
 // Pre-select something reasonable on first load so the user sees the animation
 // without having to pick anything. Falls back to "first session in the list".
@@ -232,14 +231,15 @@ async function _populateSessions(coord, statusEl) {
         AND nwb_suffix IS NOT NULL
         AND (task LIKE '%Coupled%' OR task LIKE '%Uncoupled%')
       ORDER BY session_date DESC, subject_id
-      LIMIT ${MAX_SESSIONS}
     `);
     if (rows.length === 0) {
       statusEl.textContent = 'No foraging sessions found in the DF database.';
       return [];
     }
+    const nSubjects = new Set(rows.map((r) => String(r.subject_id))).size;
     statusEl.textContent =
-      `${rows.length} sessions loaded from the DF database. Pick a subject and session to begin.`;
+      `${rows.length.toLocaleString()} sessions across ${nSubjects} subjects loaded from the DF database. ` +
+      `Pick a subject and session to begin.`;
     return rows;
   } catch (err) {
     statusEl.textContent = `Error loading session list: ${err.message}`;
