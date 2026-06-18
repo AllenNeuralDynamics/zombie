@@ -7278,3 +7278,198 @@ body {
 .btn-external:active {
   transform: scale(0.97);
 }
+
+/* ===========================================================================
+ * Dynamic Foraging — session playback widget
+ * =========================================================================== */
+
+.df-player {
+  margin: 24px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 8px;
+  background: var(--card-bg, #fafafa);
+}
+
+.df-player-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.df-player-header h3.platform-summary-heading {
+  margin: 0;
+}
+
+.df-player-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.df-player-selector select {
+  padding: 4px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+}
+
+.df-player-selector #df-subject-select { min-width: 200px; }
+.df-player-selector #df-session-select { min-width: 280px; }
+
+.df-player-status {
+  font-size: 12px;
+  color: var(--text-mut, #6a6a6a);
+  margin-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.df-player-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.df-player-top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.df-stage {
+  position: relative;
+  background: var(--input-bg, #fff);
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 6px;
+  padding: 6px;
+  flex: 0 0 auto;
+}
+
+.df-stage canvas {
+  display: block;
+  width: 320px;
+  height: 360px;
+  image-rendering: auto;
+}
+
+.df-stage-labels {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 22px;
+  pointer-events: none;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.df-spout-label-l { color: #2563eb; }
+.df-spout-label-r { color: #dc2626; }
+
+.df-plot-col {
+  flex: 1 1 480px;
+  min-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#df-prob-plot {
+  background: var(--input-bg, #fff);
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 6px;
+  padding: 6px 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#df-prob-plot svg { display: block; overflow: visible; }
+
+.df-prob-plot-wrap {
+  position: relative;
+  width: 100%;
+  display: block;
+}
+.df-prob-plot-holder { width: 100%; }
+
+.df-trial-info {
+  font-size: 13px;
+  color: var(--text, #111);
+  font-variant-numeric: tabular-nums;
+  padding: 6px 8px;
+  background: var(--input-bg, #fff);
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 6px;
+}
+.df-trial-info b { color: var(--text, #111); }
+.df-side-l { color: #2563eb; font-weight: 600; }
+.df-side-r { color: #dc2626; font-weight: 600; }
+.df-side-ign { color: var(--text-mut, #888); }
+.df-rew-yes { color: #1D8649; font-weight: 600; }
+.df-rew-no  { color: #c0392b; }
+.df-auto    { color: var(--text-mut, #888); font-style: italic; }
+.df-trial-pre { color: var(--text-mut, #888); font-style: italic; }
+.df-prob { font-variant-numeric: tabular-nums; }
+
+.df-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+#df-play {
+  font-size: 16px;
+  width: 36px;
+  height: 32px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+  cursor: pointer;
+}
+#df-play:hover { background: var(--hover-bg, #f0f0f0); }
+
+.df-scrub {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.df-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mut, #6a6a6a);
+  min-width: 120px;
+  text-align: right;
+}
+
+.df-speed-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-mut, #6a6a6a);
+}
+.df-speed-label select {
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--border, #ccc);
+  border-radius: 4px;
+  background: var(--input-bg, #fff);
+  color: var(--text, #111);
+}
+
+.df-playhead {
+  box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.6);
+}

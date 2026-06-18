@@ -10,6 +10,7 @@ import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
 import { arrowTableToRows, queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
+import { createDfSessionPlayer } from './player.js';
 
 import {
   utcDay, addDays, isoDate,
@@ -56,6 +57,8 @@ export function createDynamicForagingView(coord) {
       assetFilter: { type: 'acquisition_type_regex', value: '(Uncoupled|Coupled)( Without)? Baiting' },
     }),
   );
+
+  container.appendChild(createDfSessionPlayer(coord));
 
   container.appendChild(_createFiguresSection(coord));
 
