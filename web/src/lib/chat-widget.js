@@ -70,6 +70,9 @@ export function mountChatWidget(parent = document.body) {
   const rightEye = root.querySelector('.cw-eye--right');
   const logoEl = root.querySelector('.cw-mascot-logo');
 
+  /** Short random ID for log correlation. */
+  const sessionId = crypto.randomUUID().slice(0, 8);
+
   /** Conversation history sent back to the API. */
   const history = [];
 
@@ -110,7 +113,7 @@ export function mountChatWidget(parent = document.body) {
     setBusy(true);
 
     try {
-      const reply = await sendChat(text, history);
+      const reply = await sendChat(text, history, sessionId);
       typingEl.remove();
       appendMessage(messagesEl, 'assistant', reply);
       history.push({ role: 'user', content: text });
@@ -198,10 +201,12 @@ function autosize(textarea) {
  *
  * @param {string} message
  * @param {Array<{role: string, content: string}>} history
+ * @param {string} [id]
  * @returns {Promise<string>}
  */
-export async function sendChat(message, history) {
-  const res = await fetch(CHAT_ENDPOINT, {
+export async function sendChat(message, history, id) {
+  const url = id ? `${CHAT_ENDPOINT}?id=${encodeURIComponent(id)}` : CHAT_ENDPOINT;
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, history }),
