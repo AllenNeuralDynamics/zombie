@@ -7403,6 +7403,35 @@ body {
 }
 .df-prob-plot-holder { width: 100%; }
 
+/* Overview (context) strip + brush ---------------------------------------- */
+.df-prob-overview-wrap {
+  position: relative;
+  width: 100%;
+  margin-bottom: 4px;
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--input-bg, #fff);
+}
+.df-prob-overview-holder { display: block; }
+.df-prob-overview-holder svg { display: block; overflow: hidden; }
+
+/* Dimmed overlay on the unselected portions of the overview */
+.df-brush-dim {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+/* Pointer-events layer (receives clicks/drags for the brush) */
+.df-brush-interact {
+  position: absolute;
+  top: 0; bottom: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+
 .df-trial-info {
   font-size: 13px;
   color: var(--text, #111);

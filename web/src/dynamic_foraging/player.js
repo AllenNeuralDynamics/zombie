@@ -14,7 +14,7 @@
 
 import { queryRows } from '../lib/arrow.js';
 import { loadDfSession, findTrialAt, SESSION_TABLE_URL } from './data-loader.js';
-import { DfAnimation, loadMouseSprite, loadCueIcon } from './animation.js';
+import { DfAnimation, loadMouseSprite, loadCueIcon, loadWaterDroplet } from './animation.js';
 import { createProbPlot } from './prob-plot.js';
 
 // ---------------------------------------------------------------------------
@@ -168,11 +168,11 @@ export function createDfSessionPlayer(coord) {
     bodyEl.hidden = true;
     statusEl.textContent = `Loading ${session.subject_id} · ${session.session_date} from S3…`;
 
-    assetsPromise = assetsPromise ?? Promise.all([loadMouseSprite(), loadCueIcon()]);
+      assetsPromise = assetsPromise ?? Promise.all([loadMouseSprite(), loadCueIcon(), loadWaterDroplet()]);
 
     try {
       const t0 = performance.now();
-      const [data, [mouseImg, cueIcon]] = await Promise.all([
+      const [data, [mouseImg, cueIcon, dropletImg]] = await Promise.all([
         loadDfSession(coord, {
           subjectId: session.subject_id,
           sessionDate: session.session_date,
@@ -191,7 +191,7 @@ export function createDfSessionPlayer(coord) {
       bodyEl.hidden = false;
 
       animation?.pause();
-      animation = _wireAnimation(root, data, mouseImg, cueIcon);
+      animation = _wireAnimation(root, data, mouseImg, cueIcon, dropletImg);
     } catch (err) {
       if (ctrl.signal.aborted) return;
       statusEl.textContent = `Error loading session: ${err.message}`;
@@ -329,7 +329,7 @@ function _formatSessionLabel(r) {
 // Wire animation + transport + plot
 // ---------------------------------------------------------------------------
 
-function _wireAnimation(root, data, mouseImg, cueIcon) {
+function _wireAnimation(root, data, mouseImg, cueIcon, dropletImg) {
   const canvas      = root.querySelector('#df-canvas');
   const plotMount   = root.querySelector('#df-prob-plot');
   const trialInfo   = root.querySelector('#df-trial-info');
@@ -348,7 +348,7 @@ function _wireAnimation(root, data, mouseImg, cueIcon) {
   const plot = createProbPlot(data);
   plotMount.appendChild(plot.element);
 
-  const anim = new DfAnimation(canvas, data, mouseImg, cueIcon);
+  const anim = new DfAnimation(canvas, data, mouseImg, cueIcon, dropletImg);
   anim.setSpeed(SPEED_STEPS[DEFAULT_SPEED_IDX]);
   anim.onFrame = (t) => {
     if (data.sessionEndS > 0) {

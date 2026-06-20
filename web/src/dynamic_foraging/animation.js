@@ -64,6 +64,15 @@ export function loadMouseSprite(url = '/images/df/mouse_head_dorsal.png') {
   });
 }
 
+export function loadWaterDroplet(url = '/images/water-droplet.png') {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = () => { console.warn('[DF] water-droplet sprite failed to load'); resolve(null); };
+    img.src = url;
+  });
+}
+
 /**
  * Tiny Material-Icons "volume_up" SVG, returned as a pre-loaded Image so the
  * animation can draw it on the canvas. Resolves to `null` if for any reason
@@ -96,12 +105,13 @@ export class DfAnimation {
    * @param {HTMLImageElement|null} mouseImg
    * @param {HTMLImageElement|null} [cueIcon] - speaker icon shown briefly after each goCue.
    */
-  constructor(canvas, data, mouseImg, cueIcon = null) {
-    this.canvas   = canvas;
-    this.ctx      = canvas.getContext('2d');
-    this.data     = data;
-    this.mouseImg = mouseImg;
-    this.cueIcon  = cueIcon;
+  constructor(canvas, data, mouseImg, cueIcon = null, dropletImg = null) {
+    this.canvas     = canvas;
+    this.ctx        = canvas.getContext('2d');
+    this.data       = data;
+    this.mouseImg   = mouseImg;
+    this.cueIcon    = cueIcon;
+    this.dropletImg = dropletImg;
     this.duration = data.sessionEndS;
 
     canvas.width  = CW;
@@ -198,7 +208,8 @@ export class DfAnimation {
    */
   _rewardGlow() {
     const t = this.t;
-    const decay = 0.5;
+    // Scale decay so droplets linger ~1/√speed as long at high speeds.
+    const decay = 0.5 * Math.sqrt(Math.max(1, this.speed));
     const { t: rt, side: rs } = this.data.rewards;
     const n = rt.length;
     if (n === 0) return { L: 0, R: 0 };
@@ -255,9 +266,9 @@ export class DfAnimation {
     const { L, R, lastSide } = this._lickActivity();
     const { L: gL, R: gR }   = this._rewardGlow();
 
-    // ---- spouts (drawn first so the tongue overlaps them slightly) ------
-    this._drawSpout(ctx, 'L', L, gL);
-    this._drawSpout(ctx, 'R', R, gR);
+    // ---- spouts (behind mouse head, no droplets yet) -------------------
+    this._drawSpout(ctx, 'L');
+    this._drawSpout(ctx, 'R');
 
     // ---- mouse head ----------------------------------------------------
     if (this.mouseImg) {
@@ -279,6 +290,10 @@ export class DfAnimation {
     // ---- tongue (in front of mouse, behind spouts) ---------------------
     if (lastSide === 0 && L > 0) this._drawTongue(ctx, -1, L);
     else if (lastSide === 1 && R > 0) this._drawTongue(ctx, +1, R);
+
+    // ---- reward droplets (must be on top of mouse head) ----------------
+    if (gL > 0) this._drawDroplet(ctx, 'L', gL);
+    if (gR > 0) this._drawDroplet(ctx, 'R', gR);
 
     // ---- cue / "beep" indicator (speaker icon above the mouse) --------
     const cue = this._cueActivity();
@@ -320,13 +335,11 @@ export class DfAnimation {
     }
   }
 
-  _drawSpout(ctx, side, activity, rewardGlow) {
+  _drawSpout(ctx, side) {
     const dir = side === 'L' ? -1 : +1;
     const color = side === 'L' ? SPOUT_COLOR_L : SPOUT_COLOR_R;
-    // The spout's bottom tip is the one being "lifted" upward (away from nose).
-    const lift = activity * SPOUT_LIFT_PX;
     const x = NOSE_X + dir * SPOUT_OFFSET_X - SPOUT_W / 2;
-    const y = SPOUT_REST_Y - lift;
+    const y = SPOUT_REST_Y;
 
     // Body
     ctx.fillStyle   = color;
@@ -340,17 +353,23 @@ export class DfAnimation {
     ctx.fillStyle = 'rgba(255,255,255,0.35)';
     _roundRect(ctx, x + 3, y + 4, 4, SPOUT_H - 14, 2);
     ctx.fill();
+  }
 
-    // Reward droplet at the spout tip
-    if (rewardGlow > 0) {
-      ctx.beginPath();
-      const r = 3 + rewardGlow * 3;
-      ctx.fillStyle = `rgba(120,180,240,${0.4 + 0.6 * rewardGlow})`;
-      ctx.arc(x + SPOUT_W / 2, y + SPOUT_H + 2, r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(40,90,160,0.6)';
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
+  _drawDroplet(ctx, side, rewardGlow) {
+    const dir  = side === 'L' ? -1 : +1;
+    const x    = NOSE_X + dir * SPOUT_OFFSET_X - SPOUT_W / 2;
+    const y    = SPOUT_REST_Y;
+    const cx   = x + SPOUT_W / 2;
+    // Position the droplet so its pointed top overlaps the spout bottom —
+    // like a real water drop forming at the tip.
+    const imgSize = 20;
+    const imgY = y + SPOUT_H - imgSize * 2;
+
+    if (this.dropletImg) {
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, 0.45 + 0.55 * rewardGlow);
+      ctx.drawImage(this.dropletImg, cx - imgSize / 2, imgY, imgSize, imgSize);
+      ctx.restore();
     }
   }
 
