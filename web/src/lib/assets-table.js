@@ -7,6 +7,7 @@
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
 import { formatDatetime, PAGE_SIZE } from './utils.js';
 import { arrowTableToRows, queryRows } from './arrow.js';
+import { ensureTable } from './registry.js';
 
 // Re-export for backward compatibility
 export { arrowTableToRows, queryRows };
@@ -164,6 +165,9 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
  * @returns {Promise<{ assets: object[], sourceMap: object|null }>}
  */
 export async function fetchAssetsWithSources(coordinator, whereClause) {
+  // Lazy-register source_data on first use so pages that never call this
+  // helper don't pay the download cost at startup.
+  await ensureTable(coordinator, 'source_data');
   const result = await coordinator.query(
     `SELECT a.name, a.subject_id, a.acquisition_start_time::VARCHAR AS acquisition_start_time,
             a.project_name, a.modalities, a.data_level, a.code_ocean, a.location,

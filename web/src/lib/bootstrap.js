@@ -31,12 +31,32 @@ export async function bootstrap(createView, { graceful = false } = {}) {
   const app = document.getElementById('app');
   if (!app) return;
 
+  // The loading element already renders a spinning circle via CSS (::before).
+  // We only update its text label as tables come online — never replace the
+  // whole content with a progress bar.
+  function setLabel(text) {
+    if (loadingEl) loadingEl.textContent = text;
+  }
+
+  function onProgress({ phase, total, name }) {
+    // Skip the fast preliminary phases (versions/registry) — they finish in
+    // well under a second and the flicker is more distracting than useful.
+    if (phase !== 'table') return;
+    // When many tables are being loaded, don't enumerate each one — just a
+    // single label until they're all ready.
+    if (total > 3) {
+      setLabel('Loading from cache…');
+    } else {
+      setLabel(`Loading ${name}…`);
+    }
+  }
+
   let coord = null;
   let metadata = null;
 
   try {
     coordinator().databaseConnector(wasmConnector());
-    metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL);
+    metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL, { onProgress });
     setMetadata(metadata);
     coord = coordinator();
     if (loadingEl) loadingEl.remove();

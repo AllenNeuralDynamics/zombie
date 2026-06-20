@@ -11,6 +11,7 @@
 import { escHtml, formatDatetime, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
 import { buildInteractiveModalityHistogram } from '../lib/charts.js';
+import { ensureTable } from '../lib/registry.js';
 import { buildQueryBuilder } from './query-builder.js';
 
 // Re-export for backward compatibility with tests
@@ -270,8 +271,8 @@ function buildAssetsOverview(coord) {
   histCol.appendChild(histPlot);
 
   // ── Stats query ────────────────────────────────────────────────────────────
-  coord
-    .query(`
+  ensureTable(coord, 'unique_project_names')
+    .then(() => coord.query(`
       SELECT
         (SELECT COUNT(*) FROM asset_basics) AS total_assets,
         (SELECT COUNT(DISTINCT subject_id) FROM asset_basics WHERE subject_id IS NOT NULL) AS total_subjects,
@@ -280,7 +281,7 @@ function buildAssetsOverview(coord) {
           FROM (SELECT UNNEST(investigators_normalized) AS investigator
                 FROM asset_basics
                 WHERE investigators_normalized IS NOT NULL)) AS total_investigators
-    `)
+    `))
     .then((result) => {
       const row = result.get(0) ?? {};
       const fmt = (n) => Number(n ?? 0).toLocaleString();

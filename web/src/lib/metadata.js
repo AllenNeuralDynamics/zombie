@@ -277,11 +277,12 @@ async function resolveLatestVersion(versionsUrl) {
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
  * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry JSON + base URL.
  */
-export async function fetchAndRegisterMetadata(coordinator, versionsUrl) {
+export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onProgress, eagerTables = ['asset_basics'] } = {}) {
   // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
   // All parquet URLs are converted to HTTPS so no S3 credentials are required.
 
   // 1. Resolve the latest version from the versions index.
+  onProgress?.({ phase: 'versions' });
   const { registryUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
   _resolvedBaseUrl = baseUrl;
 
@@ -289,6 +290,7 @@ export async function fetchAndRegisterMetadata(coordinator, versionsUrl) {
   // cache: 'no-cache' forces a conditional revalidation request so that a
   // stale browser-cached copy of cache_registry.json is never used after the
   // file on S3 is updated (e.g. after removing an acorn entry).
+  onProgress?.({ phase: 'registry' });
   const resp = await fetch(registryUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
@@ -296,11 +298,15 @@ export async function fetchAndRegisterMetadata(coordinator, versionsUrl) {
   const json = await resp.json();
   const metadata = parseCacheRegistryJson(json);
 
-  // 3. Register all metadata-type acorns as persistent DuckDB tables.
+  // 3. Register only the eagerly-needed tables at startup (default: asset_basics).
+  //    All other acorns are stored in the registry and lazy-loaded via ensureTable.
   //    Skip individual failures so one broken/empty parquet file doesn't
   //    crash every page in the app.
-  const metaAcorns = getMetadataAcorns(metadata.acorns);
-  for (const acorn of metaAcorns) {
+  const eagerSet = new Set(eagerTables);
+  const toRegister = getMetadataAcorns(metadata.acorns).filter((a) => eagerSet.has(a.name));
+  for (let i = 0; i < toRegister.length; i++) {
+    const acorn = toRegister[i];
+    onProgress?.({ phase: 'table', step: i, total: toRegister.length, name: acorn.name });
     try {
       await registerAcornTable(coordinator, acorn);
     } catch (err) {

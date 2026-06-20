@@ -491,34 +491,18 @@ export function createFiberPhotometryView(coord) {
   const container = document.createElement('div');
   container.className = 'assets-view fib-view';
 
-  // Progress bar UI
+  // Standard spinner loading element (matches every other page).
   const loadingEl = document.createElement('div');
-  loadingEl.className = 'fib-loading';
-  const progressTrack = document.createElement('div');
-  progressTrack.className = 'fib-progress-track';
-  const progressFill = document.createElement('div');
-  progressFill.className = 'fib-progress-fill';
-  progressTrack.appendChild(progressFill);
-  const progressLabel = document.createElement('div');
-  progressLabel.className = 'fib-progress-label';
-  progressLabel.textContent = 'Connecting…';
-  loadingEl.appendChild(progressTrack);
-  loadingEl.appendChild(progressLabel);
+  loadingEl.className = 'loading-message';
+  loadingEl.textContent = 'Loading fiber photometry data…';
   container.appendChild(loadingEl);
-
-  function setProgress(pct, label) {
-    progressFill.style.width = `${pct}%`;
-    progressLabel.textContent = label;
-  }
 
   const t0 = performance.now();
   console.log('[FibPhot] start');
 
-  setProgress(10, 'Downloading fiber photometry data…');
   ensureTable(coord, 'platform_fib')
     .then(() => {
       console.log(`[FibPhot] parquet loaded & registered  +${(performance.now()-t0).toFixed(0)}ms`);
-      setProgress(40, 'Running join query…');
       return queryRows(coord,
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
@@ -531,18 +515,16 @@ export function createFiberPhotometryView(coord) {
     })
     .then((longRows) => {
       console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
-      setProgress(70, 'Reshaping data…');
       console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
       const wideRows = pivotLongFormRows(longRows);
       console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
-      setProgress(90, 'Building page…');
       loadingEl.remove();
       buildPage(wideRows);
       console.log(`[FibPhot] page built                   +${(performance.now()-t0).toFixed(0)}ms`);
     })
     .catch((err) => {
       loadingEl.className = 'loading-message error';
-      progressLabel.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
+      loadingEl.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
     });
 
   function buildPage(allRows) {

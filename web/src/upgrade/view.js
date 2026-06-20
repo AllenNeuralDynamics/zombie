@@ -11,6 +11,7 @@ import { escHtml, PAGE_SIZE } from '../lib/utils.js';
 import { arrowTableToRows } from '../lib/arrow.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { buildTableHead, buildPagingBar } from '../lib/paginated-table.js';
+import { ensureTable } from '../lib/registry.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -522,9 +523,10 @@ export async function createUpgradeView({ coordinator }) {
     return root;
   }
 
-  // Fetch all rows from metadata_upgrade table
+  // Fetch all rows from metadata_upgrade table (lazy-load if not yet registered)
   let rows;
   try {
+    await ensureTable(coordinator, 'metadata_upgrade');
     const result = await coordinator.query(
       `SELECT _id, name, project_name, data_level, status, upgrader_version
        FROM metadata_upgrade

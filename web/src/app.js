@@ -10,6 +10,7 @@
 
 import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { fetchAndRegisterMetadata } from './lib/metadata.js';
+import { setMetadata } from './lib/registry.js';
 import { initSettings } from './explorer/settings.js';
 import { createTimeView } from './explorer/time-view.js';
 import { createDataView } from './explorer/data-view.js';
@@ -28,6 +29,7 @@ async function init() {
 
     // 2. Fetch cache_registry.json and register metadata tables in DuckDB.
     const metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL);
+    setMetadata(metadata);
 
     console.info('[DataExplorer] Metadata loaded. Acorns:', metadata.acorns.map((a) => a.name));
 

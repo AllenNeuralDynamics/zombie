@@ -11,6 +11,7 @@
 
 import { Param } from '@uwdata/vgplot';
 import { getAssetAcorns, registerAcornTable, dropAcornTable, fetchSubjectIdsForQuery } from '../lib/metadata.js';
+import { ensureTable } from '../lib/registry.js';
 import { URL_PARAM_PROJECTS, URL_PARAM_DATA_TYPES, URL_PARAM_EXTRA_FILTERS } from '../constants.js';
 
 // ---------------------------------------------------------------------------
@@ -304,9 +305,10 @@ function buildProjectSection(coord, initialProjects, onChange) {
     onChange([...checkedSet]);
   });
 
-  coord.query(
-    'SELECT project_name FROM unique_project_names ORDER BY project_name',
-  )
+  ensureTable(coord, 'unique_project_names')
+    .then(() => coord.query(
+      'SELECT project_name FROM unique_project_names ORDER BY project_name',
+    ))
     .then((result) => {
       const col = result.getChild('project_name');
       allProjects = col
