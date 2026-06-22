@@ -15,6 +15,7 @@ import { VrfAnimation, loadSprites, findSiteAt, buildOdorPalette } from './anima
 import { buildPatchIndex, updateDepletion }       from './depletion.js';
 import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
+import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
 
 const SPRITE_URL = '/images/vrf';
 const PROJECT_NAME = 'Cognitive flexibility in patch foraging';
@@ -73,6 +74,13 @@ export function createSessionPlayer(coord) {
           <option>—</option>
         </select>
       </div>
+      <div class="vrf-player-links" id="vrf-player-links" hidden>
+        <a id="vrf-link-subject" target="_blank" rel="noopener">Subject</a>
+        <a id="vrf-link-co" target="_blank" rel="noopener">CO</a>
+        <a id="vrf-link-meta" target="_blank" rel="noopener">Meta</a>
+        <a id="vrf-link-qc" target="_blank" rel="noopener">QC</a>
+        <a id="vrf-link-s3" target="_blank" rel="noopener">S3</a>
+      </div>
     </div>
 
     <div id="vrf-player-status" class="vrf-player-status">
@@ -122,6 +130,7 @@ export function createSessionPlayer(coord) {
   const dateSelect    = root.querySelector('#vrf-date-select');
   const statusEl      = root.querySelector('#vrf-player-status');
   const bodyEl        = root.querySelector('.vrf-player-body');
+  const linksEl       = root.querySelector('#vrf-player-links');
 
   let sessionsBySubject = new Map();
 
@@ -188,6 +197,7 @@ export function createSessionPlayer(coord) {
     const sid = subjectSelect.value;
     dateSelect.innerHTML = '';
     bodyEl.hidden = true;
+    linksEl.hidden = true;
     if (currentLoad) { currentLoad.abort(); currentLoad = null; }
     writeUrlState({ subject: sid, session: '' });
 
@@ -221,9 +231,14 @@ export function createSessionPlayer(coord) {
     writeUrlState({ subject: subjectSelect.value, session: name });
     if (!name) {
       bodyEl.hidden = true;
+      linksEl.hidden = true;
       statusEl.textContent = 'Select a session to begin.';
       return;
     }
+
+    const sessions = sessionsBySubject.get(subjectSelect.value) ?? [];
+    const sessionRow = sessions.find((s) => s.name === name);
+    updateLinks(linksEl, sessionRow);
 
     if (currentLoad) currentLoad.abort();
     const ctrl = new AbortController();
@@ -262,7 +277,7 @@ export function createSessionPlayer(coord) {
 
 async function fetchSessionList(coord) {
   const result = await coord.query(`
-    SELECT name, subject_id, acquisition_start_time
+    SELECT name, subject_id, acquisition_start_time, code_ocean, location
     FROM asset_basics
     WHERE acquisition_type = 'AindVrForaging'
       AND data_level = 'derived'
@@ -271,6 +286,30 @@ async function fetchSessionList(coord) {
     ORDER BY acquisition_start_time DESC
   `);
   return arrowTableToRows(result);
+}
+
+function updateLinks(linksEl, row) {
+  if (!row) { linksEl.hidden = true; return; }
+
+  const setLink = (id, href) => {
+    const el = linksEl.querySelector(`#${id}`);
+    if (!el) return;
+    if (href) {
+      el.href = href;
+      el.hidden = false;
+    } else {
+      el.removeAttribute('href');
+      el.hidden = true;
+    }
+  };
+
+  setLink('vrf-link-subject', row.subject_id ? `/subject?subject_id=${encodeURIComponent(row.subject_id)}` : null);
+  setLink('vrf-link-co',      buildCoLink(row.code_ocean));
+  setLink('vrf-link-meta',    buildMetadataLink(row.name));
+  setLink('vrf-link-qc',      buildQcLink(row.name));
+  setLink('vrf-link-s3',      buildS3ConsoleUrl(row.location));
+
+  linksEl.hidden = false;
 }
 
 
