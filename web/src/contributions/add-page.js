@@ -17,6 +17,7 @@ import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
+  LEVEL_DISPLAY,
   CREDIT_ROLE_ENUM,
   CREDIT_ROLE_ENUM_REVERSE,
   fromEndpointPayload,
@@ -96,7 +97,7 @@ function extractPayloadMeta(data) {
 // Step 1: Personal Info
 // ---------------------------------------------------------------------------
 
-function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, onNext }) {
+function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, onNext }) {
   const [orcidResults, setOrcidResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [customAff, setCustomAff] = useState('');
@@ -206,6 +207,13 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
         </div>
       </div>
 
+      <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cw-join-date">Join Date (optional)</label>
+        <input id="cw-join-date" type="date" class="cv-wizard-input"
+               value=${joinDate || ''}
+               onInput=${(e) => setJoinDate(e.target.value || null)} />
+      </div>
+
       <div class="cv-wizard-nav">
         <span></span>
         <button class="btn-primary" disabled=${!canNext} onClick=${onNext}>Next →</button>
@@ -259,7 +267,7 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
                         onClick=${(e) => e.stopPropagation()}
                         onChange=${(e) => setLevel(cat, e.target.value)}>
                   ${CONTRIBUTION_LEVELS.filter((l) => l !== 'None').map((l) => html`
-                    <option key=${l} value=${l}>${l}</option>
+                    <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
                   `)}
                 </select>
               `}
@@ -280,14 +288,14 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
 // Step 3: Per-role details
 // ---------------------------------------------------------------------------
 
-function StepRoleDetails({ roles, descriptions, setDescriptions, linkedSections, setLinkedSections, sections, onBack, onNext }) {
+function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext }) {
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => roles[cat] && roles[cat] !== 'None');
 
   return html`
     <div class="cv-wizard-step">
       <h2 class="cv-wizard-step-title">Contribution Details</h2>
       <p class="cv-wizard-step-desc">
-        For each role, describe your specific contribution and optionally link it to paper sections.
+        For each role, describe your specific contribution (optional)
       </p>
 
       ${activeRoles.map((cat) => {
@@ -303,26 +311,72 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, linkedSections,
                       placeholder="Describe your specific contribution…"
                       value=${descriptions[roleEnum] || ''}
                       onInput=${(e) => setDescriptions((prev) => ({ ...prev, [roleEnum]: e.target.value }))}></textarea>
-            ${sections.length > 0 && html`
-              <label class="cv-detail-label">Linked Sections</label>
-              <div class="cv-wizard-section-chips">
-                ${sections.map((sec) => {
-                  const selected = (linkedSections[roleEnum] || []).includes(sec.id);
-                  return html`
-                    <button key=${sec.id} type="button"
-                            class=${'cv-chip' + (selected ? ' cv-chip-selected' : '')}
-                            onClick=${() => {
-                              setLinkedSections((prev) => {
-                                const ids = prev[roleEnum] || [];
-                                const next = selected ? ids.filter((i) => i !== sec.id) : [...ids, sec.id];
-                                return { ...prev, [roleEnum]: next };
-                              });
-                            }}>
-                      ${sec.title}
-                    </button>
-                  `;
-                })}
-              </div>
+          </div>
+        `;
+      })}
+
+      <div class="cv-wizard-nav">
+        <button class="btn-secondary" onClick=${onBack}>← Back</button>
+        <button class="btn-primary" onClick=${onNext}>Next →</button>
+      </div>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// Step 4: Sections (only shown when sections exist)
+// ---------------------------------------------------------------------------
+
+function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext }) {
+  function getLevel(title) {
+    return sectionLevels[title]?.level || 'None';
+  }
+  function getDescription(title) {
+    return sectionLevels[title]?.description || '';
+  }
+  function setLevel(title, level) {
+    setSectionLevels((prev) => {
+      if (!level || level === 'None') {
+        const next = { ...prev };
+        delete next[title];
+        return next;
+      }
+      return { ...prev, [title]: { level, description: prev[title]?.description || '' } };
+    });
+  }
+  function setDescription(title, description) {
+    setSectionLevels((prev) => ({
+      ...prev,
+      [title]: { level: prev[title]?.level || 'equal', description },
+    }));
+  }
+
+  return html`
+    <div class="cv-wizard-step">
+      <h2 class="cv-wizard-step-title">Section Contributions</h2>
+      <p class="cv-wizard-step-desc">
+        Indicate how you contributed to each section of the paper.
+      </p>
+
+      ${sections.map((sec) => {
+        const level = getLevel(sec.title);
+        const description = getDescription(sec.title);
+        return html`
+          <div key=${sec.id} class="cv-section-contrib-row">
+            <span class="cv-section-contrib-title">${sec.title}</span>
+            <select class="cv-section-contrib-level"
+                    value=${level}
+                    onChange=${(e) => setLevel(sec.title, e.target.value)}>
+              <option value="None">\u2014 none \u2014</option>
+              <option value="lead">Lead</option>
+              <option value="equal">++</option>
+              <option value="supporting">+</option>
+            </select>
+            ${level !== 'None' && html`
+              <input type="text" class="cv-section-contrib-desc"
+                     placeholder="Description (optional)"
+                     value=${description}
+                     onInput=${(e) => setDescription(sec.title, e.target.value)} />
             `}
           </div>
         `;
@@ -330,30 +384,30 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, linkedSections,
 
       <div class="cv-wizard-nav">
         <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${onNext}>Finish & Review →</button>
+        <button class="btn-primary" onClick=${onNext}>Next →</button>
       </div>
     </div>
   `;
 }
 
 // ---------------------------------------------------------------------------
-// Step 4: Full editor (scoped to this author)
+// Step 5: Full editor (scoped to this author)
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, token, authorName, orcid, selectedAffNames, roles, descriptions, linkedSections,
+  doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, sectionLevels,
   allRows, projectData, sections, affiliations, onBack,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
 
-  // All fields are locally editable on this step
   const [editName, setEditName]               = useState(authorName);
   const [editOrcid, setEditOrcid]             = useState(orcid);
   const [editAffNames, setEditAffNames]       = useState(selectedAffNames);
   const [editRoles, setEditRoles]             = useState(() => ({ ...roles }));
   const [editDescs, setEditDescs]             = useState(() => ({ ...descriptions }));
-  const [editLinks, setEditLinks]             = useState(() => ({ ...linkedSections }));
+  const [editJoinDate, setEditJoinDate]       = useState(joinDate || null);
+  const [editSectionLevels, setEditSectionLevels] = useState(() => ({ ...sectionLevels }));
   const [customAff, setCustomAff]             = useState('');
 
   function toggleAff(affName) {
@@ -368,16 +422,29 @@ function StepFullEditor({
     setCustomAff('');
   }
 
+  function getSectionLevel(title) { return editSectionLevels[title]?.level || 'None'; }
+  function getSectionDescription(title) { return editSectionLevels[title]?.description || ''; }
+  function updateSectionLevel(title, level) {
+    setEditSectionLevels((prev) => {
+      if (!level || level === 'None') { const n = { ...prev }; delete n[title]; return n; }
+      return { ...prev, [title]: { level, description: prev[title]?.description || '' } };
+    });
+  }
+  function updateSectionDescription(title, description) {
+    setEditSectionLevels((prev) => ({
+      ...prev,
+      [title]: { level: prev[title]?.level || 'equal', description },
+    }));
+  }
+
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => editRoles[cat] && editRoles[cat] !== 'None');
 
-  // Build the current author's row from edit state
   const myRow = useMemo(() => {
     const row = { name: editName.trim() || authorName, isFirst: false, author_level: null };
     for (const cat of CREDIT_CATEGORIES) row[cat] = editRoles[cat] || 'None';
     return row;
   }, [editName, authorName, editRoles]);
 
-  // Merge wizard author into allRows
   const mergedRows = useMemo(() => {
     const nameKey = editName.trim() || authorName;
     const existing = allRows.findIndex((r) => r.name === nameKey || r.name === authorName);
@@ -395,7 +462,8 @@ function StepFullEditor({
       const authorOrcids = {};
       const authorAffIds = {};
       const creditDescriptions = {};
-      const creditLinkedSections = {};
+      const authorStartDates = {};
+      const authorSectionLevels = {};
 
       const finalName = editName.trim() || authorName;
       if (editOrcid) authorOrcids[finalName] = editOrcid;
@@ -407,9 +475,12 @@ function StepFullEditor({
         authorAffIds[finalName] = myAffIds;
       }
       if (Object.keys(editDescs).length) creditDescriptions[finalName] = editDescs;
-      if (Object.keys(editLinks).length) creditLinkedSections[finalName] = editLinks;
+      if (editJoinDate) authorStartDates[finalName] = editJoinDate;
+      const mySectionLevels = Object.entries(editSectionLevels)
+        .filter(([, v]) => v.level && v.level !== 'None')
+        .map(([section, v]) => ({ section, level: v.level, ...(v.description ? { description: v.description } : {}) }));
+      if (mySectionLevels.length) authorSectionLevels[finalName] = mySectionLevels;
 
-      // Merge with existing project data contributor info
       for (const contributor of projectData?.contributors || []) {
         const name = contributor.author?.name;
         if (!name || name === authorName) continue;
@@ -424,17 +495,11 @@ function StepFullEditor({
             if (!creditDescriptions[name]) creditDescriptions[name] = {};
             creditDescriptions[name][cl.role] = cl.description;
           }
-          if (cl.linked_sections?.length) {
-            if (!creditLinkedSections[name]) creditLinkedSections[name] = {};
-            const secByTitle = new Map(sections.map((s) => [s.title, s.id]));
-            creditLinkedSections[name][cl.role] = cl.linked_sections
-              .map((s) => secByTitle.get(typeof s === 'string' ? s : (s.section || s.title || '')))
-              .filter(Boolean);
-          }
         }
+        if (contributor.start_date) authorStartDates[name] = contributor.start_date;
+        if (contributor.section_levels?.length) authorSectionLevels[name] = contributor.section_levels;
       }
 
-      // Merge affiliations list
       const allAffs = [...affiliations];
       for (const n of myAffNames) {
         if (!allAffs.find((a) => a.name === n)) {
@@ -448,7 +513,8 @@ function StepFullEditor({
         affiliations: allAffs,
         sections,
         creditDescriptions,
-        creditLinkedSections,
+        authorStartDates,
+        authorSectionLevels,
         assets: projectData?.assets || [],
         doi: projectData?.doi || '',
       });
@@ -469,7 +535,6 @@ function StepFullEditor({
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       setSaveStatus({ text: `✓ Saved${commit}`, cls: 'status-success' });
       clearDraft(token);
-      // Redirect to view page after a short delay so the success message is visible
       setTimeout(() => {
         window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
       }, 1200);
@@ -498,6 +563,13 @@ function StepFullEditor({
         <input id="cwe-orcid" type="text" class="cv-wizard-input"
                placeholder="0000-0000-0000-0000"
                value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
+      </div>
+
+      <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cwe-join-date">Join Date (optional)</label>
+        <input id="cwe-join-date" type="date" class="cv-wizard-input"
+               value=${editJoinDate || ''}
+               onInput=${(e) => setEditJoinDate(e.target.value || null)} />
       </div>
 
       <div class="cv-wizard-field">
@@ -547,7 +619,7 @@ function StepFullEditor({
                         onClick=${(e) => e.stopPropagation()}
                         onChange=${(e) => setEditRoles((prev) => ({ ...prev, [cat]: e.target.value }))}>
                   ${CONTRIBUTION_LEVELS.filter((l) => l !== 'None').map((l) => html`
-                    <option key=${l} value=${l}>${l}</option>
+                    <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
                   `)}
                 </select>
               `}
@@ -564,7 +636,7 @@ function StepFullEditor({
             <div key=${cat} class="cv-credit-card">
               <div class="cv-credit-card-header">
                 <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                <span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${editRoles[cat]}</span>
+                <span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${LEVEL_DISPLAY[editRoles[cat]] || editRoles[cat]}</span>
               </div>
               <label class="cv-detail-label">Description</label>
               <textarea class="cv-credit-desc-textarea" rows="2"
@@ -572,23 +644,32 @@ function StepFullEditor({
                         onInput=${(e) => setEditDescs((prev) => ({ ...prev, [roleEnum]: e.target.value }))}>
                 ${editDescs[roleEnum] || ''}
               </textarea>
-              ${sections.length > 0 && html`
-                <label class="cv-detail-label">Linked Sections</label>
-                <div class="cv-wizard-section-chips">
-                  ${sections.map((sec) => {
-                    const sel = (editLinks[roleEnum] || []).includes(sec.id);
-                    return html`
-                      <button key=${sec.id} type="button"
-                              class=${'cv-chip' + (sel ? ' cv-chip-selected' : '')}
-                              onClick=${() => setEditLinks((prev) => {
-                                const ids = prev[roleEnum] || [];
-                                return { ...prev, [roleEnum]: sel ? ids.filter((i) => i !== sec.id) : [...ids, sec.id] };
-                              })}>
-                        ${sec.title}
-                      </button>
-                    `;
-                  })}
-                </div>
+            </div>
+          `;
+        })}
+      `}
+
+      ${sections.length > 0 && html`
+        <h3 class="cv-subsection-heading">Section Contributions</h3>
+        ${sections.map((sec) => {
+          const level = getSectionLevel(sec.title);
+          const description = getSectionDescription(sec.title);
+          return html`
+            <div key=${sec.id} class="cv-section-contrib-row">
+              <span class="cv-section-contrib-title">${sec.title}</span>
+              <select class="cv-section-contrib-level"
+                      value=${level}
+                      onChange=${(e) => updateSectionLevel(sec.title, e.target.value)}>
+                <option value="None">\u2014 none \u2014</option>
+                <option value="lead">Lead</option>
+                <option value="equal">++</option>
+                <option value="supporting">+</option>
+              </select>
+              ${level !== 'None' && html`
+                <input type="text" class="cv-section-contrib-desc"
+                       placeholder="Description (optional)"
+                       value=${description}
+                       onInput=${(e) => updateSectionDescription(sec.title, e.target.value)} />
               `}
             </div>
           `;
@@ -609,7 +690,6 @@ function StepFullEditor({
     </div>
   `;
 }
-
 // ---------------------------------------------------------------------------
 // Main Add App
 // ---------------------------------------------------------------------------
@@ -617,22 +697,19 @@ function StepFullEditor({
 function AddApp({ doi, token, existingAuthor }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [step, setStep] = useState(0); // 0=loading, 1-4=wizard steps
+  const [step, setStep] = useState(0);
   const [projectData, setProjectData] = useState(null);
   const [allRows, setAllRows] = useState([]);
   const [sections, setSections] = useState([]);
   const [affiliations, setAffiliations] = useState([]);
 
-  // Restore draft synchronously from localStorage
   const _draft = token ? loadDraft(token) : null;
-  // For existing-author links, pre-fill from project data once loaded
-  // (handled in the useEffect below after data arrives)
   const isExisting = Boolean(existingAuthor);
 
-  // Wizard state (initialised from draft if present)
   const [name, setName] = useState(_draft?.name || (isExisting ? existingAuthor : ''));
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
+  const [joinDate, setJoinDate] = useState(_draft?.joinDate || null);
   const [roles, setRoles] = useState(() => {
     if (_draft?.roles) return _draft.roles;
     const r = {};
@@ -640,18 +717,15 @@ function AddApp({ doi, token, existingAuthor }) {
     return r;
   });
   const [descriptions, setDescriptions] = useState(_draft?.descriptions || {});
-  const [linkedSections, setLinkedSections] = useState(_draft?.linkedSections || {});
-  const [prefilled, setPrefilled] = useState(false); // tracks whether existing-author prefill ran
+  const [sectionLevels, setSectionLevels] = useState(_draft?.sectionLevels || {});
+  const [prefilled, setPrefilled] = useState(false);
 
-  // Auto-save draft whenever wizard state changes
   useEffect(() => {
     if (!token) return;
-    // Don't persist until project has loaded (step > 0)
     if (step === 0) return;
-    saveDraft(token, { name, orcid, selectedAffNames, roles, descriptions, linkedSections });
-  }, [name, orcid, selectedAffNames, roles, descriptions, linkedSections, step]);
+    saveDraft(token, { name, orcid, selectedAffNames, joinDate, roles, descriptions, sectionLevels });
+  }, [name, orcid, selectedAffNames, joinDate, roles, descriptions, sectionLevels, step]);
 
-  // Load project data using token as password
   useEffect(() => {
     if (!doi || !token) {
       setLoading(false);
@@ -675,50 +749,48 @@ function AddApp({ doi, token, existingAuthor }) {
         setSections(meta.sections);
         setAffiliations(meta.affiliations);
 
-        // For existing-author links: pre-fill from project data (unless draft already set)
         if (isExisting && !_draft?.roles && !prefilled) {
           const contributor = (data.contributors || []).find(
             (c) => c.author?.name === existingAuthor
           );
           if (contributor) {
-            // ORCID
             const existingOrcid = contributor.author?.registry_identifier || '';
             if (existingOrcid) setOrcid(existingOrcid);
 
-            // Affiliations
             const affRaw = contributor.author?.affiliation;
             const affArr = Array.isArray(affRaw) ? affRaw
               : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
             if (affArr.length) setSelectedAffNames(affArr);
 
-            // Roles
+            if (contributor.start_date) setJoinDate(contributor.start_date);
+
             const newRoles = {};
             for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
             const newDescs = {};
-            const newLinks = {};
-            const secByTitle = new Map(meta.sections.map((s) => [s.title, s.id]));
             for (const cl of contributor.credit_levels || []) {
               const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
               if (displayRole) {
                 newRoles[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
               }
               if (cl.description) newDescs[cl.role] = cl.description;
-              if (cl.linked_sections?.length) {
-                newLinks[cl.role] = cl.linked_sections
-                  .map((s) => secByTitle.get(typeof s === 'string' ? s : (s.section || s.title || '')))
-                  .filter(Boolean);
-              }
             }
             setRoles(newRoles);
             if (Object.keys(newDescs).length) setDescriptions(newDescs);
-            if (Object.keys(newLinks).length) setLinkedSections(newLinks);
+
+            if (contributor.section_levels?.length) {
+              const newSectionLevels = {};
+              for (const sl of contributor.section_levels) {
+                newSectionLevels[sl.section] = { level: sl.level, description: sl.description || '' };
+              }
+              setSectionLevels(newSectionLevels);
+            }
+
             setPrefilled(true);
           }
         }
 
-        // If existing-author link, draft present, or visited cookie → go straight to edit step
         if (isExisting || _draft?.name || hasVisitedCookie(doi, token)) {
-          setStep(4);
+          setStep(5);
         } else {
           setStep(1);
         }
@@ -732,8 +804,18 @@ function AddApp({ doi, token, existingAuthor }) {
 
   function goToStep(n) {
     setStep(n);
-    if (n === 4) setVisitedCookie(doi, token);
+    if (n === 5) setVisitedCookie(doi, token);
   }
+
+  function goNextFromRoleDetails() {
+    if (sections.length > 0) {
+      goToStep(4);
+    } else {
+      goToStep(5);
+    }
+  }
+
+  const totalWizardSteps = sections.length > 0 ? 4 : 3;
 
   if (!doi || !token) {
     return html`<div class="contributions-add-page">
@@ -753,9 +835,9 @@ function AddApp({ doi, token, existingAuthor }) {
 
   return html`
     <div class="contributions-add-page">
-      ${step > 0 && step < 4 && html`
+      ${step > 0 && step < 5 && html`
         <div class="cv-wizard-progress">
-          ${[1, 2, 3, 4].map((s) => html`
+          ${Array.from({ length: totalWizardSteps }, (_, i) => i + 1).map((s) => html`
             <span key=${s} class=${'cv-wizard-dot' + (s === step ? ' cv-wizard-dot-active' : '') + (s < step ? ' cv-wizard-dot-done' : '')}>${s}</span>
           `)}
         </div>
@@ -767,6 +849,7 @@ function AddApp({ doi, token, existingAuthor }) {
           orcid=${orcid} setOrcid=${setOrcid}
           selectedAffNames=${selectedAffNames} setSelectedAffNames=${setSelectedAffNames}
           projectAffiliations=${affiliations}
+          joinDate=${joinDate} setJoinDate=${setJoinDate}
           onNext=${() => goToStep(2)}
         />
       `}
@@ -783,21 +866,29 @@ function AddApp({ doi, token, existingAuthor }) {
         <${StepRoleDetails}
           roles=${roles}
           descriptions=${descriptions} setDescriptions=${setDescriptions}
-          linkedSections=${linkedSections} setLinkedSections=${setLinkedSections}
-          sections=${sections}
           onBack=${() => goToStep(2)}
-          onNext=${() => goToStep(4)}
+          onNext=${goNextFromRoleDetails}
         />
       `}
 
       ${step === 4 && html`
+        <${StepSections}
+          sections=${sections}
+          sectionLevels=${sectionLevels} setSectionLevels=${setSectionLevels}
+          onBack=${() => goToStep(3)}
+          onNext=${() => goToStep(5)}
+        />
+      `}
+
+      ${step === 5 && html`
         <${StepFullEditor}
           doi=${doi} token=${token}
           authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
-          roles=${roles} descriptions=${descriptions} linkedSections=${linkedSections}
+          roles=${roles} descriptions=${descriptions}
+          joinDate=${joinDate} sectionLevels=${sectionLevels}
           allRows=${allRows}
           projectData=${projectData} sections=${sections} affiliations=${affiliations}
-          onBack=${() => goToStep(1)}
+          onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}
         />
       `}
     </div>

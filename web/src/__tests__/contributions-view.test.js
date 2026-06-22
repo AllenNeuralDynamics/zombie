@@ -300,8 +300,8 @@ describe('CREDIT_CATEGORIES', () => {
 });
 
 describe('CONTRIBUTION_LEVELS', () => {
-  it('contains None, Supporting, Equal, Lead in that order', () => {
-    expect(CONTRIBUTION_LEVELS).toEqual(['None', 'Supporting', 'Equal', 'Lead']);
+  it('contains None, Lead, Equal, Supporting in that order', () => {
+    expect(CONTRIBUTION_LEVELS).toEqual(['None', 'Lead', 'Equal', 'Supporting']);
   });
 });
 

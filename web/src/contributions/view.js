@@ -25,8 +25,12 @@ import { RoleTip } from './role-tooltip.js';
 /** All 14 CRediT taxonomy roles in widget display order. */
 export const CREDIT_CATEGORIES = CREDIT_ROLES;
 
-/** Contribution levels in ascending order. */
-export const CONTRIBUTION_LEVELS = ['None', 'Supporting', 'Equal', 'Lead'];
+/** Contribution levels in display order (Lead first). */
+export const CONTRIBUTION_LEVELS = ['None', 'Lead', 'Equal', 'Supporting'];
+
+/** Maps internal backend level names to display labels. */
+export const LEVEL_DISPLAY = { None: 'None', Lead: 'Lead', Equal: '++', Supporting: '+' };
+
 
 export const CREDIT_ROLE_ENUM = {
   'Conceptualization':               'conceptualization',
@@ -185,7 +189,8 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     affiliations = [],
     sections = [],
     creditDescriptions = {},
-    creditLinkedSections = {},
+    authorStartDates = {},
+    authorSectionLevels = {},
     assets = [],
     doi = '',
   } = meta;
@@ -196,15 +201,10 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
       if (level && level !== 'None') {
         const roleEnum = CREDIT_ROLE_ENUM[displayRole];
         const desc = creditDescriptions[row.name]?.[roleEnum];
-        const secIds = creditLinkedSections[row.name]?.[roleEnum] || [];
-        const linkedSections = secIds
-          .map((id) => sections.find((s) => s.id === id)?.title)
-          .filter(Boolean);
         credit_levels.push({
           role: roleEnum,
           level: level.toLowerCase(),
           ...(desc ? { description: desc } : {}),
-          ...(linkedSections.length ? { linked_sections: linkedSections } : {}),
         });
       }
     }
@@ -214,7 +214,16 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     const affIds = authorAffIds[row.name] || [];
     const affNames = affIds.map((id) => affiliations.find((a) => a.id === id)?.name).filter(Boolean);
     if (affNames.length) author.affiliation = affNames;
-    return { author, author_level: row.author_level ?? null, credit_levels };
+    const startDate = authorStartDates[row.name];
+    const sectionLevels = (authorSectionLevels[row.name] || [])
+      .filter((sl) => sl.level && sl.level !== 'None' && sl.level !== 'none');
+    return {
+      author,
+      author_level: row.author_level ?? null,
+      ...(startDate ? { start_date: startDate } : {}),
+      credit_levels,
+      ...(sectionLevels.length ? { section_levels: sectionLevels } : {}),
+    };
   });
   const topSections = sections.map((s) => s.title).filter(Boolean);
   const topAssets = assets.filter(Boolean);
@@ -404,7 +413,8 @@ function extractPayloadMeta(data) {
   const newAffIds = {};
   const newAffiliations = [];
   const newCreditDescriptions = {};
-  const newCreditLinkedSections = {};
+  const newStartDates = {};
+  const newSectionLevels = {};
   const affByName = new Map();
 
   for (const contributor of data.contributors || []) {
@@ -433,16 +443,9 @@ function extractPayloadMeta(data) {
         if (!newCreditDescriptions[name]) newCreditDescriptions[name] = {};
         newCreditDescriptions[name][roleEnum] = cl.description;
       }
-      if (cl.linked_sections?.length) {
-        const sectionIds = cl.linked_sections
-          .map((s) => secByTitle.get(typeof s === 'string' ? s : (s.section || s.title || '')))
-          .filter(Boolean);
-        if (sectionIds.length) {
-          if (!newCreditLinkedSections[name]) newCreditLinkedSections[name] = {};
-          newCreditLinkedSections[name][roleEnum] = sectionIds;
-        }
-      }
     }
+    if (contributor.start_date) newStartDates[name] = contributor.start_date;
+    if (contributor.section_levels?.length) newSectionLevels[name] = contributor.section_levels;
   }
   return {
     newOrcids,
@@ -450,7 +453,8 @@ function extractPayloadMeta(data) {
     newAffiliations,
     newSections,
     newCreditDescriptions,
-    newCreditLinkedSections,
+    newStartDates,
+    newSectionLevels,
     newDoi: data.doi || '',
   };
 }
@@ -621,7 +625,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 
 function AuthorDetailSection({
   row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
-  creditDescriptions, creditLinkedSections, onChange,
+  creditDescriptions, authorStartDates, authorSectionLevels, onChange,
 }) {
   if (!selectedAuthor || !row) {
     return html`
@@ -632,6 +636,14 @@ function AuthorDetailSection({
   }
 
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => row[cat] && row[cat] !== 'None');
+  const currentSectionLevels = authorSectionLevels[selectedAuthor] || [];
+
+  function getSectionLevel(sectionTitle) {
+    return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.level || 'None';
+  }
+  function getSectionDescription(sectionTitle) {
+    return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.description || '';
+  }
 
   return html`
     <section class="cv-section cv-author-detail-section" id="cv-author-detail-section">
@@ -660,6 +672,13 @@ function AuthorDetailSection({
             <option value="senior">senior</option>
           </select>
         </div>
+        <div class="cv-detail-meta-item">
+          <label class="cv-detail-label" for="cv-detail-start-date">Join Date</label>
+          <input id="cv-detail-start-date" type="date"
+                 class="cv-wizard-input"
+                 value=${authorStartDates[selectedAuthor] || ''}
+                 onChange=${(e) => onChange('startDate', e.target.value || null)} />
+        </div>
         <div class="cv-detail-meta-item cv-detail-aff-item">
           <label class="cv-detail-label">Affiliations</label>
           <${ChipSelect}
@@ -682,7 +701,7 @@ function AuthorDetailSection({
             <div key=${cat} class="cv-credit-card">
               <div class="cv-credit-card-header">
                 <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                <span class=${'cv-credit-level-badge cv-credit-level-' + row[cat].toLowerCase()}>${row[cat]}</span>
+                <span class=${'cv-credit-level-badge cv-credit-level-' + row[cat].toLowerCase()}>${LEVEL_DISPLAY[row[cat]] || row[cat]}</span>
               </div>
               <label class="cv-detail-label">Description</label>
               <textarea class="cv-credit-desc-textarea" rows="2"
@@ -690,19 +709,45 @@ function AuthorDetailSection({
                         onInput=${(e) => onChange('creditDesc', { roleEnum, value: e.target.value })}>
                 ${creditDescriptions[selectedAuthor]?.[roleEnum] || ''}
               </textarea>
-              ${sections.length > 0 && html`
-                <label class="cv-detail-label">Sections</label>
-                <${ChipSelect}
-                  options=${sections.map((s) => ({ id: s.id, name: s.title }))}
-                  selectedIds=${creditLinkedSections[selectedAuthor]?.[roleEnum] || []}
-                  onChange=${(ids) => onChange('creditSections', { roleEnum, ids })}
-                  ariaLabel="${selectedAuthor} sections for ${cat}"
-                />
-              `}
             </div>
           `;
         })
       }
+
+      ${sections.length > 0 && html`
+        <h4 class="cv-subsection-heading">Section Contributions</h4>
+        ${sections.map((sec) => {
+          const level = getSectionLevel(sec.title);
+          const description = getSectionDescription(sec.title);
+          return html`
+            <div key=${sec.id} class="cv-section-contrib-row">
+              <span class="cv-section-contrib-title">${sec.title}</span>
+              <select class="cv-section-contrib-level"
+                      value=${level}
+                      onChange=${(e) => onChange('sectionLevel', {
+                        section: sec.title,
+                        level: e.target.value,
+                        description,
+                      })}>
+                <option value="None">\u2014 none \u2014</option>
+                <option value="lead">Lead</option>
+                <option value="equal">++</option>
+                <option value="supporting">+</option>
+              </select>
+              ${level !== 'None' && html`
+                <input type="text" class="cv-section-contrib-desc"
+                       placeholder="Description (optional)"
+                       value=${description}
+                       onInput=${(e) => onChange('sectionLevel', {
+                         section: sec.title,
+                         level,
+                         description: e.target.value,
+                       })} />
+              `}
+            </div>
+          `;
+        })}
+      `}
     </section>
   `;
 }
@@ -802,20 +847,16 @@ function SharedDetailsSection({
 
 // ── PreviewPanel ─────────────────────────────────────────────────────────────
 
-function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, creditLinkedSections }) {
+function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels }) {
   const containerRef = useRef(null);
 
   const authors = useMemo(() =>
     rowsToWidgetAuthors(rows).map((a) => {
       const affIds   = authorAffIds[a.name] || [];
       const affNames = affIds.map((id) => affiliations.find((af) => af.id === id)?.name).filter(Boolean);
-      const allSecIds = new Set();
-      for (const roleEnum of Object.values(CREDIT_ROLE_ENUM))
-        for (const id of (creditLinkedSections[a.name]?.[roleEnum] || [])) allSecIds.add(id);
-      const sectionContribs = [...allSecIds]
-        .map((id) => sections.find((s) => s.id === id))
-        .filter(Boolean)
-        .map((s) => ({ section: s.title }));
+      const sectionContribs = (authorSectionLevels[a.name] || [])
+        .filter((sl) => sl.level && sl.level !== 'None' && sl.level !== 'none')
+        .map((sl) => ({ section: sl.section, level: sl.level, ...(sl.description ? { description: sl.description } : {}) }));
       return {
         ...a,
         orcid: authorOrcids[a.name] || undefined,
@@ -823,7 +864,7 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
         section_contributions: sectionContribs.length ? sectionContribs : undefined,
       };
     }),
-  [rows, authorOrcids, authorAffIds, affiliations, sections, creditLinkedSections]);
+  [rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels]);
 
   useEffect(() => {
     if (containerRef.current) createPreview(containerRef.current, authors);
@@ -836,7 +877,7 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
 
 function OutputSection({
   activeTab, onTabChange, rows, authorOrcids, authorAffIds, affiliations,
-  sections, creditLinkedSections, creditDescriptions, projectName,
+  sections, authorSectionLevels, creditDescriptions, projectName,
 }) {
   function LaTeXPanel() {
     return html`<pre class="contributions-latex-output">${generateLatex(rows)}</pre>`;
@@ -911,7 +952,7 @@ function OutputSection({
             ${activeTab === 'preview'    && html`<${PreviewPanel}
               rows=${rows} authorOrcids=${authorOrcids} authorAffIds=${authorAffIds}
               affiliations=${affiliations} sections=${sections}
-              creditLinkedSections=${creditLinkedSections} />`}
+              authorSectionLevels=${authorSectionLevels} />`}
             ${activeTab === 'latex'      && html`<${LaTeXPanel} />`}
             ${activeTab === 'statement'  && html`<${StatementPanel} />`}
             ${activeTab === 'matrix-png' && html`<${MatrixPngPanel} />`}
@@ -1035,7 +1076,7 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
                   value=${row[cat]}
                   onChange=${(e) => onCategoryChange(rowIdx, cat, e.target.value)}>
             ${CONTRIBUTION_LEVELS.map((level) => html`
-              <option key=${level} value=${level}>${level}</option>
+              <option key=${level} value=${level}>${LEVEL_DISPLAY[level] || level}</option>
             `)}
           </select>
         </td>
@@ -1060,7 +1101,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [affiliations, setAffiliations]       = useState(initialDraft?.affiliations?.length ? initialDraft.affiliations : DEFAULT_AFFILIATIONS);
   const [sections, setSections]               = useState(initialDraft?.sections || []);
   const [creditDescs, setCreditDescs]         = useState(initialDraft?.creditDescriptions || {});
-  const [creditLinks, setCreditLinks]         = useState(initialDraft?.creditLinkedSections || {});
+  const [authorStartDates, setAuthorStartDates] = useState(initialDraft?.authorStartDates || {});
+  const [authorSectionLevels, setAuthorSectionLevels] = useState(initialDraft?.authorSectionLevels || {});
   const [loadedAssets, setLoadedAssets]       = useState(initialDraft?.loadedAssetNames || []);
   const [doi, setDoi]                         = useState(initialDraft?.doi || '');
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
@@ -1086,7 +1128,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
   sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
-    affiliations, sections, creditDescs, creditLinks, loadedAssets, doi, projectName,
+    affiliations, sections, creditDescs, authorStartDates, authorSectionLevels,
+    loadedAssets, doi, projectName,
     projectLocked, projectPassword, serverLocked };
 
   // ── Draft persistence ────────────────────────────────────────────────────
@@ -1095,12 +1138,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
-        affiliations, sections, creditDescriptions: creditDescs, creditLinkedSections: creditLinks,
+        affiliations, sections, creditDescriptions: creditDescs,
+        authorStartDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi, projectLocked, serverLocked,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
-    creditDescs, creditLinks, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked]);
+    creditDescs, authorStartDates, authorSectionLevels, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1165,14 +1209,15 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
       const { newOrcids, newAffIds, newAffiliations, newSections, newCreditDescriptions,
-        newCreditLinkedSections, newDoi } = extractPayloadMeta(data);
+        newStartDates, newSectionLevels, newDoi } = extractPayloadMeta(data);
       setAuthorSources({});
       setAuthorOrcids(newOrcids);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
       setCreditDescs(newCreditDescriptions);
-      setCreditLinks(newCreditLinkedSections);
+      setAuthorStartDates(newStartDates);
+      setAuthorSectionLevels(newSectionLevels);
       setDoi(newDoi);
       setLoadedAssets(Array.isArray(data.assets) ? data.assets.filter(Boolean) : []);
       setRows(loadedRows);
@@ -1193,14 +1238,17 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   // ── Project save ──────────────────────────────────────────────────────────
   async function saveToServer() {
     const { projectName: project, rows: r, authorOrcids: orc, authorAffIds: affIds,
-      affiliations: affs, sections: secs, creditDescs: cds, creditLinks: cls,
+      affiliations: affs, sections: secs, creditDescs: cds,
+      authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d, projectPassword: pw } = sr.current;
     if (!project || !r.length) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
       const payload = toEndpointPayload(r, project, {
         authorOrcids: orc, authorAffIds: affIds, affiliations: affs,
-        sections: secs, creditDescriptions: cds, creditLinkedSections: cls, assets, doi: d,
+        sections: secs, creditDescriptions: cds,
+        authorStartDates: startDates, authorSectionLevels: secLevels,
+        assets, doi: d,
       });
       let url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       if (pw) {
@@ -1258,13 +1306,14 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
       const { newOrcids, newAffIds, newAffiliations, newSections,
-        newCreditDescriptions, newCreditLinkedSections } = extractPayloadMeta(data);
+        newCreditDescriptions, newStartDates, newSectionLevels } = extractPayloadMeta(data);
       setAuthorOrcids(newOrcids);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
       setCreditDescs(newCreditDescriptions);
-      setCreditLinks(newCreditLinkedSections);
+      setAuthorStartDates(newStartDates);
+      setAuthorSectionLevels(newSectionLevels);
       setLoadedAssets(Array.isArray(data.assets) ? data.assets.filter(Boolean) : []);
       setRows(loadedRows);
       setEndpointStatus({
@@ -1359,14 +1408,14 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
 
   function renameRow(idx, newName) {
     const { rows: r, authorOrcids: orc, authorAffIds: affIds,
-      creditDescs: cds, creditLinks: cls, authorSources: srcs, selectedAuthor: sel } = sr.current;
+      creditDescs: cds, authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
     const oldName = r[idx]?.name;
     if (!newName || !oldName || newName === oldName) return;
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, name: newName } : row));
     if (orc[oldName])  setAuthorOrcids((p)  => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (affIds[oldName]) setAuthorAffIds((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (cds[oldName])  setCreditDescs((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
-    if (cls[oldName])  setCreditLinks((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (secLevs[oldName]) setAuthorSectionLevels((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (srcs[oldName]) setAuthorSources((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (sel === oldName) setSelectedAuthor(newName);
   }
@@ -1384,15 +1433,27 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       setRows((prev) => prev.map((r) => r.name === author ? { ...r, author_level: payload } : r));
     } else if (kind === 'affiliations') {
       setAuthorAffIds((prev) => ({ ...prev, [author]: payload }));
+    } else if (kind === 'startDate') {
+      setAuthorStartDates((prev) => ({ ...prev, [author]: payload }));
+    } else if (kind === 'sectionLevel') {
+      const { section, level, description } = payload;
+      setAuthorSectionLevels((prev) => {
+        const current = prev[author] || [];
+        const idx = current.findIndex((sl) => sl.section === section);
+        let next;
+        if (!level || level === 'None' || level === 'none') {
+          next = current.filter((sl) => sl.section !== section);
+        } else if (idx >= 0) {
+          next = current.map((sl, i) => i === idx ? { section, level, ...(description ? { description } : {}) } : sl);
+        } else {
+          next = [...current, { section, level, ...(description ? { description } : {}) }];
+        }
+        return { ...prev, [author]: next };
+      });
     } else if (kind === 'creditDesc') {
       setCreditDescs((prev) => ({
         ...prev,
         [author]: { ...(prev[author] || {}), [payload.roleEnum]: payload.value },
-      }));
-    } else if (kind === 'creditSections') {
-      setCreditLinks((prev) => ({
-        ...prev,
-        [author]: { ...(prev[author] || {}), [payload.roleEnum]: payload.ids },
       }));
     }
   }
@@ -1584,7 +1645,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         affiliations=${affiliations}
         sections=${sections}
         creditDescriptions=${creditDescs}
-        creditLinkedSections=${creditLinks}
+        authorStartDates=${authorStartDates}
+        authorSectionLevels=${authorSectionLevels}
         onChange=${handleDetailChange}
       />
 
@@ -1596,7 +1658,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         authorAffIds=${authorAffIds}
         affiliations=${affiliations}
         sections=${sections}
-        creditLinkedSections=${creditLinks}
+        authorSectionLevels=${authorSectionLevels}
         creditDescriptions=${creditDescs}
         projectName=${projectName}
       />

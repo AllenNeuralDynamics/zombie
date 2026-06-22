@@ -5056,6 +5056,48 @@ body {
   margin-top: 6px;
 }
 
+/* Section contribution rows (edit page + add wizard) */
+.cv-section-contrib-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--surface-border, #e5e7eb);
+  flex-wrap: wrap;
+}
+.cv-section-contrib-row:last-child { border-bottom: none; }
+.cv-section-contrib-title {
+  flex: 0 0 160px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.cv-section-contrib-level {
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+.cv-section-contrib-desc {
+  flex: 1;
+  min-width: 160px;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--surface-input, #fff);
+  color: inherit;
+  font-family: inherit;
+}
+[data-theme="dark"] .cv-section-contrib-level,
+[data-theme="dark"] .cv-section-contrib-desc {
+  background: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
 .cv-chip-selected {
   background: var(--color-primary, #4338ca) !important;
   color: #fff !important;
