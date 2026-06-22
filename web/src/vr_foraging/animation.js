@@ -1,83 +1,79 @@
 /**
- * vr_foraging/animation.js — VRF pixel-art session animator (horizontal).
+ * vr_foraging/animation.js — top-down session animator.
  *
- * Side-view of a mouse running left→right through the patch foraging corridor.
- * Camera follows the mouse: the mouse's current position_cm always maps to
- * MOUSE_X on the canvas. Past sites scroll off to the left, upcoming sites
- * appear on the right.
- *
- * Driven by:
- *   - sites    : per-site rows from the NWB trial table.
- *   - traces   : { pos_t, pos_cm, lick_t } from CurrentPosition + LickState.
+ * Renders a horizontal corridor with the mouse vertically centred. A single
+ * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
-// ---------------------------------------------------------------------------
-// Layout constants (logical canvas pixels)
-// ---------------------------------------------------------------------------
 export const CW = 480;
 export const CH = 120;
-const MOUSE_X      = 140;          // camera anchor (canvas-x of mouse centre)
-const CORR_CY      = CH / 2 + 14;
-const CORR_H       = 56;           // corridor strip height
+const MOUSE_X      = 140;
+const CORR_CY      = CH / 2;
+const CORR_H       = 56;
 const CORR_Y       = CORR_CY - CORR_H / 2;
 const PX_PER_CM    = 1.4;
-const SPR_SCALE    = 2;
-const SPR_W        = 24 * SPR_SCALE;
-const SPR_H        = 16 * SPR_SCALE;
+const MOUSE_LEN_PX = 84;
 
-// Mouse vertical anchor — feet on the floor of the corridor
-const MOUSE_Y      = CORR_Y + CORR_H - 14;
+const MOUSE_Y = CORR_CY;
 
-// ---------------------------------------------------------------------------
-// Colour palette (light theme — matches the rest of the site)
-// ---------------------------------------------------------------------------
 const C = {
   bg:                 '#ffffff',
   void:               '#f3f3f3',
-  patch:              '#fafafa',     // fallback when patch_label has no color
+  patch:              '#fafafa',
   corridorEdge:       '#dcdcdc',
-  rewardSite:         '#f39c12',     // legacy orange (unused for sites now)
   rewardSiteRing:     '#222222',
   rewardBlue:         '#2980b9',
   rewardRed:          '#c0392b',
-  siteFillUnknown:    '#ffffff',     // before the mouse "finds out"
+  siteFillUnknown:    '#ffffff',
 };
 
-// Categorical palette for odor / patch_label tints. Soft pastels so they
-// work as tile backgrounds without overpowering the foreground site markers.
-// Odors must not use red or blue (reserved for reward outcome).
-const ODOR_COLORS = [
-  '#ffe0b3', // peach
-  '#d6efd2', // mint
-  '#e6d6f5', // lavender
-  '#fff1a8', // pale yellow
-  '#f5e6c8', // warm tan
-  '#d4f0e8', // sea foam
-  '#fce4c0', // apricot
-  '#e4d6f0', // soft lilac
-];
+const ORANGE = '#e67e22';
+const GREEN  = '#27ae60';
+const PURPLE = '#8e44ad';
+const BLUE   = '#2980b9';
+const RED    = '#c0392b';
 
-/**
- * Build a stable Map<patch_label, color> using order of first appearance.
- * InterPatch rows are skipped (they always render as void).
- */
-export function buildOdorPalette(sites) {
-  const map = new Map();
-  for (const s of sites) {
-    if (s.site_label === 'InterPatch') continue;
-    const label = s.patch_label;
-    if (label == null || map.has(label)) continue;
-    map.set(label, ODOR_COLORS[map.size % ODOR_COLORS.length]);
-  }
-  return map;
+const ODOR_PALETTES = {
+  1: [ORANGE],
+  2: [ORANGE, PURPLE],
+  3: [ORANGE, GREEN, PURPLE],
+  4: [ORANGE, GREEN, BLUE, PURPLE],
+  5: [ORANGE, GREEN, BLUE, RED, PURPLE],
+};
+const ODOR_FALLBACK = [ORANGE, GREEN, BLUE, RED, PURPLE, '#16a085', '#d35400'];
+
+function parseOdorProb(label) {
+  if (label == null) return null;
+  const m = String(label).match(/(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : null;
 }
 
 /**
- * Time at which the mouse "finds out" the outcome of a reward site.
- * Rewarded trials: when the reward drops (`reward_onset_time_s`).
- * Unrewarded trials: when the choice cue + delay has elapsed.
- * Returns null if the mouse never committed to a choice.
+ * Map<patch_label, color>. Highest odor probability gets orange, lowest gets
+ * purple; middle ranks fill in with green, blue, red.
  */
+export function buildOdorPalette(sites) {
+  const labels = new Set();
+  for (const s of sites) {
+    if (s.site_label === 'InterPatch') continue;
+    if (s.patch_label != null) labels.add(s.patch_label);
+  }
+  const sorted = [...labels].sort((a, b) => {
+    const pa = parseOdorProb(a);
+    const pb = parseOdorProb(b);
+    if (pa == null && pb == null) return String(a).localeCompare(String(b));
+    if (pa == null) return 1;
+    if (pb == null) return -1;
+    return pb - pa;
+  });
+  const colors = ODOR_PALETTES[sorted.length] ?? ODOR_FALLBACK;
+  const map = new Map();
+  sorted.forEach((label, i) => {
+    map.set(label, colors[i] ?? ODOR_FALLBACK[i % ODOR_FALLBACK.length]);
+  });
+  return map;
+}
+
 function findOutTime(s) {
   if (s.has_reward && Number.isFinite(s.reward_onset_time_s)) {
     return s.reward_onset_time_s;
@@ -89,11 +85,6 @@ function findOutTime(s) {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Lookup helpers
-// ---------------------------------------------------------------------------
-
-/** Binary search: last site whose start_time_s ≤ t. */
 export function findSiteAt(sites, t) {
   let lo = 0, hi = sites.length - 1;
   while (lo < hi) {
@@ -138,30 +129,21 @@ function firstSiteReaching(sites, cm) {
   return lo;
 }
 
-// ---------------------------------------------------------------------------
-// Sprite loader
-// ---------------------------------------------------------------------------
-
-const SPRITE_NAMES = [
-  'mouse_run_a', 'mouse_run_b', 'mouse_idle', 'mouse_lick',
-  'reward_drop',
-];
+const SPRITE_URLS = {
+  mouse_top: 'mouse_top.png',
+};
 
 export function loadSprites(baseUrl) {
   const imgs = {};
-  return Promise.all(SPRITE_NAMES.map(
-    (name) => new Promise((resolve) => {
+  return Promise.all(Object.entries(SPRITE_URLS).map(
+    ([name, file]) => new Promise((resolve) => {
       const img = new Image();
       img.onload  = () => { imgs[name] = img; resolve(); };
-      img.onerror = () => { console.warn(`[VRF] sprite not found: ${name}`); resolve(); };
-      img.src = `${baseUrl}/${name}.svg`;
+      img.onerror = () => { console.warn(`[VRF] sprite not found: ${file}`); resolve(); };
+      img.src = `${baseUrl}/${file}`;
     }),
   )).then(() => imgs);
 }
-
-// ---------------------------------------------------------------------------
-// VrfAnimation
-// ---------------------------------------------------------------------------
 
 export class VrfAnimation {
   constructor(canvas, sites, sprites, traces, opts = {}) {
@@ -173,9 +155,9 @@ export class VrfAnimation {
     this.duration = sites[sites.length - 1].stop_time_s;
     this.odorPalette = opts.odorPalette ?? buildOdorPalette(sites);
 
-    // Precompute the moment each site's outcome becomes known to the mouse.
+    this._setupHiDpi();
+
     this._findOut = sites.map(findOutTime);
-    // Stable background triangles for patch zones.
     this._bgTriangles = this._buildBgTriangles();
 
     this.t       = 0;
@@ -186,21 +168,25 @@ export class VrfAnimation {
 
     this._rafId        = null;
     this._lastReal     = null;
-    this._runFrame     = 0;
-    this._runTimer     = 0;
-    this._particles    = [];
     this._cumRewards   = this._buildCumRewards();
     this._lickHorizon  = 0;
     this._lickCm       = this.traces.lick_t.map(t => this.posAt(t));
-    // Precompute the world-space position where each reward was delivered.
-    // Using the actual encoder position at reward_onset_time gives a tighter
-    // correspondence with the lick cluster than using the site midpoint.
     this._rewardDots   = this.sites
       .filter(s => s.site_label === 'RewardSite' && s.has_reward && s.reward_onset_time_s != null)
       .map(s => ({ t: s.reward_onset_time_s, cm: this.posAt(s.reward_onset_time_s) }));
   }
 
-  // ---- Public API ---------------------------------------------------------
+  _setupHiDpi() {
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const cssW = this.canvas.clientWidth  || CW;
+    const cssH = this.canvas.clientHeight || CH;
+    const renderScale = Math.max(1, Math.min(4, (cssW / CW) * dpr));
+    this.canvas.width  = Math.round(CW * renderScale);
+    this.canvas.height = Math.round(CH * renderScale);
+    this.ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.imageSmoothingQuality = 'high';
+  }
 
   play() {
     if (this.playing) return;
@@ -217,7 +203,6 @@ export class VrfAnimation {
 
   seekTo(t) {
     this.t            = Math.max(0, Math.min(this.duration, t));
-    this._particles   = [];
     this._lickHorizon = firstGE(this.traces.lick_t, this.t);
     this._render();
   }
@@ -238,8 +223,6 @@ export class VrfAnimation {
     const frac = (t - pos_t[i]) / (pos_t[i + 1] - pos_t[i]);
     return pos_cm[i] + frac * (pos_cm[i + 1] - pos_cm[i]);
   }
-
-  // ---- Internal -----------------------------------------------------------
 
   _posFromSites(t) {
     if (t <= 0) return 0;
@@ -284,45 +267,17 @@ export class VrfAnimation {
     const dt = (realNow - this._lastReal) / 1000;
     this._lastReal = realNow;
 
-    const prevT = this.t;
     this.t = Math.min(this.duration, this.t + dt * this.speed);
 
-    this._runTimer += dt * Math.min(this.speed, 12);
-    if (this._runTimer > 0.16) { this._runFrame ^= 1; this._runTimer = 0; }
-
-    this._checkEvents(prevT, this.t);
-
-    for (const p of this._particles) {
-      p.alpha = Math.max(0, 1 - (this.t - p.born) / p.lifetime);
+    const { lick_t } = this.traces;
+    while (this._lickHorizon < lick_t.length && lick_t[this._lickHorizon] <= this.t) {
+      this._lickHorizon++;
     }
-    this._particles = this._particles.filter((p) => p.alpha > 0);
 
     this._render();
 
     if (this.t >= this.duration) { this.pause(); return; }
     this._rafId = requestAnimationFrame((ts) => this._loop(ts));
-  }
-
-  _checkEvents(prevT, nowT) {
-    // Advance lick horizon (no particle — licks are drawn as world-space ticks).
-    const { lick_t } = this.traces;
-    while (this._lickHorizon < lick_t.length && lick_t[this._lickHorizon] <= nowT) {
-      this._lickHorizon++;
-    }
-    // Reward drop particle on reward_onset_time crossing.
-    const s = findSiteAt(this.sites, nowT);
-    if (s.has_reward && s.reward_onset_time_s != null &&
-        prevT < s.reward_onset_time_s && nowT >= s.reward_onset_time_s) {
-      this._spawnParticle('reward_drop', 16, -14, this._scaledLifetime(1.5));
-    }
-  }
-
-  _spawnParticle(type, dx, dy, lifetime) {
-    this._particles.push({ type, dx, dy, alpha: 1, born: this.t, lifetime });
-  }
-
-  _scaledLifetime(baseRealSec) {
-    return baseRealSec * Math.sqrt(Math.max(1, this.speed));
   }
 
   _mouseState(t) {
@@ -331,22 +286,8 @@ export class VrfAnimation {
       const i = lastLE(lick_t, t);
       if (i >= 0 && t - lick_t[i] < 0.25 && t - lick_t[i] >= -1e-6) return 'licking';
     }
-    if (this.traces.pos_t.length > 1) {
-      const v = this._velocityAt(t);
-      if (Math.abs(v) < 2) return 'idle';
-    }
     return 'running';
   }
-
-  _velocityAt(t) {
-    const { pos_t, pos_cm } = this.traces;
-    const i = lastLE(pos_t, t);
-    const j = Math.min(pos_t.length - 1, i + 3);
-    if (j <= i) return 0;
-    return (pos_cm[j] - pos_cm[i]) / (pos_t[j] - pos_t[i]);
-  }
-
-  // ---- Render -------------------------------------------------------------
 
   _render() {
     const ctx        = this.ctx;
@@ -362,12 +303,10 @@ export class VrfAnimation {
     this._drawLickTicks(ctx, mousePosCm);
     this._drawRewardDots(ctx, mousePosCm);
     this._drawMouse(ctx, state);
-    this._drawParticles(ctx);
 
     if (this.onFrame) this.onFrame(this.t, curSite);
   }
 
-  /** Visible corridor span in cm (west = behind mouse, east = ahead). */
   _visibleRangeCm(mousePosCm) {
     return {
       west: mousePosCm - MOUSE_X / PX_PER_CM,
@@ -375,7 +314,6 @@ export class VrfAnimation {
     };
   }
 
-  /** Map a corridor cm coordinate to canvas-x. */
   _cmToX(cm, mousePosCm) {
     return MOUSE_X + (cm - mousePosCm) * PX_PER_CM;
   }
@@ -402,7 +340,6 @@ export class VrfAnimation {
       ctx.fillRect(xLeft, CORR_Y, segW, CORR_H);
     }
 
-    // Background triangles (stable, slightly darker grey) in patch zones.
     ctx.fillStyle = '#cccccc';
     for (const tri of this._bgTriangles) {
       if (tri.cm < west - 6 || tri.cm > east + 6) continue;
@@ -421,7 +358,6 @@ export class VrfAnimation {
       ctx.restore();
     }
 
-    // Corridor rails (top + bottom)
     ctx.fillStyle = C.corridorEdge;
     ctx.fillRect(0, CORR_Y - 1, CW, 1);
     ctx.fillRect(0, CORR_Y + CORR_H, CW, 1);
@@ -447,13 +383,11 @@ export class VrfAnimation {
       const foT  = this._findOut[i];
       const known = foT != null && nowT >= foT;
 
-      // Fill: always odor color.
       ctx.fillStyle   = odorColor;
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = 0.55;
       ctx.fillRect(xLeft, CORR_Y + 4, segW, CORR_H - 8);
       ctx.globalAlpha = 1;
 
-      // Edge: odor color → outcome color once the mouse finds out.
       ctx.strokeStyle = known ? outcomeColor : odorColor;
       ctx.lineWidth   = 2;
       ctx.strokeRect(xLeft + 1, CORR_Y + 4 + 1, segW - 2, CORR_H - 8 - 2);
@@ -461,14 +395,8 @@ export class VrfAnimation {
     }
   }
 
-  /**
-   * Small black vertical ticks above the corridor, one per lick event,
-   * drawn at the world-space cm position where the lick occurred.
-   * Only past licks (up to current time) are drawn.
-   */
   _drawLickTicks(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
-    // Lick ticks: just above the corridor top rail (second row)
     const yTop = CORR_Y - 8;
     const tickH = 6;
     ctx.fillStyle = '#111111';
@@ -482,18 +410,12 @@ export class VrfAnimation {
     }
   }
 
-  /**
-   * Blue dots below the corridor, one per rewarded trial,
-   * drawn at the site's world-space cm midpoint.
-   * Only past rewards (already delivered) are shown.
-   */
   _drawRewardDots(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
-    // Reward dots: above the lick tick row (top row)
-    const dotY = CORR_Y - 18;
+    const dotY = CORR_Y + CORR_H + 10;
     ctx.fillStyle = '#2980b9';
     for (const dot of this._rewardDots) {
-      if (dot.t > this.t) break;       // not yet delivered
+      if (dot.t > this.t) break;
       if (dot.cm < west) continue;
       if (dot.cm > east) break;
       const x = Math.round(this._cmToX(dot.cm, mousePosCm));
@@ -504,36 +426,40 @@ export class VrfAnimation {
   }
 
   _drawMouse(ctx, state) {
-    const name = state === 'licking' ? 'mouse_lick'
-      : state === 'idle' ? 'mouse_idle'
-      : this._runFrame === 0 ? 'mouse_run_a' : 'mouse_run_b';
-
-    const img = this.sprites[name];
-    const mx  = MOUSE_X - SPR_W / 2;
-    const my  = MOUSE_Y - SPR_H / 2;
-
-    if (img) {
-      ctx.drawImage(img, mx, my, SPR_W, SPR_H);
-    } else {
+    const img = this.sprites?.mouse_top;
+    if (!img) {
       ctx.fillStyle = '#9a9a9a';
-      ctx.fillRect(MOUSE_X - 12, MOUSE_Y - 6, 24, 12);
+      ctx.fillRect(MOUSE_X - 18, MOUSE_Y - 8, 36, 16);
+      return;
     }
-  }
 
-  _drawParticles(ctx) {
-    for (const p of this._particles) {
-      const age   = this.t - p.born;
-      const rise  = (age / p.lifetime) * 18;
-      const px    = MOUSE_X + p.dx;
-      const py    = MOUSE_Y + p.dy - rise;
-      const img   = this.sprites[p.type];
-      if (!img) continue;
-      const [sw, sh] = p.type === 'reward_drop'
-        ? [8 * SPR_SCALE, 10 * SPR_SCALE]
-        : [12 * SPR_SCALE, 12 * SPR_SCALE];
-      ctx.globalAlpha = p.alpha;
-      ctx.drawImage(img, px - sw / 2, py - sh / 2, sw, sh);
+    const srcW = img.naturalWidth  || img.width  || 287;
+    const srcH = img.naturalHeight || img.height || 945;
+    const scale = MOUSE_LEN_PX / srcH;
+    const drawW = srcW * scale;
+    const drawH = srcH * scale;
+    const headX = MOUSE_X + 10;
+
+    ctx.save();
+    ctx.translate(headX, MOUSE_Y);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -drawW / 2, 0, drawW, drawH);
+    ctx.restore();
+
+    if (state === 'licking') {
+      const tongueLen = 3;
+      const tongueW   = 2;
+      const cx = headX + tongueLen * 0.45;
+      const cy = MOUSE_Y;
+      ctx.save();
+      ctx.fillStyle = '#ee8aa3';
+      ctx.strokeStyle = '#b35a73';
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, tongueLen, tongueW / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     }
-    ctx.globalAlpha = 1;
   }
 }

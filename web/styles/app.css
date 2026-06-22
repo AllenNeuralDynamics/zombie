@@ -6545,7 +6545,7 @@ body {
   background: #fff;
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 3px;
-  min-width: 280px;
+  min-width: 160px;
 }
 
 .vrf-player-status {
@@ -6681,8 +6681,6 @@ body {
   width: 100%;
   max-width: 960px;
   height: 240px;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
   border: 1px solid var(--border, #e1e1e1);
   background: #fff;
 }

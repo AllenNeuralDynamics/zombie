@@ -19,6 +19,35 @@ import { arrowTableToRows }                       from '../lib/arrow.js';
 const SPRITE_URL = '/images/vrf';
 const PROJECT_NAME = 'Cognitive flexibility in patch foraging';
 
+function sessionDateOf(row) {
+  const ts = row.acquisition_start_time;
+  if (!ts) return '';
+  const ymd = String(ts).slice(0, 10);
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short', year: 'numeric', month: 'short', day: '2-digit',
+    timeZone: 'UTC',
+  });
+}
+
+function readUrlState() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    subject: params.get('vrf_subject') || '',
+    session: params.get('vrf_session') || '',
+  };
+}
+
+function writeUrlState({ subject, session }) {
+  const url = new URL(window.location.href);
+  if (subject) url.searchParams.set('vrf_subject', subject);
+  else         url.searchParams.delete('vrf_subject');
+  if (session) url.searchParams.set('vrf_session', session);
+  else         url.searchParams.delete('vrf_session');
+  history.replaceState({}, '', url);
+}
+
 // ---------------------------------------------------------------------------
 // Public entry
 // ---------------------------------------------------------------------------
@@ -35,9 +64,13 @@ export function createSessionPlayer(coord) {
     <div class="vrf-player-header">
       <h2>Session playback</h2>
       <div class="vrf-player-selector">
-        <label for="vrf-session-select">Session</label>
-        <select id="vrf-session-select" disabled>
-          <option>Loading sessions…</option>
+        <label for="vrf-subject-select">Subject</label>
+        <select id="vrf-subject-select" disabled>
+          <option>Loading…</option>
+        </select>
+        <label for="vrf-date-select">Session</label>
+        <select id="vrf-date-select" disabled>
+          <option>—</option>
         </select>
       </div>
     </div>
@@ -79,54 +112,113 @@ export function createSessionPlayer(coord) {
       </div>
 
       <div class="vrf-stage">
-        <div class="vrf-stage-label">Mouse running through corridor →</div>
+        <div class="vrf-stage-label">Top-down view — mouse running through corridor →</div>
         <canvas id="vrf-canvas" width="480" height="120"></canvas>
       </div>
     </div>
   `;
 
-  const select   = root.querySelector('#vrf-session-select');
-  const statusEl = root.querySelector('#vrf-player-status');
-  const bodyEl   = root.querySelector('.vrf-player-body');
+  const subjectSelect = root.querySelector('#vrf-subject-select');
+  const dateSelect    = root.querySelector('#vrf-date-select');
+  const statusEl      = root.querySelector('#vrf-player-status');
+  const bodyEl        = root.querySelector('.vrf-player-body');
+
+  let sessionsBySubject = new Map();
 
   let currentLoad = null;            // { signal, abort } for in-flight load
   let animation   = null;
 
-  // ---- Populate the dropdown ----------------------------------------------
+  const initialUrl = readUrlState();
+
+  // ---- Populate the dropdowns ---------------------------------------------
   fetchSessionList(coord)
     .then((rows) => {
-      select.innerHTML = '';
+      subjectSelect.innerHTML = '';
       if (rows.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = 'No sessions available';
-        select.appendChild(opt);
+        subjectSelect.appendChild(opt);
         statusEl.textContent = `No derived behavior sessions found for "${PROJECT_NAME}".`;
         return;
       }
+
+      sessionsBySubject = new Map();
+      for (const r of rows) {
+        const sid = r.subject_id ?? '?';
+        if (!sessionsBySubject.has(sid)) sessionsBySubject.set(sid, []);
+        sessionsBySubject.get(sid).push(r);
+      }
+
+      const subjects = [...sessionsBySubject.keys()].sort();
       const placeholder = document.createElement('option');
       placeholder.value = '';
-      placeholder.textContent = `Select a session… (${rows.length} available)`;
-      select.appendChild(placeholder);
-      for (const r of rows) {
+      placeholder.textContent = `Select subject… (${subjects.length})`;
+      subjectSelect.appendChild(placeholder);
+      for (const sid of subjects) {
         const opt = document.createElement('option');
-        opt.value = r.name;
-        opt.textContent = formatSessionLabel(r);
-        select.appendChild(opt);
+        opt.value = sid;
+        opt.textContent = `${sid} (${sessionsBySubject.get(sid).length})`;
+        subjectSelect.appendChild(opt);
       }
-      select.disabled = false;
+      subjectSelect.disabled = false;
+
+      if (initialUrl.subject && sessionsBySubject.has(initialUrl.subject)) {
+        subjectSelect.value = initialUrl.subject;
+        subjectSelect.dispatchEvent(new Event('change'));
+        if (initialUrl.session) {
+          const sessions = sessionsBySubject.get(initialUrl.subject) ?? [];
+          if (sessions.some((s) => s.name === initialUrl.session)) {
+            dateSelect.value = initialUrl.session;
+            dateSelect.dispatchEvent(new Event('change'));
+          }
+        }
+      }
     })
     .catch((err) => {
-      select.innerHTML = '';
+      subjectSelect.innerHTML = '';
       const opt = document.createElement('option');
       opt.textContent = 'Failed to load';
-      select.appendChild(opt);
+      subjectSelect.appendChild(opt);
       statusEl.textContent = `Error loading sessions: ${err.message}`;
       console.error('[VRF] session list failed', err);
     });
 
-  // ---- Dropdown change → load + render ------------------------------------
-  select.addEventListener('change', async () => {
-    const name = select.value;
+  // ---- Subject change → populate date dropdown ----------------------------
+  subjectSelect.addEventListener('change', () => {
+    const sid = subjectSelect.value;
+    dateSelect.innerHTML = '';
+    bodyEl.hidden = true;
+    if (currentLoad) { currentLoad.abort(); currentLoad = null; }
+    writeUrlState({ subject: sid, session: '' });
+
+    if (!sid) {
+      const opt = document.createElement('option');
+      opt.textContent = '—';
+      dateSelect.appendChild(opt);
+      dateSelect.disabled = true;
+      statusEl.textContent = 'Select a subject to begin.';
+      return;
+    }
+
+    const sessions = sessionsBySubject.get(sid) ?? [];
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = `Select session… (${sessions.length})`;
+    dateSelect.appendChild(placeholder);
+    for (const s of sessions) {
+      const opt = document.createElement('option');
+      opt.value = s.name;
+      opt.textContent = sessionDateOf(s);
+      dateSelect.appendChild(opt);
+    }
+    dateSelect.disabled = false;
+    statusEl.textContent = 'Select a session to begin.';
+  });
+
+  // ---- Date change → load + render ----------------------------------------
+  dateSelect.addEventListener('change', async () => {
+    const name = dateSelect.value;
+    writeUrlState({ subject: subjectSelect.value, session: name });
     if (!name) {
       bodyEl.hidden = true;
       statusEl.textContent = 'Select a session to begin.';
@@ -181,12 +273,7 @@ async function fetchSessionList(coord) {
   return arrowTableToRows(result);
 }
 
-function formatSessionLabel(row) {
-  const date = row.acquisition_start_time
-    ? String(row.acquisition_start_time).slice(0, 19).replace('T', ' ')
-    : '';
-  return `${row.subject_id ?? '?'} · ${date}`;
-}
+
 
 // ---------------------------------------------------------------------------
 // Wire VrfAnimation + transport controls into the DOM
