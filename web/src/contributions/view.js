@@ -190,6 +190,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     sections = [],
     creditDescriptions = {},
     authorStartDates = {},
+    authorEndDates = {},
     authorSectionLevels = {},
     assets = [],
     doi = '',
@@ -215,12 +216,14 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     const affNames = affIds.map((id) => affiliations.find((a) => a.id === id)?.name).filter(Boolean);
     if (affNames.length) author.affiliation = affNames;
     const startDate = authorStartDates[row.name];
+    const endDate = authorEndDates[row.name];
     const sectionLevels = (authorSectionLevels[row.name] || [])
       .filter((sl) => sl.level && sl.level !== 'None' && sl.level !== 'none');
     return {
       author,
       author_level: row.author_level ?? null,
       ...(startDate ? { start_date: startDate } : {}),
+      ...(endDate ? { end_date: endDate } : {}),
       credit_levels,
       ...(sectionLevels.length ? { section_levels: sectionLevels } : {}),
     };
@@ -414,6 +417,7 @@ function extractPayloadMeta(data) {
   const newAffiliations = [];
   const newCreditDescriptions = {};
   const newStartDates = {};
+  const newEndDates = {};
   const newSectionLevels = {};
   const affByName = new Map();
 
@@ -445,6 +449,7 @@ function extractPayloadMeta(data) {
       }
     }
     if (contributor.start_date) newStartDates[name] = contributor.start_date;
+    if (contributor.end_date) newEndDates[name] = contributor.end_date;
     if (contributor.section_levels?.length) newSectionLevels[name] = contributor.section_levels;
   }
   return {
@@ -454,6 +459,7 @@ function extractPayloadMeta(data) {
     newSections,
     newCreditDescriptions,
     newStartDates,
+    newEndDates,
     newSectionLevels,
     newDoi: data.doi || '',
   };
@@ -625,7 +631,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 
 function AuthorDetailSection({
   row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
-  creditDescriptions, authorStartDates, authorSectionLevels, onChange,
+  creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
 }) {
   if (!selectedAuthor || !row) {
     return html`
@@ -678,6 +684,13 @@ function AuthorDetailSection({
                  class="cv-wizard-input"
                  value=${authorStartDates[selectedAuthor] || ''}
                  onChange=${(e) => onChange('startDate', e.target.value || null)} />
+        </div>
+        <div class="cv-detail-meta-item">
+          <label class="cv-detail-label" for="cv-detail-end-date">End Date</label>
+          <input id="cv-detail-end-date" type="date"
+                 class="cv-wizard-input"
+                 value=${authorEndDates[selectedAuthor] || ''}
+                 onChange=${(e) => onChange('endDate', e.target.value || null)} />
         </div>
         <div class="cv-detail-meta-item cv-detail-aff-item">
           <label class="cv-detail-label">Affiliations</label>
@@ -1102,6 +1115,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [sections, setSections]               = useState(initialDraft?.sections || []);
   const [creditDescs, setCreditDescs]         = useState(initialDraft?.creditDescriptions || {});
   const [authorStartDates, setAuthorStartDates] = useState(initialDraft?.authorStartDates || {});
+  const [authorEndDates, setAuthorEndDates] = useState(initialDraft?.authorEndDates || {});
   const [authorSectionLevels, setAuthorSectionLevels] = useState(initialDraft?.authorSectionLevels || {});
   const [loadedAssets, setLoadedAssets]       = useState(initialDraft?.loadedAssetNames || []);
   const [doi, setDoi]                         = useState(initialDraft?.doi || '');
@@ -1128,7 +1142,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
   sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
-    affiliations, sections, creditDescs, authorStartDates, authorSectionLevels,
+    affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
     projectLocked, projectPassword, serverLocked };
 
@@ -1139,12 +1153,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
         projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
         affiliations, sections, creditDescriptions: creditDescs,
-        authorStartDates, authorSectionLevels,
+        authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi, projectLocked, serverLocked,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
-    creditDescs, authorStartDates, authorSectionLevels, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked]);
+    creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1209,7 +1223,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
       const { newOrcids, newAffIds, newAffiliations, newSections, newCreditDescriptions,
-        newStartDates, newSectionLevels, newDoi } = extractPayloadMeta(data);
+        newStartDates, newEndDates, newSectionLevels, newDoi } = extractPayloadMeta(data);
       setAuthorSources({});
       setAuthorOrcids(newOrcids);
       setAuthorAffIds(newAffIds);
@@ -1217,6 +1231,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       if (newSections.length) setSections(newSections);
       setCreditDescs(newCreditDescriptions);
       setAuthorStartDates(newStartDates);
+      setAuthorEndDates(newEndDates);
       setAuthorSectionLevels(newSectionLevels);
       setDoi(newDoi);
       setLoadedAssets(Array.isArray(data.assets) ? data.assets.filter(Boolean) : []);
@@ -1306,13 +1321,14 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
       const { newOrcids, newAffIds, newAffiliations, newSections,
-        newCreditDescriptions, newStartDates, newSectionLevels } = extractPayloadMeta(data);
+        newCreditDescriptions, newStartDates, newEndDates, newSectionLevels } = extractPayloadMeta(data);
       setAuthorOrcids(newOrcids);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
       setCreditDescs(newCreditDescriptions);
       setAuthorStartDates(newStartDates);
+      setAuthorEndDates(newEndDates);
       setAuthorSectionLevels(newSectionLevels);
       setLoadedAssets(Array.isArray(data.assets) ? data.assets.filter(Boolean) : []);
       setRows(loadedRows);
@@ -1435,6 +1451,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       setAuthorAffIds((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'startDate') {
       setAuthorStartDates((prev) => ({ ...prev, [author]: payload }));
+    } else if (kind === 'endDate') {
+      setAuthorEndDates((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'sectionLevel') {
       const { section, level, description } = payload;
       setAuthorSectionLevels((prev) => {
@@ -1646,6 +1664,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         sections=${sections}
         creditDescriptions=${creditDescs}
         authorStartDates=${authorStartDates}
+        authorEndDates=${authorEndDates}
         authorSectionLevels=${authorSectionLevels}
         onChange=${handleDetailChange}
       />

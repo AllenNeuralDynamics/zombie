@@ -97,7 +97,7 @@ function extractPayloadMeta(data) {
 // Step 1: Personal Info
 // ---------------------------------------------------------------------------
 
-function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, onNext }) {
+function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
   const [orcidResults, setOrcidResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [customAff, setCustomAff] = useState('');
@@ -212,6 +212,13 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
         <input id="cw-join-date" type="date" class="cv-wizard-input"
                value=${joinDate || ''}
                onInput=${(e) => setJoinDate(e.target.value || null)} />
+      </div>
+
+      <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cw-leave-date">End Date (optional)</label>
+        <input id="cw-leave-date" type="date" class="cv-wizard-input"
+               value=${leaveDate || ''}
+               onInput=${(e) => setLeaveDate(e.target.value || null)} />
       </div>
 
       <div class="cv-wizard-nav">
@@ -395,7 +402,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, sectionLevels,
+  doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   allRows, projectData, sections, affiliations, onBack,
 }) {
   const [saving, setSaving] = useState(false);
@@ -407,6 +414,7 @@ function StepFullEditor({
   const [editRoles, setEditRoles]             = useState(() => ({ ...roles }));
   const [editDescs, setEditDescs]             = useState(() => ({ ...descriptions }));
   const [editJoinDate, setEditJoinDate]       = useState(joinDate || null);
+  const [editLeaveDate, setEditLeaveDate]     = useState(leaveDate || null);
   const [editSectionLevels, setEditSectionLevels] = useState(() => ({ ...sectionLevels }));
   const [customAff, setCustomAff]             = useState('');
 
@@ -463,6 +471,7 @@ function StepFullEditor({
       const authorAffIds = {};
       const creditDescriptions = {};
       const authorStartDates = {};
+      const authorEndDates = {};
       const authorSectionLevels = {};
 
       const finalName = editName.trim() || authorName;
@@ -476,6 +485,7 @@ function StepFullEditor({
       }
       if (Object.keys(editDescs).length) creditDescriptions[finalName] = editDescs;
       if (editJoinDate) authorStartDates[finalName] = editJoinDate;
+      if (editLeaveDate) authorEndDates[finalName] = editLeaveDate;
       const mySectionLevels = Object.entries(editSectionLevels)
         .filter(([, v]) => v.level && v.level !== 'None')
         .map(([section, v]) => ({ section, level: v.level, ...(v.description ? { description: v.description } : {}) }));
@@ -497,6 +507,7 @@ function StepFullEditor({
           }
         }
         if (contributor.start_date) authorStartDates[name] = contributor.start_date;
+        if (contributor.end_date) authorEndDates[name] = contributor.end_date;
         if (contributor.section_levels?.length) authorSectionLevels[name] = contributor.section_levels;
       }
 
@@ -514,6 +525,7 @@ function StepFullEditor({
         sections,
         creditDescriptions,
         authorStartDates,
+        authorEndDates,
         authorSectionLevels,
         assets: projectData?.assets || [],
         doi: projectData?.doi || '',
@@ -570,6 +582,13 @@ function StepFullEditor({
         <input id="cwe-join-date" type="date" class="cv-wizard-input"
                value=${editJoinDate || ''}
                onInput=${(e) => setEditJoinDate(e.target.value || null)} />
+      </div>
+
+      <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cwe-leave-date">End Date (optional)</label>
+        <input id="cwe-leave-date" type="date" class="cv-wizard-input"
+               value=${editLeaveDate || ''}
+               onInput=${(e) => setEditLeaveDate(e.target.value || null)} />
       </div>
 
       <div class="cv-wizard-field">
@@ -710,6 +729,7 @@ function AddApp({ doi, token, existingAuthor }) {
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
   const [joinDate, setJoinDate] = useState(_draft?.joinDate || null);
+  const [leaveDate, setLeaveDate] = useState(_draft?.leaveDate || null);
   const [roles, setRoles] = useState(() => {
     if (_draft?.roles) return _draft.roles;
     const r = {};
@@ -723,8 +743,8 @@ function AddApp({ doi, token, existingAuthor }) {
   useEffect(() => {
     if (!token) return;
     if (step === 0) return;
-    saveDraft(token, { name, orcid, selectedAffNames, joinDate, roles, descriptions, sectionLevels });
-  }, [name, orcid, selectedAffNames, joinDate, roles, descriptions, sectionLevels, step]);
+    saveDraft(token, { name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
+  }, [name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, step]);
 
   useEffect(() => {
     if (!doi || !token) {
@@ -763,6 +783,7 @@ function AddApp({ doi, token, existingAuthor }) {
             if (affArr.length) setSelectedAffNames(affArr);
 
             if (contributor.start_date) setJoinDate(contributor.start_date);
+            if (contributor.end_date) setLeaveDate(contributor.end_date);
 
             const newRoles = {};
             for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
@@ -850,6 +871,7 @@ function AddApp({ doi, token, existingAuthor }) {
           selectedAffNames=${selectedAffNames} setSelectedAffNames=${setSelectedAffNames}
           projectAffiliations=${affiliations}
           joinDate=${joinDate} setJoinDate=${setJoinDate}
+          leaveDate=${leaveDate} setLeaveDate=${setLeaveDate}
           onNext=${() => goToStep(2)}
         />
       `}
@@ -885,7 +907,7 @@ function AddApp({ doi, token, existingAuthor }) {
           doi=${doi} token=${token}
           authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
-          joinDate=${joinDate} sectionLevels=${sectionLevels}
+          joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
           allRows=${allRows}
           projectData=${projectData} sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}
