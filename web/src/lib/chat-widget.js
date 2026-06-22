@@ -23,6 +23,9 @@ const STORAGE_KEY = 'ally-chat-state';
  * @returns {{ root: HTMLElement, destroy: () => void }}
  */
 export function mountChatWidget(parent = document.body) {
+  const { hostname } = window.location;
+  if (hostname !== 'data.allenneuraldynamics-test.org' && hostname !== 'localhost') return;
+
   const root = document.createElement('div');
   root.className = 'cw';
   root.setAttribute('data-state', loadInitialState());
