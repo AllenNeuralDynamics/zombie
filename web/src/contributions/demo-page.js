@@ -934,6 +934,17 @@ function injectDemoStyles() {
       background: rgba(255, 110, 0, 0.06);
     }
 
+    /* Preview app widget background */
+    .demo-card-preview .ae-widget,
+    .demo-card-preview .ae-matrix-corner-cell,
+    .demo-card-preview .ae-sort-bar,
+    .demo-card-preview .ae-search-bar,
+    .demo-card-preview .ae-profile-card,
+    .demo-card-preview .ae-matrix-author-row-td,
+    .demo-card-preview .ae-search-input {
+      background: rgb(243, 240, 232);
+    }
+
     /* Expanded preview area */
     .demo-card-preview {
       margin-top: 20px;
