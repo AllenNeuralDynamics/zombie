@@ -28,36 +28,50 @@ import { ensureTable } from './registry.js';
 import { s3PathToHttps } from './metadata.js';
 import { getAcorn } from './registry.js';
 
-/** DuckDB table name for a given platform key. */
-const tableNameFor = (key) => `platform_qc_${key}`;
+/** DuckDB table name for a given platform key and groupBy mode. */
+const tableNameFor = (key, groupBy) => `platform_qc_${key}_${groupBy === 'experimenter' ? 'exp' : 'rig'}`;
 
-/** Cache: platformKey → Promise (resolves when table is registered in DuckDB). */
+/** Columns projected per groupBy mode — never load both list columns at once. */
+const COLS_FOR_GROUPBY = {
+  rig: 'asset_name, tag, status, timestamp, instrument_id_normalized',
+  experimenter: 'asset_name, tag, status, timestamp, experimenters_normalized',
+};
+
+/** Cache: `${platformKey}:${groupBy}` → Promise (resolves when table is registered in DuckDB). */
 const _tableReady = new Map();
 
-async function ensurePlatformTable(coord, platformKey) {
-  if (!_tableReady.has(platformKey)) {
+async function ensurePlatformTable(coord, platformKey, groupBy) {
+  const mode = groupBy === 'experimenter' ? 'experimenter' : 'rig';
+  const cacheKey = `${platformKey}:${mode}`;
+  if (!_tableReady.has(cacheKey)) {
+    const cols = COLS_FOR_GROUPBY[mode];
+    const tbl = tableNameFor(platformKey, mode);
     const acorn = getAcorn('platform_qc');
+    console.log(`[platform-qc] ensurePlatformTable START key=${cacheKey} tbl=${tbl} cols=${cols}`);
     if (!acorn) {
-      // Fallback: try to register the full table
+      console.log(`[platform-qc] no acorn for platform_qc, loading full table then filtering`);
       const p = ensureTable(coord, 'platform_qc').then(() => {
-        // Create a filtered view for this platform
-        return coord.exec(
-          `CREATE OR REPLACE TABLE ${tableNameFor(platformKey)} AS SELECT * FROM platform_qc WHERE platform = '${platformKey}'`,
-        );
-      }).catch((err) => { _tableReady.delete(platformKey); throw err; });
-      _tableReady.set(platformKey, p);
+        console.log(`[platform-qc] full platform_qc loaded, creating filtered table ${tbl}`);
+        return coord.exec(`CREATE OR REPLACE TABLE ${tbl} AS SELECT ${cols} FROM platform_qc WHERE platform = '${platformKey}'`);
+      }).then(() => {
+        console.log(`[platform-qc] table ${tbl} created (fallback path)`);
+      }).catch((err) => { _tableReady.delete(cacheKey); throw err; });
+      _tableReady.set(cacheKey, p);
       return p;
     }
-    // Load only the specific partition for this platform
     const base = s3PathToHttps(acorn.location.replace(/\/+$/, ''));
     const url = `${base}/platform=${platformKey}/data.pqt`;
-    const tbl = tableNameFor(platformKey);
+    console.log(`[platform-qc] loading parquet: ${url}`);
+    const sql = `CREATE OR REPLACE TABLE ${tbl} AS SELECT ${cols} FROM read_parquet('${url}', hive_partitioning=true, union_by_name=true)`;
     const p = coord
-      .exec(`CREATE OR REPLACE TABLE ${tbl} AS SELECT * FROM read_parquet('${url}', hive_partitioning=true, union_by_name=true)`)
-      .catch((err) => { _tableReady.delete(platformKey); throw err; });
-    _tableReady.set(platformKey, p);
+      .exec(sql)
+      .then(() => { console.log(`[platform-qc] table ${tbl} created OK`); })
+      .catch((err) => { _tableReady.delete(cacheKey); throw err; });
+    _tableReady.set(cacheKey, p);
+  } else {
+    console.log(`[platform-qc] ensurePlatformTable HIT (already loading/loaded) key=${cacheKey}`);
   }
-  return _tableReady.get(platformKey);
+  return _tableReady.get(cacheKey);
 }
 
 /** Validate that a value is a YYYY-MM-DD date string before using in SQL. */
@@ -76,9 +90,10 @@ const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s
  * so it always reflects the full group size.
  */
 async function fetchStats(coord, { platformKey, groupBy, since }) {
-  await ensurePlatformTable(coord, platformKey);
-  const tbl = tableNameFor(platformKey);
+  await ensurePlatformTable(coord, platformKey, groupBy);
+  const tbl = tableNameFor(platformKey, groupBy);
   const whereCond = (since && isValidDate(since)) ? `AND timestamp >= '${since}'` : '';
+  console.log(`[platform-qc] fetchStats START tbl=${tbl} groupBy=${groupBy} since=${since}`);
 
   let sql;
   if (groupBy === 'experimenter') {
@@ -162,7 +177,9 @@ async function fetchStats(coord, { platformKey, groupBy, since }) {
     `;
   }
 
+  console.log(`[platform-qc] fetchStats running query groupBy=${groupBy}`);
   const result = await queryRows(coord, sql);
+  console.log(`[platform-qc] fetchStats DONE rows=${result.length}`);
   return result;
 }
 

@@ -45,7 +45,11 @@ function buildFilterCondition(assetFilter) {
 const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 function ensureUpgradeTable(coord) {
-  return ensureTable(coord, 'metadata_upgrade');
+  console.log(`[PlatformOverview] ensureTable metadata_upgrade START`);
+  return ensureTable(coord, 'metadata_upgrade').then((r) => {
+    console.log(`[PlatformOverview] ensureTable metadata_upgrade DONE`);
+    return r;
+  });
 }
 
 /**
@@ -934,13 +938,16 @@ function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, stat
       `(SELECT name FROM asset_basics WHERE ${filterCond})`;
   }
 
+  console.log(`[PlatformOverview] starting ensureUpgradeTable (metadata_upgrade)`);
   ensureUpgradeTable(coord)
-    .then(() =>
-      coord.query(
+    .then(() => {
+      console.log(`[PlatformOverview] metadata_upgrade ready, running stats query`);
+      return coord.query(
         `SELECT (${totalSql}) AS total_assets, (${failedSql}) AS failed_assets`,
-      ),
-    )
+      );
+    })
     .then((result) => {
+      console.log(`[PlatformOverview] stats query done`);
       const rows = Array.isArray(result)
         ? result
         : Array.isArray(result?.data)

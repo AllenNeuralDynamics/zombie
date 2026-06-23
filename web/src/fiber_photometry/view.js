@@ -502,21 +502,35 @@ export function createFiberPhotometryView(coord) {
 
   ensureTable(coord, 'platform_fib')
     .then(() => {
-      console.log(`[FibPhot] parquet loaded & registered  +${(performance.now()-t0).toFixed(0)}ms`);
+      console.log(`[FibPhot] platform_fib registered      +${(performance.now()-t0).toFixed(0)}ms`);
+      console.log(`[FibPhot] starting JOIN query (platform_fib × asset_basics)  +${(performance.now()-t0).toFixed(0)}ms`);
       return queryRows(coord,
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.data_level, b.modalities, b.genotype, b.location,
-                b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters
+                b.data_level, b.modalities_str AS modalities, b.genotype, b.location,
+                b.code_ocean_str AS code_ocean,
+                b.investigators_str AS investigators, b.experimenters_str AS experimenters
          FROM platform_fib f
-         LEFT JOIN asset_basics b ON b.name = f.asset_name
-         ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
+         LEFT JOIN (
+           SELECT name, subject_id, project_name, acquisition_start_time,
+                  data_level, genotype, location,
+                  array_to_string(modalities, ', ') AS modalities_str,
+                  array_to_string(code_ocean, ', ') AS code_ocean_str,
+                  array_to_string(investigators_normalized, ', ') AS investigators_str,
+                  array_to_string(experimenters_normalized, ', ') AS experimenters_str
+           FROM asset_basics
+         ) b ON b.name = f.asset_name`,
       );
     })
     .then((longRows) => {
       console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
       console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
       const wideRows = pivotLongFormRows(longRows);
+      wideRows.sort((a, b) => {
+        const av = a.acquisition_start_time ?? '';
+        const bv = b.acquisition_start_time ?? '';
+        return String(bv).localeCompare(String(av)) || String(a.asset_name ?? '').localeCompare(String(b.asset_name ?? ''));
+      });
       console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
       loadingEl.remove();
       buildPage(wideRows);

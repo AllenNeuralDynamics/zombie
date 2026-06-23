@@ -6211,7 +6211,7 @@ body {
 
 .upgrade-page {
   padding: 1rem 1.5rem;
-  max-width: 1100px;
+  width: 100%;
 }
 
 .upgrade-summary {
@@ -6253,6 +6253,16 @@ body {
 
 .upgrade-table-wrap {
   width: 100%;
+}
+
+.upgrade-project-filter-banner {
+  margin: 0 0 0.6rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--color-accent-subtle, #e8f0fe);
+  border: 1px solid var(--color-accent, #4a7fcb);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: var(--color-accent, #2c5fa8);
 }
 
 .upgrade-table-count {

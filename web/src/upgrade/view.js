@@ -7,11 +7,13 @@
  */
 
 import * as Plot from '@observablehq/plot';
-import { escHtml, PAGE_SIZE } from '../lib/utils.js';
+import { escHtml } from '../lib/utils.js';
 import { arrowTableToRows } from '../lib/arrow.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { buildTableHead, buildPagingBar } from '../lib/paginated-table.js';
 import { ensureTable } from '../lib/registry.js';
+
+const PAGE_SIZE = 50;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -23,14 +25,26 @@ const UPGRADE_API = '/metadata-portal/upgrade';
 /** DocDB v1 base URL — returns the original (pre-upgrade) record. */
 const DOCDB_V1_BASE = 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets';
 
-const COLUMNS = ['name', 'project_name', 'data_level', 'status', 'upgrader_version'];
-const COLUMN_LABELS = {
+const COL_LABEL_OVERRIDES = {
+  _id: 'ID',
   name: 'Name',
   project_name: 'Project',
   data_level: 'Data Level',
   status: 'Status',
   upgrader_version: 'Upgrader Version',
 };
+
+function colLabel(col) {
+  return COL_LABEL_OVERRIDES[col] ?? col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function deriveColumns(rows) {
+  if (!rows.length) return ['name', 'project_name', 'data_level', 'status', 'upgrader_version'];
+  const preferred = ['name', 'project_name', 'data_level', 'status', 'upgrader_version'];
+  const all = Object.keys(rows[0]);
+  const rest = all.filter((c) => !preferred.includes(c));
+  return [...preferred.filter((c) => all.includes(c)), ...rest];
+}
 
 // ---------------------------------------------------------------------------
 // Data aggregation helpers
@@ -74,19 +88,16 @@ function computeProjectAggregates(rows) {
     .sort((a, b) => b[1] - a[1])
     .map(([p]) => p);
 
-  const pctData = projectOrder.map((project) => {
-    const pRows = projectData.filter((r) => r.project_name === project);
-    const total = pRows.reduce((s, r) => s + r.count, 0);
-    const successCount = (pRows.find((r) => r.status === 'success') ?? {}).count ?? 0;
-    return { project_name: project, pct_success: total > 0 ? (successCount / total) * 100 : 0 };
-  });
-
-  return { projectData, projectOrder, pctData };
+  return { projectData, projectOrder };
 }
 
 // ---------------------------------------------------------------------------
 // Chart builders
 // ---------------------------------------------------------------------------
+
+function chartWidth() {
+  return Math.max(700, (document.documentElement.clientWidth || 1200) - 56);
+}
 
 function buildVersionChart(versionData) {
   if (versionData.length < 2) return null;
@@ -98,8 +109,9 @@ function buildVersionChart(versionData) {
   wrap.appendChild(heading);
   wrap.appendChild(
     Plot.plot({
-      width: 700,
+      width: chartWidth(),
       height: 200,
+      marginLeft: 60,
       style: { background: 'transparent', fontFamily: 'inherit' },
       x: { label: 'Upgrader Version', tickRotate: -30 },
       y: { label: '% Success', domain: [0, 100] },
@@ -113,54 +125,64 @@ function buildVersionChart(versionData) {
   return wrap;
 }
 
-function buildProjectChart(projectData, projectOrder) {
+function buildProjectChart(projectData, projectOrder, onProjectClick) {
+  const projectTotals = projectOrder.map((project) => {
+    const pRows = projectData.filter((r) => r.project_name === project);
+    const total = pRows.reduce((s, r) => s + r.count, 0);
+    const successCount = (pRows.find((r) => r.status === 'success') ?? {}).count ?? 0;
+    const failedCount = (pRows.find((r) => r.status === 'failed') ?? {}).count ?? 0;
+    const pct = total > 0 ? ((successCount / total) * 100).toFixed(1) : '0.0';
+    return { project_name: project, total, success: successCount, failed: failedCount, pct_success: pct };
+  });
+
   const wrap = document.createElement('div');
   wrap.className = 'upgrade-chart-wrap';
   const heading = document.createElement('h3');
   heading.className = 'upgrade-chart-heading';
   heading.textContent = 'Upgrade Status by Project';
   wrap.appendChild(heading);
-  wrap.appendChild(
-    Plot.plot({
-      width: 700,
-      height: Math.min(Math.max(200, 25 * projectOrder.length + 80), 400),
-      marginBottom: 120,
-      style: { background: 'transparent', fontFamily: 'inherit' },
-      x: { label: 'Project', tickRotate: -45, domain: projectOrder },
-      y: { label: 'Count' },
-      color: {
-        legend: true,
-        domain: ['success', 'failed', 'unknown'],
-        range: ['#1D8649', '#c0392b', '#888888'],
-      },
-      marks: [
-        Plot.barY(projectData, Plot.stackY({ x: 'project_name', y: 'count', fill: 'status', order: ['success', 'failed', 'unknown'] })),
-      ],
-    }),
-  );
-  return wrap;
-}
 
-function buildPctChart(pctData, projectOrder) {
-  const wrap = document.createElement('div');
-  wrap.className = 'upgrade-chart-wrap';
-  const heading = document.createElement('h3');
-  heading.className = 'upgrade-chart-heading';
-  heading.textContent = '% Upgrade Success by Project';
-  wrap.appendChild(heading);
-  wrap.appendChild(
-    Plot.plot({
-      width: 700,
-      height: Math.min(Math.max(200, 25 * projectOrder.length + 80), 400),
-      marginBottom: 120,
-      style: { background: 'transparent', fontFamily: 'inherit' },
-      x: { label: 'Project', tickRotate: -45, domain: projectOrder },
-      y: { label: '% Success', domain: [0, 100] },
-      marks: [
-        Plot.barY(pctData, { x: 'project_name', y: 'pct_success', fill: 'steelblue' }),
-      ],
-    }),
-  );
+  const plotEl = Plot.plot({
+    width: chartWidth(),
+    height: Math.min(Math.max(600, 25 * projectOrder.length + 240), 800),
+    marginBottom: 160,
+    marginLeft: 70,
+    style: { background: 'transparent', fontFamily: 'inherit', cursor: 'pointer' },
+    x: { label: 'Project', tickRotate: -45, domain: projectOrder },
+    y: { label: 'Count' },
+    color: {
+      legend: true,
+      domain: ['success', 'failed', 'unknown'],
+      range: ['#1D8649', '#c0392b', '#888888'],
+    },
+    marks: [
+      Plot.barY(projectData, Plot.stackY({ x: 'project_name', y: 'count', fill: 'status', order: ['success', 'failed', 'unknown'] })),
+      Plot.tip(projectTotals, Plot.pointerX({
+        x: 'project_name',
+        y: 'total',
+        title: (d) => `${d.project_name}\nSuccess: ${d.success.toLocaleString()}\nFailed: ${d.failed.toLocaleString()}\n% Success: ${d.pct_success}%`,
+      })),
+    ],
+  });
+
+  if (onProjectClick) {
+    const xScale = plotEl.scale('x');
+    plotEl.addEventListener('click', (e) => {
+      const svgRect = plotEl.getBoundingClientRect();
+      const offsetX = e.clientX - svgRect.left;
+      let clicked = null;
+      for (const p of projectOrder) {
+        const x = xScale.apply(p);
+        if (offsetX >= x && offsetX < x + xScale.bandwidth) {
+          clicked = p;
+          break;
+        }
+      }
+      onProjectClick(clicked);
+    });
+  }
+
+  wrap.appendChild(plotEl);
   return wrap;
 }
 
@@ -168,16 +190,24 @@ function buildPctChart(pctData, projectOrder) {
 // Table
 // ---------------------------------------------------------------------------
 
-function buildUpgradeTable(rows) {
+function buildUpgradeTable(rows, columns) {
   let allRows = rows;
   let filteredRows = [...allRows];
   let sortCol = 'name';
   let sortDir = 'asc';
   let filterValues = {};
+  let projectFilter = null;
   let page = 0;
+  const COLUMNS = columns;
+  const COLUMN_LABELS = Object.fromEntries(columns.map((c) => [c, colLabel(c)]));
 
   const wrapper = document.createElement('div');
   wrapper.className = 'upgrade-table-wrap';
+
+  const filterBanner = document.createElement('div');
+  filterBanner.className = 'upgrade-project-filter-banner';
+  filterBanner.style.display = 'none';
+  wrapper.appendChild(filterBanner);
 
   const countEl = document.createElement('p');
   countEl.className = 'upgrade-table-count';
@@ -191,13 +221,14 @@ function buildUpgradeTable(rows) {
   wrapper.appendChild(pagingContainer);
 
   function applyFiltersAndSort() {
-    filteredRows = allRows.filter((row) =>
-      COLUMNS.every((col) => {
+    filteredRows = allRows.filter((row) => {
+      if (projectFilter && row.project_name !== projectFilter) return false;
+      return COLUMNS.every((col) => {
         const fv = (filterValues[col] ?? '').toLowerCase();
         if (!fv) return true;
         return String(row[col] ?? '').toLowerCase().includes(fv);
-      }),
-    );
+      });
+    });
     filteredRows.sort((a, b) => {
       const av = String(a[sortCol] ?? '');
       const bv = String(b[sortCol] ?? '');
@@ -280,6 +311,19 @@ function buildUpgradeTable(rows) {
   }
 
   render();
+
+  wrapper.setProjectFilter = (project) => {
+    projectFilter = project;
+    page = 0;
+    if (project) {
+      filterBanner.style.display = 'block';
+      filterBanner.textContent = `Filtered by project: ${project} — click elsewhere on chart to clear`;
+    } else {
+      filterBanner.style.display = 'none';
+    }
+    render();
+  };
+
   return wrapper;
 }
 
@@ -528,9 +572,7 @@ export async function createUpgradeView({ coordinator }) {
   try {
     await ensureTable(coordinator, 'metadata_upgrade');
     const result = await coordinator.query(
-      `SELECT _id, name, project_name, data_level, status, upgrader_version
-       FROM metadata_upgrade
-       ORDER BY name`,
+      `SELECT * FROM metadata_upgrade ORDER BY name`,
     );
     rows = arrowTableToRows(result);
   } catch (err) {
@@ -560,21 +602,23 @@ export async function createUpgradeView({ coordinator }) {
   const versionChart = buildVersionChart(versionData);
   if (versionChart) chartsSection.appendChild(versionChart);
 
-  const { projectData, projectOrder, pctData } = computeProjectAggregates(rows);
-  if (projectOrder.length > 0) {
-    chartsSection.appendChild(buildProjectChart(projectData, projectOrder));
-    chartsSection.appendChild(buildPctChart(pctData, projectOrder));
-  }
-
-  root.appendChild(chartsSection);
-
-  // Table section
+  // Table section (built before chart so we can wire the click callback)
   const tableSection = document.createElement('section');
   tableSection.className = 'upgrade-table-section';
   const tableHeading = document.createElement('h2');
   tableHeading.textContent = 'All Records';
   tableSection.appendChild(tableHeading);
-  tableSection.appendChild(buildUpgradeTable(rows));
+  const tableEl = buildUpgradeTable(rows, deriveColumns(rows));
+  tableSection.appendChild(tableEl);
+
+  const { projectData, projectOrder } = computeProjectAggregates(rows);
+  if (projectOrder.length > 0) {
+    chartsSection.appendChild(buildProjectChart(projectData, projectOrder, (project) => {
+      tableEl.setProjectFilter(project);
+    }));
+  }
+
+  root.appendChild(chartsSection);
   root.appendChild(tableSection);
 
   // Upgrade runner
