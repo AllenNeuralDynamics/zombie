@@ -192,7 +192,6 @@ function buildProjectChart(projectData, projectOrder, onProjectClick) {
 
 function buildUpgradeTable(rows, columns) {
   let allRows = rows;
-  let filteredRows = [...allRows];
   let sortCol = 'name';
   let sortDir = 'asc';
   let filterValues = {};
@@ -217,11 +216,19 @@ function buildUpgradeTable(rows, columns) {
   tableContainer.className = 'table-responsive';
   wrapper.appendChild(tableContainer);
 
+  const table = document.createElement('table');
+  table.className = 'assets-table upgrade-table';
+  const thead = document.createElement('thead');
+  const tbody = document.createElement('tbody');
+  table.appendChild(thead);
+  table.appendChild(tbody);
+  tableContainer.appendChild(table);
+
   const pagingContainer = document.createElement('div');
   wrapper.appendChild(pagingContainer);
 
   function applyFiltersAndSort() {
-    filteredRows = allRows.filter((row) => {
+    let filtered = allRows.filter((row) => {
       if (projectFilter && row.project_name !== projectFilter) return false;
       return COLUMNS.every((col) => {
         const fv = (filterValues[col] ?? '').toLowerCase();
@@ -229,24 +236,59 @@ function buildUpgradeTable(rows, columns) {
         return String(row[col] ?? '').toLowerCase().includes(fv);
       });
     });
-    filteredRows.sort((a, b) => {
+    filtered.sort((a, b) => {
       const av = String(a[sortCol] ?? '');
       const bv = String(b[sortCol] ?? '');
       const cmp = av.localeCompare(bv);
       return sortDir === 'asc' ? cmp : -cmp;
     });
+    return filtered;
   }
 
-  function render() {
-    applyFiltersAndSort();
+  function renderHeader() {
+    thead.innerHTML = buildTableHead(COLUMNS, COLUMN_LABELS, sortCol, sortDir, filterValues, allRows);
+
+    thead.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      const th = e.target.closest('th.sortable');
+      if (!th) return;
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      page = 0;
+      renderHeader();
+      refresh();
+    });
+
+    thead.addEventListener('input', (e) => {
+      const el = e.target.closest('.col-filter');
+      if (!el) return;
+      filterValues[el.dataset.col] = el.value;
+      page = 0;
+      refresh();
+    });
+
+    thead.addEventListener('change', (e) => {
+      const el = e.target.closest('.col-filter');
+      if (!el) return;
+      filterValues[el.dataset.col] = el.value;
+      page = 0;
+      refresh();
+    });
+  }
+
+  function refresh() {
+    const filteredRows = applyFiltersAndSort();
     const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
     if (page >= totalPages) page = 0;
 
     const pageRows = filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
-    const theadHtml = buildTableHead(COLUMNS, COLUMN_LABELS, sortCol, sortDir, filterValues, allRows);
-
-    const tbodyRows = pageRows
+    tbody.innerHTML = pageRows
       .map((row) => {
         const statusClass = row.status === 'success' ? 'status-success' : row.status === 'failed' ? 'status-failed' : '';
         return `<tr>
@@ -264,53 +306,21 @@ function buildUpgradeTable(rows, columns) {
       })
       .join('');
 
-    tableContainer.innerHTML = `<table class="assets-table upgrade-table">
-      ${theadHtml}
-      <tbody>${tbodyRows}</tbody>
-    </table>`;
-
     countEl.textContent = `Showing ${filteredRows.length} of ${allRows.length} records`;
 
     pagingContainer.innerHTML = buildPagingBar(page, PAGE_SIZE, filteredRows.length, 'upgrade-prev', 'upgrade-next');
 
-    tableContainer.querySelectorAll('th.sortable').forEach((th) => {
-      th.addEventListener('click', (e) => {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-        const col = th.dataset.col;
-        if (sortCol === col) {
-          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-        } else {
-          sortCol = col;
-          sortDir = 'asc';
-        }
-        page = 0;
-        render();
-      });
-    });
-
-    tableContainer.querySelectorAll('.col-filter').forEach((input) => {
-      input.addEventListener('input', (e) => {
-        filterValues[e.target.dataset.col] = e.target.value;
-        page = 0;
-        render();
-      });
-      input.addEventListener('change', (e) => {
-        filterValues[e.target.dataset.col] = e.target.value;
-        page = 0;
-        render();
-      });
-    });
-
     pagingContainer.querySelector('#upgrade-prev')?.addEventListener('click', () => {
-      if (page > 0) { page--; render(); }
+      if (page > 0) { page--; refresh(); }
     });
     pagingContainer.querySelector('#upgrade-next')?.addEventListener('click', () => {
-      const totalPages = Math.ceil(filteredRows.length / PAGE_SIZE);
-      if (page < totalPages - 1) { page++; render(); }
+      const tp = Math.ceil(filteredRows.length / PAGE_SIZE);
+      if (page < tp - 1) { page++; refresh(); }
     });
   }
 
-  render();
+  renderHeader();
+  refresh();
 
   wrapper.setProjectFilter = (project) => {
     projectFilter = project;
@@ -321,7 +331,7 @@ function buildUpgradeTable(rows, columns) {
     } else {
       filterBanner.style.display = 'none';
     }
-    render();
+    refresh();
   };
 
   return wrapper;
