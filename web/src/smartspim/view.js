@@ -98,6 +98,7 @@ export function pivotLongFormRows(longRows) {
       wide.raw_link = row.raw_link;
       wide.stitched_link = row.stitched_link;
       wide.alignment_link = row.alignment_link;
+      wide.alignment_ccf_link = row.alignment_ccf_link;
       wide.processed = row.processed;
       wide.institution = row.institution;
       wide.proc_location = row.proc_location;
@@ -168,10 +169,11 @@ export function renderSmartSpimRow(row, visibleColumns) {
   const cells = [...cols, 'links'].map((col) => {
     if (col === 'links') {
       const rawHtml = buildNeuroglancerLink(row.raw_link ?? null, 'Raw');
-      const alignmentHtml = buildNeuroglancerLink(row.alignment_link ?? null, 'Alignment');
+      const alignmentHtml = buildNeuroglancerLink(row.alignment_link ?? null, 'AlignedTissue');
+      const alignmentCcfHtml = buildNeuroglancerLink(row.alignment_ccf_link ?? null, 'AlignedCCF');
       return `<td class="link-cell">` +
         `<div class="link-cell-split">` +
-        `<span class="link-group-left">${rawHtml} ${stitchedHtml} ${alignmentHtml} ${channelLinks}</span>` +
+        `<span class="link-group-left">${rawHtml} ${stitchedHtml} ${alignmentHtml} ${alignmentCcfHtml} ${channelLinks}</span>` +
         `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
         `</div>` +
         `</td>`;
@@ -199,7 +201,7 @@ export function createSmartSpimView(coord) {
     .then(() =>
       queryRows(coord,
         `SELECT s.name, s.raw_name, s.channel, s.segmentation_link, s.quantification_link,
-                s.processing_end_time, s.stitched_link, s.raw_link, s.alignment_link, s.processed, s.institution,
+                s.processing_end_time, s.stitched_link, s.raw_link, s.alignment_link, s.alignment_ccf_link, s.processed, s.institution,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.genotype, b.location, b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters,
                 p.location AS proc_location, p.code_ocean AS proc_code_ocean
