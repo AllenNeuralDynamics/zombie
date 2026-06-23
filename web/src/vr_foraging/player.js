@@ -6,6 +6,8 @@
  *   • a transport (play / pause / scrub / speed)
  *   • the pixel-art animation canvas
  *   • a stats readout + per-patch depletion mini-chart
+ *   • behavior camera videos (FaceCamera, FrontCamera, SideCamera), synced
+ *     to the timeline via the Harp ReferenceTime in each camera's metadata.csv
  *
  * Sessions are listed eagerly from DuckDB (cheap), but the heavy NWB data is
  * streamed from S3 only after the user picks a session.
@@ -16,9 +18,11 @@ import { buildPatchIndex, updateDepletion }       from './depletion.js';
 import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
+import { ensureTable }                            from '../lib/registry.js';
 
 const SPRITE_URL = '/images/vrf';
 const PROJECT_NAME = 'Cognitive flexibility in patch foraging';
+const CAMERAS = ['FaceCamera', 'FrontCamera', 'SideCamera'];
 
 function sessionDateOf(row) {
   const ts = row.acquisition_start_time;
@@ -122,6 +126,14 @@ export function createSessionPlayer(coord) {
       <div class="vrf-stage">
         <div class="vrf-stage-label">Top-down view — mouse running through corridor →</div>
         <canvas id="vrf-canvas" width="480" height="120"></canvas>
+      </div>
+
+      <div class="vrf-videos" id="vrf-videos" hidden>
+        <div class="vrf-videos-label">Behavior cameras</div>
+        <div class="vrf-videos-speed-warning" id="vrf-videos-speed-warning" hidden>
+          Videos only available at 1× playback
+        </div>
+        <div class="vrf-videos-row" id="vrf-videos-row"></div>
       </div>
     </div>
   `;
@@ -249,18 +261,41 @@ export function createSessionPlayer(coord) {
 
     try {
       const t0 = performance.now();
-      const [{ sites, traces }, sprites] = await Promise.all([
+      const [{ sites, traces }, sprites, rawLocation] = await Promise.all([
         loadVrfSession(name, { signal: ctrl.signal }),
         loadSprites(SPRITE_URL),
+        fetchRawLocation(coord, name),
       ]);
       if (ctrl.signal.aborted) return;
       const ms = Math.round(performance.now() - t0);
       statusEl.textContent = `Loaded ${sites.length} sites · ${traces.lick_t.length} licks (${ms} ms)`;
       bodyEl.hidden = false;
 
+      // Load camera sync data in the background — don't block playback.
+      const videosEl  = root.querySelector('#vrf-videos');
+      const videosRow = root.querySelector('#vrf-videos-row');
+      videosEl.hidden = true;
+      videosRow.innerHTML = '';
+
       // Re-init animation against new data.
       animation?.pause();
-      animation = wireAnimation(root, sites, sprites, traces);
+      animation = wireAnimation(root, sites, sprites, traces, null);
+
+      if (rawLocation) {
+        const rawBase = s3LocationToHttps(rawLocation);
+        loadCameraSync(rawBase, ctrl.signal).then((cameraSyncs) => {
+          if (ctrl.signal.aborted) return;
+          if (!cameraSyncs.length) return;
+          const videos = buildVideoPanel(videosRow, rawBase, cameraSyncs, traces.t0_offset);
+          videosEl.hidden = false;
+          animation.videos = videos;
+          // Show speed warning if already at >1× when videos arrive.
+          const speedWarningEl = root.querySelector('#vrf-videos-speed-warning');
+          if (speedWarningEl) speedWarningEl.hidden = animation.speed === 1;
+        }).catch((err) => {
+          console.warn('[VRF] camera video load failed', err);
+        });
+      }
     } catch (err) {
       if (ctrl.signal.aborted) return;
       statusEl.textContent = `Error loading session: ${err.message}`;
@@ -272,8 +307,104 @@ export function createSessionPlayer(coord) {
 }
 
 // ---------------------------------------------------------------------------
-// Session list query
+// Session list query + raw asset helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Look up the raw source asset location for a derived session name.
+ * Returns an S3 location string (e.g. "s3://aind-open-data/…") or null.
+ */
+async function fetchRawLocation(coord, derivedName) {
+  try {
+    await ensureTable(coord, 'source_data');
+    const result = await coord.query(`
+      SELECT ab.location
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.source_data
+      WHERE sd.name = '${derivedName.replace(/'/g, "''")}'
+        AND sd.source_data IS NOT NULL AND sd.source_data != ''
+      LIMIT 1
+    `);
+    const rows = arrowTableToRows(result);
+    return rows[0]?.location ?? null;
+  } catch (err) {
+    console.warn('[VRF] fetchRawLocation failed', err);
+    return null;
+  }
+}
+
+/** Convert an S3 location (s3://bucket/key) to an HTTPS URL base. */
+function s3LocationToHttps(location) {
+  const m = location.match(/^s3:\/\/([^/]+)\/(.+)/);
+  if (!m) return null;
+  const [, bucket, key] = m;
+  return `https://${bucket}.s3.amazonaws.com/${key}`;
+}
+
+/**
+ * Fetch the first ReferenceTime value from each camera's metadata.csv via
+ * HTTP Range request (reads only the first ~200 bytes — header + 1 data row).
+ *
+ * Returns an array of { camera, refTime } objects for cameras that exist.
+ */
+async function loadCameraSync(rawBase, signal) {
+  const results = await Promise.all(CAMERAS.map(async (camera) => {
+    const url = `${rawBase}/behavior-videos/${camera}/metadata.csv`;
+    try {
+      const resp = await fetch(url, {
+        headers: { Range: 'bytes=0-299' },
+        signal,
+      });
+      if (!resp.ok) return null;
+      const text = await resp.text();
+      const lines = text.split(/\r?\n/);
+      // lines[0] = header, lines[1] = first data row
+      if (lines.length < 2) return null;
+      const refTime = parseFloat(lines[1].split(',')[0]);
+      if (!Number.isFinite(refTime)) return null;
+      return { camera, refTime };
+    } catch {
+      return null;
+    }
+  }));
+  return results.filter(Boolean);
+}
+
+/**
+ * Build the video panel: one <video> per available camera.
+ * Returns array of { camera, video, offsetS } where offsetS is the number of
+ * seconds into the video that corresponds to session t=0.
+ */
+function buildVideoPanel(container, rawBase, cameraSyncs, t0Harp) {
+  const videoInfos = [];
+  for (const { camera, refTime } of cameraSyncs) {
+    const videoUrl = `${rawBase}/behavior-videos/${camera}/video.mp4`;
+    // offsetS: how far into the video file we are when session t=0
+    // t0Harp is the Harp clock at session t=0; refTime is the Harp clock
+    // at the first video frame.
+    const offsetS = t0Harp - refTime;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'vrf-video-wrap';
+
+    const label = document.createElement('div');
+    label.className = 'vrf-video-label';
+    label.textContent = camera.replace('Camera', '');
+    wrap.appendChild(label);
+
+    const vid = document.createElement('video');
+    vid.src = videoUrl;
+    vid.muted = true;
+    vid.preload = 'metadata';
+    vid.playsInline = true;
+    vid.className = 'vrf-video';
+    wrap.appendChild(vid);
+
+    container.appendChild(wrap);
+    videoInfos.push({ camera, video: vid, offsetS });
+  }
+  return videoInfos;
+}
 
 async function fetchSessionList(coord) {
   const result = await coord.query(`
@@ -318,7 +449,7 @@ function updateLinks(linksEl, row) {
 // Wire VrfAnimation + transport controls into the DOM
 // ---------------------------------------------------------------------------
 
-function wireAnimation(root, sites, sprites, traces) {
+function wireAnimation(root, sites, sprites, traces, _unused) {
   const canvas      = root.querySelector('#vrf-canvas');
   const statsEl     = root.querySelector('#vrf-stats-status');
   const legendEl    = root.querySelector('#vrf-odor-legend');
@@ -329,8 +460,9 @@ function wireAnimation(root, sites, sprites, traces) {
   const nextBtn     = root.querySelector('#vrf-next');
   const scrubInput  = root.querySelector('#vrf-scrub');
   const scrubBg     = root.querySelector('#vrf-scrub-bg');
-  const speedSlider = root.querySelector('#vrf-speed');
-  const speedLabel  = root.querySelector('#vrf-speed-label');
+  const speedSlider   = root.querySelector('#vrf-speed');
+  const speedLabel    = root.querySelector('#vrf-speed-label');
+  const speedWarning  = root.querySelector('#vrf-videos-speed-warning');
 
   const SPEED_STEPS = [1, 5, 10, 20];
 
@@ -388,11 +520,23 @@ function wireAnimation(root, sites, sprites, traces) {
     lastSiteIdx = -1;
     anim.seekTo(t);
   };
-  speedSlider.oninput = () => {
+  const updateSpeed = () => {
     const v = SPEED_STEPS[Number(speedSlider.value)] ?? 10;
     speedLabel.textContent = `${v}×`;
     anim.setSpeed(v);
+    const videosAvailable = v === 1 && anim.videos?.length > 0;
+    if (speedWarning) speedWarning.hidden = v === 1 || !anim.videos?.length;
+    if (anim.videos?.length) {
+      if (v === 1) {
+        // Re-sync video position; let play state follow the animation.
+        syncVideos(anim.videos, anim.t, false);
+        if (anim.playing) playVideos(anim.videos, anim.t);
+      } else {
+        pauseVideos(anim.videos);
+      }
+    }
   };
+  speedSlider.oninput = updateSpeed;
 
   // Keep play-button label in sync when animation auto-pauses at end.
   const origLoop = anim._loop.bind(anim);
@@ -401,7 +545,82 @@ function wireAnimation(root, sites, sprites, traces) {
     if (!anim.playing) playBtn.textContent = '▶';
   };
 
+  // ---- Video sync ---------------------------------------------------------
+  // anim.videos is set asynchronously after camera CSV headers are fetched.
+  // null = no videos yet; [] = no cameras found.
+  anim.videos = null;
+
+  const videosActive = () => anim.videos?.length > 0 && anim.speed === 1;
+
+  const origOnFrame = anim.onFrame;
+  anim.onFrame = (t, site) => {
+    origOnFrame?.(t, site);
+    if (videosActive()) syncVideos(anim.videos, t, anim.playing);
+  };
+
+  const origSeekTo = anim.seekTo.bind(anim);
+  anim.seekTo = function (t) {
+    origSeekTo(t);
+    if (videosActive()) syncVideos(anim.videos, t, false);
+  };
+
+  const origPlay = anim.play.bind(anim);
+  anim.play = function () {
+    origPlay();
+    if (videosActive()) playVideos(anim.videos, anim.t);
+  };
+
+  const origPause = anim.pause.bind(anim);
+  anim.pause = function () {
+    origPause();
+    pauseVideos(anim.videos);
+  };
+
   return anim;
+}
+
+// ---------------------------------------------------------------------------
+// Video sync helpers
+// ---------------------------------------------------------------------------
+
+const VIDEO_SEEK_THRESHOLD_S = 0.5; // only hard-seek if we're this far off
+
+function videoTargetTime(info, sessionT) {
+  return info.offsetS + sessionT;
+}
+
+function syncVideos(videos, sessionT, playing) {
+  if (!videos?.length) return;
+  for (const info of videos) {
+    const target = videoTargetTime(info, sessionT);
+    if (target < 0 || target > (info.video.duration || Infinity)) continue;
+    if (!playing) {
+      // When paused/scrubbing, hard-seek so the frame updates.
+      info.video.currentTime = target;
+    } else {
+      // While playing, only hard-seek if drift exceeds threshold (avoids
+      // constant interruption from tiny float imprecision).
+      const drift = Math.abs(info.video.currentTime - target);
+      if (drift > VIDEO_SEEK_THRESHOLD_S) {
+        info.video.currentTime = target;
+      }
+    }
+  }
+}
+
+function playVideos(videos, sessionT) {
+  if (!videos?.length) return;
+  for (const info of videos) {
+    const target = videoTargetTime(info, sessionT);
+    if (target < 0 || target > (info.video.duration || Infinity)) continue;
+    info.video.currentTime = target;
+    info.video.play().catch(() => {});
+  }
+}
+
+function pauseVideos(videos) {
+  if (!videos?.length) return;
+  for (const { video } of videos) video.pause();
 }
 
 // ---------------------------------------------------------------------------

@@ -177,13 +177,14 @@ export class VrfAnimation {
   }
 
   _setupHiDpi() {
-    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-    const cssW = this.canvas.clientWidth  || CW;
-    const cssH = this.canvas.clientHeight || CH;
-    const renderScale = Math.max(1, Math.min(4, (cssW / CW) * dpr));
-    this.canvas.width  = Math.round(CW * renderScale);
-    this.canvas.height = Math.round(CH * renderScale);
-    this.ctx.setTransform(renderScale, 0, 0, renderScale, 0, 0);
+    const dpr  = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    // Use the container's actual CSS width as the logical draw width so the
+    // corridor fills the available space by showing more of the track, not by
+    // scaling up the existing pixels. Height stays fixed at CH.
+    this._logicalW = Math.max(CW, this.canvas.clientWidth || CW);
+    this.canvas.width  = Math.round(this._logicalW * dpr);
+    this.canvas.height = Math.round(CH * dpr);
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.ctx.imageSmoothingEnabled = true;
     this.ctx.imageSmoothingQuality = 'high';
   }
@@ -295,8 +296,9 @@ export class VrfAnimation {
     const curSite    = findSiteAt(this.sites, this.t);
     const state      = this._mouseState(this.t);
 
+    const W = this._logicalW;
     ctx.fillStyle = C.bg;
-    ctx.fillRect(0, 0, CW, CH);
+    ctx.fillRect(0, 0, W, CH);
 
     this._drawCorridor(ctx, mousePosCm);
     this._drawSites(ctx, mousePosCm);
@@ -310,7 +312,7 @@ export class VrfAnimation {
   _visibleRangeCm(mousePosCm) {
     return {
       west: mousePosCm - MOUSE_X / PX_PER_CM,
-      east: mousePosCm + (CW - MOUSE_X) / PX_PER_CM,
+      east: mousePosCm + (this._logicalW - MOUSE_X) / PX_PER_CM,
     };
   }
 
@@ -359,8 +361,8 @@ export class VrfAnimation {
     }
 
     ctx.fillStyle = C.corridorEdge;
-    ctx.fillRect(0, CORR_Y - 1, CW, 1);
-    ctx.fillRect(0, CORR_Y + CORR_H, CW, 1);
+    ctx.fillRect(0, CORR_Y - 1, this._logicalW, 1);
+    ctx.fillRect(0, CORR_Y + CORR_H, this._logicalW, 1);
   }
 
   _drawSites(ctx, mousePosCm) {
@@ -438,7 +440,7 @@ export class VrfAnimation {
     const scale = MOUSE_LEN_PX / srcH;
     const drawW = srcW * scale;
     const drawH = srcH * scale;
-    const headX = MOUSE_X + 10;
+    const headX = MOUSE_X;
 
     ctx.save();
     ctx.translate(headX, MOUSE_Y);

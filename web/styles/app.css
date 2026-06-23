@@ -6698,9 +6698,49 @@ body {
 .vrf-player #vrf-canvas {
   display: block;
   width: 100%;
-  height: 240px;
+  height: 120px;
   border: 1px solid var(--border, #e1e1e1);
   background: #fff;
+}
+
+.vrf-player .vrf-videos {
+  margin-top: 16px;
+}
+.vrf-player .vrf-videos-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-mut, #6a6a6a); margin-bottom: 6px;
+}
+.vrf-player .vrf-videos-speed-warning {
+  font-size: 12px;
+  color: #7a6000;
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
+.vrf-player .vrf-videos-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vrf-player .vrf-video-wrap {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vrf-player .vrf-video-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-mut, #6a6a6a); text-align: center;
+}
+.vrf-player .vrf-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+  border: 1px solid var(--border, #e1e1e1);
 }
 
 /* ---------------------------------------------------------------------------
