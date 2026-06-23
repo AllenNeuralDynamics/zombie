@@ -1,4 +1,4 @@
 import { bootstrap } from './lib/bootstrap.js';
-import { createProjectView } from './project/view.js';
+import { createCombinedView } from './combined/view.js';
 
-bootstrap((coord) => createProjectView({ coordinator: coord }), { graceful: true });
+bootstrap((coord) => createCombinedView({ coordinator: coord }), { graceful: true });

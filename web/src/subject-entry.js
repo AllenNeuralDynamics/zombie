@@ -1,4 +1,4 @@
 import { bootstrap } from './lib/bootstrap.js';
-import { createSubjectView } from './subject/view.js';
+import { createCombinedView } from './combined/view.js';
 
-bootstrap((coord) => createSubjectView({ coordinator: coord }), { graceful: true });
+bootstrap((coord) => createCombinedView({ coordinator: coord }), { graceful: true });

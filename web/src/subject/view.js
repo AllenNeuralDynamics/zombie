@@ -146,7 +146,7 @@ export function organizeSubjectData(records, subjectId) {
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const { coordinator } = opts;
+  const { coordinator, embedded = false, onSubjectLoaded = null } = opts;
   const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
@@ -158,7 +158,7 @@ export function createSubjectView(opts = {}) {
   // ── Header + selector ─────────────────────────────────────────────────────
   const headerEl = document.createElement('div');
   headerEl.className = 'view-header';
-  headerEl.innerHTML = '<h2>Subject Viewer</h2>';
+  if (!embedded) headerEl.innerHTML = '<h2>Subject Viewer</h2>';
 
   const selectorEl = document.createElement('div');
   selectorEl.className = 'subject-selector';
@@ -200,22 +200,25 @@ export function createSubjectView(opts = {}) {
   function handleSubjectChange() {
     const newId = input.value.trim();
     console.debug('[SubjectView] input changed → newId:', newId, 'prev aborted:', loadAbortController?.signal?.aborted);
-    const params = new URLSearchParams(window.location.search);
-    if (newId) {
-      params.set('subject_id', newId);
-    } else {
-      params.delete('subject_id');
-    }
-    try {
-      const url = new URL(window.location.href);
-      url.search = params.toString();
-      history.pushState({}, '', url);
-    } catch {
-      // pushState can throw in restricted contexts (e.g. Firefox strict mode).
+    if (!embedded) {
+      // The combined view owns the URL when embedded.
+      const params = new URLSearchParams(window.location.search);
+      if (newId) {
+        params.set('subject_id', newId);
+      } else {
+        params.delete('subject_id');
+      }
+      try {
+        const url = new URL(window.location.href);
+        url.search = params.toString();
+        history.pushState({}, '', url);
+      } catch {
+        // pushState can throw in restricted contexts (e.g. Firefox strict mode).
+      }
     }
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
-    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal);
+    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, { onSubjectLoaded });
   }
 
   input.addEventListener('change', handleSubjectChange);
@@ -228,12 +231,28 @@ export function createSubjectView(opts = {}) {
 
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
-  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal);
+  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded });
+
+  // Imperative API for the combined view: load a subject programmatically,
+  // optionally pre-selecting a specific acquisition on the timeline.
+  root.loadSubject = (id, { acquisitionName = null } = {}) => {
+    if (id && id === input.value.trim()) {
+      // Same subject already loaded — just jump to the acquisition if given.
+      if (acquisitionName) root._pendingAcquisition = acquisitionName;
+      root._selectAcquisition?.(acquisitionName);
+      return;
+    }
+    input.value = id ?? '';
+    root._pendingAcquisition = acquisitionName;
+    if (loadAbortController) loadAbortController.abort();
+    loadAbortController = new AbortController();
+    _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, { onSubjectLoaded, root });
+  };
 
   return root;
 }
 
-async function _loadSubject(contentEl, subjectId, coordinator, signal) {
+async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, root = null } = {}) {
   console.debug('[SubjectView] _loadSubject start:', subjectId, 'aborted:', signal?.aborted);
   // Clear previous content and show loading indicator
   contentEl.innerHTML = '';
@@ -338,6 +357,18 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
 
     timelineSection.appendChild(timelineSvg);
 
+    // Expose acquisition selection to the combined view and honour any
+    // acquisition requested before this load completed (e.g. project dot click).
+    if (root) {
+      root._selectAcquisition = (name) => timelineSvg.selectAcquisition?.(name);
+      if (root._pendingAcquisition) {
+        const target = root._pendingAcquisition;
+        root._pendingAcquisition = null;
+        // Defer until the bubble strip has laid out.
+        requestAnimationFrame(() => timelineSvg.selectAcquisition?.(target));
+      }
+    }
+
     // Replace loading message
     loadingEl.replaceWith(infoEl);
     contentEl.appendChild(timelineSection);
@@ -350,6 +381,12 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal) {
         if (!result) return;
         const { tableEl, assets } = result;
         assetsTableEl = tableEl;
+        // Report the most-recent asset's project to the combined view so it can
+        // populate the project section when the subject was opened first.
+        if (onSubjectLoaded) {
+          const mostRecentProject = assets.find((a) => a.project_name)?.project_name ?? null;
+          onSubjectLoaded({ subjectId, mostRecentProject });
+        }
         // Enrich acquisition event data with S3 location and Code Ocean from DuckDB
         if (assets?.length) {
           const assetByName = new Map(assets.map((a) => [a.name, a]));

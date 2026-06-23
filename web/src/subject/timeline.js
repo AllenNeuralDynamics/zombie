@@ -189,6 +189,14 @@ export function createSubjectTimeline(events, opts = {}) {
   let selectedBubble = null;
   const bubbleEls = []; // parallel to sorted[]
 
+  function selectBubble(bubble, ev) {
+    if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
+    bubble.classList.add('tl-bubble--selected');
+    selectedBubble = bubble;
+    bubble.scrollIntoView?.({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    onSelect?.(ev);
+  }
+
   for (const ev of sorted) {
     const bubble = document.createElement('button');
     bubble.className = 'tl-bubble';
@@ -227,18 +235,25 @@ export function createSubjectTimeline(events, opts = {}) {
       bubble.appendChild(modEl);
     }
 
-    bubble.addEventListener('click', () => {
-      if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
-      bubble.classList.add('tl-bubble--selected');
-      selectedBubble = bubble;
-      onSelect?.(ev);
-    });
+    bubble.addEventListener('click', () => selectBubble(bubble, ev));
 
     bubbleScroll.appendChild(bubble);
     bubbleEls.push(bubble);
   }
 
   wrapper.appendChild(bubbleScroll);
+
+  // Expose imperative acquisition selection (used by the combined view to jump
+  // to a specific acquisition when arriving from a project-page dot click).
+  wrapper.selectAcquisition = (assetName) => {
+    if (!assetName) return false;
+    const idx = sorted.findIndex(
+      (ev) => ev.type === 'Acquisition' && ev.data?._assetName === assetName,
+    );
+    if (idx === -1) return false;
+    selectBubble(bubbleEls[idx], sorted[idx]);
+    return true;
+  };
 
   // ── Sync: scroll → window position/size ───────────────────────────────────
 

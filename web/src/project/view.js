@@ -72,7 +72,7 @@ function filterByCurricula(rawAssets, windowStart, numDays, curriculumMap, selec
 // ---------------------------------------------------------------------------
 
 export function createProjectView(opts = {}) {
-  const { coordinator } = opts;
+  const { coordinator, embedded = false, onSubjectClick = null } = opts;
   const params = new URLSearchParams(window.location.search);
   const initialProject = params.get('project') ?? '';
 
@@ -92,7 +92,7 @@ export function createProjectView(opts = {}) {
   // Header
   const headerEl = document.createElement('div');
   headerEl.className = 'view-header';
-  headerEl.innerHTML = '<h2>Project Overview</h2>';
+  if (!embedded) headerEl.innerHTML = '<h2>Project Overview</h2>';
 
   const selectorEl = document.createElement('div');
   selectorEl.className = 'subject-selector';
@@ -131,19 +131,21 @@ export function createProjectView(opts = {}) {
     if (abortController) abortController.abort();
     abortController = new AbortController();
 
-    // Update URL
-    const p = new URLSearchParams(window.location.search);
-    if (currentProject) p.set('project', currentProject); else p.delete('project');
-    p.set('color_by', viewMode);
-    p.set('window_size', windowSize);
-    if (windowStart) p.set('window_start', isoDate(windowStart)); else p.delete('window_start');
-    const curriculaStr = Array.from(selectedCurricula).join(',');
-    if (curriculaStr) p.set('curricula', curriculaStr); else p.delete('curricula');
-    try {
-      const url = new URL(window.location.href);
-      url.search = p.toString();
-      history.replaceState({}, '', url);
-    } catch { /* restricted */ }
+    // Update URL (skipped when embedded — the combined view owns the URL)
+    if (!embedded) {
+      const p = new URLSearchParams(window.location.search);
+      if (currentProject) p.set('project', currentProject); else p.delete('project');
+      p.set('color_by', viewMode);
+      p.set('window_size', windowSize);
+      if (windowStart) p.set('window_start', isoDate(windowStart)); else p.delete('window_start');
+      const curriculaStr = Array.from(selectedCurricula).join(',');
+      if (curriculaStr) p.set('curricula', curriculaStr); else p.delete('curricula');
+      try {
+        const url = new URL(window.location.href);
+        url.search = p.toString();
+        history.replaceState({}, '', url);
+      } catch { /* restricted */ }
+    }
 
     const _numDays = getNumDays(windowSize);
     _loadProject(contentEl, currentProject, coordinator, windowStart, abortController.signal, {
@@ -156,6 +158,7 @@ export function createProjectView(opts = {}) {
       onWindowSizeChange: (size) => { windowSize = size; windowStart = computeDefaultWindowStart(size, utcDay(new Date())); load(); },
       selectedCurricula,
       onCurriculaChange: (set) => { selectedCurricula = set; load(); },
+      onSubjectClick,
     });
   }
 
@@ -168,6 +171,15 @@ export function createProjectView(opts = {}) {
     if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
   });
 
+  // Imperative API for the combined view: load a project programmatically.
+  root.loadProject = (name) => {
+    if (name === currentProject) return;
+    currentProject = name ?? '';
+    input.value = currentProject;
+    windowStart = null;
+    load();
+  };
+
   load();
   return root;
 }
@@ -176,7 +188,7 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null, onSubjectClick = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
   contentEl.innerHTML = '';
@@ -213,13 +225,17 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     if (!windowStart) {
       windowStart = findLastAcquisitionWindow(rawAssets, windowSize);
       onWindowStartChange?.(windowStart);
-      try {
-        const _p = new URLSearchParams(window.location.search);
-        _p.set('window_start', isoDate(windowStart));
-        const _url = new URL(window.location.href);
-        _url.search = _p.toString();
-        history.replaceState({}, '', _url);
-      } catch { /* restricted */ }
+      if (!onSubjectClick) {
+        // Only sync window_start to the URL on the standalone page; the combined
+        // view owns the URL and uses onSubjectClick as its embedded marker.
+        try {
+          const _p = new URLSearchParams(window.location.search);
+          _p.set('window_start', isoDate(windowStart));
+          const _url = new URL(window.location.href);
+          _url.search = _p.toString();
+          history.replaceState({}, '', _url);
+        } catch { /* restricted */ }
+      }
     }
     const windowEnd = addDays(windowStart, numDays);
 
@@ -425,6 +441,13 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     const cellW = Math.max(10, Math.floor((containerW - TIMELINE_LABEL_W - 24) / numDays));
 
     const svgEl = buildTimelineSvg(filteredRawAssets, windowStart, (dayAssets) => {
+      // In the combined view, a dot click opens the subject section and jumps
+      // to the clicked acquisition rather than navigating away.
+      if (onSubjectClick && dayAssets.length) {
+        const first = dayAssets[0];
+        onSubjectClick(first.subject_id ?? '', { acquisitionName: first.name ?? '' });
+        return;
+      }
       if (assetsTableEl) {
         assetsTableEl.clearHighlights?.();
         for (const asset of dayAssets) {
@@ -456,17 +479,20 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     timelineBody.appendChild(timelineMain);
     timelineSection.appendChild(timelineBody);
 
-    // Assets table
-    const assetsSection = document.createElement('div');
-    assetsSection.className = 'subject-assets-section';
-    assetsSection.innerHTML = '<h3>Assets</h3>';
-    assetsTableEl = buildAssetsTable(allAssets, sourceMap);
-    assetsSection.appendChild(assetsTableEl);
-
     loadingEl.replaceWith(infoEl);
     contentEl.appendChild(timelineSection);
     contentEl.appendChild(detailSection);
-    contentEl.appendChild(assetsSection);
+
+    // Assets table — omitted in the combined view, where the subject section
+    // already shows a per-subject assets table.
+    if (!onSubjectClick) {
+      const assetsSection = document.createElement('div');
+      assetsSection.className = 'subject-assets-section';
+      assetsSection.innerHTML = '<h3>Assets</h3>';
+      assetsTableEl = buildAssetsTable(allAssets, sourceMap);
+      assetsSection.appendChild(assetsTableEl);
+      contentEl.appendChild(assetsSection);
+    }
 
   } catch (err) {
     if (err?.name === 'AbortError' || signal?.aborted) return;
