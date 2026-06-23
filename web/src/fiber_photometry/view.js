@@ -431,19 +431,27 @@ export function buildMissingTable(wideRows) {
       fiberKeys.get(m[1]).push([k, v]);
     }
 
-    for (const [fiberIdx, pairs] of fiberKeys) {
-      if (!pairs.some(([, v]) => v != null && v !== '')) continue;
+    const allFiberPairs = [...fiberKeys.values()].flat();
+    const hasAnyData = allFiberPairs.some(([, v]) => v != null && v !== '');
 
-      const displayName = `Fiber ${fiberIdx}`;
+    if (!hasAnyData && fiberKeys.size > 0) {
+      assetMissingTargets.push('All fibers');
+      assetMissingMeasurements.push('All fibers');
+    } else {
+      for (const [fiberIdx, pairs] of fiberKeys) {
+        if (!pairs.some(([, v]) => v != null && v !== '')) continue;
 
-      const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
-      if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
-        assetMissingTargets.push(displayName);
-      }
+        const displayName = `Fiber ${fiberIdx}`;
 
-      const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
-      if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
-        assetMissingMeasurements.push(displayName);
+        const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
+        if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
+          assetMissingTargets.push(displayName);
+        }
+
+        const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
+        if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
+          assetMissingMeasurements.push(displayName);
+        }
       }
     }
 
