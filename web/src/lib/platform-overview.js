@@ -38,6 +38,7 @@ function buildFilterCondition(assetFilter) {
   if (assetFilter.type === 'acquisition_type') return `acquisition_type = '${safeVal}'`;
   if (assetFilter.type === 'acquisition_type_regex') return `regexp_matches(acquisition_type, '${safeVal}')`;
   if (assetFilter.type === 'instrument_id_contains') return `instrument_id IS NOT NULL AND instrument_id ILIKE '%${safeVal}%'`;
+  if (assetFilter.type === 'project_name') return `project_name = '${safeVal}'`;
   return '1=1';
 }
 

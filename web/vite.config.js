@@ -55,6 +55,7 @@ export default defineConfig({
         fiber_photometry: resolve(__dirname, 'fiber_photometry.html'),
         vr_foraging: resolve(__dirname, 'vr_foraging.html'),
         dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
+        dynamic_routing: resolve(__dirname, 'dynamic_routing.html'),
         slap2: resolve(__dirname, 'slap2.html'),
         tables: resolve(__dirname, 'tables.html'),
         names: resolve(__dirname, 'names.html'),
