@@ -71,6 +71,20 @@ function clearDraft(token) {
   try { localStorage.removeItem(draftKey(token)); } catch (_) {}
 }
 
+function translateSaveError(msg) {
+  const s = String(msg || '');
+  if (/allows adding exactly one new author/i.test(s)) {
+    return 'An author with this name already exists on the project. Pick a different name, or ask the lead author for a personal edit link.';
+  }
+  if (/cannot modify existing author/i.test(s)) {
+    return 'Your one-time invite token can only add a new author — it cannot modify an existing one. Ask the lead author for a personal edit link to update an existing entry.';
+  }
+  if (/cannot remove existing authors/i.test(s)) {
+    return 'Your token does not have permission to remove existing authors.';
+  }
+  return s;
+}
+
 function extractPayloadMeta(data) {
   const sections = [];
   for (const raw of (Array.isArray(data.sections) ? data.sections : [])) {
@@ -456,6 +470,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 
 function StepFullEditor({
   doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
+  setAuthorName, setOrcid, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
@@ -471,6 +486,15 @@ function StepFullEditor({
   const [editLeaveDate, setEditLeaveDate]     = useState(leaveDate || null);
   const [editSectionLevels, setEditSectionLevels] = useState(() => ({ ...sectionLevels }));
   const [customAff, setCustomAff]             = useState('');
+
+  useEffect(() => { setAuthorName?.(editName); }, [editName]);
+  useEffect(() => { setOrcid?.(editOrcid); }, [editOrcid]);
+  useEffect(() => { setSelectedAffNames?.(editAffNames); }, [editAffNames]);
+  useEffect(() => { setRoles?.(editRoles); }, [editRoles]);
+  useEffect(() => { setDescriptions?.(editDescs); }, [editDescs]);
+  useEffect(() => { setJoinDate?.(editJoinDate); }, [editJoinDate]);
+  useEffect(() => { setLeaveDate?.(editLeaveDate); }, [editLeaveDate]);
+  useEffect(() => { setSectionLevels?.(editSectionLevels); }, [editSectionLevels]);
 
   function toggleAff(affName) {
     setEditAffNames((prev) =>
@@ -606,14 +630,16 @@ function StepFullEditor({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Server error ${res.status}`);
+        const raw = body.error || `Server error ${res.status}`;
+        const friendly = translateSaveError(raw);
+        throw new Error(friendly);
       }
       const result = await res.json();
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       setSaveStatus({ text: `✓ Saved${commit}`, cls: 'status-success' });
       clearDraft(token);
-      if (result.author_token) {
-        setSavedAuthorToken(result.author_token);
+      if (result.edit_token) {
+        setSavedAuthorToken({ token: result.edit_token, author: result.edit_author || editName.trim() || authorName });
       } else {
         setTimeout(() => {
           window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
@@ -627,19 +653,20 @@ function StepFullEditor({
   }
 
   if (savedAuthorToken) {
+    const editUrl = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(doi)}&token=${encodeURIComponent(savedAuthorToken.token)}&author=${encodeURIComponent(savedAuthorToken.author)}`;
     return html`
       <div class="cv-wizard-step cv-wizard-step-editor">
         <h2 class="cv-wizard-step-title">Submission saved</h2>
         <div class="cv-author-token-box">
           <p class="cv-author-token-notice">
-            <strong>Copy your author token before continuing.</strong>
-            You will need this token to make edits in the future.
+            <strong>Save the link below to edit your contribution later.</strong>
+            This is the only way to re-open your entry for changes.
             If you lose it, contact the lead author to have it re-shared.
           </p>
           <div class="cv-author-token-display">
-            <code class="cv-author-token-value">${savedAuthorToken}</code>
-            <button class="btn-secondary" onClick=${() => navigator.clipboard.writeText(savedAuthorToken)}>
-              Copy
+            <code class="cv-author-token-value">${editUrl}</code>
+            <button class="btn-secondary" onClick=${() => navigator.clipboard.writeText(editUrl)}>
+              Copy link
             </button>
           </div>
         </div>
@@ -844,13 +871,13 @@ function AddApp({ doi, token, existingAuthor }) {
   });
   const [descriptions, setDescriptions] = useState(_draft?.descriptions || {});
   const [sectionLevels, setSectionLevels] = useState(_draft?.sectionLevels || {});
-  const [prefilled, setPrefilled] = useState(false);
+  const [prefilled, setPrefilled] = useState(Boolean(_draft));
 
   useEffect(() => {
     if (!token) return;
-    if (step === 0) return;
-    saveDraft(token, { name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
-  }, [name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, step]);
+    if (loading) return;
+    saveDraft(token, { step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
+  }, [step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
   useEffect(() => {
     if (!doi || !token) {
@@ -875,7 +902,7 @@ function AddApp({ doi, token, existingAuthor }) {
         setSections(meta.sections);
         setAffiliations(meta.affiliations);
 
-        if (isExisting && !_draft?.roles && !prefilled) {
+        if (isExisting && !_draft && !prefilled) {
           const contributor = (data.contributors || []).find(
             (c) => c.author?.name === existingAuthor
           );
@@ -916,7 +943,9 @@ function AddApp({ doi, token, existingAuthor }) {
           }
         }
 
-        if (isExisting || _draft?.name || hasVisitedCookie(doi, token)) {
+        if (_draft?.step) {
+          setStep(_draft.step);
+        } else if (isExisting || hasVisitedCookie(doi, token)) {
           setStep(5);
         } else {
           setStep(1);
@@ -1020,6 +1049,9 @@ function AddApp({ doi, token, existingAuthor }) {
           authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
           joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
+          setAuthorName=${setName} setOrcid=${setOrcid} setSelectedAffNames=${setSelectedAffNames}
+          setRoles=${setRoles} setDescriptions=${setDescriptions}
+          setJoinDate=${setJoinDate} setLeaveDate=${setLeaveDate} setSectionLevels=${setSectionLevels}
           allRows=${allRows}
           projectData=${projectData} sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}

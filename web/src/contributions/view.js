@@ -1220,6 +1220,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [showTimeline, setShowTimeline]       = useState(initialDraft?.showTimeline ?? false);
   const [allowLead, setAllowLead]             = useState(initialDraft?.allowLead ?? true);
   const [allowLevels, setAllowLevels]         = useState(initialDraft?.allowLevels ?? true);
+  const [existsOnServer, setExistsOnServer]   = useState(initialDraft?.existsOnServer ?? false);
 
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
@@ -1239,11 +1240,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi, projectLocked, serverLocked,
         showSections, showLevels, showTimeline, allowLead, allowLevels,
+        existsOnServer,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
     creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked,
-    showSections, showLevels, showTimeline, allowLead, allowLevels]);
+    showSections, showLevels, showTimeline, allowLead, allowLevels, existsOnServer]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1333,6 +1335,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       setShowTimeline(data.show_timeline ?? false);
       setAllowLead(data.allow_lead ?? true);
       setAllowLevels(data.allow_levels ?? true);
+      setExistsOnServer(true);
       setAssetsOpen(false);
       fetchHistory(project);
     } catch (err) {
@@ -1381,6 +1384,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         text: `\u2713 Saved \u201c${project}\u201d${commit}`,
         cls: 'status-success',
       });
+      setExistsOnServer(true);
       fetchHistory(project);
     } catch (err) {
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
@@ -1823,7 +1827,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
 export function createContributionsView(options = {}) {
   const { assetName = '', projectName = '', password = '', docdbOptions = {}, showTokenLinks = false } = options;
 
-  // Restore draft synchronously before first render
+  // Restore draft synchronously before first render.
+  // Drafts are only kept for projects that don't exist on the server yet —
+  // existing projects always re-fetch from the server on mount.
   let draftRestored = false;
   let initialDraft = null;
   try {
@@ -1831,7 +1837,11 @@ export function createContributionsView(options = {}) {
     if (raw) {
       const draft = JSON.parse(raw);
       const draftProject = (draft.projectName || '').trim();
-      if (draftProject && projectName !== draftProject) {
+      const isForeignProject = draftProject && projectName !== draftProject;
+      // Treat missing flag as "server-known" so legacy drafts are discarded
+      // and the server is always the source of truth for existing projects.
+      const isServerKnown = draft.existsOnServer !== false;
+      if (isForeignProject || isServerKnown) {
         sessionStorage.removeItem(DRAFT_KEY);
       } else if (draft.rows?.length > 0) {
         initialDraft = draft;
