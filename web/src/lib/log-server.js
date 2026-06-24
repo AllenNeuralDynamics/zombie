@@ -1,8 +1,8 @@
 /**
- * log-server.js — Client for the eng-logtools MySQL acquisition_report logs.
+ * log-server.js — Client for the eng-logtools MySQL camstim agent logs.
  *
- * Fetches "Acquisition Report Generated" events from the internal MySQL log
- * server via the docdb-proxy /log-server endpoint. Credentials are passed
+ * Fetches "Action, Completed" events emitted by the camstim agent on every
+ * behavior/stim rig at the end of each session. Credentials are passed
  * through on every request; nothing is cached server-side.
  */
 
@@ -32,8 +32,8 @@ export function quarterDateRange(quarterLabel) {
   return { startDate: fmt(start), endDate: fmt(end) };
 }
 
-export async function fetchAcquisitionReports({ user, password, table, startDate, endDate, signal } = {}) {
-  const res = await fetch(`${LOG_SERVER_BASE}/acquisition-reports`, {
+export async function fetchCamstimCompleted({ user, password, table, startDate, endDate, signal } = {}) {
+  const res = await fetch(`${LOG_SERVER_BASE}/camstim-completed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user, password, table, startDate, endDate }),
@@ -71,25 +71,32 @@ export function parseLogTimestamp(s) {
 export function logRowToSession(logRow, options = {}) {
   const fields = logRow?.fields ?? {};
   const subject = String(fields.MID ?? '').trim() || null;
-  const sessionId = String(fields.OphysSessionID ?? '').trim() || null;
-  const acqStart = parseLogTimestamp(fields.Date_timestamp) ?? logRow?.datetime ?? null;
+  const endIso = parseLogTimestamp(logRow?.datetime);
+  const durMin = parseFloat(fields.Duration_min);
+  let startIso = endIso;
+  if (endIso && Number.isFinite(durMin) && durMin > 0) {
+    startIso = new Date(new Date(endIso).getTime() - durMin * 60000).toISOString();
+  }
   const uid = String(fields.UID ?? '').trim();
   const experimenters = uid ? [uid] : [];
+  const resource = String(fields.Resource_ID ?? '').trim();
+  const returnCode = String(fields.Return_code ?? '').trim();
+  const nameSeed = endIso ? endIso.replace(/[^\d]/g, '').slice(0, 14) : String(Math.random()).slice(2, 10);
   return {
     source: 'log',
     subject_id: subject,
-    acquisition_start_time: acqStart,
-    acquisition_end_time: null,
+    acquisition_start_time: startIso,
+    acquisition_end_time: endIso,
     project_name: '',
     instrument_id: normalizeLogInstrument(logRow?.instrument_id ?? '', options.instrumentMap),
     experimenters,
     modalities: ['behavior'],
     genotype: '',
-    name: sessionId ? `log_${sessionId}` : `log_${acqStart ?? Math.random()}`,
+    name: `log_${subject ?? 'na'}_${nameSeed}`,
     location: '',
-    log_session_id: sessionId,
-    log_stimulus: fields.Stimulus ?? '',
-    log_report_status: fields['Report Status'] ?? '',
+    log_resource_id: resource,
+    log_duration_min: Number.isFinite(durMin) ? durMin : null,
+    log_return_code: returnCode,
     log_client_address: logRow?.client_address ?? '',
     log_datetime: logRow?.datetime ?? null,
   };
@@ -138,21 +145,13 @@ export function mergeLogSessions(existingRows, logSessions) {
     if (!bySubject.has(key)) bySubject.set(key, []);
     bySubject.get(key).push(r);
   }
-  const nameSet = new Set(
-    existingRows
-      .map((r) => String(r.name ?? ''))
-      .filter(Boolean),
-  );
 
   const added = [];
   let matched = 0;
   for (const log of logSessions) {
     const subj = String(log.subject_id ?? '').trim();
     let isMatch = false;
-    if (log.log_session_id && [...nameSet].some((n) => n.includes(log.log_session_id))) {
-      isMatch = true;
-    }
-    if (!isMatch && subj) {
+    if (subj) {
       const candidates = bySubject.get(subj) ?? [];
       for (const c of candidates) {
         if (_sameDayUtc(c.acquisition_start_time, log.acquisition_start_time)) {

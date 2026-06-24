@@ -59,24 +59,21 @@ client_v1 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v1")
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# Keys we know are "atomic" (no embedded commas/braces).
-# Anything else gets captured up to the next known key boundary.
-_ACQ_KNOWN_KEYS = (
-    "Action", "Report Status", "OphysSessionID", "UID", "MID",
-    "Date_timestamp", "Stimulus",
-    "Stim_Long_Frames", "Stim_Extra_Long_Frames", "Stim_Mean_Frame_Interval_ms",
-    "MVR_Behavior_Dropped_Frames", "MVR_Eye_Dropped_Frames",
-    "MVR_Face_Dropped_Frames", "MVR_Nose_Dropped_Frames",
-    "Licks_Detected_MVR", "Licks_Detected_Sync", "Licks_Detected_Pickle",
-    "Encoder_Distance_cm", "File", "Arguments", "Output path",
+# Keys we expect in a camstim 'Action, Completed' message. The agent emits
+# them in varying orders, so we split on lookahead boundaries instead of
+# assuming a fixed sequence.
+_CAMSTIM_KNOWN_KEYS = (
+    "MID", "UID", "Action", "Resource_ID", "Descriptive_name", "Mode",
+    "Checksum", "Json_checksum", "Duration_min", "Return_code",
+    "Long_frames", "Extra-long_frames", "Wheel_rotations",
 )
 
 
-def _parse_acquisition_message(msg: str) -> dict:
+def _parse_camstim_message(msg: str) -> dict:
     if not msg:
         return {}
     msg = html.unescape(msg)
-    key_alt = "|".join(re.escape(k) for k in _ACQ_KNOWN_KEYS)
+    key_alt = "|".join(re.escape(k) for k in _CAMSTIM_KNOWN_KEYS)
     pattern = re.compile(rf",\s*(?={key_alt})\s*")
     parts = pattern.split(", " + msg)
     out: dict[str, str] = {}
@@ -97,8 +94,7 @@ def _parse_acquisition_message(msg: str) -> dict:
 def _client_address_to_instrument(addr: str) -> str:
     if not addr:
         return ""
-    head = addr.split(" / ", 1)[0].strip()
-    return head.replace("-Acq", "").replace("-Comp", "")
+    return addr.split(" / ", 1)[0].strip()
 
 
 # Legacy alias used by existing code paths
@@ -117,12 +113,12 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._handle_search(client_v1)
         elif self.path == "/metadata/search":
             self._handle_search(client_v2)
-        elif self.path == "/log-server/acquisition-reports":
-            self._handle_acquisition_reports()
+        elif self.path == "/log-server/camstim-completed":
+            self._handle_camstim_completed()
         else:
             self._respond(404, {"error": "Not found"})
 
-    def _handle_acquisition_reports(self):
+    def _handle_camstim_completed(self):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) if length else b"{}")
@@ -176,12 +172,12 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
                     sql = (
                         f"SELECT datetime, client_address, version, message "
                         f"FROM {table} "
-                        "WHERE logname='acquisition_report' AND level='INFO' "
+                        "WHERE logname='camstim' AND level='INFO' "
                         "AND message LIKE %s "
                         "AND datetime >= %s AND datetime < %s "
                         "ORDER BY datetime DESC"
                     )
-                    cur.execute(sql, ("Action, Acquisition Report Generated%", start_date, end_date))
+                    cur.execute(sql, ("%Action, Completed%", start_date, end_date))
                     raw_rows = cur.fetchall()
         except Exception as e:
             log.error("Log server query failed: %s", e)
@@ -190,7 +186,13 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
 
         out = []
         for r in raw_rows:
-            parsed = _parse_acquisition_message(r.get("message") or "")
+            parsed = _parse_camstim_message(r.get("message") or "")
+            if parsed.get("Action") != "Completed":
+                continue
+            mid = (parsed.get("MID") or "").strip()
+            uid = (parsed.get("UID") or "").strip()
+            if not mid or mid.lower() == "none" or not uid or uid.lower() == "none":
+                continue
             out.append({
                 "datetime": r["datetime"].isoformat() if r.get("datetime") else None,
                 "client_address": r.get("client_address") or "",

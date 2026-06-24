@@ -11,7 +11,7 @@
 import { queryRows } from '../lib/arrow.js';
 import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 import {
-  fetchAcquisitionReports,
+  fetchCamstimCompleted,
   pickTableForRange,
   quarterDateRange,
   logRowToSession,
@@ -792,7 +792,7 @@ export function createSessionsView(coord) {
         statusHtml = '<span class="sessions-log-status sessions-log-status-muted">Not loaded</span>';
       }
       logBlockEl.innerHTML = `
-        <div class="sessions-log-title">Acquisition reports (eng-logtools)</div>
+        <div class="sessions-log-title">Camstim completed events (eng-logtools)</div>
         <div class="sessions-log-controls">
           <input type="text" id="sess-log-user" placeholder="user" autocomplete="username" value="${escHtml(logCreds.user)}" />
           <input type="password" id="sess-log-pass" placeholder="password" autocomplete="current-password" value="${escHtml(logCreds.password)}" />
@@ -838,7 +838,7 @@ export function createSessionsView(coord) {
       logStatusText = '';
       renderLogControl();
       try {
-        const data = await fetchAcquisitionReports({
+        const data = await fetchCamstimCompleted({
           user: logCreds.user,
           password: logCreds.password,
           table,
@@ -850,7 +850,7 @@ export function createSessionsView(coord) {
         const logSessions = rawLogs.map((r) => logRowToSession(r, { instrumentMap }));
         const merged = mergeLogSessions(allRows, logSessions);
         logRowsByQuarter.set(selectedQuarter, merged.added);
-        logStatusText = `+${merged.added.length} added · ${merged.matchedCount} matched · ${rawLogs.length} reports`;
+        logStatusText = `+${merged.added.length} added · ${merged.matchedCount} matched · ${rawLogs.length} events`;
       } catch (e) {
         const msg = e?.status === 401 ? 'Authentication failed' : (e?.message || 'Failed');
         logStatusText = `Error: ${msg}`;

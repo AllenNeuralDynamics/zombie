@@ -63,58 +63,74 @@ describe('normalizeLogInstrument', () => {
 describe('logRowToSession', () => {
   const sample = {
     datetime: '2026-06-24T17:25:30',
-    client_address: 'MESO.2-Acq / DT901154',
-    instrument_id: 'MESO.2',
-    version: '0.3.6.dev0',
+    client_address: 'BEH.D-Box1 / W10DTMJ0JCMZ8',
+    instrument_id: 'BEH.D-Box1',
+    version: '1.2.3',
     fields: {
-      Action: 'Acquisition Report Generated',
-      'Report Status': 'Success -',
-      OphysSessionID: '1782314737',
-      UID: 'Sam Seid',
-      MID: '845939',
-      Date_timestamp: '2026-06-24 09:04:35.537751',
-      Stimulus: 'TRAINING_3_images_G_7ul_reward',
+      MID: '853120',
+      UID: 'robyn.naidoo',
+      Action: 'Completed',
+      Resource_ID: 'TRAINING_6_psycode_passive_5uL_reward',
+      Duration_min: '60.0',
+      Return_code: '0',
+      Long_frames: '0',
     },
   };
 
-  it('extracts subject, session, time, experimenter', () => {
+  it('extracts subject, end time, start time (end minus Duration_min)', () => {
     const row = logRowToSession(sample);
     expect(row.source).toBe('log');
-    expect(row.subject_id).toBe('845939');
-    expect(row.log_session_id).toBe('1782314737');
-    expect(row.acquisition_start_time).toBe('2026-06-24T09:04:35.537Z');
-    expect(row.experimenters).toEqual(['Sam Seid']);
-    expect(row.instrument_id).toBe('MESO.2');
+    expect(row.subject_id).toBe('853120');
+    expect(row.acquisition_end_time).toBe('2026-06-24T17:25:30.000Z');
+    expect(row.acquisition_start_time).toBe('2026-06-24T16:25:30.000Z');
+    expect(row.experimenters).toEqual(['robyn.naidoo']);
+    expect(row.instrument_id).toBe('BEH.D-Box1');
     expect(row.modalities).toContain('behavior');
-    expect(row.log_stimulus).toBe('TRAINING_3_images_G_7ul_reward');
+    expect(row.log_resource_id).toBe('TRAINING_6_psycode_passive_5uL_reward');
+    expect(row.log_duration_min).toBe(60);
+    expect(row.log_return_code).toBe('0');
+  });
+
+  it('falls back to end time when Duration_min missing', () => {
+    const row = logRowToSession({
+      datetime: '2026-01-01T00:00:00',
+      fields: { MID: '1', UID: 'x', Action: 'Completed' },
+    });
+    expect(row.acquisition_end_time).toBe('2026-01-01T00:00:00.000Z');
+    expect(row.acquisition_start_time).toBe('2026-01-01T00:00:00.000Z');
+    expect(row.log_duration_min).toBeNull();
   });
 
   it('applies instrumentMap', () => {
-    const row = logRowToSession(sample, { instrumentMap: { 'MESO.2': '442_MESO.2' } });
-    expect(row.instrument_id).toBe('442_MESO.2');
+    const row = logRowToSession(sample, { instrumentMap: { 'BEH.D-Box1': 'Behavior-D-Box1' } });
+    expect(row.instrument_id).toBe('Behavior-D-Box1');
   });
 
   it('handles missing fields', () => {
     const row = logRowToSession({ datetime: '2026-01-01T00:00:00', fields: {} });
     expect(row.subject_id).toBeNull();
-    expect(row.log_session_id).toBeNull();
     expect(row.experimenters).toEqual([]);
+    expect(row.log_resource_id).toBe('');
   });
 });
 
 describe('learnInstrumentMap', () => {
   it('maps log prefix to most common matching existing instrument_id', () => {
     const existing = [
-      { instrument_id: '440_MESO.1' },
-      { instrument_id: '440_MESO.1' },
-      { instrument_id: '442_MESO.2' },
+      { instrument_id: 'Behavior-D-Box1' },
+      { instrument_id: 'Behavior-D-Box1' },
+      { instrument_id: 'NeuropixelsRig-1' },
       { instrument_id: 'something-else' },
     ];
-    const logs = [{ instrument_id: 'MESO.1' }, { instrument_id: 'MESO.2' }];
-    expect(learnInstrumentMap(existing, logs)).toEqual({
-      'MESO.1': '440_MESO.1',
-      'MESO.2': '442_MESO.2',
-    });
+    const logs = [{ instrument_id: 'BEH.D-Box1' }, { instrument_id: 'NP.1-Stim' }];
+    const map = learnInstrumentMap(existing, logs);
+    expect(map['BEH.D-Box1']).toBeUndefined();
+    expect(map).toEqual({});
+  });
+  it('matches when token overlaps case-insensitively', () => {
+    const existing = [{ instrument_id: 'meso.2-rig' }];
+    const logs = [{ instrument_id: 'MESO.2' }];
+    expect(learnInstrumentMap(existing, logs)).toEqual({ 'MESO.2': 'meso.2-rig' });
   });
   it('omits prefix when no match', () => {
     expect(learnInstrumentMap([{ instrument_id: 'foo' }], [{ instrument_id: 'MESO.1' }])).toEqual({});
@@ -135,14 +151,11 @@ describe('mergeLogSessions', () => {
     },
   ];
 
-  it('matches by session id embedded in asset name', () => {
+  it('matches by subject + same UTC day', () => {
     const logs = [
       logRowToSession({
-        fields: {
-          MID: '845939',
-          OphysSessionID: '1782314737',
-          Date_timestamp: '2026-06-24 09:04:35',
-        },
+        datetime: '2026-06-24T10:30:00',
+        fields: { MID: '845939', UID: 'x', Action: 'Completed', Duration_min: '60' },
       }),
     ];
     const out = mergeLogSessions(existing, logs);
@@ -150,21 +163,22 @@ describe('mergeLogSessions', () => {
     expect(out.added).toEqual([]);
   });
 
-  it('matches by subject + same UTC day even without session id', () => {
+  it('matches even when log start crosses midnight after subtracting duration', () => {
     const logs = [
       logRowToSession({
-        fields: { MID: '111111', Date_timestamp: '2026-06-20 23:30:00' },
+        datetime: '2026-06-20T23:30:00',
+        fields: { MID: '111111', UID: 'x', Action: 'Completed', Duration_min: '30' },
       }),
     ];
     const out = mergeLogSessions(existing, logs);
     expect(out.matchedCount).toBe(1);
-    expect(out.added.length).toBe(0);
   });
 
-  it('adds rows that do not match', () => {
+  it('adds rows that do not match an existing subject/day', () => {
     const logs = [
       logRowToSession({
-        fields: { MID: '222222', OphysSessionID: '9999', Date_timestamp: '2026-06-22 08:00:00' },
+        datetime: '2026-06-22T08:00:00',
+        fields: { MID: '222222', UID: 'y', Action: 'Completed', Duration_min: '15' },
       }),
     ];
     const out = mergeLogSessions(existing, logs);
