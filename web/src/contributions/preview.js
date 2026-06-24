@@ -534,9 +534,12 @@ function sortAuthors(authors, sortKey) {
  * @param {Array<{name:string, credit_levels:Array<{role:string,level:string}>}>} authors
  *   Author objects in widget format.
  */
-export function createPreview(container, authors) {
+export function createPreview(container, authors, options = {}) {
   ensureWidgetCSS();
   _allAuthors = authors || [];
+  const showSections = options.showSections ?? false;
+  const showLevels = options.showLevels ?? true;
+  const showTimeline = options.showTimeline ?? false;
 
   // Remove previous widget if any
   const prev = container.querySelector('.ae-widget');
@@ -660,9 +663,10 @@ export function createPreview(container, authors) {
         const level = findCreditLevel(author, role);
         const td = el('td', { className: 'ae-matrix-cell' });
         if (level) {
+          const cellLevel = showLevels ? level.toLowerCase() : 'equal';
           td.appendChild(el('div', {
-            className: `ae-cell-sq ae-cell-sq-${level.toLowerCase()}`,
-            title: `${author.name}: ${level}`,
+            className: `ae-cell-sq ae-cell-sq-${cellLevel}`,
+            title: showLevels ? `${author.name}: ${level}` : author.name,
           }));
         }
         row.appendChild(td);
@@ -674,14 +678,16 @@ export function createPreview(container, authors) {
     wrap.appendChild(table);
 
     // Legend
-    const legend = el('div', {
-      className: 'ae-matrix-legend',
-      style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', padding: '0 0 0 20px', flexShrink: '0' },
-    });
-    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-lead' }, 'Lead'));
-    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-equal' }, 'Equal'));
-    legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-supporting' }, 'Supporting'));
-    outer.appendChild(legend);
+    if (showLevels) {
+      const legend = el('div', {
+        className: 'ae-matrix-legend',
+        style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', padding: '0 0 0 20px', flexShrink: '0' },
+      });
+      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-lead' }, 'Lead'));
+      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-equal' }, 'Equal'));
+      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-supporting' }, 'Supporting'));
+      outer.appendChild(legend);
+    }
 
     return centering;
   }
@@ -854,7 +860,7 @@ export function createPreview(container, authors) {
                         : '';
               if (sym) span.appendChild(el('sup', { className: 'ae-aff-sup' }, sym));
             }
-            if (isCreditSort) {
+            if (isCreditSort && showLevels) {
               const level = findCreditLevel(author, sortKey.slice(7));
               if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
             }
@@ -876,7 +882,7 @@ export function createPreview(container, authors) {
             const indices = author.affiliations.map(aff => affIndexMap.get(getAffKey(aff))).filter(Boolean);
             if (indices.length) span.appendChild(el('sup', { className: 'ae-aff-sup' }, indices.join(',')));
           }
-          if (isCreditSort) {
+          if (isCreditSort && showLevels) {
             const level = findCreditLevel(author, sortKey.slice(7));
             if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
           }
@@ -1009,8 +1015,9 @@ export function createPreview(container, authors) {
       if (creditLevels.length) {
         const roles = el('div', { className: 'ae-profile-roles' });
         for (const cr of creditLevels) {
+          const badgeLevel = showLevels ? cr.level : 'equal';
           roles.appendChild(el('span', {
-            className: `ae-role-badge ae-role-${cr.level}`,
+            className: `ae-role-badge ae-role-${badgeLevel}`,
           }, cr.role.replace('Writing – ', 'W: ').replace('Formal ', 'F. ')));
         }
         card.appendChild(roles);
@@ -1103,8 +1110,10 @@ export function createPreview(container, authors) {
       { id: 'authors',  label: 'Sorted List' },
       { id: 'profiles', label: 'Profiles' },
       { id: 'explore',  label: 'Explore' },
-      // { id: 'sections', label: 'Sections' },  // disabled for now
     ];
+    if (showSections) tabDefs.push({ id: 'sections', label: 'Sections' });
+    if (showTimeline) tabDefs.push({ id: 'timeline', label: 'Timeline' });
+    if (!tabDefs.find((t) => t.id === activeTab)) activeTab = 'matrix';
     for (let ti = 0; ti < tabDefs.length; ti++) {
       const t = tabDefs[ti];
       const isActive = activeTab === t.id;
@@ -1284,6 +1293,8 @@ export function createPreview(container, authors) {
       // createExploreView appends directly into content and returns a cleanup fn
       if (!exploreZoomState) exploreZoomState = {};
       exploreCleanup = createExploreView(content, sorted, exploreZoomState);
+    } else if (activeTab === 'timeline') {
+      content.appendChild(el('p', { className: 'ae-empty' }, 'Timeline view coming soon.'));
     }
     panel.appendChild(content);
     container2.appendChild(panel);

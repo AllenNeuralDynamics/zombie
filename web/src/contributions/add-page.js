@@ -230,10 +230,36 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
 }
 
 // ---------------------------------------------------------------------------
+// Shared sidebar: level definitions
+// ---------------------------------------------------------------------------
+
+const ALLEN_AUTHORSHIP_URL = 'https://alleninstitute.sharepoint.com/sites/AC-Science-Innovation/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents%2Fauthorship%5Fguidelines%2Epdf&parent=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents';
+
+function LevelDefinitionsSidebar() {
+  return html`
+    <aside class="cv-level-sidebar">
+      <h3 class="cv-level-sidebar-heading">Level definitions</h3>
+      <p class="cv-level-sidebar-intro">
+        Levels are optional, you can leave your contribution as the default or choose from the following options:
+      </p>
+      <ul class="cv-level-sidebar-list">
+        <li><strong>++</strong> indicates a major contribution to a specific CRediT role</li>
+        <li><strong>+</strong> indicates a supporting contribution, which may not warrant authorship</li>
+        <li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>
+      </ul>
+      <p class="cv-level-sidebar-guidelines">
+        Please also see the Allen Institute guidelines and appendix for further details:${' '}
+        <a href=${ALLEN_AUTHORSHIP_URL} target="_blank" rel="noopener noreferrer">Allen Institute Authorship Guidelines</a>
+      </p>
+    </aside>
+  `;
+}
+
+// ---------------------------------------------------------------------------
 // Step 2: High-level CRediT roles
 // ---------------------------------------------------------------------------
 
-function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
+function StepCreditRoles({ roles, setRoles, onBack, onNext, allowLead, allowLevels }) {
   function toggle(cat) {
     setRoles((prev) => {
       const next = { ...prev };
@@ -251,42 +277,50 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
   }
 
   const hasAnyRole = CREDIT_CATEGORIES.some((cat) => roles[cat] && roles[cat] !== 'None');
+  const levelOptions = CONTRIBUTION_LEVELS.filter((l) => {
+    if (l === 'None') return false;
+    if (l === 'Lead' && !allowLead) return false;
+    return true;
+  });
 
   return html`
-    <div class="cv-wizard-step">
-      <h2 class="cv-wizard-step-title">Your Contributions</h2>
-      <p class="cv-wizard-step-desc">
-        Select the CRediT roles that apply to your work on this project, and indicate your level of contribution.
-      </p>
+    <div class="cv-wizard-layout">
+      <div class="cv-wizard-step">
+        <h2 class="cv-wizard-step-title">Your Contributions</h2>
+        <p class="cv-wizard-step-desc">
+          Select the CRediT roles that apply to your work on this project${allowLevels ? ', and indicate your level of contribution' : ''}.
+        </p>
 
-      <div class="cv-wizard-roles-grid">
-        ${CREDIT_CATEGORIES.map((cat) => {
-          const active = roles[cat] && roles[cat] !== 'None';
-          return html`
-            <div key=${cat} class=${'cv-wizard-role-card' + (active ? ' cv-wizard-role-active' : '')}
-                 onClick=${() => toggle(cat)}>
-              <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
-                <input type="checkbox" checked=${active} onChange=${() => toggle(cat)} />
-                <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
-              </label>
-              ${active && html`
-                <select class="cv-wizard-role-level" value=${roles[cat]}
-                        onClick=${(e) => e.stopPropagation()}
-                        onChange=${(e) => setLevel(cat, e.target.value)}>
-                  ${CONTRIBUTION_LEVELS.filter((l) => l !== 'None').map((l) => html`
-                    <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
-                  `)}
-                </select>
-              `}
-            </div>
-          `;
-        })}
-      </div>
+        <div class="cv-wizard-roles-grid">
+          ${CREDIT_CATEGORIES.map((cat) => {
+            const active = roles[cat] && roles[cat] !== 'None';
+            return html`
+              <div key=${cat} class=${'cv-wizard-role-card' + (active ? ' cv-wizard-role-active' : '')}
+                   onClick=${() => toggle(cat)}>
+                <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
+                  <input type="checkbox" checked=${active} onChange=${() => toggle(cat)} />
+                  <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
+                </label>
+                ${active && allowLevels && html`
+                  <select class="cv-wizard-role-level" value=${roles[cat]}
+                          onClick=${(e) => e.stopPropagation()}
+                          onChange=${(e) => setLevel(cat, e.target.value)}>
+                    ${levelOptions.map((l) => html`
+                      <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
+                    `)}
+                  </select>
+                `}
+              </div>
+            `;
+          })}
+        </div>
 
-      <div class="cv-wizard-nav">
-        <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" disabled=${!hasAnyRole} onClick=${onNext}>Next →</button>
+        <div class="cv-wizard-nav">
+          <button class="btn-secondary" onClick=${onBack}>← Back</button>
+          <button class="btn-primary" disabled=${!hasAnyRole} onClick=${onNext}>Next →</button>
+        </div>
       </div>
+      <${LevelDefinitionsSidebar} />
     </div>
   `;
 }
@@ -295,7 +329,7 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext }) {
 // Step 3: Per-role details
 // ---------------------------------------------------------------------------
 
-function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext }) {
+function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext, allowLevels }) {
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => roles[cat] && roles[cat] !== 'None');
 
   return html`
@@ -311,7 +345,7 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext 
           <div key=${cat} class="cv-credit-card">
             <div class="cv-credit-card-header">
               <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-              <span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${roles[cat]}</span>
+              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${roles[cat]}</span>`}
             </div>
             <label class="cv-detail-label">Description</label>
             <textarea class="cv-credit-desc-textarea" rows="2"
@@ -334,7 +368,7 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext 
 // Step 4: Sections (only shown when sections exist)
 // ---------------------------------------------------------------------------
 
-function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext }) {
+function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext, allowLead, allowLevels }) {
   function getLevel(title) {
     return sectionLevels[title]?.level || 'None';
   }
@@ -357,42 +391,61 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
       [title]: { level: prev[title]?.level || 'equal', description },
     }));
   }
+  function toggle(title) {
+    const current = getLevel(title);
+    if (current && current !== 'None') setLevel(title, 'None');
+    else setLevel(title, 'equal');
+  }
+
+  const levelOptions = [
+    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
+    { value: 'equal', label: '++' },
+    { value: 'supporting', label: '+' },
+  ];
 
   return html`
-    <div class="cv-wizard-step">
-      <h2 class="cv-wizard-step-title">Section Contributions</h2>
-      <p class="cv-wizard-step-desc">
-        Indicate how you contributed to each section of the paper.
-      </p>
+    <div class="cv-wizard-layout">
+      <div class="cv-wizard-step">
+        <h2 class="cv-wizard-step-title">Section Contributions</h2>
+        <p class="cv-wizard-step-desc">
+          Check the sections you contributed to${allowLevels ? ', and indicate your level of contribution' : ''}.
+        </p>
 
-      ${sections.map((sec) => {
-        const level = getLevel(sec.title);
-        const description = getDescription(sec.title);
-        return html`
-          <div key=${sec.id} class="cv-section-contrib-row">
-            <span class="cv-section-contrib-title">${sec.title}</span>
-            <select class="cv-section-contrib-level"
-                    value=${level}
-                    onChange=${(e) => setLevel(sec.title, e.target.value)}>
-              <option value="None">\u2014 none \u2014</option>
-              <option value="lead">Lead</option>
-              <option value="equal">++</option>
-              <option value="supporting">+</option>
-            </select>
-            ${level !== 'None' && html`
-              <input type="text" class="cv-section-contrib-desc"
-                     placeholder="Description (optional)"
-                     value=${description}
-                     onInput=${(e) => setDescription(sec.title, e.target.value)} />
-            `}
-          </div>
-        `;
-      })}
+        ${sections.map((sec) => {
+          const level = getLevel(sec.title);
+          const active = level !== 'None';
+          const description = getDescription(sec.title);
+          return html`
+            <div key=${sec.id} class="cv-section-contrib-row">
+              <label class="cv-section-contrib-check">
+                <input type="checkbox" checked=${active} onChange=${() => toggle(sec.title)} />
+                <span class="cv-section-contrib-title">${sec.title}</span>
+              </label>
+              ${active && allowLevels && html`
+                <select class="cv-section-contrib-level"
+                        value=${level}
+                        onChange=${(e) => setLevel(sec.title, e.target.value)}>
+                  ${levelOptions.map((opt) => html`
+                    <option key=${opt.value} value=${opt.value}>${opt.label}</option>
+                  `)}
+                </select>
+              `}
+              ${active && html`
+                <input type="text" class="cv-section-contrib-desc"
+                       placeholder="Description (optional)"
+                       value=${description}
+                       onInput=${(e) => setDescription(sec.title, e.target.value)} />
+              `}
+            </div>
+          `;
+        })}
 
-      <div class="cv-wizard-nav">
-        <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${onNext}>Next →</button>
+        <div class="cv-wizard-nav">
+          <button class="btn-secondary" onClick=${onBack}>← Back</button>
+          <button class="btn-primary" onClick=${onNext}>Next →</button>
+        </div>
       </div>
+      <${LevelDefinitionsSidebar} />
     </div>
   `;
 }
@@ -403,10 +456,11 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 
 function StepFullEditor({
   doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
-  allRows, projectData, sections, affiliations, onBack,
+  allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
+  const [savedAuthorToken, setSavedAuthorToken] = useState(null);
 
   const [editName, setEditName]               = useState(authorName);
   const [editOrcid, setEditOrcid]             = useState(orcid);
@@ -438,6 +492,11 @@ function StepFullEditor({
       return { ...prev, [title]: { level, description: prev[title]?.description || '' } };
     });
   }
+  function toggleSection(title) {
+    const current = getSectionLevel(title);
+    if (current && current !== 'None') updateSectionLevel(title, 'None');
+    else updateSectionLevel(title, 'equal');
+  }
   function updateSectionDescription(title, description) {
     setEditSectionLevels((prev) => ({
       ...prev,
@@ -446,6 +505,12 @@ function StepFullEditor({
   }
 
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => editRoles[cat] && editRoles[cat] !== 'None');
+
+  const sectionLevelOptions = [
+    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
+    { value: 'equal', label: '++' },
+    { value: 'supporting', label: '+' },
+  ];
 
   const myRow = useMemo(() => {
     const row = { name: editName.trim() || authorName, isFirst: false, author_level: null };
@@ -547,9 +612,13 @@ function StepFullEditor({
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       setSaveStatus({ text: `✓ Saved${commit}`, cls: 'status-success' });
       clearDraft(token);
-      setTimeout(() => {
-        window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
-      }, 1200);
+      if (result.author_token) {
+        setSavedAuthorToken(result.author_token);
+      } else {
+        setTimeout(() => {
+          window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
+        }, 1200);
+      }
     } catch (err) {
       setSaveStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     } finally {
@@ -557,25 +626,50 @@ function StepFullEditor({
     }
   }
 
+  if (savedAuthorToken) {
+    return html`
+      <div class="cv-wizard-step cv-wizard-step-editor">
+        <h2 class="cv-wizard-step-title">Submission saved</h2>
+        <div class="cv-author-token-box">
+          <p class="cv-author-token-notice">
+            <strong>Copy your author token before continuing.</strong>
+            You will need this token to make edits in the future.
+            If you lose it, contact the lead author to have it re-shared.
+          </p>
+          <div class="cv-author-token-display">
+            <code class="cv-author-token-value">${savedAuthorToken}</code>
+            <button class="btn-secondary" onClick=${() => navigator.clipboard.writeText(savedAuthorToken)}>
+              Copy
+            </button>
+          </div>
+        </div>
+        <a class="btn-primary" href=${`/contributions/view?doi=${encodeURIComponent(doi)}`}>
+          Go to view page
+        </a>
+      </div>
+    `;
+  }
+
   return html`
-    <div class="cv-wizard-step cv-wizard-step-editor">
-      <h2 class="cv-wizard-step-title">Review & Edit</h2>
-      <p class="cv-wizard-step-desc">Edit anything below before saving.</p>
+    <div class="cv-wizard-layout">
+      <div class="cv-wizard-step cv-wizard-step-editor">
+        <h2 class="cv-wizard-step-title">Review & Edit</h2>
+        <p class="cv-wizard-step-desc">Edit anything below before saving.</p>
 
-      <h3 class="cv-subsection-heading">Your Information</h3>
+        <h3 class="cv-subsection-heading">Your Information</h3>
 
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cwe-name">Full Name *</label>
-        <input id="cwe-name" type="text" class="cv-wizard-input"
-               value=${editName} onInput=${(e) => setEditName(e.target.value)} />
-      </div>
+        <div class="cv-wizard-field">
+          <label class="cv-detail-label" for="cwe-name">Full Name *</label>
+          <input id="cwe-name" type="text" class="cv-wizard-input"
+                 value=${editName} onInput=${(e) => setEditName(e.target.value)} />
+        </div>
 
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cwe-orcid">ORCID iD</label>
-        <input id="cwe-orcid" type="text" class="cv-wizard-input"
-               placeholder="0000-0000-0000-0000"
-               value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
-      </div>
+        <div class="cv-wizard-field">
+          <label class="cv-detail-label" for="cwe-orcid">ORCID iD</label>
+          <input id="cwe-orcid" type="text" class="cv-wizard-input"
+                 placeholder="0000-0000-0000-0000"
+                 value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
+        </div>
 
       <div class="cv-wizard-field">
         <label class="cv-detail-label" for="cwe-join-date">Join Date (optional)</label>
@@ -625,6 +719,11 @@ function StepFullEditor({
       <div class="cv-wizard-roles-grid" style="margin-bottom:20px">
         ${CREDIT_CATEGORIES.map((cat) => {
           const active = editRoles[cat] && editRoles[cat] !== 'None';
+          const levelOptions = CONTRIBUTION_LEVELS.filter((l) => {
+            if (l === 'None') return false;
+            if (l === 'Lead' && !allowLead) return false;
+            return true;
+          });
           return html`
             <div key=${cat} class=${'cv-wizard-role-card' + (active ? ' cv-wizard-role-active' : '')}
                  onClick=${() => setEditRoles((prev) => ({ ...prev, [cat]: prev[cat] && prev[cat] !== 'None' ? 'None' : 'Equal' }))}>
@@ -633,11 +732,11 @@ function StepFullEditor({
                        onChange=${() => setEditRoles((prev) => ({ ...prev, [cat]: prev[cat] && prev[cat] !== 'None' ? 'None' : 'Equal' }))} />
                 <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
               </label>
-              ${active && html`
+              ${active && allowLevels && html`
                 <select class="cv-wizard-role-level" value=${editRoles[cat]}
                         onClick=${(e) => e.stopPropagation()}
                         onChange=${(e) => setEditRoles((prev) => ({ ...prev, [cat]: e.target.value }))}>
-                  ${CONTRIBUTION_LEVELS.filter((l) => l !== 'None').map((l) => html`
+                  ${levelOptions.map((l) => html`
                     <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
                   `)}
                 </select>
@@ -655,7 +754,7 @@ function StepFullEditor({
             <div key=${cat} class="cv-credit-card">
               <div class="cv-credit-card-header">
                 <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                <span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${LEVEL_DISPLAY[editRoles[cat]] || editRoles[cat]}</span>
+                ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${LEVEL_DISPLAY[editRoles[cat]] || editRoles[cat]}</span>`}
               </div>
               <label class="cv-detail-label">Description</label>
               <textarea class="cv-credit-desc-textarea" rows="2"
@@ -672,19 +771,24 @@ function StepFullEditor({
         <h3 class="cv-subsection-heading">Section Contributions</h3>
         ${sections.map((sec) => {
           const level = getSectionLevel(sec.title);
+          const active = level !== 'None';
           const description = getSectionDescription(sec.title);
           return html`
             <div key=${sec.id} class="cv-section-contrib-row">
-              <span class="cv-section-contrib-title">${sec.title}</span>
-              <select class="cv-section-contrib-level"
-                      value=${level}
-                      onChange=${(e) => updateSectionLevel(sec.title, e.target.value)}>
-                <option value="None">\u2014 none \u2014</option>
-                <option value="lead">Lead</option>
-                <option value="equal">++</option>
-                <option value="supporting">+</option>
-              </select>
-              ${level !== 'None' && html`
+              <label class="cv-section-contrib-check">
+                <input type="checkbox" checked=${active} onChange=${() => toggleSection(sec.title)} />
+                <span class="cv-section-contrib-title">${sec.title}</span>
+              </label>
+              ${active && allowLevels && html`
+                <select class="cv-section-contrib-level"
+                        value=${level}
+                        onChange=${(e) => updateSectionLevel(sec.title, e.target.value)}>
+                  ${sectionLevelOptions.map((opt) => html`
+                    <option key=${opt.value} value=${opt.value}>${opt.label}</option>
+                  `)}
+                </select>
+              `}
+              ${active && html`
                 <input type="text" class="cv-section-contrib-desc"
                        placeholder="Description (optional)"
                        value=${description}
@@ -706,6 +810,8 @@ function StepFullEditor({
           ${saveStatus.text}
         </div>
       `}
+      </div>
+      <${LevelDefinitionsSidebar} />
     </div>
   `;
 }
@@ -854,6 +960,9 @@ function AddApp({ doi, token, existingAuthor }) {
     </div>`;
   }
 
+  const allowLead   = projectData?.allow_lead   ?? true;
+  const allowLevels = projectData?.allow_levels ?? true;
+
   return html`
     <div class="contributions-add-page">
       ${step > 0 && step < 5 && html`
@@ -881,6 +990,7 @@ function AddApp({ doi, token, existingAuthor }) {
           roles=${roles} setRoles=${setRoles}
           onBack=${() => goToStep(1)}
           onNext=${() => goToStep(3)}
+          allowLead=${allowLead} allowLevels=${allowLevels}
         />
       `}
 
@@ -890,6 +1000,7 @@ function AddApp({ doi, token, existingAuthor }) {
           descriptions=${descriptions} setDescriptions=${setDescriptions}
           onBack=${() => goToStep(2)}
           onNext=${goNextFromRoleDetails}
+          allowLevels=${allowLevels}
         />
       `}
 
@@ -899,6 +1010,7 @@ function AddApp({ doi, token, existingAuthor }) {
           sectionLevels=${sectionLevels} setSectionLevels=${setSectionLevels}
           onBack=${() => goToStep(3)}
           onNext=${() => goToStep(5)}
+          allowLead=${allowLead} allowLevels=${allowLevels}
         />
       `}
 
@@ -911,6 +1023,7 @@ function AddApp({ doi, token, existingAuthor }) {
           allRows=${allRows}
           projectData=${projectData} sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}
+          allowLead=${allowLead} allowLevels=${allowLevels}
         />
       `}
     </div>
