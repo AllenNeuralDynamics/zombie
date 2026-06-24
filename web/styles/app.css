@@ -8106,3 +8106,91 @@ body {
 .dr-playhead {
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.6);
 }
+
+/* ------------------------------------------------------------------
+ * Sessions page — acquisition_report log integration
+ * ------------------------------------------------------------------ */
+.sessions-log-block {
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sessions-log-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.sessions-log-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.sessions-log-controls input[type="text"],
+.sessions-log-controls input[type="password"] {
+  padding: 4px 6px;
+  font-size: 0.82rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg, transparent);
+  color: var(--text-primary);
+  width: 7.5rem;
+}
+
+.sessions-log-btn {
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  border: 1px solid var(--color-red);
+  background: var(--color-red);
+  color: #fff;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+.sessions-log-btn:hover:not(:disabled) { background: var(--color-red-hover); border-color: var(--color-red-hover); }
+.sessions-log-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sessions-log-btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--surface-border);
+}
+.sessions-log-btn-secondary:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.sessions-log-status {
+  font-size: 0.78rem;
+  color: var(--text-primary);
+}
+.sessions-log-status-muted { color: var(--text-secondary); font-style: italic; }
+
+.sessions-log-badge {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 1px 5px;
+  margin-right: 4px;
+  border-radius: 2px;
+  background: var(--color-red);
+  color: #fff;
+  letter-spacing: 0.05em;
+  vertical-align: middle;
+}
+
+.sessions-row-log td { background: rgba(192, 57, 43, 0.04); }
+@media (prefers-color-scheme: dark) {
+  .sessions-row-log td { background: rgba(192, 57, 43, 0.10); }
+}

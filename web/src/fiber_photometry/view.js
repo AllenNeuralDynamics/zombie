@@ -730,7 +730,7 @@ export function createFiberPhotometryView(coord) {
   function buildTable(allRows, getBaseRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
-    let visibleColumns = [...defaultDisplayCols, 'links'];
+    let visibleColumns = [...defaultDisplayCols];
     let filters = Object.fromEntries(allAvailableCols.map((c) => [c, '']));
     let page = 0;
     let settingsModalOpen = false;
@@ -964,7 +964,7 @@ export function createFiberPhotometryView(coord) {
       });
 
       settingsModal.querySelector('.settings-reset-btn').addEventListener('click', () => {
-        visibleColumns = [...defaultDisplayCols, 'links'];
+        visibleColumns = [...defaultDisplayCols];
         settingsModal.querySelectorAll('.settings-col-checkbox').forEach((cb) => {
           cb.checked = visibleColumns.includes(cb.dataset.col);
         });

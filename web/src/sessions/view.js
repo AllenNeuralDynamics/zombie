@@ -10,6 +10,14 @@
 
 import { queryRows } from '../lib/arrow.js';
 import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
+import {
+  fetchAcquisitionReports,
+  pickTableForRange,
+  quarterDateRange,
+  logRowToSession,
+  learnInstrumentMap,
+  mergeLogSessions,
+} from '../lib/log-server.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -192,8 +200,12 @@ const COLUMN_LABELS = {
  * @returns {string}
  */
 export function renderSessionRow(row) {
+  const isLog = row?.source === 'log';
+  const subjectCell = isLog
+    ? `<span class="sessions-log-badge" title="From eng-logtools acquisition_report log (no data asset)">LOG</span> ${escHtml(row.subject_id ?? '')}`
+    : escHtml(row.subject_id ?? '');
   const cells = [
-    `<td>${escHtml(row.subject_id ?? '')}</td>`,
+    `<td>${subjectCell}</td>`,
     `<td>${escHtml(formatDate(row.acquisition_start_time ?? null))}</td>`,
     `<td>${escHtml(row.project_name ?? '')}</td>`,
     `<td>${escHtml(row.instrument_id ?? '')}</td>`,
@@ -201,7 +213,7 @@ export function renderSessionRow(row) {
     `<td>${escHtml(Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''))}</td>`,
     `<td>${escHtml(row.genotype ?? '')}</td>`,
   ];
-  return `<tr>${cells.join('')}</tr>`;
+  return `<tr${isLog ? ' class="sessions-row-log"' : ''}>${cells.join('')}</tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +322,17 @@ export function createSessionsView(coord) {
     // Unique option lists from all rows
     const allProjects = uniqueValues(allRows, 'project_name');
 
+    // -- Acquisition-report log state (per quarter) --------------------------
+    const logRowsByQuarter = new Map();
+    let logCreds = { user: '', password: '' };
+    let logStatusText = '';
+    let logBusy = false;
+
+    function getCombinedRows() {
+      const extra = (selectedQuarter && logRowsByQuarter.get(selectedQuarter)) || [];
+      return extra.length ? allRows.concat(extra) : allRows;
+    }
+
     // -- Layout --------------------------------------------------------------
     const layout = document.createElement('div');
     layout.className = 'sessions-layout';
@@ -395,9 +418,10 @@ export function createSessionsView(coord) {
 
     // Progressive options: instruments and experimenters narrow as upstream filters change
     function getProjectFilteredRows() {
+      const rows = getCombinedRows();
       return selectedProjects.size === 0
-        ? allRows
-        : allRows.filter((r) => selectedProjects.has(String(r.project_name ?? '')));
+        ? rows
+        : rows.filter((r) => selectedProjects.has(String(r.project_name ?? '')));
     }
     function getProjInstFilteredRows() {
       return getProjectFilteredRows().filter((r) =>
@@ -493,6 +517,10 @@ export function createSessionsView(coord) {
 
     // -- Stats panel ---------------------------------------------------------
     statsPanel.innerHTML = `<h3 class="sessions-panel-title">Summary</h3>`;
+
+    const logBlockEl = document.createElement('div');
+    logBlockEl.className = 'sessions-log-block';
+    statsPanel.appendChild(logBlockEl);
 
     const statsWarningEl = document.createElement('div');
     statsWarningEl.className = 'sessions-stat-warning';
@@ -605,7 +633,7 @@ export function createSessionsView(coord) {
 
     function getFilteredRows() {
       const quarterSet = selectedQuarter ? new Set([selectedQuarter]) : new Set();
-      let rows = applyFilters(allRows, selectedProjects, selectedInstruments, quarterSet, selectedExperimenters);
+      let rows = applyFilters(getCombinedRows(), selectedProjects, selectedInstruments, quarterSet, selectedExperimenters);
       // Apply column text/select filters
       const colEntries = Object.entries(columnFilters).filter(([, v]) => v !== '');
       if (colEntries.length > 0) {
@@ -745,7 +773,91 @@ export function createSessionsView(coord) {
 
       updateSortIndicators();
       updateStats(filtered);
+      renderLogControl();
       writeUrlState();
+    }
+
+    function renderLogControl() {
+      const extra = (selectedQuarter && logRowsByQuarter.get(selectedQuarter)) || [];
+      const hasLoaded = logRowsByQuarter.has(selectedQuarter ?? '');
+      const qLabel = selectedQuarter ? selectedQuarter.replace('-Q', ' Q') : 'this quarter';
+      let statusHtml;
+      if (logBusy) {
+        statusHtml = '<span class="sessions-log-status">Loading…</span>';
+      } else if (logStatusText) {
+        statusHtml = `<span class="sessions-log-status">${escHtml(logStatusText)}</span>`;
+      } else if (hasLoaded) {
+        statusHtml = `<span class="sessions-log-status">${extra.length} log-only session(s) added</span>`;
+      } else {
+        statusHtml = '<span class="sessions-log-status sessions-log-status-muted">Not loaded</span>';
+      }
+      logBlockEl.innerHTML = `
+        <div class="sessions-log-title">Acquisition reports (eng-logtools)</div>
+        <div class="sessions-log-controls">
+          <input type="text" id="sess-log-user" placeholder="user" autocomplete="username" value="${escHtml(logCreds.user)}" />
+          <input type="password" id="sess-log-pass" placeholder="password" autocomplete="current-password" value="${escHtml(logCreds.password)}" />
+          <button class="sessions-log-btn" id="sess-log-load" ${logBusy ? 'disabled' : ''}>${hasLoaded ? 'Reload' : `Load ${escHtml(qLabel)}`}</button>
+          ${hasLoaded && extra.length > 0 ? `<button class="sessions-log-btn sessions-log-btn-secondary" id="sess-log-clear">Clear</button>` : ''}
+        </div>
+        ${statusHtml}
+      `;
+      const userInput = logBlockEl.querySelector('#sess-log-user');
+      const passInput = logBlockEl.querySelector('#sess-log-pass');
+      userInput.addEventListener('input', (e) => { logCreds.user = e.target.value; });
+      passInput.addEventListener('input', (e) => { logCreds.password = e.target.value; });
+      logBlockEl.querySelector('#sess-log-load').addEventListener('click', onLogLoadClick);
+      const clearBtn = logBlockEl.querySelector('#sess-log-clear');
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          if (selectedQuarter) logRowsByQuarter.delete(selectedQuarter);
+          logStatusText = '';
+          refresh();
+        });
+      }
+    }
+
+    async function onLogLoadClick() {
+      if (!selectedQuarter) {
+        logStatusText = 'Pick a quarter first';
+        renderLogControl();
+        return;
+      }
+      if (!logCreds.user || !logCreds.password) {
+        logStatusText = 'Enter username and password';
+        renderLogControl();
+        return;
+      }
+      const range = quarterDateRange(selectedQuarter);
+      if (!range) {
+        logStatusText = 'Invalid quarter';
+        renderLogControl();
+        return;
+      }
+      const table = pickTableForRange(range.startDate, range.endDate);
+      logBusy = true;
+      logStatusText = '';
+      renderLogControl();
+      try {
+        const data = await fetchAcquisitionReports({
+          user: logCreds.user,
+          password: logCreds.password,
+          table,
+          startDate: range.startDate,
+          endDate: range.endDate,
+        });
+        const rawLogs = data?.rows ?? [];
+        const instrumentMap = learnInstrumentMap(allRows, rawLogs);
+        const logSessions = rawLogs.map((r) => logRowToSession(r, { instrumentMap }));
+        const merged = mergeLogSessions(allRows, logSessions);
+        logRowsByQuarter.set(selectedQuarter, merged.added);
+        logStatusText = `+${merged.added.length} added · ${merged.matchedCount} matched · ${rawLogs.length} reports`;
+      } catch (e) {
+        const msg = e?.status === 401 ? 'Authentication failed' : (e?.message || 'Failed');
+        logStatusText = `Error: ${msg}`;
+      } finally {
+        logBusy = false;
+        refresh();
+      }
     }
 
     function onProjectChange() {

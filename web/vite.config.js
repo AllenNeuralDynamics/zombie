@@ -12,6 +12,11 @@ export default defineConfig({
       '/metadata-service': {
         target: 'http://localhost:3001',
       },
+      // Forward /log-server/* → docdb_proxy.py, which connects to
+      // the eng-logtools MySQL server.
+      '/log-server': {
+        target: 'http://localhost:3001',
+      },
       '/qc-presign': {
         target: 'https://qc.allenneuraldynamics.org',
         changeOrigin: true,
