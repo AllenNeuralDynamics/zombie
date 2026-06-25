@@ -3,8 +3,8 @@
  * Dynamic Routing platform page.
  *
  * Renders a card with:
- *   - subject + session selectors (populated from the consolidated
- *     performance table — sessions with ≥2 blocks and both modalities)
+ *   - subject + session selectors (populated from every session in the
+ *     consolidated performance table, including early-training sessions)
  *   - single-spout mouse-head animation with stim indicators (gabor / speaker)
  *   - block-aware event plot with brushable zoom
  *   - transport (play / pause / scrub / speed) + live trial readout
@@ -225,8 +225,10 @@ export function createDrSessionPlayer(coord) {
 async function _populateSessions(coord, statusEl) {
   try {
     // One row per session, aggregated from the per-block performance table.
-    // Filter to "real" task sessions: ≥2 blocks AND both modalities appear
-    // AND at least some responses (so the playback is non-trivial).
+    // We show every session that has any performance row, including
+    // early-training (single-block / single-modality / low-response) sessions
+    // — the option labels expose n_trials / n_responses / d′ so the user can
+    // judge whether a session is worth playing back.
     const rows = await queryRows(coord, `
       SELECT
         session_id,
@@ -241,9 +243,6 @@ async function _populateSessions(coord, statusEl) {
         AVG(cross_modality_dprime) AS mean_dprime
       FROM read_parquet('${PERFORMANCE_TABLE_URL}')
       GROUP BY session_id
-      HAVING n_blocks >= 2
-         AND n_mods   = 2
-         AND n_responses >= 20
       ORDER BY session_date DESC, subject_id ASC
     `);
     if (rows.length === 0) {
