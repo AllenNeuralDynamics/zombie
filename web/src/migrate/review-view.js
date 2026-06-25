@@ -205,12 +205,16 @@ export function MigrateReviewPage() {
 
       if (resp.status === 401 && body?.error === 'invalid_token') {
         // Token was rejected (typically because the QC portal restarted and
-        // its in-memory token table was wiped). Clear the dead cookie and
-        // immediately bounce through the re-validation redirect for this
-        // specific pending entry.
+        // its in-memory token table was wiped). Clear the dead cookie,
+        // reset detail state so the panel is retry-ready if the user lands
+        // back without a token, then bounce through re-validation.
         clearAuthCookies();
         setToken(null);
         setTokenExpiresAt(null);
+        setDetails((d) => ({
+          ...d,
+          [hash]: { ...(d[hash] ?? { entry }), status: 'ready', error: '', submitResult: null },
+        }));
         handleRequestToken(entry);
         return;
       }

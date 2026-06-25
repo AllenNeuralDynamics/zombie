@@ -1801,3 +1801,29 @@
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.6);
 }
 
+
+/* ---- Migrate: QC portal login button (right-aligned in controls row) ---- */
+.migrate-control-right { margin-left: auto; align-items: flex-end; }
+.migrate-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #1D8649;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.migrate-login-btn:hover { background: #176c3a; }
+.migrate-login-btn.is-logged-in,
+.migrate-login-btn:disabled {
+  background: var(--text-secondary, #888);
+  color: #fff;
+  cursor: default;
+  opacity: 0.7;
+}

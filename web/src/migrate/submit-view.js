@@ -208,18 +208,23 @@ export function MigrateSubmitPage() {
       let body;
       try { body = await resp.json(); }
       catch { body = { error: await resp.text().catch(() => '') }; }
-resp.status === 401 && body?.error === 'invalid_token') {
+
+      if (resp.status === 401 && body?.error === 'invalid_token') {
         // Token was rejected (typically because the QC portal restarted and
-        // its in-memory token table was wiped). Clear the dead cookie and
-        // immediately bounce through the re-validation redirect.
+        // its in-memory token table was wiped). Clear the dead cookie,
+        // reset state so the page is in a clean retry-ready state if the
+        // user lands back without a token, then bounce through the
+        // re-validation redirect.
         clearAuthCookies();
         setToken(null);
         setTokenExpiresAt(null);
+        setSubmitState('idle');
+        setSubmitResult(null);
+        setSubmitError('');
         handleRequestToken();
         return;
       }
 
-      if (
       if (!resp.ok) {
         setSubmitState('error');
         setSubmitResult(body);
@@ -310,6 +315,13 @@ resp.status === 401 && body?.error === 'invalid_token') {
                   >${e}</button>`,
               )}
             </div>
+          </div>
+          <div class="migrate-control migrate-control-right">
+            <label>QC portal</label>
+            <${QcLoginButton}
+              token=${token}
+              assetName=${currentRecord?.name ?? assetInput.trim() ?? selectedId}
+            />
           </div>
         </div>
       </section>
@@ -441,4 +453,14 @@ resp.status === 401 && body?.error === 'invalid_token') {
             </section>`
         : null}
     </div>`;
+}
+
+function QcLoginButton({ token, assetName }) {
+  const loggedIn = Boolean(token);
+  const next = assetName ? `/view?name=${encodeURIComponent(assetName)}` : '/';
+  const href = `${QC_PORTAL_BASE}/login?next=${encodeURIComponent(next)}`;
+  if (loggedIn) {
+    return html`<button class="migrate-login-btn is-logged-in" disabled>Logged in</button>`;
+  }
+  return html`<a class="migrate-login-btn" href=${href} target="_blank" rel="noopener noreferrer">Login</a>`;
 }
