@@ -12,7 +12,10 @@ function sharedHeaderPlugin() {
     name: 'shared-header',
     transformIndexHtml(html, ctx) {
       if (!html.includes('<!--APP_HEADER-->')) return html;
-      const page = PAGES[basename(ctx.path)];
+      // Try the relative path first (e.g. 'migrate/submit.html'), fall back
+      // to basename to keep existing top-level pages working.
+      const rel = ctx.path.replace(/^\/+/, '');
+      const page = PAGES[rel] ?? PAGES[basename(ctx.path)];
       if (!page) return html;
       return html.replace('<!--APP_HEADER-->', renderHeader(page));
     },
@@ -86,6 +89,8 @@ export default defineConfig({
         record: resolve(__dirname, 'record.html'),
         upgrade: resolve(__dirname, 'upgrade.html'),
         migrate: resolve(__dirname, 'migrate.html'),
+        migrate_submit: resolve(__dirname, 'migrate/submit.html'),
+        migrate_review: resolve(__dirname, 'migrate/review.html'),
       },
     },
   },
