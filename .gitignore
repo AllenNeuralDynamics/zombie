@@ -18,6 +18,8 @@ lib/
 lib64/
 # Do not ignore the JS source lib directory
 !web/src/lib/
+# Do not ignore the JS build helpers directory (shared header template, etc.)
+!web/build/
 parts/
 sdist/
 var/
