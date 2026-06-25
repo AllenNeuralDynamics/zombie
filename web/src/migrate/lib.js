@@ -41,6 +41,21 @@ export function readCookie(name) {
   return null;
 }
 
+/** Clear the QC-portal auth cookies locally. The cookies are set on
+ * `.allenneuraldynamics.org`, so we have to delete them with the matching
+ * Domain attribute (an undated attempt without Domain is also issued in case
+ * a previous deploy set them host-only). Used after the QC portal returns
+ * `401 invalid_token` so the UI reverts to the "Validate token" flow.
+ */
+export function clearAuthCookies() {
+  const names = ['qc_auth_token', 'qc_auth_token_expires_at'];
+  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  for (const name of names) {
+    document.cookie = `${name}=; ${expired}; domain=.allenneuraldynamics.org; secure; samesite=none`;
+    document.cookie = `${name}=; ${expired}`;
+  }
+}
+
 export function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;

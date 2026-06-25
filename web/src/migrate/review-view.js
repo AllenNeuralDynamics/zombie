@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { QC_PORTAL_BASE } from '../constants.js';
 import {
   canonicalJson,
+  clearAuthCookies,
   deepEqual,
   diffJson,
   DiffView,
@@ -201,6 +202,18 @@ export function MigrateReviewPage() {
       let body;
       try { body = await resp.json(); }
       catch { body = { error: await resp.text().catch(() => '') }; }
+
+      if (resp.status === 401 && body?.error === 'invalid_token') {
+        // Token was rejected (typically because the QC portal restarted and
+        // its in-memory token table was wiped). Clear the dead cookie and
+        // immediately bounce through the re-validation redirect for this
+        // specific pending entry.
+        clearAuthCookies();
+        setToken(null);
+        setTokenExpiresAt(null);
+        handleRequestToken(entry);
+        return;
+      }
 
       if (!resp.ok) {
         setDetails((d) => ({

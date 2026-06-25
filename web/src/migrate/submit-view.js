@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { QC_PORTAL_BASE } from '../constants.js';
 import {
   buildMergedRecord,
+  clearAuthCookies,
   clearMetadataCache,
   deepEqual,
   diffJson,
@@ -207,7 +208,18 @@ export function MigrateSubmitPage() {
       let body;
       try { body = await resp.json(); }
       catch { body = { error: await resp.text().catch(() => '') }; }
+resp.status === 401 && body?.error === 'invalid_token') {
+        // Token was rejected (typically because the QC portal restarted and
+        // its in-memory token table was wiped). Clear the dead cookie and
+        // immediately bounce through the re-validation redirect.
+        clearAuthCookies();
+        setToken(null);
+        setTokenExpiresAt(null);
+        handleRequestToken();
+        return;
+      }
 
+      if (
       if (!resp.ok) {
         setSubmitState('error');
         setSubmitResult(body);
