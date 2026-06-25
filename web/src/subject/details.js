@@ -15,11 +15,14 @@ import {
   extractFibersFromSurgery,
 } from './parsers.js';
 import { createBrainVizCanvas } from './brain-viz.js';
-import { createBrainViz3D } from './brain-viz-3d.js';
-import { createEphysViz3D, extractEphysProbes } from './ephys-viz-3d.js';
+import { extractEphysProbes } from './ephys-data.js';
 import { createInstrumentPanel } from './instrument-view.js';
-import { hasImagingConfig, createImagingDetailsPanel } from './imaging-viz-3d.js';
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
+import { hasImagingConfig } from './imaging-data.js';
+
+// The three.js-backed 3D viewers (brain-viz-3d / ephys-viz-3d / imaging-viz-3d)
+// pull in three.js + the CCF atlas JSON (~500 KB). They are imported on demand
+// via mountLazy3D() so they never enter the subject page's initial bundle.
+import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
 import {
   isForagingAcquisition,
   extractForagingSessionInfo,
@@ -246,6 +249,28 @@ function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
   return container;
 }
 
+/**
+ * Lazily mount a three.js-backed 3D viewer. A lightweight placeholder is
+ * appended synchronously, then `build()` dynamically imports the heavy viz
+ * module and resolves to the viewer element, which replaces the placeholder.
+ * This keeps three.js + CCF atlas data out of the subject page's initial load.
+ *
+ * @param {HTMLElement} parent - Element to append the viewer into.
+ * @param {() => Promise<HTMLElement>} build - Async factory returning the viewer.
+ */
+function mountLazy3D(parent, build) {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'detail-viz-loading';
+  placeholder.textContent = 'Loading 3D viewer…';
+  parent.appendChild(placeholder);
+  build()
+    .then((el) => placeholder.replaceWith(el))
+    .catch((err) => {
+      console.error('Failed to load 3D viewer:', err);
+      placeholder.textContent = 'Failed to load 3D viewer.';
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Surgery detail (complex — includes brain-viz / fiber-viz canvases)
 // ---------------------------------------------------------------------------
@@ -441,9 +466,12 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
   canvas2dWrap.appendChild(canvas);
   vizRow.appendChild(canvas2dWrap);
 
-  const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
-  viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
-  vizRow.appendChild(viz3d);
+  mountLazy3D(vizRow, async () => {
+    const { createBrainViz3D } = await import('./brain-viz-3d.js');
+    const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
+    viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
+    return viz3d;
+  });
 
   container.appendChild(vizRow);
   return container;
@@ -510,10 +538,13 @@ function createEphysPanel(acquisitionData) {
   const cardsHtml = probes.map((p, i) => buildEphysProbeCard(p, i)).join('');
   container.innerHTML = cardsHtml;
 
-  // 3D viewer below the cards
-  const viz3d = createEphysViz3D(acquisitionData);
-  viz3d.style.cssText += ';margin-top:12px';
-  container.appendChild(viz3d);
+  // 3D viewer below the cards (loaded on demand)
+  mountLazy3D(container, async () => {
+    const { createEphysViz3D } = await import('./ephys-viz-3d.js');
+    const viz3d = createEphysViz3D(acquisitionData);
+    viz3d.style.cssText += ';margin-top:12px';
+    return viz3d;
+  });
 
   return container;
 }
@@ -568,7 +599,12 @@ function renderAcquisitionDetail(event, container, context = {}) {
   }
 
   if (hasImaging) {
-    tabDefs.push({ label: 'Imaging Details', content: createImagingDetailsPanel(data) });
+    const imagingEl = document.createElement('div');
+    mountLazy3D(imagingEl, async () => {
+      const { createImagingDetailsPanel } = await import('./imaging-viz-3d.js');
+      return createImagingDetailsPanel(data);
+    });
+    tabDefs.push({ label: 'Imaging Details', content: imagingEl });
   }
 
   if (instrumentData) {

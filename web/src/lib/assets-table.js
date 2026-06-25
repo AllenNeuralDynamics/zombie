@@ -4,7 +4,7 @@
  * Used by both the Subject page and the Project page.
  */
 
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/view.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
 import { formatDatetime, PAGE_SIZE } from './utils.js';
 import { arrowTableToRows, queryRows } from './arrow.js';
 import { ensureTable } from './registry.js';

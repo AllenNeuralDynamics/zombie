@@ -1,7 +1,26 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { resolve, basename } from 'path';
+import { PAGES, renderHeader } from './build/header-template.js';
+
+/**
+ * Inject the shared app header into pages that contain an `<!--APP_HEADER-->`
+ * placeholder, so the nav markup lives in one source file instead of being
+ * hand-copied into every HTML page. Runs in both dev and build.
+ */
+function sharedHeaderPlugin() {
+  return {
+    name: 'shared-header',
+    transformIndexHtml(html, ctx) {
+      if (!html.includes('<!--APP_HEADER-->')) return html;
+      const page = PAGES[basename(ctx.path)];
+      if (!page) return html;
+      return html.replace('<!--APP_HEADER-->', renderHeader(page));
+    },
+  };
+}
 
 export default defineConfig({
+  plugins: [sharedHeaderPlugin()],
   // Serve the `web/` directory as the project root during dev
   server: {
     port: 5173,

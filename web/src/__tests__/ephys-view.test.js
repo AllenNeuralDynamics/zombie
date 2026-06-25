@@ -24,7 +24,7 @@ vi.mock('../subject/brain-viz.js', () => ({
   createBrainVizCanvas: () => ({ canvas: document.createElement('canvas') }),
 }));
 
-vi.mock('../assets/view.js', () => ({
+vi.mock('../assets/links.js', () => ({
   buildQcLink: () => null,
   buildMetadataLink: () => null,
   buildCoLink: () => null,
