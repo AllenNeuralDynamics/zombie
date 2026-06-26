@@ -277,10 +277,19 @@ async function resolveLatestVersion(versionsUrl) {
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
  * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry JSON + base URL.
  */
-export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onProgress, eagerTables = ['asset_basics'] } = {}) {
-  // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
-  // All parquet URLs are converted to HTTPS so no S3 credentials are required.
-
+/**
+ * Fetch and parse the cache_registry.json metadata over plain HTTPS.
+ *
+ * This step needs NO DuckDB/Mosaic coordinator, so callers can fetch the
+ * (tiny) registry while the much larger DuckDB-WASM engine downloads in
+ * parallel. Use {@link registerEagerTables} afterwards to register tables.
+ *
+ * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
+ * @param {object} [opts]
+ * @param {(p: object) => void} [opts.onProgress]
+ * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry + base URL.
+ */
+export async function fetchMetadata(versionsUrl, { onProgress } = {}) {
   // 1. Resolve the latest version from the versions index.
   onProgress?.({ phase: 'versions' });
   const { registryUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
@@ -297,11 +306,27 @@ export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onPro
   }
   const json = await resp.json();
   const metadata = parseCacheRegistryJson(json);
+  metadata.baseUrl = baseUrl;
+  return metadata;
+}
 
-  // 3. Register only the eagerly-needed tables at startup (default: asset_basics).
-  //    All other acorns are stored in the registry and lazy-loaded via ensureTable.
-  //    Skip individual failures so one broken/empty parquet file doesn't
-  //    crash every page in the app.
+/**
+ * Register the eagerly-needed `"metadata"`-type acorns as DuckDB tables.
+ *
+ * Only the tables in `eagerTables` (default: asset_basics) are registered at
+ * startup. All other acorns are stored in the registry and lazy-loaded via
+ * ensureTable. Individual failures are skipped so one broken/empty parquet
+ * file doesn't crash every page in the app.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {{ acorns: object[] }} metadata - Parsed registry from {@link fetchMetadata}.
+ * @param {object} [opts]
+ * @param {(p: object) => void} [opts.onProgress]
+ * @param {string[]} [opts.eagerTables]
+ */
+export async function registerEagerTables(coordinator, metadata, { onProgress, eagerTables = ['asset_basics'] } = {}) {
+  // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
+  // All parquet URLs are converted to HTTPS so no S3 credentials are required.
   const eagerSet = new Set(eagerTables);
   const toRegister = getMetadataAcorns(metadata.acorns).filter((a) => eagerSet.has(a.name));
   for (let i = 0; i < toRegister.length; i++) {
@@ -313,8 +338,20 @@ export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onPro
       console.warn(`[metadata] Failed to register acorn "${acorn.name}", skipping:`, err?.message ?? err);
     }
   }
+}
 
-  metadata.baseUrl = baseUrl;
+/**
+ * Fetch the metadata registry and register the eager tables in one call.
+ * Thin wrapper over {@link fetchMetadata} + {@link registerEagerTables},
+ * kept for callers that already have a coordinator in hand.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
+ * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry JSON + base URL.
+ */
+export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onProgress, eagerTables = ['asset_basics'] } = {}) {
+  const metadata = await fetchMetadata(versionsUrl, { onProgress });
+  await registerEagerTables(coordinator, metadata, { onProgress, eagerTables });
   return metadata;
 }
 

@@ -246,13 +246,25 @@ describe('renderSmartSpimRow', () => {
   it('renders alignment link when alignment_link is present', () => {
     const row = { ...baseRow, alignment_link: 'https://neuroglancer.example.com/#!align' };
     const html = renderSmartSpimRow(row, defaultCols);
-    expect(html).toContain('Alignment');
+    expect(html).toContain('AlignedTissue');
     expect(html).toContain('neuroglancer.example.com/#!align');
   });
 
   it('renders no alignment link (dash) when alignment_link is absent', () => {
     const html = renderSmartSpimRow(baseRow, defaultCols);
-    expect(html).not.toContain('Alignment');
+    expect(html).not.toContain('AlignedTissue');
+  });
+
+  it('renders AlignedCCF link when alignment_ccf_link is present', () => {
+    const row = { ...baseRow, alignment_ccf_link: 'https://neuroglancer.example.com/#!ccf' };
+    const html = renderSmartSpimRow(row, defaultCols);
+    expect(html).toContain('AlignedCCF');
+    expect(html).toContain('neuroglancer.example.com/#!ccf');
+  });
+
+  it('renders no AlignedCCF link when alignment_ccf_link is absent', () => {
+    const html = renderSmartSpimRow(baseRow, defaultCols);
+    expect(html).not.toContain('AlignedCCF');
   });
 
   it('renders seg link for channel with data', () => {

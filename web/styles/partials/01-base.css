@@ -1,0 +1,148 @@
+/*
+ * app.css — Data Explorer application styles.
+ *
+ * Clean black-and-white theme with red accent.
+ * Supports light/dark via system preference (prefers-color-scheme)
+ * or explicit [data-theme="light"|"dark"] on <html>.
+ */
+
+/* ---------------------------------------------------------------------------
+ * Web fonts
+ * ------------------------------------------------------------------------ */
+
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Light.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Medium.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-MediumItalic.woff2') format('woff2'); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Semibold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-SemiboldItalic.woff2') format('woff2'); font-weight: 600; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusHeadline'; src: url('/fonts/AllenInstitutePlusHeadline-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; font-display: swap; }
+
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Light.woff2') format('woff2'); font-weight: 300; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-LightItalic.woff2') format('woff2'); font-weight: 300; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Regular.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-MediumItalic.woff2') format('woff2'); font-weight: 500; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Semibold.woff2') format('woff2'); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-SemiboldItalic.woff2') format('woff2'); font-weight: 600; font-style: italic; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-Bold.woff2') format('woff2'); font-weight: 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'AllenInstitutePlusText'; src: url('/fonts/AllenInstitutePlusText-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; font-display: swap; }
+
+/* ---------------------------------------------------------------------------
+ * CSS custom properties (design tokens)
+ * ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  /* Accent */
+  --color-red:        #c0392b;
+  --color-red-hover:  #a93226;
+
+  /* Semantic colours kept for badge / chart compatibility */
+  --color-green:      #1D8649;
+  --color-yellow:     #d97706;
+  --color-grey:       #888888;
+
+  /* Neutral stand-ins for old brand blues (used by chart fill defaults) */
+  --color-dark-blue:  #111111;
+  --color-light-blue: #555555;
+
+  /* Surfaces — light mode */
+  --surface-bg:       #ffffff;
+  --surface-card:     #f5f5f5;
+  --surface-border:   #e0e0e0;
+
+  /* Header */
+  --header-bg:        #ffffff;
+  --header-border:    #e0e0e0;
+
+  /* Text */
+  --text-primary:     #111111;
+  --text-secondary:   #555555;
+  --text-muted:       #888888;
+  --text-on-dark:     #111111;
+
+  /* Spacing */
+  --gap:              12px;
+  --radius:           4px;
+
+  /* Shadow */
+  --shadow:           0 1px 3px rgba(0, 0, 0, 0.07);
+
+  /* Icons */
+  --icon-filter: brightness(0.2);
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-bg:       #141414;
+    --surface-card:     #1e1e1e;
+    --surface-border:   #2e2e2e;
+    --header-bg:        #0f0f0f;
+    --header-border:    #2e2e2e;
+    --text-primary:     #eeeeee;
+    --text-secondary:   #999999;
+    --text-muted:       #666666;
+    --text-on-dark:     #eeeeee;
+    --color-dark-blue:  #dddddd;
+    --color-light-blue: #aaaaaa;
+    --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+    --icon-filter: brightness(0.9);
+  }
+}
+
+/* Explicit dark mode */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-bg:       #141414;
+  --surface-card:     #1e1e1e;
+  --surface-border:   #2e2e2e;
+  --surface-input:    #2a2a2a;
+  --header-bg:        #0f0f0f;
+  --header-border:    #2e2e2e;
+  --text-primary:     #eeeeee;
+  --text-secondary:   #999999;
+  --text-muted:       #666666;
+  --text-on-dark:     #eeeeee;
+  --color-dark-blue:  #dddddd;
+  --color-light-blue: #aaaaaa;
+  --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+  --icon-filter: brightness(0.9);
+}
+
+/* ---------------------------------------------------------------------------
+ * Reset / base
+ * ------------------------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: 'AllenInstitutePlusText', Arial;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------------------
+ * Background — clean white / dark depending on theme
+ * ------------------------------------------------------------------------ */
+
+body {
+  background-color: var(--surface-bg);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+

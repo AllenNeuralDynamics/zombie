@@ -1,0 +1,698 @@
+/* ===========================================================================
+   Contributions — Shared button styles (btn-primary / btn-secondary)
+   Used throughout contributions pages (editor, wizard, token panel).
+   =========================================================================== */
+
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--color-primary, #4338ca);
+  color: #fff;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary, #4338ca) 85%, #000); }
+.btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-secondary:hover:not(:disabled) { background: var(--surface-hover, #f3f4f6); border-color: var(--text-secondary); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ===========================================================================
+   Contributions — Landing Page
+   =========================================================================== */
+
+.contributions-landing {
+  max-width: 540px;
+  margin: 80px auto;
+  text-align: center;
+  padding: 0 20px;
+}
+
+.contributions-landing-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.contributions-landing-desc {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.contributions-landing-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contributions-landing-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+.contributions-landing-btns {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.contributions-landing-btns .btn-primary,
+.contributions-landing-btns .btn-secondary {
+  flex: 1;
+  max-width: 140px;
+  padding: 10px 0;
+}
+
+/* ===========================================================================
+   Contributions — View Page
+   =========================================================================== */
+
+.contributions-view-page {
+  padding: 16px 24px;
+}
+
+.cv-view-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+
+.cv-view-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cv-view-version-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.cv-view-version-select label {
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.cv-view-version-select select {
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.cv-view-preview {
+  min-height: 400px;
+}
+
+/* ===========================================================================
+   Contributions — Edit Page Modal
+   =========================================================================== */
+
+.cv-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.cv-modal {
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+  padding: 32px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.cv-modal-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+
+.cv-modal-desc {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.cv-modal-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.cv-modal-error {
+  color: var(--color-danger, #e53e3e);
+  font-size: 0.85rem;
+  margin: 4px 0 8px;
+}
+
+.cv-modal-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ===========================================================================
+   Contributions — Token Section (Edit Page)
+   =========================================================================== */
+
+.cv-token-section {
+  margin-top: 24px;
+}
+
+.cv-token-desc {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-bottom: 16px;
+}
+
+.cv-token-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.cv-token-link-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.cv-token-link-input {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.cv-token-error {
+  color: var(--color-danger, #e53e3e);
+  font-size: 0.8rem;
+}
+
+.cv-token-copied-badge {
+  font-size: 0.8rem;
+  color: var(--color-success, #16a34a);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.cv-token-author-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cv-token-author-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.cv-token-author-name {
+  font-weight: 500;
+  min-width: 140px;
+}
+
+.cv-token-gen-btn {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+}
+
+/* Inline link generation button (per-author row) */
+.cv-token-cell { width: 28px; text-align: center; }
+.cv-link-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.cv-link-btn:hover { opacity: 1; }
+.cv-link-btn--done { opacity: 1; border-color: var(--color-accent, #4338ca); }
+.cv-link-btn:disabled { cursor: wait; opacity: 0.4; }
+
+/* Add row actions (Add author + Invite) */
+.cv-add-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.cv-add-row-actions .cv-add-row-btn { margin-top: 0; }
+.cv-invite-btn { font-size: 0.82rem; padding: 4px 12px; }
+
+/* ===========================================================================
+   Contributions — Add Page / Wizard
+   =========================================================================== */
+
+.contributions-add-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px;
+}
+
+.cv-wizard-progress {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.cv-wizard-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: 2px solid var(--surface-border);
+  color: var(--text-secondary);
+  background: var(--surface-bg);
+}
+
+.cv-wizard-dot-active {
+  border-color: var(--color-primary, #4338ca);
+  color: var(--color-primary, #4338ca);
+  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
+}
+
+.cv-wizard-dot-done {
+  border-color: var(--color-success, #16a34a);
+  background: var(--color-success, #16a34a);
+  color: #fff;
+}
+
+.cv-wizard-step {
+  animation: fadeInUp 0.2s ease;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cv-wizard-step-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 6px;
+}
+
+.cv-wizard-step-desc {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+}
+
+.cv-wizard-field {
+  margin-bottom: 18px;
+}
+
+.cv-wizard-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 1rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+.cv-wizard-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.9rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+}
+
+.cv-wizard-orcid-results {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.cv-orcid-result-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cv-orcid-verify-link {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cv-orcid-verify-link:hover { text-decoration: underline; color: var(--color-primary, #4338ca); }
+
+.cv-orcid-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+}
+
+.cv-wizard-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.cv-wizard-nav .btn-primary,
+.cv-wizard-nav .btn-secondary {
+  padding: 10px 24px;
+  font-size: 0.95rem;
+}
+
+/* Affiliations checklist (step 1) */
+.cv-wizard-aff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.cv-wizard-aff-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.cv-wizard-aff-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.cv-wizard-custom-aff-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
+  border: 1px solid color-mix(in srgb, var(--color-primary, #4338ca) 30%, transparent);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.cv-wizard-aff-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.cv-wizard-aff-add-row .cv-wizard-input {
+  flex: 1;
+}
+
+/* Role name tooltip (cv-role-tip)
+   Uses position:fixed on the popup to escape overflow:auto containers. */
+.cv-role-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.cv-role-tip-icon {
+  font-size: 0.7em;
+  opacity: 0.5;
+  line-height: 1;
+}
+
+.cv-role-tip-popup {
+  position: fixed;
+  z-index: 9999;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  background: #fff;
+  color: #111827;
+  font-weight: 400;
+  font-style: normal;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--radius, 6px);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  padding: 12px 14px;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.cv-role-tip-title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #111827;
+}
+
+.cv-role-tip-def {
+  display: block;
+  font-style: normal;
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: #111827;
+  line-height: 1.5;
+}
+
+.cv-role-tip-examples li {
+  margin-bottom: 4px;
+}
+.cv-role-tip-examples li:last-child { margin-bottom: 0; }
+
+/* Roles grid (step 2) */
+.cv-wizard-roles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.cv-wizard-role-card {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cv-wizard-role-active {
+  border-color: var(--color-primary, #4338ca);
+  background: color-mix(in srgb, var(--color-primary, #4338ca) 5%, var(--surface-bg));
+}
+
+.cv-wizard-role-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.cv-wizard-role-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.cv-wizard-role-level {
+  padding: 3px 6px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+/* Step 3 section chips */
+.cv-wizard-section-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* Section contribution rows (edit page + add wizard) */
+.cv-section-contrib-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--surface-border, #e5e7eb);
+  flex-wrap: wrap;
+}
+.cv-section-contrib-row:last-child { border-bottom: none; }
+.cv-section-contrib-check {
+  flex: 0 0 160px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.cv-section-contrib-check input[type="checkbox"] {
+  flex-shrink: 0;
+  margin: 0;
+}
+.cv-section-contrib-title {
+  flex: 0 0 160px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.cv-section-contrib-check .cv-section-contrib-title {
+  flex: 1 1 auto;
+}
+.cv-section-contrib-level {
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--surface-input, #fff);
+  color: inherit;
+}
+.cv-section-contrib-desc {
+  flex: 1;
+  min-width: 160px;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+  border-radius: 6px;
+  background: var(--surface-input, #fff);
+  color: inherit;
+  font-family: inherit;
+}
+[data-theme="dark"] .cv-section-contrib-level,
+[data-theme="dark"] .cv-section-contrib-desc {
+  background: #1f2937;
+  border-color: #374151;
+  color: #e5e7eb;
+}
+
+.cv-chip-selected {
+  background: var(--color-primary, #4338ca) !important;
+  color: #fff !important;
+  border-color: var(--color-primary, #4338ca) !important;
+}
+
+/* Step 4 editor */
+.cv-wizard-step-editor {
+  max-width: none;
+}
+
+.cv-wizard-editor-summary {
+  margin-bottom: 16px;
+}
+
+.cv-wizard-author-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 1rem;
+}
+
+.cv-wizard-orcid-badge {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.cv-wizard-matrix {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.cv-wizard-desc-text {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+/* Edit page container */
+.contributions-edit-page {
+  padding: 0;
+}
+

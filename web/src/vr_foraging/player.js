@@ -17,7 +17,7 @@ import { VrfAnimation, loadSprites, findSiteAt, buildOdorPalette } from './anima
 import { buildPatchIndex, updateDepletion }       from './depletion.js';
 import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
+import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { ensureTable }                            from '../lib/registry.js';
 
 const SPRITE_URL = '/images/vrf';

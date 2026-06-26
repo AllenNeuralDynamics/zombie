@@ -13,7 +13,7 @@
 
 import { escHtml } from '../lib/utils.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { buildCoLink } from '../assets/view.js';
+import { buildCoLink } from '../assets/links.js';
 
 // ---------------------------------------------------------------------------
 // JSON tree renderer

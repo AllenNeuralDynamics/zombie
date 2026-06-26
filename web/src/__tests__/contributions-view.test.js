@@ -528,6 +528,7 @@ describe('createContributionsView — projectName auto-load', () => {
       creditLinkedSections: {},
       selectedAuthor: null,
       doi: '',
+      existsOnServer: false,
     }));
 
     // history=true fetch should be called; full project GET should not
@@ -548,5 +549,27 @@ describe('createContributionsView — projectName auto-load', () => {
       ([url]) => !url.includes('history=true'),
     );
     expect(fullProjectCalls).toHaveLength(0);
+  });
+
+  it('discards a draft for a project that exists on the server and re-fetches', async () => {
+    const draftRows = [{ name: 'Alice Smith', isFirst: false, ...Object.fromEntries(
+      ['Conceptualization','Methodology','Software','Validation','Formal analysis',
+       'Investigation','Resources','Data curation','Writing \u2013 original draft',
+       'Writing \u2013 review & editing','Visualization','Supervision',
+       'Project Administration','Funding Acquisition'].map(c => [c, 'None'])
+    ) }];
+    sessionStorage.setItem('contributions:draft', JSON.stringify({
+      rows: draftRows,
+      projectName: 'my-project',
+      existsOnServer: true,
+    }));
+
+    createContributionsView({ projectName: 'my-project' });
+    await Promise.resolve();
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('contributions/get?project=my-project'),
+    );
+    expect(sessionStorage.getItem('contributions:draft')).toBeNull();
   });
 });

@@ -1,0 +1,114 @@
+/* ---------------------------------------------------------------------------
+ * Theme toggle button
+ * ------------------------------------------------------------------------ */
+
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 4px 8px;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark mode overrides for elements that use hardcoded colours
+ * ------------------------------------------------------------------------ */
+
+/* Explicit dark override */
+[data-theme="dark"] .dv-debug-wrap,
+[data-theme="dark"] .query-section,
+[data-theme="dark"] .filter-col-select,
+[data-theme="dark"] .filter-values-select,
+[data-theme="dark"] .dv-ctrl-input,
+[data-theme="dark"] .dv-select,
+[data-theme="dark"] .dv-add-filter-col,
+[data-theme="dark"] .dv-add-filter-val,
+[data-theme="dark"] .assets-paging,
+[data-theme="dark"] .assets-table,
+[data-theme="dark"] .assets-table tbody tr:nth-child(even) {
+  background: var(--surface-bg);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .settings-bar {
+  background: var(--header-bg);
+  border-color: var(--header-border);
+}
+
+[data-theme="dark"] .error-banner {
+  background: #2a0a0a;
+}
+
+[data-theme="dark"] .dv-debug-error,
+[data-theme="dark"] .dv-plot-error {
+  background: #2a0a0a;
+}
+
+[data-theme="dark"] .card pre {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .dv-filter-chip {
+  background: #555555;
+}
+
+[data-theme="dark"] .contributions-view {
+  background: var(--surface-bg);
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dv-debug-wrap,
+  :root:not([data-theme="light"]) .query-section,
+  :root:not([data-theme="light"]) .filter-col-select,
+  :root:not([data-theme="light"]) .filter-values-select,
+  :root:not([data-theme="light"]) .dv-ctrl-input,
+  :root:not([data-theme="light"]) .dv-select,
+  :root:not([data-theme="light"]) .dv-add-filter-col,
+  :root:not([data-theme="light"]) .dv-add-filter-val,
+  :root:not([data-theme="light"]) .assets-paging,
+  :root:not([data-theme="light"]) .assets-table,
+  :root:not([data-theme="light"]) .assets-table tbody tr:nth-child(even) {
+    background: var(--surface-bg);
+    color: var(--text-primary);
+  }
+
+  :root:not([data-theme="light"]) .settings-bar {
+    background: var(--header-bg);
+    border-color: var(--header-border);
+  }
+
+  :root:not([data-theme="light"]) .error-banner {
+    background: #2a0a0a;
+  }
+
+  :root:not([data-theme="light"]) .dv-debug-error,
+  :root:not([data-theme="light"]) .dv-plot-error {
+    background: #2a0a0a;
+  }
+
+  :root:not([data-theme="light"]) .card pre {
+    background: var(--surface-card);
+    color: var(--text-primary);
+  }
+
+  :root:not([data-theme="light"]) .dv-filter-chip {
+    background: #555555;
+  }
+
+  :root:not([data-theme="light"]) .contributions-view {
+    background: var(--surface-bg);
+  }
+}
+

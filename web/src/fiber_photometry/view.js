@@ -7,7 +7,7 @@
  * Only channels with at least one non-"missing" intended_measurement are shown.
  */
 
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/view.js';
+import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { escHtml, formatDatetime, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
@@ -431,19 +431,27 @@ export function buildMissingTable(wideRows) {
       fiberKeys.get(m[1]).push([k, v]);
     }
 
-    for (const [fiberIdx, pairs] of fiberKeys) {
-      if (!pairs.some(([, v]) => v != null && v !== '')) continue;
+    const allFiberPairs = [...fiberKeys.values()].flat();
+    const hasAnyData = allFiberPairs.some(([, v]) => v != null && v !== '');
 
-      const displayName = `Fiber ${fiberIdx}`;
+    if (!hasAnyData && fiberKeys.size > 0) {
+      assetMissingTargets.push('All fibers');
+      assetMissingMeasurements.push('All fibers');
+    } else {
+      for (const [fiberIdx, pairs] of fiberKeys) {
+        if (!pairs.some(([, v]) => v != null && v !== '')) continue;
 
-      const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
-      if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
-        assetMissingTargets.push(displayName);
-      }
+        const displayName = `Fiber ${fiberIdx}`;
 
-      const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
-      if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
-        assetMissingMeasurements.push(displayName);
+        const targetPair = pairs.find(([k]) => k.endsWith('/Target'));
+        if (targetPair && (targetPair[1] == null || targetPair[1] === '')) {
+          assetMissingTargets.push(displayName);
+        }
+
+        const measPairs = pairs.filter(([k]) => !k.endsWith('/Target'));
+        if (measPairs.length > 0 && measPairs.every(([, v]) => v == null || v === '')) {
+          assetMissingMeasurements.push(displayName);
+        }
       }
     }
 
@@ -502,21 +510,35 @@ export function createFiberPhotometryView(coord) {
 
   ensureTable(coord, 'platform_fib')
     .then(() => {
-      console.log(`[FibPhot] parquet loaded & registered  +${(performance.now()-t0).toFixed(0)}ms`);
+      console.log(`[FibPhot] platform_fib registered      +${(performance.now()-t0).toFixed(0)}ms`);
+      console.log(`[FibPhot] starting JOIN query (platform_fib × asset_basics)  +${(performance.now()-t0).toFixed(0)}ms`);
       return queryRows(coord,
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
-                b.data_level, b.modalities, b.genotype, b.location,
-                b.code_ocean, b.investigators_normalized AS investigators, b.experimenters_normalized AS experimenters
+                b.data_level, b.modalities_str AS modalities, b.genotype, b.location,
+                b.code_ocean_str AS code_ocean,
+                b.investigators_str AS investigators, b.experimenters_str AS experimenters
          FROM platform_fib f
-         LEFT JOIN asset_basics b ON b.name = f.asset_name
-         ORDER BY b.acquisition_start_time DESC NULLS LAST, f.asset_name`,
+         LEFT JOIN (
+           SELECT name, subject_id, project_name, acquisition_start_time,
+                  data_level, genotype, location,
+                  array_to_string(modalities, ', ') AS modalities_str,
+                  array_to_string(code_ocean, ', ') AS code_ocean_str,
+                  array_to_string(investigators_normalized, ', ') AS investigators_str,
+                  array_to_string(experimenters_normalized, ', ') AS experimenters_str
+           FROM asset_basics
+         ) b ON b.name = f.asset_name`,
       );
     })
     .then((longRows) => {
       console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
       console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
       const wideRows = pivotLongFormRows(longRows);
+      wideRows.sort((a, b) => {
+        const av = a.acquisition_start_time ?? '';
+        const bv = b.acquisition_start_time ?? '';
+        return String(bv).localeCompare(String(av)) || String(a.asset_name ?? '').localeCompare(String(b.asset_name ?? ''));
+      });
       console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
       loadingEl.remove();
       buildPage(wideRows);
@@ -708,7 +730,7 @@ export function createFiberPhotometryView(coord) {
   function buildTable(allRows, getBaseRows, target, settingsBtn, allAvailableCols, defaultDisplayCols, columnLabels, channelCols) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
-    let visibleColumns = [...defaultDisplayCols, 'links'];
+    let visibleColumns = [...defaultDisplayCols];
     let filters = Object.fromEntries(allAvailableCols.map((c) => [c, '']));
     let page = 0;
     let settingsModalOpen = false;
@@ -942,7 +964,7 @@ export function createFiberPhotometryView(coord) {
       });
 
       settingsModal.querySelector('.settings-reset-btn').addEventListener('click', () => {
-        visibleColumns = [...defaultDisplayCols, 'links'];
+        visibleColumns = [...defaultDisplayCols];
         settingsModal.querySelectorAll('.settings-col-checkbox').forEach((cb) => {
           cb.checked = visibleColumns.includes(cb.dataset.col);
         });

@@ -1,9 +1,8 @@
 /**
- * migrate-view.test.js — Unit tests for pure helpers in migrate/view.js.
+ * migrate-lib.test.js — Unit tests for pure helpers in migrate/lib.js.
  *
  * The Preact components themselves are not exercised (they require a DOM
- * runtime and a network); these tests cover diffJson, deepEqual,
- * canonicalJson, extractServicePayload, buildMergedRecord, formatDiffValue.
+ * runtime and a network); these tests cover the pure helpers.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -14,7 +13,8 @@ import {
   diffJson,
   extractServicePayload,
   formatDiffValue,
-} from '../migrate/view.js';
+  topLevelChangedSections,
+} from '../migrate/lib.js';
 
 // ---------------------------------------------------------------------------
 // canonicalJson
@@ -155,5 +155,34 @@ describe('buildMergedRecord', () => {
 
   it('returns null when no current record is supplied', () => {
     expect(buildMergedRecord(null, 'subject', { x: 1 })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// topLevelChangedSections
+// ---------------------------------------------------------------------------
+
+describe('topLevelChangedSections', () => {
+  it('returns empty for byte-equal records', () => {
+    const a = { _id: 'x', subject: { id: '1' }, procedures: { list: [1, 2] } };
+    const b = { _id: 'x', procedures: { list: [1, 2] }, subject: { id: '1' } };
+    expect(topLevelChangedSections(a, b)).toEqual([]);
+  });
+
+  it('lists only the changed top-level fields, sorted', () => {
+    const a = { _id: 'x', subject: { id: '1' }, procedures: { list: [1, 2] }, other: true };
+    const b = { _id: 'x', subject: { id: '2' }, procedures: { list: [1, 2] }, other: false };
+    expect(topLevelChangedSections(a, b)).toEqual(['other', 'subject']);
+  });
+
+  it('treats added and removed top-level keys as changes', () => {
+    const a = { _id: 'x', subject: {} };
+    const b = { _id: 'x', subject: {}, new_section: { foo: 1 } };
+    expect(topLevelChangedSections(a, b)).toEqual(['new_section']);
+  });
+
+  it('returns empty when either side is missing', () => {
+    expect(topLevelChangedSections(null, { a: 1 })).toEqual([]);
+    expect(topLevelChangedSections({ a: 1 }, null)).toEqual([]);
   });
 });

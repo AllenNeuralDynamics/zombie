@@ -10,8 +10,7 @@
  * @module
  */
 
-import { coordinator, wasmConnector } from '@uwdata/vgplot';
-import { fetchAndRegisterMetadata } from './metadata.js';
+import { fetchMetadata, registerEagerTables } from './metadata.js';
 import { setMetadata } from './registry.js';
 import { VERSIONS_URL } from '../constants.js';
 
@@ -55,10 +54,23 @@ export async function bootstrap(createView, { graceful = false } = {}) {
   let metadata = null;
 
   try {
-    coordinator().databaseConnector(wasmConnector());
-    metadata = await fetchAndRegisterMetadata(coordinator(), VERSIONS_URL, { onProgress });
+    // Kick off the DuckDB-WASM engine download (@uwdata/vgplot, ~600 KB)
+    // immediately, but dynamically so it never enters the page's eager bundle.
+    // It downloads in parallel with the (tiny) metadata registry HTTP fetch
+    // below instead of blocking initial parse as a static import.
+    const vgPromise = import('@uwdata/vgplot');
+
+    // Fetch + parse the metadata registry over plain HTTP — no DuckDB needed.
+    metadata = await fetchMetadata(VERSIONS_URL, { onProgress });
     setMetadata(metadata);
+
+    // Now wire up the coordinator (vgPromise has been downloading meanwhile)
+    // and register the eager startup tables before the view mounts, preserving
+    // the original ordering so on-mount queries still find their tables.
+    const { coordinator, wasmConnector } = await vgPromise;
+    coordinator().databaseConnector(wasmConnector());
     coord = coordinator();
+    await registerEagerTables(coord, metadata, { onProgress });
     if (loadingEl) loadingEl.remove();
   } catch (err) {
     if (graceful) {

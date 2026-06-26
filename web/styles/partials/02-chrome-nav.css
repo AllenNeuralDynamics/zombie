@@ -1,0 +1,173 @@
+/* ---------------------------------------------------------------------------
+ * App chrome
+ * ------------------------------------------------------------------------ */
+
+.app-header {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--header-border);
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.app-header-brand:hover {
+  opacity: 0.85;
+}
+
+.app-logo {
+  height: 30px;
+  width: auto;
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Invert the black logo to white in dark mode */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .app-logo { filter: invert(1); }
+}
+[data-theme="dark"] .app-logo { filter: invert(1); }
+
+.app-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  gap: 0;
+}
+
+.app-brand-top {
+  font-family: 'AllenInstitutePlusHeadline', Arial;
+  font-size: 0.80rem;
+  font-weight: 500;
+  color: rgb(170, 163, 159);
+  white-space: nowrap;
+}
+
+.app-brand-dept {
+  color: rgb(115, 115, 115);
+}
+
+.app-brand-sub {
+  font-family: 'AllenInstitutePlusHeadline', Arial;
+  font-size: 0.80rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* Legacy — kept for backward compat */
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+.app-subtitle {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+/* ---------------------------------------------------------------------------
+ * Navigation bar
+ * ------------------------------------------------------------------------ */
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-nav a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  transition: background 0.15s, color 0.15s;
+}
+
+.app-nav a:hover {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.app-nav a.active,
+.app-nav a[aria-current='page'] {
+  background: transparent;
+  color: var(--color-red);
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+ * Dashboards dropdown
+ * ------------------------------------------------------------------------ */
+
+.app-nav-dropdown {
+  position: relative;
+}
+
+.app-nav-dropdown-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--radius);
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.app-nav-dropdown-btn:hover,
+.app-nav-dropdown:hover .app-nav-dropdown-btn {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.app-nav-dropdown-btn.active {
+  color: var(--color-red);
+  font-weight: 600;
+}
+
+.app-nav-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  min-width: 140px;
+  background: var(--header-bg);
+  border: 1px solid var(--header-border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.10);
+  z-index: 100;
+  flex-direction: column;
+  overflow: hidden;
+  /* 4px padding bridges the visual gap without a hover dead-zone */
+  padding-top: 4px;
+}
+
+.app-nav-dropdown:hover .app-nav-dropdown-menu,
+.app-nav-dropdown:focus-within .app-nav-dropdown-menu,
+.app-nav-dropdown.open .app-nav-dropdown-menu {
+  display: flex;
+}
+
+.app-nav-dropdown-menu a {
+  display: block;
+  padding: 7px 14px;
+  border-radius: 0;
+}
+

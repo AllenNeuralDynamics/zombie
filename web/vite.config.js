@@ -1,7 +1,29 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
+import { resolve, basename } from 'path';
+import { PAGES, renderHeader } from './build/header-template.js';
+
+/**
+ * Inject the shared app header into pages that contain an `<!--APP_HEADER-->`
+ * placeholder, so the nav markup lives in one source file instead of being
+ * hand-copied into every HTML page. Runs in both dev and build.
+ */
+function sharedHeaderPlugin() {
+  return {
+    name: 'shared-header',
+    transformIndexHtml(html, ctx) {
+      if (!html.includes('<!--APP_HEADER-->')) return html;
+      // Try the relative path first (e.g. 'migrate/submit.html'), fall back
+      // to basename to keep existing top-level pages working.
+      const rel = ctx.path.replace(/^\/+/, '');
+      const page = PAGES[rel] ?? PAGES[basename(ctx.path)];
+      if (!page) return html;
+      return html.replace('<!--APP_HEADER-->', renderHeader(page));
+    },
+  };
+}
 
 export default defineConfig({
+  plugins: [sharedHeaderPlugin()],
   // Serve the `web/` directory as the project root during dev
   server: {
     port: 5173,
@@ -10,6 +32,11 @@ export default defineConfig({
       // Forward /metadata-service/* → docdb_proxy.py, which calls
       // https://aind-metadata-service/* (internal-only, self-signed cert).
       '/metadata-service': {
+        target: 'http://localhost:3001',
+      },
+      // Forward /log-server/* → docdb_proxy.py, which connects to
+      // the eng-logtools MySQL server.
+      '/log-server': {
         target: 'http://localhost:3001',
       },
       '/qc-presign': {
@@ -55,12 +82,15 @@ export default defineConfig({
         fiber_photometry: resolve(__dirname, 'fiber_photometry.html'),
         vr_foraging: resolve(__dirname, 'vr_foraging.html'),
         dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
+        dynamic_routing: resolve(__dirname, 'dynamic_routing.html'),
         slap2: resolve(__dirname, 'slap2.html'),
         tables: resolve(__dirname, 'tables.html'),
         names: resolve(__dirname, 'names.html'),
         record: resolve(__dirname, 'record.html'),
         upgrade: resolve(__dirname, 'upgrade.html'),
         migrate: resolve(__dirname, 'migrate.html'),
+        migrate_submit: resolve(__dirname, 'migrate/submit.html'),
+        migrate_review: resolve(__dirname, 'migrate/review.html'),
       },
     },
   },
