@@ -77,9 +77,11 @@ export function createCombinedView(opts = {}) {
     embedded: true,
     onSubjectLoaded: ({ subjectId, mostRecentProject }) => {
       currentSubject = subjectId || '';
-      // Remember the project to surface if the user opens the Project section.
       if (!projectLoaded && mostRecentProject) pendingProjectName = mostRecentProject;
       syncUrl();
+    },
+    onAcquisitionSelect: (assetName) => {
+      projectView.highlightAsset?.(assetName);
     },
   });
   subjectBody.appendChild(subjectView);
@@ -128,9 +130,9 @@ export function createCombinedView(opts = {}) {
   function openSubject(subjectId, { acquisitionName } = {}) {
     subjectDetails.open = true;
     currentSubject = subjectId || '';
+    projectView.highlightAsset?.(acquisitionName ?? null);
     subjectView.loadSubject?.(subjectId, { acquisitionName });
     syncUrl();
-    subjectDetails.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
 
   function openProject(name) {
@@ -140,7 +142,6 @@ export function createCombinedView(opts = {}) {
     pendingProjectName = name || null;
     projectView.loadProject?.(name);
     syncUrl();
-    projectDetails.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
 
   syncUrl();

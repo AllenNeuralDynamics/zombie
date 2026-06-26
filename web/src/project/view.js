@@ -88,6 +88,7 @@ export function createProjectView(opts = {}) {
 
   const root = document.createElement('div');
   root.className = 'project-view';
+  let currentTimelineSvg = null;
 
   // Header
   const headerEl = document.createElement('div');
@@ -159,6 +160,7 @@ export function createProjectView(opts = {}) {
       selectedCurricula,
       onCurriculaChange: (set) => { selectedCurricula = set; load(); },
       onSubjectClick,
+      onTimelineSvg: (svg) => { currentTimelineSvg = svg; },
     });
   }
 
@@ -180,6 +182,11 @@ export function createProjectView(opts = {}) {
     load();
   };
 
+  // Highlight a specific asset dot in the timeline (called from subject view).
+  root.highlightAsset = (assetName) => {
+    currentTimelineSvg?.highlightAsset?.(assetName);
+  };
+
   load();
   return root;
 }
@@ -188,7 +195,7 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null, onSubjectClick = null } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null, onSubjectClick = null, onTimelineSvg = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
   contentEl.innerHTML = '';
@@ -468,6 +475,7 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
         }
       }
     }, { cellW, tooltipEl, viewMode, curriculumMap, numDays });
+    onTimelineSvg?.(svgEl);
     timelineWrap.appendChild(svgEl);
     if (viewMode === 'curriculum') {
       const legendEl = buildCurriculumLegend(filteredRawAssets, windowStart, curriculumMap, numDays);

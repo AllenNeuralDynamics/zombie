@@ -146,7 +146,7 @@ export function organizeSubjectData(records, subjectId) {
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const { coordinator, embedded = false, onSubjectLoaded = null } = opts;
+  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null } = opts;
   const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
@@ -218,7 +218,7 @@ export function createSubjectView(opts = {}) {
     }
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
-    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, { onSubjectLoaded });
+    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect });
   }
 
   input.addEventListener('change', handleSubjectChange);
@@ -231,7 +231,7 @@ export function createSubjectView(opts = {}) {
 
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
-  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded });
+  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect });
 
   // Imperative API for the combined view: load a subject programmatically,
   // optionally pre-selecting a specific acquisition on the timeline.
@@ -246,13 +246,13 @@ export function createSubjectView(opts = {}) {
     root._pendingAcquisition = acquisitionName;
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
-    _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, { onSubjectLoaded, root });
+    _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect, root });
   };
 
   return root;
 }
 
-async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, root = null } = {}) {
+async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, onAcquisitionSelect = null, root = null } = {}) {
   console.debug('[SubjectView] _loadSubject start:', subjectId, 'aborted:', signal?.aborted);
   // Clear previous content and show loading indicator
   contentEl.innerHTML = '';
@@ -348,9 +348,12 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
     const timelineSvg = createSubjectTimeline(events, {
       onSelect: (ev) => {
         renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator, instruments: bundle.instruments });
-        if (assetsTableEl && ev?.type === 'Acquisition') {
+        if (ev?.type === 'Acquisition') {
           const targetName = ev.data?._assetName ?? '';
-          if (targetName) assetsTableEl.goToAsset?.(targetName);
+          if (targetName) {
+            assetsTableEl?.goToAsset?.(targetName);
+            onAcquisitionSelect?.(targetName);
+          }
         }
       },
     });

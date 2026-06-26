@@ -325,6 +325,10 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
 
   svg.appendChild(defs);
 
+  // Map from asset name → dot <g> element, for imperative highlighting.
+  const assetDotMap = new Map();
+  let selectedDotG = null;
+
   bySubjectDay.forEach((dayAssets, key) => {
     const [subjectId, dayStr] = key.split('|');
     const ri = subjects.indexOf(subjectId);
@@ -410,9 +414,30 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
       g.addEventListener('mouseleave', () => { tooltipEl.style.display = 'none'; });
     }
 
+    // Selection ring — hidden by default, shown via pt-dot-selected class on g
+    const ring = document.createElementNS(NS, 'circle');
+    ring.setAttribute('cx', 0);
+    ring.setAttribute('cy', 0);
+    ring.setAttribute('r', TIMELINE_DOT_R + 4);
+    ring.setAttribute('class', 'pt-dot-ring');
+    ring.style.pointerEvents = 'none';
+    g.appendChild(ring);
+
     g.addEventListener('click', () => onDotClick && onDotClick(dayAssets));
+
+    // Register each asset name → this dot group for external highlighting.
+    for (const a of dayAssets) {
+      if (a.name) assetDotMap.set(a.name, g);
+    }
+
     svg.appendChild(g);
   });
+
+  svg.highlightAsset = (assetName) => {
+    if (selectedDotG) selectedDotG.classList.remove('pt-dot-selected');
+    selectedDotG = assetName ? (assetDotMap.get(assetName) ?? null) : null;
+    if (selectedDotG) selectedDotG.classList.add('pt-dot-selected');
+  };
 
   return svg;
 }
