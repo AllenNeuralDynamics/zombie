@@ -103,7 +103,7 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
       ].filter(Boolean).join(' ');
 
       const subjectCell = asset.subject_id
-        ? `<a href="/subject?subject_id=${encodeURIComponent(asset.subject_id)}">${asset.subject_id}</a>`
+        ? `<a href="/view?subject_id=${encodeURIComponent(asset.subject_id)}">${asset.subject_id}</a>`
         : '';
 
       tr.innerHTML = `

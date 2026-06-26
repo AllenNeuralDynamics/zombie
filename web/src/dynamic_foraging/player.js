@@ -32,31 +32,12 @@ const PREFERRED_SESSIONS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Public entry
+// Shared markup
 // ---------------------------------------------------------------------------
 
-export function createDfSessionPlayer(coord) {
-  const root = document.createElement('section');
-  root.className = 'df-player';
-  root.innerHTML = `
-    <div class="df-player-header">
-      <h3 class="platform-summary-heading">Session playback</h3>
-      <div class="df-player-selector">
-        <label for="df-subject-select">Subject</label>
-        <select id="df-subject-select" disabled>
-          <option>Loading…</option>
-        </select>
-        <label for="df-session-select">Session</label>
-        <select id="df-session-select" disabled>
-          <option>—</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="df-player-status" class="df-player-status">
-      Loading session list…
-    </div>
-
+// The stage + plot + transport body, shared by the full (dropdown) player and
+// the embedded single-session playback widget.
+const DF_BODY_HTML = `
     <div class="df-player-body" hidden>
       <div class="df-player-top">
         <div class="df-stage">
@@ -85,6 +66,34 @@ export function createDfSessionPlayer(coord) {
         </label>
       </div>
     </div>
+  `;
+
+// ---------------------------------------------------------------------------
+// Public entry
+// ---------------------------------------------------------------------------
+
+export function createDfSessionPlayer(coord) {
+  const root = document.createElement('section');
+  root.className = 'df-player';
+  root.innerHTML = `
+    <div class="df-player-header">
+      <h3 class="platform-summary-heading">Session playback</h3>
+      <div class="df-player-selector">
+        <label for="df-subject-select">Subject</label>
+        <select id="df-subject-select" disabled>
+          <option>Loading…</option>
+        </select>
+        <label for="df-session-select">Session</label>
+        <select id="df-session-select" disabled>
+          <option>—</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="df-player-status" class="df-player-status">
+      Loading session list…
+    </div>
+    ${DF_BODY_HTML}
   `;
 
   const subjectSelect = root.querySelector('#df-subject-select');
@@ -205,6 +214,61 @@ export function createDfSessionPlayer(coord) {
       ev.preventDefault();
       const btn = root.querySelector('#df-play');
       btn.click();
+    }
+  });
+
+  return root;
+}
+
+/**
+ * Create a single-session DF playback widget (no subject/session dropdowns).
+ * Used inside the subject timeline's Event Details panel.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {{ subject_id: string, session_date: string, nwb_suffix: string|number }} session
+ * @returns {HTMLElement}
+ */
+export function createDfSessionPlayback(coord, session) {
+  const root = document.createElement('section');
+  root.className = 'df-player df-player--embedded';
+  root.innerHTML = `
+    <div id="df-player-status" class="df-player-status">Loading session…</div>
+    ${DF_BODY_HTML}
+  `;
+
+  const statusEl = root.querySelector('#df-player-status');
+  const bodyEl   = root.querySelector('.df-player-body');
+  let animation = null;
+
+  (async () => {
+    statusEl.textContent =
+      `Loading ${session.subject_id} · ${session.session_date} from S3…`;
+    try {
+      const t0 = performance.now();
+      const [data, [mouseImg, cueIcon, dropletImg]] = await Promise.all([
+        loadDfSession(coord, {
+          subjectId: session.subject_id,
+          sessionDate: session.session_date,
+          nwbSuffix: session.nwb_suffix,
+        }),
+        Promise.all([loadMouseSprite(), loadCueIcon(), loadWaterDroplet()]),
+      ]);
+      const ms = Math.round(performance.now() - t0);
+      statusEl.textContent =
+        `${session.subject_id} · ${session.session_date} · ` +
+        `${data.trials.length} trials · ${data.licks.t.length} licks · loaded in ${ms} ms`;
+      bodyEl.hidden = false;
+      animation = _wireAnimation(root, data, mouseImg, cueIcon, dropletImg);
+    } catch (err) {
+      statusEl.textContent = `Error loading session: ${err.message}`;
+      console.error('[DF] embedded session load failed', err);
+    }
+  })();
+
+  root.addEventListener('keydown', (ev) => {
+    if (ev.key === ' ' && animation) {
+      ev.preventDefault();
+      root.querySelector('#df-play').click();
     }
   });
 

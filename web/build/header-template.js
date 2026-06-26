@@ -13,9 +13,8 @@
  */
 
 const TOP_LINKS = [
-  ['/assets', 'Assets'],
-  ['/subject', 'Subjects'],
-  ['/project', 'Projects'],
+  ['/search', 'Search'],
+  ['/view', 'Asset viewer'],
 ];
 
 const PLATFORMS = [
@@ -40,9 +39,8 @@ const DASHBOARDS = [
  * are not linked in the nav, e.g. migrate / upgrade / record).
  */
 export const PAGES = {
-  'assets.html':           { sub: 'data assets',               active: '/assets' },
-  'subject.html':          { sub: 'subjects',                  active: '/subject' },
-  'project.html':          { sub: 'projects',                  active: '/project' },
+  'search.html':           { sub: 'search',                    active: '/search' },
+  'view.html':             { sub: 'asset viewer',              active: '/view' },
   'smartspim.html':        { sub: 'smartspim platform',        active: '/smartspim' },
   'exaspim.html':          { sub: 'exaspim platform',          active: '/exaspim' },
   'fiber_photometry.html': { sub: 'fiber photometry platform', active: '/fiber_photometry' },
@@ -89,7 +87,7 @@ function dropdown(label, items, active) {
 export function renderHeader({ sub, active }) {
   return [
     '<header class="app-header">',
-    '      <a href="/assets" class="app-header-brand">',
+    '      <a href="/search" class="app-header-brand">',
     '        <img src="/images/logo.svg" class="app-logo" alt="Allen Institute" width="26" height="32">',
     '        <div class="app-brand-text">',
     '          <span class="app-brand-top">allen institute / <span class="app-brand-dept">neural dynamics /</span></span>',

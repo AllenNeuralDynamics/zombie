@@ -296,10 +296,10 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
 
   const cellValues = {
     subject_id: row.subject_id
-      ? `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id)}">${escHtml(String(row.subject_id))}</a>`
+      ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id)}">${escHtml(String(row.subject_id))}</a>`
       : '',
     project_name: row.project_name
-      ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
+      ? `<a href="/view?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
       : '',
     acquisition_start_time: escHtml(formatDatetime(row.acquisition_start_time ?? null)),
     data_level: escHtml(String(row.data_level ?? '')),
@@ -357,11 +357,11 @@ export function renderFibGroupRows(group, visibleColumns, channelCols, collapsed
       content = '';
     } else if (col === 'subject_id') {
       content = groupRow.subject_id
-        ? `<a href="/subject?subject_id=${encodeURIComponent(String(groupRow.subject_id))}">${escHtml(String(groupRow.subject_id))}</a>`
+        ? `<a href="/view?subject_id=${encodeURIComponent(String(groupRow.subject_id))}">${escHtml(String(groupRow.subject_id))}</a>`
         : '';
     } else if (col === 'project_name') {
       content = groupRow.project_name
-        ? `<a href="/project?project=${encodeURIComponent(String(groupRow.project_name))}">${escHtml(String(groupRow.project_name))}</a>`
+        ? `<a href="/view?project=${encodeURIComponent(String(groupRow.project_name))}">${escHtml(String(groupRow.project_name))}</a>`
         : '';
     } else if (col.endsWith('/Channels')) {
       const lines = String(groupRow[col] ?? '').split('\n').filter(Boolean);
@@ -650,7 +650,7 @@ export function createFiberPhotometryView(coord) {
           const collapsed = !expandedSubjects.has(entry.subject_id);
           const arrow = collapsed ? '▶' : '▼';
           const subjectLink = entry.subject_id
-            ? `<a href="/subject?subject_id=${encodeURIComponent(entry.subject_id)}">${escHtml(entry.subject_id)}</a>`
+            ? `<a href="/view?subject_id=${encodeURIComponent(entry.subject_id)}">${escHtml(entry.subject_id)}</a>`
             : '—';
           let html = `<tr class="fib-alert-subject-row${collapsed ? '' : ' fib-alert-subject-expanded'}" data-subject="${escHtml(entry.subject_id)}">
             <td><button class="fib-toggle-btn" aria-label="${collapsed ? 'Expand' : 'Collapse'}">${arrow}</button>${subjectLink}</td>

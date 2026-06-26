@@ -54,7 +54,7 @@ export function generateInfoHtml(subject, projects = []) {
         <dt>Strain</dt>     <dd>${strain}</dd>
         <dt>Genotype</dt>   <dd>${genotype}</dd>
         <dt>Housing</dt>    <dd>Cage ${cageId}, Room ${roomId}</dd>
-        ${projects.length ? `<dt>Projects</dt><dd>${projects.map((p) => `<a href="/project?project=${encodeURIComponent(p)}">${p}</a>`).join(', ')}</dd>` : ''}
+        ${projects.length ? `<dt>Projects</dt><dd>${projects.map((p) => `<a href="/view?project=${encodeURIComponent(p)}">${p}</a>`).join(', ')}</dd>` : ''}
       </dl>
     </div>`;
 }
@@ -396,6 +396,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
               if (asset) {
                 ev.data._codeOcean = asset.code_ocean ?? null;
                 ev.data._location = asset.location ?? null;
+                ev.data._project_name = asset.project_name ?? null;
               }
             }
           }

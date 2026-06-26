@@ -28,6 +28,7 @@ import {
   extractForagingSessionInfo,
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
+import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -557,6 +558,13 @@ function renderAcquisitionDetail(event, container, context = {}) {
   const { data = {} } = event;
   const prevTab = container._activeTabLabel;
 
+  // If this acquisition qualifies for a platform's session playback, render
+  // the player inline below the overview content (see session-playback.js).
+  const appendPlayback = () => {
+    const player = createSessionPlayback(event, context);
+    if (player) container.appendChild(player);
+  };
+
   // Dynamic foraging sessions get a dedicated panel
   if (isForagingAcquisition(event)) {
     const sessionInfo = extractForagingSessionInfo(event);
@@ -569,6 +577,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
       { label: 'Overview',  content: overviewEl },
     ];
     container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
+    appendPlayback();
     return;
   }
 
@@ -583,6 +592,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   // Simple case: no special data
   if (!hasEphys && !hasImaging && !instrumentData) {
     container.innerHTML = buildAcquisitionDetail(event);
+    appendPlayback();
     return;
   }
 
@@ -613,6 +623,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
 
   container.innerHTML = '';
   container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
+  appendPlayback();
 }
 
 function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {

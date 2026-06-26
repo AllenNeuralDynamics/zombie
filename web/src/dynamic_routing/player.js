@@ -41,31 +41,12 @@ const DEFAULT_SPEED_IDX = 0;
 const PREFERRED_SESSIONS = ['762526_2025-03-20'];
 
 // ---------------------------------------------------------------------------
-// Public entry
+// Shared markup
 // ---------------------------------------------------------------------------
 
-export function createDrSessionPlayer(coord) {
-  const root = document.createElement('section');
-  root.className = 'dr-player';
-  root.innerHTML = `
-    <div class="dr-player-header">
-      <h3 class="platform-summary-heading">Session playback</h3>
-      <div class="dr-player-selector">
-        <label for="dr-subject-select">Subject</label>
-        <select id="dr-subject-select" disabled>
-          <option>Loading…</option>
-        </select>
-        <label for="dr-session-select">Session</label>
-        <select id="dr-session-select" disabled>
-          <option>—</option>
-        </select>
-      </div>
-    </div>
-
-    <div id="dr-player-status" class="dr-player-status">
-      Loading session list…
-    </div>
-
+// The stage + plot + transport body, shared by the full (dropdown) player and
+// the embedded single-session playback widget.
+const DR_BODY_HTML = `
     <div class="dr-player-body" hidden>
       <div class="dr-player-top">
         <div class="dr-stage">
@@ -101,6 +82,34 @@ export function createDrSessionPlayer(coord) {
         </label>
       </div>
     </div>
+  `;
+
+// ---------------------------------------------------------------------------
+// Public entry
+// ---------------------------------------------------------------------------
+
+export function createDrSessionPlayer(coord) {
+  const root = document.createElement('section');
+  root.className = 'dr-player';
+  root.innerHTML = `
+    <div class="dr-player-header">
+      <h3 class="platform-summary-heading">Session playback</h3>
+      <div class="dr-player-selector">
+        <label for="dr-subject-select">Subject</label>
+        <select id="dr-subject-select" disabled>
+          <option>Loading…</option>
+        </select>
+        <label for="dr-session-select">Session</label>
+        <select id="dr-session-select" disabled>
+          <option>—</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="dr-player-status" class="dr-player-status">
+      Loading session list…
+    </div>
+    ${DR_BODY_HTML}
   `;
 
   const subjectSelect = root.querySelector('#dr-subject-select');
@@ -207,6 +216,62 @@ export function createDrSessionPlayer(coord) {
       console.error('[DR] session load failed', err);
     }
   });
+
+  root.addEventListener('keydown', (ev) => {
+    if (ev.key === ' ' && animation) {
+      ev.preventDefault();
+      root.querySelector('#dr-play').click();
+    }
+  });
+
+  return root;
+}
+
+/**
+ * Create a single-session DR playback widget (no subject/session dropdowns).
+ * Used inside the subject timeline's Event Details panel.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {string} sessionId - e.g. "762526_2025-03-20".
+ * @returns {HTMLElement}
+ */
+export function createDrSessionPlayback(coord, sessionId) {
+  const root = document.createElement('section');
+  root.className = 'dr-player dr-player--embedded';
+  root.innerHTML = `
+    <div id="dr-player-status" class="dr-player-status">Loading session…</div>
+    ${DR_BODY_HTML}
+  `;
+
+  const statusEl = root.querySelector('#dr-player-status');
+  const bodyEl   = root.querySelector('.dr-player-body');
+  let animation = null;
+
+  (async () => {
+    statusEl.textContent = `Loading ${sessionId} from S3…`;
+    try {
+      const t0 = performance.now();
+      const [data, [mouse, gabor, droplet, speaker]] = await Promise.all([
+        loadDrSession(coord, { sessionId }),
+        Promise.all([
+          loadMouseSprite(),
+          loadGaborSprite(),
+          loadWaterDroplet(),
+          loadSpeakerIcon(),
+        ]),
+      ]);
+      const ms = Math.round(performance.now() - t0);
+      statusEl.textContent =
+        `${sessionId} · ${data.trials.length} trials · ${data.blocks.length} blocks · ` +
+        `${data.responses.t.length} responses · ${data.rewards.t.length} rewards · ` +
+        `loaded in ${ms} ms`;
+      bodyEl.hidden = false;
+      animation = _wireAnimation(root, data, { mouse, gabor, droplet, speaker });
+    } catch (err) {
+      statusEl.textContent = `Error loading session: ${err.message}`;
+      console.error('[DR] embedded session load failed', err);
+    }
+  })();
 
   root.addEventListener('keydown', (ev) => {
     if (ev.key === ' ' && animation) {

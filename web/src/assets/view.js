@@ -104,10 +104,10 @@ export function renderAssetRow(row, visibleColumns) {
   const cellValues = {
     _id: row._id ?? '',
     name: row.name ?? '',
-    subject_id: `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
+    subject_id: `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
     acquisition_start_time: acqTime,
     acquisition_end_time: acqEndTime,
-    project_name: row.project_name ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>` : '',
+    project_name: row.project_name ? `<a href="/view?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>` : '',
     modalities: Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''),
     data_level: row.data_level ?? '',
     acquisition_type: row.acquisition_type ?? '',

@@ -37,8 +37,8 @@ function makeLink(href, text) {
  *
  * Special cases:
  *   - Objects and Arrays → <details open> tree
- *   - subject_id string values → linked to /subject?subject_id=…
- *   - project_name string values → linked to /project?project=…
+ *   - subject_id string values → linked to /view?subject_id=…
+ *   - project_name string values → linked to /view?project=…
  *
  * @param {unknown} value - The JSON value to render.
  * @param {string|null} [parentKey=null] - The key under which this value lives
@@ -69,10 +69,10 @@ export function renderJsonValue(value, parentKey = null) {
 
   if (typeof value === 'string') {
     if (parentKey === 'subject_id' && value) {
-      return makeLink(`/subject?subject_id=${encodeURIComponent(value)}`, value);
+      return makeLink(`/view?subject_id=${encodeURIComponent(value)}`, value);
     }
     if (parentKey === 'project_name' && value) {
-      return makeLink(`/project?project=${encodeURIComponent(value)}`, value);
+      return makeLink(`/view?project=${encodeURIComponent(value)}`, value);
     }
     if (parentKey === 'Code Ocean' && value) {
       const href = buildCoLink(value);

@@ -106,7 +106,7 @@ export function createCombinedView(opts = {}) {
 
   // Project links inside the Subject view (info card "Projects" list).
   subjectView.addEventListener('click', (e) => {
-    const link = e.target.closest?.('a[href*="/project"]');
+    const link = e.target.closest?.('a[href*="/view"]');
     if (!link) return;
     const name = paramFromHref(link.href, 'project') ?? paramFromHref(link.href, 'project_name');
     if (!name) return;

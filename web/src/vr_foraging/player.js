@@ -19,6 +19,7 @@ import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { ensureTable }                            from '../lib/registry.js';
+import { withVideoGate }                          from '../lib/video-gate.js';
 
 const SPRITE_URL = '/images/vrf';
 const PROJECT_NAME = 'Cognitive flexibility in patch foraging';
@@ -54,43 +55,12 @@ function writeUrlState({ subject, session }) {
 }
 
 // ---------------------------------------------------------------------------
-// Public entry
+// Shared markup
 // ---------------------------------------------------------------------------
 
-/**
- * Create the player DOM and asynchronously populate the session dropdown.
- * @param {object} coord - DuckDB coordinator (from bootstrap).
- * @returns {HTMLElement}
- */
-export function createSessionPlayer(coord) {
-  const root = document.createElement('section');
-  root.className = 'vrf-player';
-  root.innerHTML = `
-    <div class="vrf-player-header">
-      <h2>Session playback</h2>
-      <div class="vrf-player-selector">
-        <label for="vrf-subject-select">Subject</label>
-        <select id="vrf-subject-select" disabled>
-          <option>Loading…</option>
-        </select>
-        <label for="vrf-date-select">Session</label>
-        <select id="vrf-date-select" disabled>
-          <option>—</option>
-        </select>
-      </div>
-      <div class="vrf-player-links" id="vrf-player-links" hidden>
-        <a id="vrf-link-subject" target="_blank" rel="noopener">Subject</a>
-        <a id="vrf-link-co" target="_blank" rel="noopener">CO</a>
-        <a id="vrf-link-meta" target="_blank" rel="noopener">Meta</a>
-        <a id="vrf-link-qc" target="_blank" rel="noopener">QC</a>
-        <a id="vrf-link-s3" target="_blank" rel="noopener">S3</a>
-      </div>
-    </div>
-
-    <div id="vrf-player-status" class="vrf-player-status">
-      Select a session to begin.
-    </div>
-
+// The stats + transport + stage + videos body, shared by the full (dropdown)
+// player and the embedded single-session playback widget.
+const VRF_BODY_HTML = `
     <div class="vrf-player-body" hidden>
       <div class="vrf-top">
         <div class="vrf-card" id="vrf-stats">
@@ -136,6 +106,46 @@ export function createSessionPlayer(coord) {
         <div class="vrf-videos-row" id="vrf-videos-row"></div>
       </div>
     </div>
+  `;
+
+// ---------------------------------------------------------------------------
+// Public entry
+// ---------------------------------------------------------------------------
+
+/**
+ * Create the player DOM and asynchronously populate the session dropdown.
+ * @param {object} coord - DuckDB coordinator (from bootstrap).
+ * @returns {HTMLElement}
+ */
+export function createSessionPlayer(coord) {
+  const root = document.createElement('section');
+  root.className = 'vrf-player';
+  root.innerHTML = `
+    <div class="vrf-player-header">
+      <h2>Session playback</h2>
+      <div class="vrf-player-selector">
+        <label for="vrf-subject-select">Subject</label>
+        <select id="vrf-subject-select" disabled>
+          <option>Loading…</option>
+        </select>
+        <label for="vrf-date-select">Session</label>
+        <select id="vrf-date-select" disabled>
+          <option>—</option>
+        </select>
+      </div>
+      <div class="vrf-player-links" id="vrf-player-links" hidden>
+        <a id="vrf-link-subject" target="_blank" rel="noopener">Subject</a>
+        <a id="vrf-link-co" target="_blank" rel="noopener">CO</a>
+        <a id="vrf-link-meta" target="_blank" rel="noopener">Meta</a>
+        <a id="vrf-link-qc" target="_blank" rel="noopener">QC</a>
+        <a id="vrf-link-s3" target="_blank" rel="noopener">S3</a>
+      </div>
+    </div>
+
+    <div id="vrf-player-status" class="vrf-player-status">
+      Select a session to begin.
+    </div>
+    ${VRF_BODY_HTML}
   `;
 
   const subjectSelect = root.querySelector('#vrf-subject-select');
@@ -286,12 +296,7 @@ export function createSessionPlayer(coord) {
         loadCameraSync(rawBase, ctrl.signal).then((cameraSyncs) => {
           if (ctrl.signal.aborted) return;
           if (!cameraSyncs.length) return;
-          const videos = buildVideoPanel(videosRow, rawBase, cameraSyncs, traces.t0_offset);
-          videosEl.hidden = false;
-          animation.videos = videos;
-          // Show speed warning if already at >1× when videos arrive.
-          const speedWarningEl = root.querySelector('#vrf-videos-speed-warning');
-          if (speedWarningEl) speedWarningEl.hidden = animation.speed === 1;
+          mountGatedVideos(root, animation, videosEl, videosRow, rawBase, cameraSyncs, traces.t0_offset);
         }).catch((err) => {
           console.warn('[VRF] camera video load failed', err);
         });
@@ -302,6 +307,114 @@ export function createSessionPlayer(coord) {
       console.error('[VRF] session load failed', err);
     }
   });
+
+  return root;
+}
+
+/**
+ * Resolve the derived VR-foraging session asset name for a given RAW
+ * acquisition asset. The subject timeline only carries raw acquisitions, but
+ * the player streams from the derived asset, so we reverse-map raw → derived
+ * via the source_data table.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {string} rawName - Raw acquisition asset name.
+ * @returns {Promise<string|null>} derived asset name, or null if none found.
+ */
+export async function resolveVrfDerivedName(coord, rawName) {
+  if (!rawName) return null;
+  try {
+    await ensureTable(coord, 'source_data');
+    const safe = rawName.replace(/'/g, "''");
+    // source_data.source_data is a comma+space-joined list of raw source names;
+    // match the raw acquisition anywhere in that list. Restrict to derived VRF
+    // behavior assets so we land on the asset loadVrfSession expects.
+    const result = await coord.query(`
+      SELECT sd.name
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.name
+      WHERE ('; ' || replace(sd.source_data, ', ', '; ') || ';') LIKE '%; ${safe};%'
+        AND ab.acquisition_type = 'AindVrForaging'
+        AND ab.data_level = 'derived'
+        AND list_contains(ab.modalities, 'behavior')
+      ORDER BY ab.acquisition_start_time DESC
+      LIMIT 1
+    `);
+    const rows = arrowTableToRows(result);
+    return rows[0]?.name ?? null;
+  } catch (err) {
+    console.warn('[VRF] resolveVrfDerivedName failed', err);
+    return null;
+  }
+}
+
+/**
+ * Create a single-session VRF playback widget (no subject/session dropdowns).
+ * Used inside the subject timeline's Event Details panel. Accepts the RAW
+ * acquisition asset name and resolves the derived session internally.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {string} rawName - Raw acquisition asset name.
+ * @returns {HTMLElement}
+ */
+export function createVrfSessionPlayback(coord, rawName) {
+  const root = document.createElement('section');
+  root.className = 'vrf-player vrf-player--embedded';
+  root.innerHTML = `
+    <div id="vrf-player-status" class="vrf-player-status">Resolving session…</div>
+    ${VRF_BODY_HTML}
+  `;
+
+  const statusEl  = root.querySelector('#vrf-player-status');
+  const bodyEl    = root.querySelector('.vrf-player-body');
+  const ctrl      = new AbortController();
+  let animation   = null;
+
+  (async () => {
+    const derivedName = await resolveVrfDerivedName(coord, rawName);
+    if (!derivedName) {
+      statusEl.textContent = 'No derived VR-foraging session found for this acquisition.';
+      return;
+    }
+    statusEl.textContent = `Loading ${derivedName} from S3…`;
+    try {
+      const t0 = performance.now();
+      const [{ sites, traces }, sprites, rawLocation] = await Promise.all([
+        loadVrfSession(derivedName, { signal: ctrl.signal }),
+        loadSprites(SPRITE_URL),
+        fetchRawLocation(coord, derivedName),
+      ]);
+      if (ctrl.signal.aborted) return;
+      const ms = Math.round(performance.now() - t0);
+      statusEl.textContent = `Loaded ${sites.length} sites · ${traces.lick_t.length} licks (${ms} ms)`;
+      bodyEl.hidden = false;
+
+      const videosEl  = root.querySelector('#vrf-videos');
+      const videosRow = root.querySelector('#vrf-videos-row');
+      videosEl.hidden = true;
+      videosRow.innerHTML = '';
+
+      animation = wireAnimation(root, sites, sprites, traces, null);
+
+      if (rawLocation) {
+        const rawBase = s3LocationToHttps(rawLocation);
+        loadCameraSync(rawBase, ctrl.signal).then((cameraSyncs) => {
+          if (ctrl.signal.aborted || !cameraSyncs.length) return;
+          const videos = buildVideoPanel(videosRow, rawBase, cameraSyncs, traces.t0_offset);
+          videosEl.hidden = false;
+          animation.videos = videos;
+          const speedWarningEl = root.querySelector('#vrf-videos-speed-warning');
+          if (speedWarningEl) speedWarningEl.hidden = animation.speed === 1;
+        }).catch((err) => {
+          console.warn('[VRF] camera video load failed', err);
+        });
+      }
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      statusEl.textContent = `Error loading session: ${err.message}`;
+      console.error('[VRF] embedded session load failed', err);
+    }
+  })();
 
   return root;
 }
@@ -368,6 +481,35 @@ async function loadCameraSync(rawBase, signal) {
     }
   }));
   return results.filter(Boolean);
+}
+
+/**
+ * Mount the behavior-camera videos behind the password gate.
+ *
+ * The actual <video> elements (and their network requests) are only created
+ * once the gate is unlocked, so the videos stay hidden until then. When built,
+ * the resulting video infos are wired back into the animation for sync.
+ *
+ * @param {HTMLElement} root - Player root (for the speed-warning element).
+ * @param {object} animation - The VrfAnimation instance to attach videos to.
+ * @param {HTMLElement} videosEl - The #vrf-videos wrapper.
+ * @param {HTMLElement} videosRow - The #vrf-videos-row mount point.
+ * @param {string} rawBase - HTTPS base URL for the raw asset.
+ * @param {object[]} cameraSyncs - Per-camera ReferenceTime sync info.
+ * @param {number} t0Harp - Harp clock at session t=0.
+ */
+function mountGatedVideos(root, animation, videosEl, videosRow, rawBase, cameraSyncs, t0Harp) {
+  videosRow.innerHTML = '';
+  videosRow.appendChild(withVideoGate(() => {
+    const panel = document.createElement('div');
+    const videos = buildVideoPanel(panel, rawBase, cameraSyncs, t0Harp);
+    animation.videos = videos;
+    // Show speed warning if already at >1× when videos become available.
+    const speedWarningEl = root.querySelector('#vrf-videos-speed-warning');
+    if (speedWarningEl) speedWarningEl.hidden = animation.speed === 1;
+    return panel;
+  }));
+  videosEl.hidden = false;
 }
 
 /**

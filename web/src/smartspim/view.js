@@ -149,10 +149,10 @@ export function renderSmartSpimRow(row, visibleColumns) {
 
   const cellValues = {
     subject_id: row.subject_id
-      ? `<a href="/subject?subject_id=${encodeURIComponent(row.subject_id)}">${escHtml(String(row.subject_id))}</a>`
+      ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id)}">${escHtml(String(row.subject_id))}</a>`
       : '',
     project_name: row.project_name
-      ? `<a href="/project?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
+      ? `<a href="/view?project=${encodeURIComponent(row.project_name)}">${escHtml(String(row.project_name))}</a>`
       : '',
     genotype: escHtml(String(row.genotype ?? '')),
     acquisition_start_time: escHtml(formatDatetimeRaw(row.acquisition_start_time ?? null)),

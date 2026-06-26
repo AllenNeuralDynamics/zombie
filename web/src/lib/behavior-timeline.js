@@ -228,7 +228,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
   subjects.forEach((subjectId, ri) => {
     const y = TIMELINE_HEAD_H + ri * TIMELINE_ROW_H + TIMELINE_ROW_H / 2;
     const a = document.createElementNS(NS, 'a');
-    a.setAttribute('href', `/subject?subject_id=${encodeURIComponent(subjectId)}`);
+    a.setAttribute('href', `/view?subject_id=${encodeURIComponent(subjectId)}`);
     const text = document.createElementNS(NS, 'text');
     text.setAttribute('x', TIMELINE_LABEL_W - 8);
     text.setAttribute('y', y + 4);
