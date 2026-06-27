@@ -1,21 +1,23 @@
 /**
- * dynamic_foraging/prob-plot.js — reward-probability trace + raster, with a
- * moving CSS playhead overlay and a brushable overview strip for zoom/pan.
+ * dynamic_foraging/prob-plot.js — stacked per-trial event raster styled after
+ * the canonical dynamic-foraging session figure, with a moving CSS playhead
+ * overlay and a brushable overview strip for zoom/pan.
  *
- * Layout (top → bottom, inside the main Observable Plot):
- *   1.21 ┌─────────────────────────────────────────────────  Rewards row (cyan)
- *   1.13 ├─────────────────────────────────────────────────  R-lick row (red)
- *   1.06 ├─────────────────────────────────────────────────  L-lick row (blue)
- *   1.00 ├─────────────────────────────────────────────────  100 %
- *        │  pL (blue) and pR (red) step-after lines
- *   0.00 └─────────────────────────────────────────────────   0 %
+ * Rows (top → bottom, inside the main Observable Plot):
+ *   Ignored   purple ticks at the go-cue of ignored trials
+ *   R Reward  black ticks at right-spout reward deliveries
+ *   R Choice  grey blocks spanning trials where the animal chose right
+ *   p(R)      red step-area filling upward from the centre line
+ *   ──────────────────────────────────────────────────────── centre line
+ *   p(L)      blue step-area filling downward from the centre line
+ *   L Choice  grey blocks spanning trials where the animal chose left
+ *   L Reward  black ticks at left-spout reward deliveries
  *
  * Above the main plot sits a compact overview strip (same data, no axes) that
  * has a draggable brush selection — changing the selection zooms the main plot.
  * Double-click the overview to reset to the full range.
  *
- * Row gutter labels ("Rewards" / "Licks") are rendered as overlay HTML so we
- * can keep the SVG plain.
+ * Row gutter labels are rendered as overlay HTML so we keep the SVG plain.
  */
 
 import * as Plot from '@observablehq/plot';
@@ -24,28 +26,39 @@ import * as Plot from '@observablehq/plot';
 // Constants
 // ---------------------------------------------------------------------------
 
-const PLOT_HEIGHT      = 260;
+const PLOT_HEIGHT      = 320;
 const OVERVIEW_HEIGHT  = 34;    // compact context-chart strip
 const COLOR_L          = '#2563eb';     // blue (left) spout
 const COLOR_R          = '#dc2626';     // red (right) spout
+const COLOR_IGNORED    = '#9333ea';     // purple — ignored trials
+const COLOR_EVENT      = '#111';        // black — reward deliveries
+const COLOR_CHOICE     = '#8a8a8a';     // grey — choice blocks
 
-const MARGIN           = { left: 76, right: 14, top: 28, bottom: 34 };
+const MARGIN           = { left: 88, right: 14, top: 18, bottom: 34 };
 
-// Row band y-coordinates (in extended data-space).
-// Lick rows are slightly taller than before to comfortably hold the droplet images.
-const Y_DOMAIN_MAX     = 1.24;
-const Y_LICK_L_BOT     = 1.02;
-const Y_LICK_L_TOP     = 1.08;
-const Y_LICK_R_BOT     = 1.11;
-const Y_LICK_R_TOP     = 1.17;
-const Y_REW_BOT        = 1.20;
-const Y_REW_TOP        = 1.23;
+// Stacked-row band y-coordinates (bottom → top, in data space). p(L) and p(R)
+// share the centre line Y_CENTER and fan out by Y_PROB_SPAN at probability 1.
+const Y_CENTER         = 2.95;
+const Y_PROB_SPAN      = 1.45;
+
+const Y_LREW_BOT  = 0.00, Y_LREW_TOP  = 0.55;   // L Reward ticks
+const Y_LCHO_BOT  = 0.65, Y_LCHO_TOP  = 1.45;   // L Choice blocks
+const Y_PL_BOT    = 1.50, Y_PL_TOP    = Y_CENTER;               // p(L) band
+const Y_PR_BOT    = Y_CENTER, Y_PR_TOP = Y_CENTER + Y_PROB_SPAN; // p(R) band
+const Y_RCHO_BOT  = 4.45, Y_RCHO_TOP  = 5.25;   // R Choice blocks
+const Y_RREW_BOT  = 5.35, Y_RREW_TOP  = 5.90;   // R Reward ticks
+const Y_IGN_BOT   = 6.00, Y_IGN_TOP   = 6.55;   // Ignored ticks
+
+const Y_DOMAIN_MAX = 6.70;
 
 // Mid-points used for the gutter labels.
-const Y_LABEL_REW      = (Y_REW_BOT + Y_REW_TOP) / 2;          // ≈ 1.215
-const Y_LABEL_LICKS    = (Y_LICK_L_TOP + Y_LICK_R_BOT) / 2;    // between L & R lick rows
-
-const COLOR_REWARD     = '#06b6d4';
+const Y_LABEL_IGN  = (Y_IGN_BOT  + Y_IGN_TOP)  / 2;
+const Y_LABEL_RREW = (Y_RREW_BOT + Y_RREW_TOP) / 2;
+const Y_LABEL_RCHO = (Y_RCHO_BOT + Y_RCHO_TOP) / 2;
+const Y_LABEL_PR   = Y_CENTER + Y_PROB_SPAN / 2;
+const Y_LABEL_PL   = Y_CENTER - Y_PROB_SPAN / 2;
+const Y_LABEL_LCHO = (Y_LCHO_BOT + Y_LCHO_TOP) / 2;
+const Y_LABEL_LREW = (Y_LREW_BOT + Y_LREW_TOP) / 2;
 
 const MIN_PLOT_W       = 320;
 
@@ -62,10 +75,11 @@ const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
  * @returns {{ element: HTMLElement, updatePlayhead:(t:number)=>void, setOnScrub:(cb:(t:number)=>void)=>void, dispose:()=>void }}
  */
 export function createProbPlot(data) {
-  const { trials, licks, rewards, sessionEndS } = data;
+  const { trials, rewards, sessionEndS } = data;
   const stepData = _buildStepData(trials, sessionEndS);
-  const { lickL, lickR } = _splitLicks(licks);
-  const rewardEvents     = _eventsToObjects(rewards?.t);
+  const { rewardL, rewardR } = _splitRewards(rewards);
+  const ignoredTicks         = _ignoredTrialTicks(trials);
+  const { choiceL, choiceR } = _choiceSpans(trials, sessionEndS);
   const trialSpans = trials
     .filter((tr) => Number.isFinite(tr.goCue_t))
     .map((tr, i, arr) => ({
@@ -136,10 +150,18 @@ export function createProbPlot(data) {
   // Row-label overlays positioned in the gutter.
   const innerH      = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
   const yToPx       = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
-  const rewardLabel = _makeRowLabel('Rewards', COLOR_REWARD, MARGIN.left - 6, yToPx(Y_LABEL_REW));
-  const licksLabel  = _makeRowLabel('Licks',   '#444',       MARGIN.left - 6, yToPx(Y_LABEL_LICKS));
-  mainWrap.appendChild(rewardLabel);
-  mainWrap.appendChild(licksLabel);
+  const ROW_LABELS  = [
+    ['Ignored',  COLOR_IGNORED, Y_LABEL_IGN],
+    ['R Reward', COLOR_R,       Y_LABEL_RREW],
+    ['R Choice', COLOR_R,       Y_LABEL_RCHO],
+    ['p(R)',     COLOR_R,       Y_LABEL_PR],
+    ['p(L)',     COLOR_L,       Y_LABEL_PL],
+    ['L Choice', COLOR_L,       Y_LABEL_LCHO],
+    ['L Reward', COLOR_L,       Y_LABEL_LREW],
+  ];
+  for (const [text, color, yData] of ROW_LABELS) {
+    mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, yToPx(yData)));
+  }
 
   // Playhead — vertical bar across the main plot area.
   const playhead = document.createElement('div');
@@ -289,33 +311,44 @@ export function createProbPlot(data) {
         grid: false,
       },
       y: {
-        label: 'reward probability',
+        axis: null,
         domain: [0, Y_DOMAIN_MAX],
-        ticks: [0, 0.25, 0.5, 0.75, 1],
-        tickFormat: (d) => (d > 1 + 1e-9 ? '' : `${Math.round(d * 100)}%`),
-        grid: true,
       },
       marks: [
         // Trial span bands (alternating very-light grey)
         Plot.rect(trialSpans, { x1: 'x1', x2: 'x2', y1: 0, y2: Y_DOMAIN_MAX,
           fill: (d) => d.even ? '#fafafa' : '#f2f2f2', stroke: 'none' }),
 
-        // 100 % reference (dashed)
-        Plot.ruleY([1], { stroke: '#bbb', strokeOpacity: 0.7, strokeDasharray: '2,3' }),
+        // Centre reference line shared by p(L) / p(R)
+        Plot.ruleY([Y_CENTER], { stroke: '#999', strokeOpacity: 0.6 }),
 
-        // Raster rows
-        Plot.ruleX(lickL, { x: 't', y1: Y_LICK_L_BOT, y2: Y_LICK_L_TOP,
-          stroke: COLOR_L, strokeOpacity: 0.55, strokeWidth: 0.8 }),
-        Plot.ruleX(lickR, { x: 't', y1: Y_LICK_R_BOT, y2: Y_LICK_R_TOP,
-          stroke: COLOR_R, strokeOpacity: 0.55, strokeWidth: 0.8 }),
-        Plot.ruleX(rewardEvents, { x: 't', y1: Y_REW_BOT, y2: Y_REW_TOP,
-          stroke: COLOR_REWARD, strokeOpacity: 0.95, strokeWidth: 1.1 }),
+        // --- Left side (bottom) ---
+        Plot.ruleX(rewardL, { x: 't', y1: Y_LREW_BOT, y2: Y_LREW_TOP,
+          stroke: COLOR_EVENT, strokeWidth: 1 }),
+        Plot.rect(choiceL, { x1: 'x1', x2: 'x2', y1: Y_LCHO_BOT, y2: Y_LCHO_TOP,
+          fill: COLOR_CHOICE, fillOpacity: 0.85, stroke: 'none' }),
+        Plot.areaY(stepData, { x: 't', y1: Y_PL_TOP,
+          y2: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
+          curve: 'step-after', fill: COLOR_L, fillOpacity: 0.35 }),
+        Plot.lineY(stepData, { x: 't',
+          y: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
+          stroke: COLOR_L, strokeWidth: 1.4, curve: 'step-after' }),
 
-        // Probability step lines
-        Plot.lineY(stepData, { x: 't', y: 'pL', stroke: COLOR_L,
-          strokeWidth: 1.8, curve: 'step-after' }),
-        Plot.lineY(stepData, { x: 't', y: 'pR', stroke: COLOR_R,
-          strokeWidth: 1.8, curve: 'step-after' }),
+        // --- Right side (top) ---
+        Plot.areaY(stepData, { x: 't', y1: Y_PR_BOT,
+          y2: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
+          curve: 'step-after', fill: COLOR_R, fillOpacity: 0.35 }),
+        Plot.lineY(stepData, { x: 't',
+          y: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
+          stroke: COLOR_R, strokeWidth: 1.4, curve: 'step-after' }),
+        Plot.rect(choiceR, { x1: 'x1', x2: 'x2', y1: Y_RCHO_BOT, y2: Y_RCHO_TOP,
+          fill: COLOR_CHOICE, fillOpacity: 0.85, stroke: 'none' }),
+        Plot.ruleX(rewardR, { x: 't', y1: Y_RREW_BOT, y2: Y_RREW_TOP,
+          stroke: COLOR_EVENT, strokeWidth: 1 }),
+
+        // Ignored trials (top)
+        Plot.ruleX(ignoredTicks, { x: 't', y1: Y_IGN_BOT, y2: Y_IGN_TOP,
+          stroke: COLOR_IGNORED, strokeWidth: 1.2 }),
       ],
     });
     plotHolder.replaceChildren(plot);
@@ -555,6 +588,45 @@ export function _eventsToObjects(ts) {
   for (let i = 0; i < ts.length; i++) {
     const v = ts[i];
     if (Number.isFinite(v)) out.push({ t: v });
+  }
+  return out;
+}
+
+/**
+ * Build per-trial choice spans for the L/R "choice" raster rows. Each trial is
+ * drawn as a block from its go-cue to the next trial's go-cue (or sessionEndS
+ * for the final trial). Trials with no response (ignore) contribute nothing.
+ *
+ * @param {object[]} trials   normalized trial rows (response: 0=L, 1=R, 2=ignore)
+ * @param {number}   sessionEndS
+ * @returns {{choiceL:{x1:number,x2:number}[], choiceR:{x1:number,x2:number}[]}}
+ */
+export function _choiceSpans(trials, sessionEndS) {
+  const cues = trials
+    .filter((tr) => Number.isFinite(tr.goCue_t))
+    .sort((a, b) => a.goCue_t - b.goCue_t);
+  const choiceL = [];
+  const choiceR = [];
+  for (let i = 0; i < cues.length; i++) {
+    const tr = cues[i];
+    const x1 = tr.goCue_t;
+    const x2 = i + 1 < cues.length ? cues[i + 1].goCue_t : sessionEndS;
+    if (tr.response === 0) choiceL.push({ x1, x2 });
+    else if (tr.response === 1) choiceR.push({ x1, x2 });
+  }
+  return { choiceL, choiceR };
+}
+
+/**
+ * Timestamps (at the go-cue) of trials the animal ignored (response === 2).
+ *
+ * @param {object[]} trials
+ * @returns {{t:number}[]}
+ */
+export function _ignoredTrialTicks(trials) {
+  const out = [];
+  for (const tr of trials) {
+    if (tr.response === 2 && Number.isFinite(tr.goCue_t)) out.push({ t: tr.goCue_t });
   }
   return out;
 }
