@@ -150,16 +150,22 @@ export function isForagingAcquisition(event) {
 /**
  * Extract session identifiers from a foraging acquisition event.
  *
+ * Asset names carry the session start time after the date, which may be
+ * concatenated (`125102`) or hyphen/colon separated (`12-51-02`). The DF cache
+ * stores `nwb_suffix` as the integer HHMMSS (leading zeros dropped), so we
+ * strip separators and normalize through parseInt to match.
+ *
  * @param {object} event - Timeline event
  * @returns {{ subject_id: string, session_date: string, nwb_suffix: string }|null}
  */
 export function extractForagingSessionInfo(event) {
   const name = event.data?._assetName ?? event.event ?? '';
-  const match = name.match(/^behavior_(\d{6})_(\d{4}-\d{2}-\d{2})_(\d+)/);
+  const match = name.match(/^behavior_(\d{6})_(\d{4}-\d{2}-\d{2})_([\d:-]+)/);
   if (!match) return null;
+  const timeDigits = match[3].replace(/\D/g, '');
   return {
     subject_id: match[1],
     session_date: match[2],
-    nwb_suffix: match[3],
+    nwb_suffix: timeDigits ? String(parseInt(timeDigits, 10)) : '',
   };
 }
