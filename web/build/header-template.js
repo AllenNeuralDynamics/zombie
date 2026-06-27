@@ -14,7 +14,7 @@
 
 const TOP_LINKS = [
   ['/search', 'Search'],
-  ['/view', 'Asset viewer'],
+  ['/view', 'View'],
 ];
 
 const PLATFORMS = [
