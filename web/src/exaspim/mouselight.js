@@ -20,7 +20,15 @@
 
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
-const ML_BASE = 'https://ml-neuronbrowser.janelia.org';
+/**
+ * Same-origin proxy prefix for the Janelia MouseLight API. The browser cannot
+ * call `https://ml-neuronbrowser.janelia.org/*` directly — its `/tracings`
+ * endpoint omits `Access-Control-Allow-Origin`, so CORS blocks the skeleton
+ * fetches. We route both `/graphql` and `/tracings` through a same-origin
+ * proxy instead (Vite dev server / nginx in prod, both stripping the
+ * `/mouselight` prefix and forwarding to the Janelia host).
+ */
+const ML_BASE = '/mouselight';
 const ML_GRAPHQL_URL = `${ML_BASE}/graphql`;
 const ML_TRACINGS_URL = `${ML_BASE}/tracings`;
 
@@ -186,7 +194,18 @@ export function buildMouseLightAnnotationLayer(idString, tracings, color = ML_PA
     },
     annotations,
     annotationColor: color,
-    shader: 'void main() { setLineColor(defaultColor()); }',
+    // Render each edge as a bare line. Neuroglancer otherwise draws a filled
+    // circle at every line endpoint, which on a dense skeleton (thousands of
+    // nodes) looks like a cloud of dots. Zeroing the endpoint marker size hides
+    // those circles so MouseLight neurons read as clean lines, like the AIND
+    // precomputed skeletons (which use `skeletonRendering`, not annotations).
+    shader: [
+      'void main() {',
+      '  setLineColor(defaultColor());',
+      '  setEndpointMarkerSize(0.0);',
+      '  setEndpointMarkerBorderWidth(0.0);',
+      '}',
+    ].join('\n'),
   };
 }
 

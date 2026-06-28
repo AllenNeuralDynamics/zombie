@@ -1052,34 +1052,43 @@ function openNeuronSearchModal(ctx) {
   apply.addEventListener('click', async () => {
     apply.disabled = true;
     apply.textContent = 'Applying…';
-    // AIND — segment ids render directly.
-    ctx.selectedNeurons.clear();
-    for (const item of chosen.values()) {
-      if (item.dataset !== 'aind') continue;
-      ctx.selectedNeurons.add(item.segmentId);
-      if (!ctx.compartmentByNeuron.has(item.segmentId)) ctx.compartmentByNeuron.set(item.segmentId, 'full');
-    }
-    // MouseLight — fetch any missing skeletons before rendering.
-    ctx.selectedMouseLight.clear();
-    for (const item of [...chosen.values()].filter((i) => i.dataset === 'ml')) {
-      ctx.selectedMouseLight.add(item.idString);
-      if (ctx.mlLayerCache.has(item.idString)) continue;
-      try {
-        const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), ctx.signal);
-        const color = ctx.mlColorFor(item.idString);
-        ctx.mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, color));
-      } catch (e) {
-        if (e?.name === 'AbortError') return;
-        ctx.selectedMouseLight.delete(item.idString);
+    let aborted = false;
+    try {
+      // AIND — segment ids render directly.
+      ctx.selectedNeurons.clear();
+      for (const item of chosen.values()) {
+        if (item.dataset !== 'aind') continue;
+        ctx.selectedNeurons.add(item.segmentId);
+        if (!ctx.compartmentByNeuron.has(item.segmentId)) ctx.compartmentByNeuron.set(item.segmentId, 'full');
+      }
+      // MouseLight — fetch any missing skeletons before rendering. A single
+      // neuron's fetch failing must not abort the whole apply, so each is
+      // wrapped individually and the panel still refreshes below.
+      ctx.selectedMouseLight.clear();
+      for (const item of [...chosen.values()].filter((i) => i.dataset === 'ml')) {
+        ctx.selectedMouseLight.add(item.idString);
+        if (ctx.mlLayerCache.has(item.idString)) continue;
+        try {
+          const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), ctx.signal);
+          const color = ctx.mlColorFor(item.idString);
+          ctx.mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, color));
+        } catch (e) {
+          if (e?.name === 'AbortError') { aborted = true; return; }
+          console.warn('[exaspim-morph] MouseLight tracings fetch failed for', item.idString, e);
+          ctx.selectedMouseLight.delete(item.idString);
+        }
+      }
+      // Drop hidden flags for neurons that are no longer selected.
+      for (const key of [...ctx.hiddenNeurons]) {
+        if (!chosen.has(key)) ctx.hiddenNeurons.delete(key);
+      }
+    } finally {
+      if (!aborted) {
+        ctx.onChange();
+        ctx.refreshPanel?.();
+        close();
       }
     }
-    // Drop hidden flags for neurons that are no longer selected.
-    for (const key of [...ctx.hiddenNeurons]) {
-      if (!chosen.has(key)) ctx.hiddenNeurons.delete(key);
-    }
-    ctx.onChange();
-    ctx.refreshPanel?.();
-    close();
   });
 
   document.body.appendChild(overlay);
@@ -1427,8 +1436,30 @@ export function createExaSpimMorphologySection({ signal } = {}) {
 
   // Route selection/colour/visibility changes to whichever view is active.
   function refreshView() {
+    syncUrlSelection();
     if (viewMode === '2d') update2D();
     else updateIframe();
+  }
+
+  // Mirror the current neuron selection into the page URL (?aind=…&ml=…) so it
+  // survives reloads and can be shared. Only the neuron id sets are encoded, so
+  // colour/compartment tweaks (which fire onChange too) produce an identical
+  // URL and are skipped — this also keeps us well under Firefox's History API
+  // rate limit when dragging the colour picker.
+  let lastSyncedUrl = null;
+  function syncUrlSelection() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const aind = [...selectedNeurons];
+      const ml = [...selectedMouseLight];
+      if (aind.length) params.set('aind', aind.join(',')); else params.delete('aind');
+      if (ml.length) params.set('ml', ml.join(',')); else params.delete('ml');
+      const qs = params.toString();
+      const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
+      if (url === lastSyncedUrl) return;
+      lastSyncedUrl = url;
+      history.replaceState(history.state, '', url);
+    } catch (_) { /* URL sync is best-effort */ }
   }
 
   function setViewMode(mode) {
@@ -1502,8 +1533,21 @@ export function createExaSpimMorphologySection({ signal } = {}) {
 
     // Default-on root region (root brain, structureId 997).
     if (byId.has('997')) selectedRegions.add('997');
-    // Default-on: first 5 published neurons so the viewer isn't empty.
-    for (const s of segments.slice(0, 5)) selectedNeurons.add(s.id);
+
+    // Restore the neuron selection from the URL (?aind=…&ml=…) if present;
+    // otherwise default-on the first 5 published neurons so the viewer isn't
+    // empty. MouseLight ids are restored asynchronously below (they need the
+    // neuron list + skeleton fetches).
+    const urlParams = new URLSearchParams(window.location.search);
+    const splitParam = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const validAindIds = new Set(segments.map((s) => String(s.id)));
+    const urlAind = splitParam(urlParams.get('aind')).filter((id) => validAindIds.has(id));
+    const urlMl = splitParam(urlParams.get('ml'));
+    if (urlAind.length > 0) {
+      for (const id of urlAind) selectedNeurons.add(id);
+    } else if (urlMl.length === 0) {
+      for (const s of segments.slice(0, 5)) selectedNeurons.add(s.id);
+    }
 
     // Lazily fetch + map the MouseLight neuron list the first time the user
     // searches MouseLight (or "Both"). Cached for the page's lifetime.
@@ -1550,6 +1594,44 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     controls.appendChild(neuronPanel);
 
     updateIframe();
+
+    // Restore any MouseLight neurons named in the URL. Needs the ML neuron list
+    // (to resolve idStrings → tracing ids) plus a skeleton fetch per neuron, so
+    // it runs asynchronously after the initial render and refreshes once ready.
+    if (urlMl.length > 0) {
+      (async () => {
+        let mlList;
+        try {
+          mlList = await getMlNeurons();
+        } catch (e) {
+          if (e?.name === 'AbortError') return;
+          return;
+        }
+        ctx.mlNeurons = mlList;
+        const mlById = new Map(mlList.map((it) => [it.idString, it]));
+        let added = false;
+        for (const idString of urlMl) {
+          const item = mlById.get(idString);
+          if (!item) continue;
+          selectedMouseLight.add(item.idString);
+          if (!mlLayerCache.has(item.idString)) {
+            try {
+              const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), signal);
+              mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, mlColorFor(item.idString)));
+            } catch (e) {
+              if (e?.name === 'AbortError') return;
+              selectedMouseLight.delete(item.idString);
+              continue;
+            }
+          }
+          added = true;
+        }
+        if (added) {
+          ctx.refreshPanel?.();
+          refreshView();
+        }
+      })();
+    }
   }).catch((err) => {
     if (err?.name === 'AbortError') return;
     console.error('[exaspim-morph] Failed to load morphology data:', err);

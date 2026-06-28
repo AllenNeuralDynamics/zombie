@@ -56,6 +56,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/metadata-portal/, ''),
       },
+      // Janelia MouseLight API proxy (ExaSPIM morphology viewer). The browser
+      // can't call ml-neuronbrowser.janelia.org directly — its /tracings
+      // endpoint omits CORS headers — so we proxy /mouselight/* here (dev) and
+      // in nginx (prod), stripping the prefix before forwarding.
+      '/mouselight': {
+        target: 'https://ml-neuronbrowser.janelia.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/mouselight/, ''),
+      },
     },
   },
 
