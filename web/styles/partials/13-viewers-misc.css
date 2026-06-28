@@ -1044,16 +1044,6 @@
   white-space: nowrap;
 }
 
-.exaspim-morphology-summary {
-  font-size: 0.9rem;
-  line-height: 1.4;
-  margin-bottom: 10px;
-}
-
-.exaspim-morphology-summary.error {
-  color: var(--danger, #b00020);
-}
-
 .exaspim-morphology-body {
   display: flex;
   gap: 12px;
@@ -1080,7 +1070,14 @@
 .exaspim-morphology-link-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.exaspim-morphology-left-controls,
+.exaspim-morphology-right-controls {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
@@ -1093,13 +1090,43 @@
   font-size: 0.8rem;
 }
 
+.exaspim-morphology-frame {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 560px;
+}
+
 .exaspim-morphology-iframe {
   flex: 1 1 auto;
   width: 100%;
   min-height: 560px;
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 4px;
-  background: #181818;
+  background: #f3f4f5;
+}
+
+.exaspim-morphology-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f5;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+
+.exaspim-morphology-cover.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.exaspim-morphology-cover-text {
+  font-size: 0.85rem;
+  color: var(--text-muted, #9a9a9a);
 }
 
 /* ── checkbox panels ────────────────────────────────────────────────────── */
@@ -1363,6 +1390,237 @@
 .morph-modal-checkbox-label input[type="checkbox"] {
   margin: 0;
   flex-shrink: 0;
+}
+
+/* ── Unified neuron panel (single search entry point) ───────────────────── */
+
+.morph-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.morph-search-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+}
+
+.morph-selected-row {
+  gap: 6px;
+}
+
+.morph-badge {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.3;
+}
+
+.morph-badge-aind {
+  background: #e3effb;
+  color: #1f5fa6;
+}
+
+.morph-badge-ml {
+  background: #fbe9e3;
+  color: #a6491f;
+}
+
+.morph-remove-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #6a6a6a);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.morph-remove-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+  color: var(--text, #222);
+}
+
+.morph-eye-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text, #333);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.morph-eye-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+}
+
+.morph-eye-btn.is-hidden {
+  color: var(--text-muted, #9a9a9a);
+}
+
+.morph-color-input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.morph-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.morph-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.morph-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+/* ── Unified search modal extras ────────────────────────────────────────── */
+
+.morph-modal-wide {
+  min-width: 460px;
+  max-width: 560px;
+}
+
+.morph-dataset-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.morph-dataset-opt {
+  border: none;
+  background: var(--surface, #fff);
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-dataset-opt:last-child {
+  border-right: none;
+}
+
+.morph-dataset-opt.active {
+  background: var(--accent, #2f6fb0);
+  color: #fff;
+  font-weight: 600;
+}
+
+.morph-modal-search {
+  margin-top: 2px;
+}
+
+.morph-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.morph-chips[hidden] {
+  display: none;
+}
+
+.morph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  background: var(--surface-alt, #eef0f2);
+  border: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-chip-ccf {
+  background: #e3effb;
+  border-color: #c5dcf3;
+}
+
+.morph-chip-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #6a6a6a);
+}
+
+.morph-chip-remove {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text-muted, #6a6a6a);
+  border-radius: 50%;
+}
+
+.morph-chip-remove:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text, #222);
+}
+
+.morph-results-head {
+  font-size: 0.74rem;
+  color: var(--text-muted, #6a6a6a);
+  margin-top: 2px;
+}
+
+.morph-results {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.morph-result-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px;
+}
+
+.morph-modal-selinfo {
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6a6a6a);
 }
 
 @media (max-width: 900px) {
@@ -1865,4 +2123,75 @@
   color: #fff;
   cursor: default;
   opacity: 0.7;
+}
+
+/* ── exaspim morphology: 3D/2D mode + projection-plane toggles ───────────── */
+
+.morph-mode-toggle,
+.morph-plane-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.morph-mode-opt,
+.morph-plane-opt {
+  border: none;
+  background: var(--surface, #fff);
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-mode-opt:last-child,
+.morph-plane-opt:last-child {
+  border-right: none;
+}
+
+.morph-mode-opt.active,
+.morph-plane-opt.active {
+  background: var(--accent, #2f6fb0);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── exaspim morphology: 2D projection canvas ───────────────────────────── */
+
+.morph-2d {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f3f4f5;
+  z-index: 1;
+}
+
+.morph-2d canvas {
+  display: block;
+  cursor: grab;
+}
+
+.morph-2d canvas.is-grabbing {
+  cursor: grabbing;
+}
+
+.morph-2d-status {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6a6a6a);
+  background: rgba(243, 244, 245, 0.85);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.morph-2d-status:empty {
+  display: none;
 }

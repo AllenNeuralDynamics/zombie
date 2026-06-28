@@ -10,9 +10,11 @@
  *
  * UI:
  *   - Left column: a collapsible CCF region tree (search + select shown +
- *     clear), and a neuron search panel (settings gear opens a modal for
- *     region/keyword filters; per-neuron compartment dropdown switches
- *     full ↔ axon ↔ dendrite).
+ *     clear), and a single "Neurons" panel whose "Search neurons…" button opens
+ *     a unified modal. One text box searches CCF acronyms, full area names and
+ *     neuron labels across BOTH datasets (AIND meshes + Janelia MouseLight);
+ *     exact CCF matches pin as removable chips, a Both/AIND/MouseLight toggle
+ *     limits the scope, and ticked results apply to the viewer.
  *   - Right column: the Neuroglancer iframe.
  *
  * State sync: we write the iframe `src` with the same base host and only the
@@ -21,6 +23,23 @@
  * camera position because we don't include position/projectionScale/etc in
  * the state we send.
  */
+
+import {
+  fetchMouseLightNeurons,
+  fetchMouseLightTracings,
+  buildMouseLightAnnotationLayer,
+  mouseLightColor,
+} from './mouselight.js';
+import { createProjection2DView } from './projection2d-view.js';
+import {
+  PLANES,
+  PLANE_KEYS,
+  getCcfOutlineSegments,
+  loadAindSkeleton,
+  projectEdgesToSegments,
+  tracingsToSkeleton,
+  boundsOfItems,
+} from './projection2d.js';
 
 // ─── External endpoints ─────────────────────────────────────────────────────
 
@@ -81,27 +100,19 @@ const DEFAULT_CAMERA = {
 /** Precomputed segmentation: CCF reference atlas (meshes per structureId). */
 const CCF_SOURCE = 'precomputed://gs://allen_neuroglancer_ccf/ccf_test1';
 
+/** CCF structure id of the whole-brain root outline. */
+const CCF_ROOT_SEGMENT = '997';
+/** The root shell stays very translucent so you can see inside the brain. */
+const CCF_ROOT_ALPHA = 0.18;
+/** Non-root regions are rendered more opaque so they read clearly. */
+const CCF_REGION_ALPHA = 0.3;
+
 // ─── GraphQL ────────────────────────────────────────────────────────────────
 
 const ATLAS_QUERY = `query CcfStructures {
   atlasStructures {
     id name acronym structureId parentStructureId
     structureIdPath defaultColor hasGeometry
-  }
-}`;
-
-const SYSTEM_QUERY = `query SystemMeta {
-  systemSettings { systemVersion neuronCount }
-}`;
-
-const CANDIDATE_NEURONS_QUERY = `query CandidateNeurons($input: NeuronQueryInput) {
-  candidateNeurons(input: $input) {
-    totalCount
-    items {
-      id
-      label
-      atlasStructure { id structureId acronym name }
-    }
   }
 }`;
 
@@ -129,33 +140,75 @@ async function gql(query, variables, signal) {
  *   portal UUIDs — those numbers are what Neuroglancer parses out of the
  *   precomputed segmentation's `segment_properties/info`.
  * @param {object} [camera]  Override camera fields (position, etc).
+ * @param {object[]} [extraLayers]  Additional Neuroglancer layer objects to
+ *   append after the CCF + neuron layers (e.g. MouseLight annotation layers).
+ * @param {Map<string,string>|null} [ccfColors]  Lookup from CCF structure id
+ *   (string) → CSS colour (e.g. "#ff4c3e"). When provided, the CCF
+ *   segmentation layer gets a `segmentColors` map so each region renders in
+ *   its Allen atlas colour instead of Neuroglancer's hashed default.
+ * @param {Map<string,string>|null} [neuronColors]  Lookup from NUMERIC neuron
+ *   segment id (string) → CSS colour. When provided, the neuron segmentation
+ *   layers get a `segmentColors` map so each neuron renders in its chosen
+ *   colour.
  */
 export function buildNgState(
   ccfSegments,
   neuronsByComp = { full: [], axon: [], dendrite: [] },
+  extraLayers = [],
   camera = DEFAULT_CAMERA,
+  ccfColors = null,
+  neuronColors = null,
 ) {
-  const layers = [
-    {
+  // The root outline and the inner regions need different opacity, and
+  // Neuroglancer's `objectAlpha` is per-layer — so split the CCF source into
+  // a translucent "ccf" root layer and a more opaque "ccf-regions" layer.
+  const makeCcfLayer = (name, segIds, alpha, silhouette) => {
+    const layer = {
       type: 'segmentation',
       source: CCF_SOURCE,
-      name: 'ccf',
-      objectAlpha: 0.18,
-      segments: ccfSegments.map(String),
-      meshSilhouetteRendering: 3,
-    },
-  ];
+      name,
+      objectAlpha: alpha,
+      segments: segIds.map(String),
+    };
+    if (silhouette) layer.meshSilhouetteRendering = 3;
+    if (ccfColors) {
+      const segmentColors = {};
+      for (const id of segIds) {
+        const c = ccfColors.get(String(id));
+        if (c) segmentColors[String(id)] = c;
+      }
+      if (Object.keys(segmentColors).length > 0) layer.segmentColors = segmentColors;
+    }
+    return layer;
+  };
+
+  const rootSegs = ccfSegments.filter((id) => String(id) === CCF_ROOT_SEGMENT);
+  const regionSegs = ccfSegments.filter((id) => String(id) !== CCF_ROOT_SEGMENT);
+  const layers = [makeCcfLayer('ccf', rootSegs, CCF_ROOT_ALPHA, true)];
+  if (regionSegs.length > 0) {
+    layers.push(makeCcfLayer('ccf-regions', regionSegs, CCF_REGION_ALPHA, false));
+  }
   for (const comp of COMPARTMENTS) {
     const ids = neuronsByComp?.[comp] ?? [];
     if (ids.length === 0) continue;
-    layers.push({
+    const layer = {
       type: 'segmentation',
       source: NEURON_SOURCES[comp],
       name: comp === 'full' ? 'neurons' : `neurons-${comp}`,
       segments: ids.map(String),
       skeletonRendering: { mode2d: 'lines_and_points', lineWidth3d: 2 },
-    });
+    };
+    if (neuronColors) {
+      const segmentColors = {};
+      for (const id of ids) {
+        const c = neuronColors.get(String(id));
+        if (c) segmentColors[String(id)] = c;
+      }
+      if (Object.keys(segmentColors).length > 0) layer.segmentColors = segmentColors;
+    }
+    layers.push(layer);
   }
+  for (const layer of extraLayers ?? []) layers.push(layer);
   // Shape mirrors the portal's `Iee` default state exactly so the camera and
   // scene framing match their viewer 1:1.
   return {
@@ -277,6 +330,85 @@ export function parseSegmentProperties(info) {
     }
     const region = tagIdx != null && tagIdx >= 0 && tagIdx < tagLabels.length ? tagLabels[tagIdx] : '';
     return { id: String(id), label: String(labels[i] ?? ''), region };
+  });
+}
+
+/**
+ * Walk a CCF tree node up to the root, returning the list of structure ids
+ * (self first, then ancestors). Used so a region filter for a parent area
+ * (e.g. "Isocortex") also matches neurons whose soma sits in any descendant.
+ */
+function ancestorIds(node, byId) {
+  const out = [];
+  let cur = node;
+  let guard = 0;
+  while (cur && guard < 64) {
+    out.push(cur.id);
+    cur = cur.parentId ? byId.get(cur.parentId) : null;
+    guard += 1;
+  }
+  return out;
+}
+
+/**
+ * Build a unified neuron item used by the search modal + panel for both
+ * datasets. `dataset` is 'aind' | 'ml'. `fields` carries the dataset-specific
+ * identifiers ({segmentId} for AIND, {idString,tracings} for MouseLight) plus a
+ * soma `region` acronym and `label`.
+ */
+function makeNeuronItem(dataset, fields, acronymToNode, byId) {
+  const region = fields.region || '';
+  const node = region ? acronymToNode.get(region.toLowerCase()) : null;
+  const regionName = node?.name || '';
+  const regionAncestorIds = node ? ancestorIds(node, byId) : [];
+  const label = fields.label || '';
+  const searchText = `${label} ${region} ${regionName}`.toLowerCase();
+  const key = dataset === 'aind' ? `aind:${fields.segmentId}` : `ml:${fields.idString}`;
+  return {
+    key, dataset, label, region, regionName, regionAncestorIds, searchText,
+    segmentId: fields.segmentId, idString: fields.idString, tracings: fields.tracings,
+  };
+}
+
+/**
+ * Classify a single search token into an exact CCF match (acronym or full area
+ * name → a region chip) or a free-text keyword. Matching is case-insensitive.
+ *
+ * @param {string} text
+ * @param {{acronymToNode?:Map, nameToNode?:Map}} maps  Lowercase-keyed lookups.
+ * @returns {null|{kind:'ccf',match:'acronym'|'name',structureId:string,acronym:string,name:string}|{kind:'keyword',text:string}}
+ */
+export function classifySearchToken(text, { acronymToNode, nameToNode } = {}) {
+  const t = (text || '').trim();
+  if (!t) return null;
+  const lc = t.toLowerCase();
+  const acr = acronymToNode?.get(lc);
+  if (acr) return { kind: 'ccf', match: 'acronym', structureId: acr.id, acronym: acr.acronym, name: acr.name };
+  const nm = nameToNode?.get(lc);
+  if (nm) return { kind: 'ccf', match: 'name', structureId: nm.id, acronym: nm.acronym, name: nm.name };
+  return { kind: 'keyword', text: t };
+}
+
+/**
+ * Filter unified neuron items by region chips (OR across regions, hierarchical)
+ * and keywords (AND, substring against label/region/area-name). Pure + tested.
+ *
+ * @param {Array} neurons  Items from makeNeuronItem.
+ * @param {{regionIds?:string[], keywords?:string[]}} opts
+ * @returns {Array}
+ */
+export function filterNeurons(neurons, { regionIds = [], keywords = [] } = {}) {
+  const regionSet = regionIds.length ? new Set(regionIds.map(String)) : null;
+  const kws = keywords.map((k) => String(k).toLowerCase()).filter(Boolean);
+  return neurons.filter((n) => {
+    if (regionSet) {
+      const anc = n.regionAncestorIds || [];
+      if (!anc.some((id) => regionSet.has(String(id)))) return false;
+    }
+    for (const kw of kws) {
+      if (!(n.searchText || '').includes(kw)) return false;
+    }
+    return true;
   });
 }
 
@@ -488,26 +620,22 @@ function buildTreePanel({ title, roots, selected, onChange, defaultOpenDepth = 2
   return panel;
 }
 
+/** Feather-style eye / eye-off icons for the per-neuron visibility toggle. */
+const EYE_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
 /**
- * Neuron search panel: lists matching neurons, per-row checkbox + compartment
- * dropdown, with a settings-gear button opening a filter modal.
+ * Compact "Neurons" panel shown in the controls column. It lists the neurons
+ * currently displayed in the viewer (from both datasets) and is the single
+ * entry point to the unified search modal — all searching/selection happens
+ * there. See {@link openNeuronSearchModal}.
  *
- * @param {object} opts
- * @param {Set<string>} opts.selected     Mutated in place (set of neuron ids).
- * @param {Map<string,string>} opts.compartmentByNeuron  Mutated in place.
- * @param {Map<string,{id,structureId,acronym}>} opts.atlasById  Lookup for
- *   resolving CCF structureIds (numeric strings) → portal UUIDs.
- * @param {() => void} opts.onChange
- * @param {AbortSignal} [opts.signal]
+ * @param {object} ctx  Shared morphology state (see createExaSpimMorphologySection).
+ * @returns {HTMLElement}
  */
-function buildNeuronSearchPanel({
-  selected,
-  compartmentByNeuron,
-  atlasById,
-  labelToSegmentId,
-  onChange,
-  signal,
-}) {
+function buildNeuronPanel(ctx) {
   const panel = document.createElement('div');
   panel.className = 'morph-panel sessions-filter-group';
 
@@ -523,371 +651,442 @@ function buildNeuronSearchPanel({
   head.appendChild(count);
   panel.appendChild(head);
 
-  // Filter summary + gear
-  const filterBar = document.createElement('div');
-  filterBar.className = 'morph-filter-bar';
-  const filterSummary = document.createElement('span');
-  filterSummary.className = 'morph-filter-summary';
-  filterSummary.textContent = 'All neurons';
-  filterBar.appendChild(filterSummary);
-  const gear = document.createElement('button');
-  gear.type = 'button';
-  gear.className = 'morph-gear-btn';
-  gear.title = 'Edit filters';
-  gear.textContent = '⚙';
-  filterBar.appendChild(gear);
-  panel.appendChild(filterBar);
+  // Single entry point: open the unified search modal.
+  const searchBtn = document.createElement('button');
+  searchBtn.type = 'button';
+  searchBtn.className = 'morph-search-btn';
+  searchBtn.innerHTML = '<span aria-hidden="true">⌕</span> Search neurons…';
+  searchBtn.title = 'Search both datasets and choose neurons to display';
+  panel.appendChild(searchBtn);
 
-  // Inline search (label / id)
-  const search = document.createElement('input');
-  search.type = 'text';
-  search.placeholder = 'Filter by label…';
-  search.className = 'smartspim-subject-search morph-panel-search';
-  panel.appendChild(search);
-
-  // Actions
-  const actions = document.createElement('div');
-  actions.className = 'morph-panel-actions';
-  const selectAllBtn = document.createElement('button');
-  selectAllBtn.type = 'button';
-  selectAllBtn.className = 'sessions-filter-clear';
-  selectAllBtn.textContent = 'Select shown';
-  const clearBtn = document.createElement('button');
-  clearBtn.type = 'button';
-  clearBtn.className = 'sessions-filter-clear';
-  clearBtn.textContent = 'Clear';
-  actions.appendChild(selectAllBtn);
-  actions.appendChild(clearBtn);
-  panel.appendChild(actions);
-
-  // List
+  // List of currently-displayed neurons.
   const list = document.createElement('div');
-  list.className = 'sessions-checkbox-list morph-panel-list';
+  list.className = 'sessions-checkbox-list morph-panel-list morph-selected-list';
   panel.appendChild(list);
 
-  // ── Filter state ─────────────────────────────────────────────────────
-  /** @type {{regionIds:string[], keyword:string, limit:number, meshesOnly:boolean}} */
-  const filter = {
-    /** numeric CCF structure ids (we resolve to UUIDs at query time) */
-    regionIds: [],
-    keyword: '',
-    limit: 50,
-    meshesOnly: true,
-  };
-  let lastResults = []; // [{uuid, segmentId|null, label, region, regionId}]
-  let totalCount = 0;
-  let loading = false;
-  let error = null;
-
-  function updateCount() {
-    if (loading) count.textContent = '…';
-    else if (error) count.textContent = '!';
-    else count.textContent = `${selected.size} / ${totalCount.toLocaleString()}`;
-  }
-
-  function updateFilterSummary() {
-    const parts = [];
-    if (filter.regionIds.length > 0) {
-      const names = filter.regionIds
-        .map((id) => atlasById?.get(String(id))?.acronym || id)
-        .slice(0, 3)
-        .join(', ');
-      const extra = filter.regionIds.length > 3 ? ` +${filter.regionIds.length - 3}` : '';
-      parts.push(`region: ${names}${extra}`);
+  function selectedItems() {
+    const out = [];
+    for (const item of ctx.aindNeurons) {
+      if (ctx.selectedNeurons.has(item.segmentId)) out.push(item);
     }
-    if (filter.keyword) parts.push(`kw: "${filter.keyword}"`);
-    if (!filter.meshesOnly) parts.push('all neurons');
-    filterSummary.textContent = parts.length === 0 ? 'All neurons' : parts.join(' · ');
+    const byId = new Map();
+    for (const item of ctx.mlNeurons || []) byId.set(item.idString, item);
+    for (const idString of ctx.selectedMouseLight) {
+      out.push(
+        byId.get(idString) || {
+          key: `ml:${idString}`, dataset: 'ml', label: idString, idString, region: '', regionName: '',
+        },
+      );
+    }
+    return out;
   }
 
-  function renderList() {
-    const q = search.value.trim().toLowerCase();
-    const visible = q
-      ? lastResults.filter(
-          (n) =>
-            (n.label || '').toLowerCase().includes(q) ||
-            (n.region || '').toLowerCase().includes(q),
-        )
-      : lastResults;
+  function render() {
+    const items = selectedItems();
+    count.textContent = String(items.length);
     list.innerHTML = '';
-    if (loading) {
+    if (items.length === 0) {
       const empty = document.createElement('span');
       empty.className = 'sessions-filter-empty';
-      empty.textContent = 'Loading…';
-      list.appendChild(empty);
-      return;
-    }
-    if (error) {
-      const empty = document.createElement('span');
-      empty.className = 'sessions-filter-empty error';
-      empty.textContent = `Error: ${error}`;
-      list.appendChild(empty);
-      return;
-    }
-    if (visible.length === 0) {
-      const empty = document.createElement('span');
-      empty.className = 'sessions-filter-empty';
-      empty.textContent = 'No matching neurons';
+      empty.textContent = 'No neurons selected — use Search.';
       list.appendChild(empty);
       return;
     }
     const frag = document.createDocumentFragment();
-    for (const n of visible) {
-      const renderable = !!n.segmentId;
-      const row = document.createElement('label');
-      row.className = 'sessions-checkbox-item morph-neuron-row';
-      if (!renderable) row.classList.add('morph-neuron-row-disabled');
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = n.segmentId ?? '';
-      cb.disabled = !renderable;
-      cb.checked = renderable && selected.has(n.segmentId);
-      if (!renderable) cb.title = 'Not yet published to the precomputed segmentation';
-      cb.addEventListener('change', () => {
-        if (!renderable) return;
-        if (cb.checked) {
-          selected.add(n.segmentId);
-          if (!compartmentByNeuron.has(n.segmentId)) compartmentByNeuron.set(n.segmentId, 'full');
-        } else {
-          selected.delete(n.segmentId);
-        }
-        updateCount();
-        onChange();
-      });
-      row.appendChild(cb);
+    for (const n of items) {
+      const row = document.createElement('div');
+      row.className = 'morph-neuron-row morph-selected-row';
+
+      const badge = document.createElement('span');
+      badge.className = `morph-badge morph-badge-${n.dataset}`;
+      badge.textContent = n.dataset === 'aind' ? 'AIND' : 'ML';
+      row.appendChild(badge);
 
       const text = document.createElement('span');
       text.className = 'morph-panel-item-text';
-      text.textContent = n.label || n.uuid;
+      text.textContent = n.label;
       if (n.region) {
         const sub = document.createElement('span');
         sub.className = 'morph-panel-item-sub';
         sub.textContent = ' · ' + n.region;
         text.appendChild(sub);
       }
-      if (!renderable) {
-        const sub = document.createElement('span');
-        sub.className = 'morph-panel-item-sub';
-        sub.textContent = ' (no mesh)';
-        text.appendChild(sub);
-      }
       row.appendChild(text);
 
-      const sel = document.createElement('select');
-      sel.className = 'morph-compartment-select';
-      sel.title = 'Display compartment';
-      sel.disabled = !renderable;
-      for (const c of COMPARTMENTS) {
-        const opt = document.createElement('option');
-        opt.value = c;
-        opt.textContent = c;
-        sel.appendChild(opt);
-      }
-      sel.value = (renderable && compartmentByNeuron.get(n.segmentId)) || 'full';
-      sel.addEventListener('click', (e) => e.preventDefault());
-      sel.addEventListener('change', () => {
-        if (!renderable) return;
-        compartmentByNeuron.set(n.segmentId, sel.value);
-        if (selected.has(n.segmentId)) onChange();
+      // Colour picker — set the neuron's render colour.
+      const color = document.createElement('input');
+      color.type = 'color';
+      color.className = 'morph-color-input';
+      color.title = 'Neuron colour';
+      color.setAttribute('aria-label', `Colour for ${n.label}`);
+      color.value = ctx.colorOf(n);
+      color.addEventListener('input', () => {
+        ctx.setColor(n, color.value);
+        ctx.onChange();
       });
-      row.appendChild(sel);
+      row.appendChild(color);
+
+      // Visibility toggle — hide/show in the viewer without deselecting.
+      const eye = document.createElement('button');
+      eye.type = 'button';
+      eye.className = 'morph-eye-btn';
+      const hidden = ctx.hiddenNeurons.has(n.key);
+      if (hidden) eye.classList.add('is-hidden');
+      eye.title = hidden ? 'Show in viewer' : 'Hide from viewer';
+      eye.setAttribute('aria-label', eye.title);
+      eye.setAttribute('aria-pressed', String(hidden));
+      eye.innerHTML = hidden ? EYE_OFF_SVG : EYE_SVG;
+      eye.addEventListener('click', () => {
+        if (ctx.hiddenNeurons.has(n.key)) ctx.hiddenNeurons.delete(n.key);
+        else ctx.hiddenNeurons.add(n.key);
+        render();
+        ctx.onChange();
+      });
+      row.appendChild(eye);
+
+      if (n.dataset === 'aind') {
+        const sel = document.createElement('select');
+        sel.className = 'morph-compartment-select';
+        sel.title = 'Display compartment';
+        for (const c of COMPARTMENTS) {
+          const opt = document.createElement('option');
+          opt.value = c;
+          opt.textContent = c;
+          sel.appendChild(opt);
+        }
+        sel.value = ctx.compartmentByNeuron.get(n.segmentId) || 'full';
+        sel.addEventListener('change', () => {
+          ctx.compartmentByNeuron.set(n.segmentId, sel.value);
+          ctx.onChange();
+        });
+        row.appendChild(sel);
+      }
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'morph-remove-btn';
+      remove.title = 'Remove from viewer';
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        if (n.dataset === 'aind') ctx.selectedNeurons.delete(n.segmentId);
+        else ctx.selectedMouseLight.delete(n.idString);
+        ctx.hiddenNeurons.delete(n.key);
+        render();
+        ctx.onChange();
+      });
+      row.appendChild(remove);
 
       frag.appendChild(row);
     }
     list.appendChild(frag);
   }
 
-  // ── Query ────────────────────────────────────────────────────────────
-  let queryToken = 0;
-  async function runQuery() {
-    const token = ++queryToken;
-    loading = true; error = null; updateCount(); renderList();
-    try {
-      // Resolve numeric CCF structure ids → portal UUIDs (what the API wants).
-      const atlasUuids = filter.regionIds
-        .map((id) => atlasById?.get(String(id))?.uuid)
-        .filter(Boolean);
-      const input = {
-        offset: 0,
-        limit: filter.limit,
-        specimenIds: [],
-        atlasStructureIds: atlasUuids,
-        keywords: filter.keyword ? [filter.keyword] : [],
-        somaProperties: null,
-      };
-      const data = await gql(CANDIDATE_NEURONS_QUERY, { input }, signal);
-      if (token !== queryToken) return;
-      const items = data?.candidateNeurons?.items ?? [];
-      totalCount = data?.candidateNeurons?.totalCount ?? items.length;
-      const mapped = items.map((n) => {
-        const label = n.label || '';
-        const segmentId = labelToSegmentId?.get(label) ?? null;
-        return {
-          uuid: n.id,
-          segmentId,
-          label,
-          region: n.atlasStructure?.acronym || '',
-          regionId: n.atlasStructure?.structureId ?? null,
-        };
-      });
-      lastResults = filter.meshesOnly ? mapped.filter((n) => n.segmentId) : mapped;
-      loading = false;
-    } catch (e) {
-      if (e?.name === 'AbortError') return;
-      if (token !== queryToken) return;
-      loading = false;
-      error = e?.message ?? String(e);
-    }
-    updateCount(); renderList();
+  searchBtn.addEventListener('click', () => openNeuronSearchModal(ctx));
+  ctx.refreshPanel = render;
+  render();
+  return panel;
+}
+
+/**
+ * Unified neuron search modal — the single point of entry for finding neurons
+ * across both datasets. One text box searches CCF acronyms, full area names and
+ * neuron labels together; exact CCF matches pin as removable chips. Results
+ * render live inside the modal so the user can review and tick neurons before
+ * hitting Apply. A Both/AIND/MouseLight toggle limits the search to one source.
+ *
+ * @param {object} ctx  Shared morphology state (see createExaSpimMorphologySection).
+ */
+function openNeuronSearchModal(ctx) {
+  let scope = 'both'; // 'both' | 'aind' | 'ml'
+  /** @type {Array<{kind:'ccf'|'keyword', structureId?, acronym?, name?, match?, text?}>} */
+  const chips = [];
+  /** key → unified neuron item: the to-be-applied selection. */
+  const chosen = new Map();
+  for (const item of ctx.aindNeurons) {
+    if (ctx.selectedNeurons.has(item.segmentId)) chosen.set(item.key, item);
+  }
+  for (const item of ctx.mlNeurons || []) {
+    if (ctx.selectedMouseLight.has(item.idString)) chosen.set(item.key, item);
   }
 
-  // ── Settings modal ───────────────────────────────────────────────────
-  function openModal() {
-    const overlay = document.createElement('div');
-    overlay.className = 'morph-modal-overlay';
-    const dialog = document.createElement('div');
-    dialog.className = 'morph-modal';
-    overlay.appendChild(dialog);
+  const overlay = document.createElement('div');
+  overlay.className = 'morph-modal-overlay';
+  const dialog = document.createElement('div');
+  dialog.className = 'morph-modal morph-modal-wide';
+  overlay.appendChild(dialog);
 
-    const h = document.createElement('h4');
-    h.textContent = 'Neuron search filters';
-    h.className = 'morph-modal-title';
-    dialog.appendChild(h);
+  const h = document.createElement('h4');
+  h.textContent = 'Search neurons';
+  h.className = 'morph-modal-title';
+  dialog.appendChild(h);
 
-    // Region multi-select (acronym tokens)
-    const regLabel = document.createElement('label');
-    regLabel.className = 'morph-modal-label';
-    regLabel.textContent = 'Brain regions (CCF acronyms, comma-separated)';
-    dialog.appendChild(regLabel);
-    const regInput = document.createElement('input');
-    regInput.type = 'text';
-    regInput.className = 'morph-modal-input';
-    regInput.placeholder = 'e.g. VISp, CA1, MOs';
-    regInput.value = filter.regionIds
-      .map((id) => atlasById?.get(String(id))?.acronym || id)
-      .join(', ');
-    dialog.appendChild(regInput);
-
-    // Keyword
-    const kwLabel = document.createElement('label');
-    kwLabel.className = 'morph-modal-label';
-    kwLabel.textContent = 'Keyword (label match)';
-    dialog.appendChild(kwLabel);
-    const kwInput = document.createElement('input');
-    kwInput.type = 'text';
-    kwInput.className = 'morph-modal-input';
-    kwInput.placeholder = 'e.g. N004';
-    kwInput.value = filter.keyword;
-    dialog.appendChild(kwInput);
-
-    // Limit
-    const limLabel = document.createElement('label');
-    limLabel.className = 'morph-modal-label';
-    limLabel.textContent = 'Result limit';
-    dialog.appendChild(limLabel);
-    const limInput = document.createElement('input');
-    limInput.type = 'number';
-    limInput.min = '1';
-    limInput.max = '500';
-    limInput.className = 'morph-modal-input';
-    limInput.value = String(filter.limit);
-    dialog.appendChild(limInput);
-
-    // Meshes-only toggle
-    const meshLabel = document.createElement('label');
-    meshLabel.className = 'morph-modal-label morph-modal-checkbox-label';
-    const meshCb = document.createElement('input');
-    meshCb.type = 'checkbox';
-    meshCb.checked = filter.meshesOnly;
-    meshLabel.appendChild(meshCb);
-    meshLabel.append(' Only show neurons with available meshes');
-    dialog.appendChild(meshLabel);
-
-    // Buttons
-    const btns = document.createElement('div');
-    btns.className = 'morph-modal-buttons';
-    const cancel = document.createElement('button');
-    cancel.type = 'button';
-    cancel.className = 'sessions-filter-clear';
-    cancel.textContent = 'Cancel';
-    const apply = document.createElement('button');
-    apply.type = 'button';
-    apply.className = 'sessions-filter-clear morph-modal-apply';
-    apply.textContent = 'Apply';
-    btns.appendChild(cancel);
-    btns.appendChild(apply);
-    dialog.appendChild(btns);
-
-    function close() {
-      overlay.remove();
-      document.removeEventListener('keydown', onKey);
-    }
-    function onKey(e) {
-      if (e.key === 'Escape') close();
-    }
-    document.addEventListener('keydown', onKey);
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) close();
+  // Dataset scope (Both / AIND / MouseLight)
+  const scopeRow = document.createElement('div');
+  scopeRow.className = 'morph-dataset-toggle';
+  const scopeButtons = new Map();
+  for (const o of [
+    { id: 'both', label: 'Both' },
+    { id: 'aind', label: 'AIND' },
+    { id: 'ml', label: 'MouseLight' },
+  ]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'morph-dataset-opt';
+    b.textContent = o.label;
+    if (o.id === scope) b.classList.add('active');
+    b.addEventListener('click', () => {
+      scope = o.id;
+      for (const [id, btn] of scopeButtons) btn.classList.toggle('active', id === scope);
+      runSearch();
     });
-    cancel.addEventListener('click', close);
-    apply.addEventListener('click', () => {
-      // Resolve acronym tokens → numeric structureIds.
-      const tokens = regInput.value
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const newRegionIds = [];
-      if (atlasById) {
-        const acroToId = new Map();
-        for (const n of atlasById.values()) {
-          if (n.acronym) acroToId.set(n.acronym.toLowerCase(), n.id);
-        }
-        for (const t of tokens) {
-          if (/^\d+$/.test(t)) newRegionIds.push(t);
-          else {
-            const id = acroToId.get(t.toLowerCase());
-            if (id) newRegionIds.push(id);
-          }
+    scopeButtons.set(o.id, b);
+    scopeRow.appendChild(b);
+  }
+  dialog.appendChild(scopeRow);
+
+  // Single search box.
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.className = 'morph-modal-input morph-modal-search';
+  search.placeholder = 'Search CCF acronyms, area names, or neuron labels…';
+  dialog.appendChild(search);
+
+  // Active exact-match chips.
+  const chipsEl = document.createElement('div');
+  chipsEl.className = 'morph-chips';
+  dialog.appendChild(chipsEl);
+
+  // Results.
+  const resultsHead = document.createElement('div');
+  resultsHead.className = 'morph-results-head';
+  dialog.appendChild(resultsHead);
+  const results = document.createElement('div');
+  results.className = 'sessions-checkbox-list morph-results';
+  dialog.appendChild(results);
+
+  // Footer.
+  const btns = document.createElement('div');
+  btns.className = 'morph-modal-buttons';
+  const selInfo = document.createElement('span');
+  selInfo.className = 'morph-modal-selinfo';
+  btns.appendChild(selInfo);
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'sessions-filter-clear';
+  cancel.textContent = 'Cancel';
+  const apply = document.createElement('button');
+  apply.type = 'button';
+  apply.className = 'sessions-filter-clear morph-modal-apply';
+  apply.textContent = 'Apply';
+  btns.appendChild(cancel);
+  btns.appendChild(apply);
+  dialog.appendChild(btns);
+
+  function close() {
+    overlay.remove();
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  document.addEventListener('keydown', onKey);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  cancel.addEventListener('click', close);
+
+  function updateSelInfo() {
+    selInfo.textContent = `${chosen.size} selected`;
+  }
+
+  function renderChips() {
+    chipsEl.innerHTML = '';
+    if (chips.length === 0) { chipsEl.hidden = true; return; }
+    chipsEl.hidden = false;
+    chips.forEach((chip, i) => {
+      const el = document.createElement('span');
+      el.className = `morph-chip morph-chip-${chip.kind}`;
+      const tag = document.createElement('span');
+      tag.className = 'morph-chip-tag';
+      tag.textContent = chip.kind === 'ccf' ? (chip.match === 'name' ? 'CCF area' : 'CCF') : 'text';
+      el.appendChild(tag);
+      const labelText = chip.kind === 'ccf' ? chip.acronym : chip.text;
+      el.appendChild(document.createTextNode(' ' + labelText));
+      if (chip.kind === 'ccf' && chip.name) el.title = chip.name;
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'morph-chip-remove';
+      x.title = 'Remove filter';
+      x.textContent = '×';
+      x.addEventListener('click', () => { chips.splice(i, 1); renderChips(); runSearch(); });
+      el.appendChild(x);
+      chipsEl.appendChild(el);
+    });
+  }
+
+  function commitToken(text) {
+    const chip = classifySearchToken(text, {
+      acronymToNode: ctx.acronymToNode,
+      nameToNode: ctx.nameToNode,
+    });
+    if (!chip) return;
+    const dup = chips.some((c) =>
+      c.kind === chip.kind &&
+      (chip.kind === 'ccf'
+        ? c.structureId === chip.structureId
+        : c.text.toLowerCase() === chip.text.toLowerCase()));
+    if (!dup) chips.push(chip);
+    renderChips();
+  }
+
+  let pool = [];
+  let mlLoading = false;
+
+  async function ensurePool() {
+    pool = [];
+    if (scope === 'both' || scope === 'aind') pool.push(...ctx.aindNeurons);
+    if (scope === 'both' || scope === 'ml') {
+      if (!ctx.mlNeurons) {
+        mlLoading = true;
+        renderResults(null);
+        try {
+          ctx.mlNeurons = await ctx.getMlNeurons();
+        } catch (e) {
+          if (e?.name === 'AbortError') return;
+          ctx.mlNeurons = [];
+        } finally {
+          mlLoading = false;
         }
       }
-      filter.regionIds = newRegionIds;
-      filter.keyword = kwInput.value.trim();
-      const lim = Number(limInput.value);
-      filter.limit = Number.isFinite(lim) && lim > 0 ? Math.min(500, Math.floor(lim)) : 50;
-      filter.meshesOnly = meshCb.checked;
-      updateFilterSummary();
-      close();
-      runQuery();
-    });
-
-    document.body.appendChild(overlay);
-    regInput.focus();
+      pool.push(...(ctx.mlNeurons || []));
+    }
   }
 
-  gear.addEventListener('click', openModal);
-  search.addEventListener('input', renderList);
-  selectAllBtn.addEventListener('click', () => {
-    for (const n of lastResults) {
-      if (!n.segmentId) continue;
-      selected.add(n.segmentId);
-      if (!compartmentByNeuron.has(n.segmentId)) compartmentByNeuron.set(n.segmentId, 'full');
+  let searchToken = 0;
+  async function runSearch() {
+    const token = ++searchToken;
+    await ensurePool();
+    if (token !== searchToken) return;
+
+    const regionIds = chips.filter((c) => c.kind === 'ccf').map((c) => c.structureId);
+    const keywords = chips.filter((c) => c.kind === 'keyword').map((c) => c.text);
+    const live = search.value.trim();
+    if (live) keywords.push(live);
+
+    renderResults(filterNeurons(pool, { regionIds, keywords }));
+  }
+
+  function renderResults(matched) {
+    results.innerHTML = '';
+    if (matched === null) {
+      resultsHead.textContent = 'Loading MouseLight…';
+      const loadingEl = document.createElement('span');
+      loadingEl.className = 'sessions-filter-empty';
+      loadingEl.textContent = 'Loading MouseLight neuron list…';
+      results.appendChild(loadingEl);
+      return;
     }
-    renderList();
-    updateCount();
-    onChange();
+    resultsHead.textContent =
+      `${matched.length.toLocaleString()} matching neuron${matched.length === 1 ? '' : 's'}`;
+    if (matched.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'sessions-filter-empty';
+      empty.textContent = 'No matching neurons';
+      results.appendChild(empty);
+      updateSelInfo();
+      return;
+    }
+    const shown = matched.slice(0, 200);
+    const frag = document.createDocumentFragment();
+    for (const n of shown) {
+      const row = document.createElement('label');
+      row.className = 'sessions-checkbox-item morph-result-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = chosen.has(n.key);
+      cb.addEventListener('change', () => {
+        if (cb.checked) chosen.set(n.key, n);
+        else chosen.delete(n.key);
+        updateSelInfo();
+      });
+      row.appendChild(cb);
+
+      const badge = document.createElement('span');
+      badge.className = `morph-badge morph-badge-${n.dataset}`;
+      badge.textContent = n.dataset === 'aind' ? 'AIND' : 'ML';
+      row.appendChild(badge);
+
+      const text = document.createElement('span');
+      text.className = 'morph-panel-item-text';
+      text.textContent = n.label;
+      if (n.region) {
+        const sub = document.createElement('span');
+        sub.className = 'morph-panel-item-sub';
+        sub.textContent = ' · ' + n.region;
+        text.appendChild(sub);
+      }
+      row.appendChild(text);
+      frag.appendChild(row);
+    }
+    results.appendChild(frag);
+    if (matched.length > shown.length) {
+      const more = document.createElement('span');
+      more.className = 'sessions-filter-empty';
+      more.textContent = `+${(matched.length - shown.length).toLocaleString()} more — refine search`;
+      results.appendChild(more);
+    }
+    updateSelInfo();
+  }
+
+  const debouncedSearch = debounce(() => runSearch(), 200);
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const t = search.value.trim();
+      if (t) { commitToken(t); search.value = ''; }
+      runSearch();
+    } else if (e.key === 'Backspace' && search.value === '' && chips.length > 0) {
+      chips.pop();
+      renderChips();
+      runSearch();
+    }
   });
-  clearBtn.addEventListener('click', () => {
-    selected.clear();
-    renderList();
-    updateCount();
-    onChange();
+  search.addEventListener('input', debouncedSearch);
+
+  apply.addEventListener('click', async () => {
+    apply.disabled = true;
+    apply.textContent = 'Applying…';
+    // AIND — segment ids render directly.
+    ctx.selectedNeurons.clear();
+    for (const item of chosen.values()) {
+      if (item.dataset !== 'aind') continue;
+      ctx.selectedNeurons.add(item.segmentId);
+      if (!ctx.compartmentByNeuron.has(item.segmentId)) ctx.compartmentByNeuron.set(item.segmentId, 'full');
+    }
+    // MouseLight — fetch any missing skeletons before rendering.
+    ctx.selectedMouseLight.clear();
+    for (const item of [...chosen.values()].filter((i) => i.dataset === 'ml')) {
+      ctx.selectedMouseLight.add(item.idString);
+      if (ctx.mlLayerCache.has(item.idString)) continue;
+      try {
+        const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), ctx.signal);
+        const color = ctx.mlColorFor(item.idString);
+        ctx.mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, color));
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        ctx.selectedMouseLight.delete(item.idString);
+      }
+    }
+    // Drop hidden flags for neurons that are no longer selected.
+    for (const key of [...ctx.hiddenNeurons]) {
+      if (!chosen.has(key)) ctx.hiddenNeurons.delete(key);
+    }
+    ctx.onChange();
+    ctx.refreshPanel?.();
+    close();
   });
 
-  // Kick off initial query.
-  runQuery();
-  updateFilterSummary();
-  updateCount();
-  return panel;
+  document.body.appendChild(overlay);
+  renderChips();
+  updateSelInfo();
+  search.focus();
+  runSearch();
 }
 
 // ─── Section factory ────────────────────────────────────────────────────────
@@ -920,11 +1119,6 @@ export function createExaSpimMorphologySection({ signal } = {}) {
   header.appendChild(portalLink);
   section.appendChild(header);
 
-  const summary = document.createElement('div');
-  summary.className = 'exaspim-morphology-summary';
-  summary.textContent = 'Loading morphology data…';
-  section.appendChild(summary);
-
   // Body
   const body = document.createElement('div');
   body.className = 'exaspim-morphology-body';
@@ -941,18 +1135,72 @@ export function createExaSpimMorphologySection({ signal } = {}) {
   const linkBar = document.createElement('div');
   linkBar.className = 'exaspim-morphology-link-bar';
   viewerCol.appendChild(linkBar);
+
+  // Left side: 3D / 2D mode toggle + (2D-only) projection-plane toggle.
+  const leftControls = document.createElement('div');
+  leftControls.className = 'exaspim-morphology-left-controls';
+  linkBar.appendChild(leftControls);
+
+  const modeToggle = document.createElement('div');
+  modeToggle.className = 'morph-mode-toggle';
+  const modeButtons = new Map();
+  for (const m of [{ id: '3d', label: '3D' }, { id: '2d', label: '2D' }]) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'morph-mode-opt';
+    b.textContent = m.label;
+    if (m.id === '3d') b.classList.add('active');
+    b.addEventListener('click', () => setViewMode(m.id));
+    modeButtons.set(m.id, b);
+    modeToggle.appendChild(b);
+  }
+  leftControls.appendChild(modeToggle);
+
+  const planeToggle = document.createElement('div');
+  planeToggle.className = 'morph-plane-toggle';
+  planeToggle.style.display = 'none';
+  const planeButtons = new Map();
+  for (const key of PLANE_KEYS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'morph-plane-opt';
+    b.textContent = PLANES[key].label;
+    if (key === 'sagittal') b.classList.add('active');
+    b.addEventListener('click', () => {
+      plane2d = key;
+      for (const [k, btn] of planeButtons) btn.classList.toggle('active', k === key);
+      twoDFramed = false;
+      update2D({ refit: true });
+    });
+    planeButtons.set(key, b);
+    planeToggle.appendChild(b);
+  }
+  leftControls.appendChild(planeToggle);
+
+  // Right side: reset/fit + pop-out.
+  const rightControls = document.createElement('div');
+  rightControls.className = 'exaspim-morphology-right-controls';
+  linkBar.appendChild(rightControls);
   const resetBtn = document.createElement('button');
   resetBtn.type = 'button';
   resetBtn.className = 'exaspim-morphology-reset-btn sessions-filter-clear';
   resetBtn.textContent = 'Reset view';
   resetBtn.title = 'Snap the camera back to the default CCF framing';
-  linkBar.appendChild(resetBtn);
+  rightControls.appendChild(resetBtn);
   const popoutLink = document.createElement('a');
   popoutLink.target = '_blank';
   popoutLink.rel = 'noopener noreferrer';
   popoutLink.className = 'exaspim-morphology-popout-link';
   popoutLink.textContent = 'Open in Neuroglancer ↗';
-  linkBar.appendChild(popoutLink);
+  rightControls.appendChild(popoutLink);
+
+  // Wrap the iframe so we can lay a white cover over it: Neuroglancer paints a
+  // black canvas during its own startup, then flips to our light background
+  // once the init state lands. The cover hides that flash until we've applied
+  // the first state.
+  const frame = document.createElement('div');
+  frame.className = 'exaspim-morphology-frame';
+  viewerCol.appendChild(frame);
 
   const iframe = document.createElement('iframe');
   iframe.className = 'exaspim-morphology-iframe';
@@ -961,25 +1209,94 @@ export function createExaSpimMorphologySection({ signal } = {}) {
   // Same-origin self-hosted Neuroglancer (web/public/ng/). Loaded once;
   // subsequent updates go through postMessage so the camera is preserved.
   iframe.src = NEUROGLANCER_EMBED_PATH;
-  viewerCol.appendChild(iframe);
+  frame.appendChild(iframe);
+
+  const cover = document.createElement('div');
+  cover.className = 'exaspim-morphology-cover';
+  const coverText = document.createElement('span');
+  coverText.className = 'exaspim-morphology-cover-text';
+  coverText.textContent = 'Loading viewer…';
+  cover.appendChild(coverText);
+  frame.appendChild(cover);
+
+  // Fade the cover out shortly after the first state is applied, giving
+  // Neuroglancer a beat to paint the light background underneath.
+  let revealed = false;
+  function revealViewer() {
+    if (revealed) return;
+    revealed = true;
+    setTimeout(() => { cover.classList.add('is-hidden'); }, 350);
+  }
 
   const selectedRegions = new Set();
   const selectedNeurons = new Set();
+  /** Item keys (`aind:<seg>` / `ml:<idString>`) hidden from the viewer but kept
+   *  in the selection so visibility can be toggled back on. */
+  const hiddenNeurons = new Set();
   /** neuronId → 'full' | 'axon' | 'dendrite' */
   const compartmentByNeuron = new Map();
+  /** CCF structure id (string) → Allen atlas CSS colour (e.g. "#ff4c3e"). */
+  const ccfColorById = new Map();
+
+  // MouseLight (Janelia) state. Selection is driven by the unified search
+  // modal; the Both/AIND/MouseLight scope there is how users opt in or out.
+  const selectedMouseLight = new Set();   // neuron idStrings
+  const mlLayerCache = new Map();          // idString → NG annotation layer
+  const mlColorByNeuron = new Map();       // idString → colour
+  let mlColorCounter = 0;
+
+  /** Assign (and remember) a distinct colour for a MouseLight neuron. */
+  function mlColorFor(idString) {
+    let c = mlColorByNeuron.get(idString);
+    if (!c) { c = mouseLightColor(mlColorCounter++); mlColorByNeuron.set(idString, c); }
+    return c;
+  }
+
+  /** Update a MouseLight neuron's colour and patch its cached annotation layer. */
+  function setMlColor(idString, hex) {
+    mlColorByNeuron.set(idString, hex);
+    const layer = mlLayerCache.get(idString);
+    if (layer) layer.annotationColor = hex;
+  }
+
+  // AIND neuron (precomputed segmentation) per-neuron colours.
+  const aindColorBySegment = new Map();    // numeric segment id (string) → colour
+  let aindColorCounter = 0;
+
+  /** Assign (and remember) a distinct colour for an AIND neuron segment. */
+  function aindColorFor(segmentId) {
+    const key = String(segmentId);
+    let c = aindColorBySegment.get(key);
+    if (!c) { c = mouseLightColor(aindColorCounter++); aindColorBySegment.set(key, c); }
+    return c;
+  }
 
   // Buffer state updates until the iframe is ready, then drain.
   let ngReady = false;
   let initSent = false;
   let pendingState = null;
 
-  function buildCurrentState() {
+  function mouseLightLayers() {
+    const layers = [];
+    for (const id of selectedMouseLight) {
+      if (hiddenNeurons.has('ml:' + id)) continue;
+      const layer = mlLayerCache.get(id);
+      if (layer) layers.push(layer);
+    }
+    return layers;
+  }
+
+  function buildCurrentState({ includeMouseLight = true } = {}) {
     const neuronsByComp = { full: [], axon: [], dendrite: [] };
+    const neuronColors = new Map();
     for (const id of selectedNeurons) {
+      if (hiddenNeurons.has('aind:' + id)) continue;
       const comp = compartmentByNeuron.get(id) || 'full';
       (neuronsByComp[comp] ||= []).push(id);
+      neuronColors.set(String(id), aindColorFor(id));
     }
-    return buildNgState([...selectedRegions], neuronsByComp);
+    const extra = includeMouseLight ? mouseLightLayers() : [];
+    return buildNgState([...selectedRegions], neuronsByComp, extra, undefined, ccfColorById, neuronColors);
   }
 
   function postToIframe(message) {
@@ -999,15 +1316,17 @@ export function createExaSpimMorphologySection({ signal } = {}) {
         postToIframe({ type: 'init', state: pendingState });
         initSent = true;
         pendingState = null;
+        revealViewer();
       }
     }
   });
 
   const updateIframe = debounce(() => {
     const state = buildCurrentState();
-    // Keep the pop-out link in sync (encodes full state into the public NG demo
-    // URL so the user can share or open the exact view in a tab).
-    popoutLink.href = buildNgUrl(state);
+    // Keep the pop-out link in sync. MouseLight skeletons are embedded as
+    // (potentially huge) local annotation layers, so we exclude them here to
+    // keep the shareable URL within browser length limits.
+    popoutLink.href = buildNgUrl(buildCurrentState({ includeMouseLight: false }));
     if (!ngReady) {
       pendingState = state;
       return;
@@ -1019,6 +1338,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
       // stuck on Neuroglancer's default 4-panel/1µm layout.
       postToIframe({ type: 'init', state });
       initSent = true;
+      revealViewer();
       return;
     }
     // Subsequent updates only swap layers — the embed merges them onto the
@@ -1026,7 +1346,123 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     postToIframe({ type: 'setLayers', layers: state.layers });
   }, 250);
 
+  // ── 2D projection view ────────────────────────────────────────────────────
+  const view2d = createProjection2DView();
+  view2d.el.style.display = 'none';
+  frame.appendChild(view2d.el);
+
+  let viewMode = '3d';
+  let plane2d = 'sagittal';
+  let twoDFramed = false;
+  let twoDToken = 0;
+  let ctxRef = null;
+  const mlNodeCache = new Map(); // idString → {vertices, edges} (µm)
+
+  function mlItemFor(idString) {
+    for (const it of ctxRef?.mlNeurons || []) if (it.idString === idString) return it;
+    return null;
+  }
+
+  // Rebuild the 2D projection from the current selection. Token-guarded so a
+  // newer call (plane switch / selection change) wins over an in-flight one.
+  async function update2D({ refit = false } = {}) {
+    if (viewMode !== '2d') return;
+    const token = ++twoDToken;
+    const planeKey = plane2d;
+    const plane = PLANES[planeKey];
+    view2d.setStatus('Building projection…');
+    const items = [];
+
+    // CCF area outlines (black for the whole-brain root, else atlas colour).
+    for (const id of selectedRegions) {
+      let segs;
+      try { segs = await getCcfOutlineSegments(id, planeKey, signal); }
+      catch (e) { if (e?.name === 'AbortError') return; continue; }
+      if (token !== twoDToken) return;
+      const isRoot = String(id) === CCF_ROOT_SEGMENT;
+      const color = isRoot ? '#111111' : (ccfColorById.get(String(id)) || '#111111');
+      items.push({ positions: segs, color, opacity: isRoot ? 0.5 : 0.85, lineWidth: 3 });
+    }
+
+    // AIND neuron skeletons (honour the per-neuron compartment selection).
+    for (const segId of selectedNeurons) {
+      if (hiddenNeurons.has('aind:' + segId)) continue;
+      const comp = compartmentByNeuron.get(segId) || 'full';
+      let skel;
+      try { skel = await loadAindSkeleton(segId, comp, signal); }
+      catch (e) { if (e?.name === 'AbortError') return; continue; }
+      if (token !== twoDToken) return;
+      items.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: aindColorFor(segId) });
+    }
+
+    // MouseLight neuron skeletons (fetch raw µm nodes once, cache per neuron).
+    if (selectedMouseLight.size > 0 && !ctxRef?.mlNeurons && ctxRef?.getMlNeurons) {
+      try { ctxRef.mlNeurons = await ctxRef.getMlNeurons(); }
+      catch (e) { if (e?.name === 'AbortError') return; }
+    }
+    for (const idString of selectedMouseLight) {
+      if (hiddenNeurons.has('ml:' + idString)) continue;
+      let skel = mlNodeCache.get(idString);
+      if (!skel) {
+        const item = mlItemFor(idString);
+        if (!item) continue;
+        let tr;
+        try { tr = await fetchMouseLightTracings(item.tracings.map((t) => t.id), signal); }
+        catch (e) { if (e?.name === 'AbortError') return; continue; }
+        skel = tracingsToSkeleton(tr);
+        mlNodeCache.set(idString, skel);
+      }
+      if (token !== twoDToken) return;
+      items.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: mlColorFor(idString) });
+    }
+
+    if (token !== twoDToken) return;
+    view2d.render(items);
+    view2d.setStatus(items.length === 0 ? 'Select CCF regions or neurons to project.' : '');
+    if (refit || !twoDFramed) {
+      const b = boundsOfItems(items);
+      if (b) { view2d.frameBounds(b); twoDFramed = true; }
+    }
+  }
+
+  // Route selection/colour/visibility changes to whichever view is active.
+  function refreshView() {
+    if (viewMode === '2d') update2D();
+    else updateIframe();
+  }
+
+  function setViewMode(mode) {
+    if (mode === viewMode) return;
+    viewMode = mode;
+    for (const [id, btn] of modeButtons) btn.classList.toggle('active', id === mode);
+    const is2d = mode === '2d';
+    iframe.style.display = is2d ? 'none' : '';
+    cover.style.display = is2d ? 'none' : '';
+    view2d.el.style.display = is2d ? '' : 'none';
+    planeToggle.style.display = is2d ? '' : 'none';
+    popoutLink.style.display = is2d ? 'none' : '';
+    resetBtn.textContent = is2d ? 'Fit view' : 'Reset view';
+    resetBtn.title = is2d
+      ? 'Fit the projection to the view'
+      : 'Snap the camera back to the default CCF framing';
+    if (is2d) {
+      // Wait one frame so the now-visible canvas reports a real size before we
+      // size the renderer and fit the projection to it.
+      requestAnimationFrame(() => {
+        view2d.resize();
+        update2D({ refit: true });
+      });
+    } else {
+      updateIframe();
+    }
+  }
+
   resetBtn.addEventListener('click', () => {
+    if (viewMode === '2d') {
+      twoDFramed = false;
+      update2D({ refit: true });
+      return;
+    }
     const state = buildCurrentState();
     if (!ngReady) { pendingState = state; return; }
     postToIframe({ type: 'resetView', state });
@@ -1035,60 +1471,89 @@ export function createExaSpimMorphologySection({ signal } = {}) {
 
   Promise.all([
     gql(ATLAS_QUERY, {}, signal).then((d) => d?.atlasStructures ?? []),
-    gql(SYSTEM_QUERY, {}, signal).then((d) => d?.systemSettings ?? {}).catch(() => ({})),
     fetch(NEURON_SEG_PROPS_URL, { signal })
       .then((r) => { if (!r.ok) throw new Error(`segment_properties HTTP ${r.status}`); return r.json(); })
       .catch(() => null),
-  ]).then(([atlas, sys, segInfo]) => {
+  ]).then(([atlas, segInfo]) => {
     const { roots, byId } = buildAtlasTree(atlas);
-    const geomCount = [...byId.values()].filter((n) => n.hasGeometry).length;
-    const published = sys?.neuronCount ?? 0;
 
-    // Build label → numeric-segment-id map from segment_properties (only the
-    // ~131 currently-published neurons have numeric segment ids that NG can
-    // actually render). Used by the search panel to join GraphQL labels to
-    // renderable segment ids.
-    const segments = segInfo ? parseSegmentProperties(segInfo) : [];
-    const labelToSegmentId = new Map();
-    for (const s of segments) {
-      if (s.label) labelToSegmentId.set(s.label, s.id);
+    // Build the CCF id → Allen atlas colour lookup so checked regions render
+    // in their true colours (defaultColor is a hex string without '#').
+    ccfColorById.clear();
+    for (const node of byId.values()) {
+      if (node.color) ccfColorById.set(String(node.id), '#' + node.color);
     }
 
-    summary.innerHTML =
-      `<strong>${geomCount.toLocaleString()}</strong> CCF regions with geometry · ` +
-      `<strong>${segments.length.toLocaleString()}</strong> neurons with published meshes ` +
-      `(of <strong>${published.toLocaleString()}</strong> total in the portal)` +
-      (sys?.systemVersion ? ` · portal v${sys.systemVersion}` : '');
+    // Lowercase-keyed acronym / area-name lookups power the unified search
+    // (exact CCF matches → chips) and hierarchical region filtering.
+    const acronymToNode = new Map();
+    const nameToNode = new Map();
+    for (const node of byId.values()) {
+      if (node.acronym) acronymToNode.set(node.acronym.toLowerCase(), node);
+      if (node.name) nameToNode.set(node.name.toLowerCase(), node);
+    }
+
+    // Only the ~131 currently-published neurons have numeric segment ids that
+    // Neuroglancer can render; segment_properties gives us their label + soma
+    // region directly, so AIND search runs entirely client-side.
+    const segments = segInfo ? parseSegmentProperties(segInfo) : [];
+    const aindNeurons = segments.map((s) =>
+      makeNeuronItem('aind', { label: s.label, segmentId: s.id, region: s.region }, acronymToNode, byId));
 
     // Default-on root region (root brain, structureId 997).
     if (byId.has('997')) selectedRegions.add('997');
     // Default-on: first 5 published neurons so the viewer isn't empty.
     for (const s of segments.slice(0, 5)) selectedNeurons.add(s.id);
 
+    // Lazily fetch + map the MouseLight neuron list the first time the user
+    // searches MouseLight (or "Both"). Cached for the page's lifetime.
+    let mlNeuronsPromise = null;
+    function getMlNeurons() {
+      if (!mlNeuronsPromise) {
+        mlNeuronsPromise = fetchMouseLightNeurons(signal).then((raw) =>
+          raw.map((n) => makeNeuronItem('ml', {
+            label: n.idString, idString: n.idString, region: n.region, tracings: n.tracings,
+          }, acronymToNode, byId)));
+      }
+      return mlNeuronsPromise;
+    }
+
+    const ctx = {
+      byId, acronymToNode, nameToNode,
+      aindNeurons,
+      mlNeurons: null,
+      getMlNeurons,
+      mlColorFor,
+      selectedNeurons, compartmentByNeuron, hiddenNeurons,
+      selectedMouseLight, mlLayerCache, mlColorByNeuron,
+      colorOf: (n) => (n.dataset === 'aind' ? aindColorFor(n.segmentId) : mlColorFor(n.idString)),
+      setColor: (n, hex) => {
+        if (n.dataset === 'aind') aindColorBySegment.set(String(n.segmentId), hex);
+        else setMlColor(n.idString, hex);
+      },
+      onChange: refreshView,
+      refreshPanel: null,
+      signal,
+    };
+    ctxRef = ctx;
+
     const regionPanel = buildTreePanel({
       title: 'CCF regions',
       roots,
       selected: selectedRegions,
-      onChange: updateIframe,
+      onChange: refreshView,
       defaultOpenDepth: 2,
     });
     controls.appendChild(regionPanel);
 
-    const neuronPanel = buildNeuronSearchPanel({
-      selected: selectedNeurons,
-      compartmentByNeuron,
-      atlasById: byId,
-      labelToSegmentId,
-      onChange: updateIframe,
-      signal,
-    });
+    const neuronPanel = buildNeuronPanel(ctx);
     controls.appendChild(neuronPanel);
 
     updateIframe();
   }).catch((err) => {
     if (err?.name === 'AbortError') return;
-    summary.className = 'exaspim-morphology-summary error';
-    summary.textContent = `Failed to load morphology data: ${err?.message ?? err}`;
+    console.error('[exaspim-morph] Failed to load morphology data:', err);
+    revealViewer();
   });
 
   return section;
