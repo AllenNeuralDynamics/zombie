@@ -154,10 +154,51 @@
 
   window.addEventListener('message', (ev) => handle(ev.data));
 
+  /** Trailing debounce — fires `fn` only after `ms` of quiet. */
+  function debounce(fn, ms) {
+    let h = null;
+    return function () { if (h) clearTimeout(h); h = setTimeout(fn, ms); };
+  }
+
+  // Report the camera (orientation/scale/position) back to the parent so it can
+  // mirror the 3D view into the page URL for shareable links. We only post when
+  // those fields actually change, and on a trailing debounce so a continuous
+  // drag produces a single update on release (keeps us well under the browser's
+  // History API rate limit, since the parent writes the URL on each report).
+  function setupStateReporting(viewer) {
+    let last = '';
+    function post() {
+      try {
+        const s = viewer.state.toJSON() || {};
+        const cam = {
+          projectionOrientation: s.projectionOrientation,
+          projectionScale: s.projectionScale,
+          position: s.position,
+          crossSectionScale: s.crossSectionScale,
+        };
+        const sig = JSON.stringify([cam.projectionOrientation, cam.projectionScale, cam.position]);
+        if (sig === last) return;
+        last = sig;
+        window.parent.postMessage({ type: 'ng-state', camera: cam }, '*');
+      } catch (_) { /* ignore */ }
+    }
+    const debounced = debounce(post, 500);
+    try {
+      if (viewer.state && viewer.state.changed && viewer.state.changed.add) {
+        viewer.state.changed.add(debounced);
+      } else {
+        setInterval(post, 800);
+      }
+    } catch (_) {
+      setInterval(post, 800);
+    }
+  }
+
   whenReady((v) => {
     viewerRef = v;
     while (pending.length > 0) handle(pending.shift());
     notifyReady();
+    setupStateReporting(v);
   });
 })();
 </script>

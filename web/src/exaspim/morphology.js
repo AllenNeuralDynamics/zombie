@@ -26,6 +26,7 @@
 
 import {
   fetchMouseLightNeurons,
+  fetchMouseLightNeuronsCached,
   fetchMouseLightTracings,
   buildMouseLightAnnotationLayer,
   mouseLightColor,
@@ -232,6 +233,37 @@ export function buildNgState(
 
 export function buildNgUrl(state) {
   return `${NEUROGLANCER_PUBLIC_BASE}/#!${encodeURIComponent(JSON.stringify(state))}`;
+}
+
+/**
+ * Encode the 3D camera (orientation quaternion + projection scale + position)
+ * into a compact comma-separated URL value so a shared link reproduces the
+ * exact view without bloating the URL with full Neuroglancer JSON. Returns ''
+ * when the camera is malformed.
+ */
+export function encodeCamera(cam) {
+  const o = cam?.projectionOrientation;
+  if (!Array.isArray(o) || o.length !== 4) return '';
+  const nums = [
+    ...o.map((n) => +Number(n).toFixed(5)),
+    +Number(cam.projectionScale ?? 0).toFixed(3),
+    ...(Array.isArray(cam.position) ? cam.position.map((n) => +Number(n).toFixed(2)) : []),
+  ];
+  return nums.join(',');
+}
+
+/** Parse an {@link encodeCamera} value back into a camera object, or null. */
+export function decodeCamera(str) {
+  if (!str) return null;
+  const parts = String(str).split(',').map(Number);
+  if (parts.length < 5 || parts.some((n) => Number.isNaN(n))) return null;
+  const [q0, q1, q2, q3, scale, ...pos] = parts;
+  return {
+    projectionOrientation: [q0, q1, q2, q3],
+    projectionScale: scale,
+    crossSectionScale: DEFAULT_CAMERA.crossSectionScale,
+    position: pos.length === 3 ? pos : DEFAULT_CAMERA.position,
+  };
 }
 
 /**
@@ -1106,11 +1138,26 @@ function openNeuronSearchModal(ctx) {
  *
  * @param {object} [opts]
  * @param {AbortSignal} [opts.signal]
+ * @param {import('@uwdata/mosaic-core').Coordinator} [opts.coordinator]
+ *   When provided, the MouseLight neuron list is read from the biodata-cache
+ *   parquet via DuckDB (fast) instead of the Janelia GraphQL search.
  * @returns {HTMLElement}
  */
-export function createExaSpimMorphologySection({ signal } = {}) {
+export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
   const section = document.createElement('section');
   section.className = 'exaspim-morphology';
+
+  // ── Initial view state from the URL ───────────────────────────────────────
+  // Parsed up-front so the toggles render in the shared state and the 3D
+  // camera is restored before the first Neuroglancer init. Selection params
+  // (ccf/aind/ml) need the atlas + segment data, so they're read later.
+  const initialUrlParams = new URLSearchParams(window.location.search);
+  const initialView = initialUrlParams.get('view') === '2d' ? '2d' : '3d';
+  const initialPlane = PLANE_KEYS.includes(initialUrlParams.get('plane'))
+    ? initialUrlParams.get('plane')
+    : 'sagittal';
+  /** Latest known 3D camera — seeded from the URL, updated by the embed. */
+  let currentCamera = decodeCamera(initialUrlParams.get('cam')) || DEFAULT_CAMERA;
 
   // Header
   const header = document.createElement('div');
@@ -1158,7 +1205,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     b.type = 'button';
     b.className = 'morph-mode-opt';
     b.textContent = m.label;
-    if (m.id === '3d') b.classList.add('active');
+    if (m.id === initialView) b.classList.add('active');
     b.addEventListener('click', () => setViewMode(m.id));
     modeButtons.set(m.id, b);
     modeToggle.appendChild(b);
@@ -1174,12 +1221,13 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     b.type = 'button';
     b.className = 'morph-plane-opt';
     b.textContent = PLANES[key].label;
-    if (key === 'sagittal') b.classList.add('active');
+    if (key === initialPlane) b.classList.add('active');
     b.addEventListener('click', () => {
       plane2d = key;
       for (const [k, btn] of planeButtons) btn.classList.toggle('active', k === key);
       twoDFramed = false;
       update2D({ refit: true });
+      syncUrlSelection();
     });
     planeButtons.set(key, b);
     planeToggle.appendChild(b);
@@ -1227,6 +1275,22 @@ export function createExaSpimMorphologySection({ signal } = {}) {
   coverText.textContent = 'Loading viewer…';
   cover.appendChild(coverText);
   frame.appendChild(cover);
+
+  // Blocking overlay shown while a shared URL is being restored — in
+  // particular while (slow) MouseLight skeletons load after the viewer has
+  // already initialised, so the user knows more is still coming.
+  const restoreOverlay = document.createElement('div');
+  restoreOverlay.className = 'exaspim-morphology-restore-overlay';
+  restoreOverlay.hidden = true;
+  const restoreSpinner = document.createElement('div');
+  restoreSpinner.className = 'exaspim-morphology-restore-spinner';
+  restoreOverlay.appendChild(restoreSpinner);
+  const restoreText = document.createElement('span');
+  restoreText.className = 'exaspim-morphology-restore-text';
+  restoreText.textContent = 'Restoring shared view…';
+  restoreOverlay.appendChild(restoreText);
+  frame.appendChild(restoreOverlay);
+  const setRestoring = (on) => { restoreOverlay.hidden = !on; };
 
   // Fade the cover out shortly after the first state is applied, giving
   // Neuroglancer a beat to paint the light background underneath.
@@ -1295,7 +1359,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     return layers;
   }
 
-  function buildCurrentState({ includeMouseLight = true } = {}) {
+  function buildCurrentState({ includeMouseLight = true, camera = currentCamera } = {}) {
     const neuronsByComp = { full: [], axon: [], dendrite: [] };
     const neuronColors = new Map();
     for (const id of selectedNeurons) {
@@ -1305,7 +1369,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
       neuronColors.set(String(id), aindColorFor(id));
     }
     const extra = includeMouseLight ? mouseLightLayers() : [];
-    return buildNgState([...selectedRegions], neuronsByComp, extra, undefined, ccfColorById, neuronColors);
+    return buildNgState([...selectedRegions], neuronsByComp, extra, camera, ccfColorById, neuronColors);
   }
 
   function postToIframe(message) {
@@ -1316,10 +1380,11 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     }
   }
 
-  // Listen for the embed-page ready signal.
+  // Listen for the embed-page ready signal + camera-state reports.
   window.addEventListener('message', (ev) => {
     if (ev.source !== iframe.contentWindow) return;
-    if (ev.data?.type === 'ng-ready') {
+    const data = ev.data;
+    if (data?.type === 'ng-ready') {
       ngReady = true;
       if (pendingState) {
         postToIframe({ type: 'init', state: pendingState });
@@ -1327,6 +1392,15 @@ export function createExaSpimMorphologySection({ signal } = {}) {
         pendingState = null;
         revealViewer();
       }
+    } else if (data?.type === 'ng-state' && Array.isArray(data.camera?.projectionOrientation)) {
+      // The user moved the 3D camera — remember it and mirror it into the URL.
+      currentCamera = {
+        position: Array.isArray(data.camera.position) ? data.camera.position : currentCamera.position,
+        projectionOrientation: data.camera.projectionOrientation,
+        projectionScale: data.camera.projectionScale ?? currentCamera.projectionScale,
+        crossSectionScale: data.camera.crossSectionScale ?? currentCamera.crossSectionScale,
+      };
+      syncUrlSelection();
     }
   });
 
@@ -1361,7 +1435,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
   frame.appendChild(view2d.el);
 
   let viewMode = '3d';
-  let plane2d = 'sagittal';
+  let plane2d = initialPlane;
   let twoDFramed = false;
   let twoDToken = 0;
   let ctxRef = null;
@@ -1441,19 +1515,24 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     else updateIframe();
   }
 
-  // Mirror the current neuron selection into the page URL (?aind=…&ml=…) so it
-  // survives reloads and can be shared. Only the neuron id sets are encoded, so
-  // colour/compartment tweaks (which fire onChange too) produce an identical
-  // URL and are skipped — this also keeps us well under Firefox's History API
-  // rate limit when dragging the colour picker.
+  // Mirror the full shareable view state into the page URL: selected CCF
+  // regions (?ccf), AIND/MouseLight neurons (?aind/?ml), the 2D/3D mode
+  // (?view), the 2D plane (?plane) and the 3D camera (?cam). Redundant writes
+  // are skipped by comparing the resulting URL string — so colour/compartment
+  // tweaks (which also fire onChange) and no-op camera reports don't spam
+  // history.replaceState, keeping us under Firefox's History API rate limit.
   let lastSyncedUrl = null;
   function syncUrlSelection() {
     try {
       const params = new URLSearchParams(window.location.search);
-      const aind = [...selectedNeurons];
-      const ml = [...selectedMouseLight];
-      if (aind.length) params.set('aind', aind.join(',')); else params.delete('aind');
-      if (ml.length) params.set('ml', ml.join(',')); else params.delete('ml');
+      const setOrDelete = (key, val) => { if (val) params.set(key, val); else params.delete(key); };
+      setOrDelete('ccf', [...selectedRegions].join(','));
+      setOrDelete('aind', [...selectedNeurons].join(','));
+      setOrDelete('ml', [...selectedMouseLight].join(','));
+      params.set('view', viewMode);
+      params.set('plane', plane2d);
+      const camStr = encodeCamera(currentCamera);
+      setOrDelete('cam', camStr && camStr !== encodeCamera(DEFAULT_CAMERA) ? camStr : '');
       const qs = params.toString();
       const url = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash;
       if (url === lastSyncedUrl) return;
@@ -1486,6 +1565,7 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     } else {
       updateIframe();
     }
+    syncUrlSelection();
   }
 
   resetBtn.addEventListener('click', () => {
@@ -1494,7 +1574,11 @@ export function createExaSpimMorphologySection({ signal } = {}) {
       update2D({ refit: true });
       return;
     }
-    const state = buildCurrentState();
+    // Snap the 3D camera back to the default CCF framing and reflect that in
+    // the URL (drop the ?cam param).
+    currentCamera = DEFAULT_CAMERA;
+    const state = buildCurrentState({ camera: DEFAULT_CAMERA });
+    syncUrlSelection();
     if (!ngReady) { pendingState = state; return; }
     postToIframe({ type: 'resetView', state });
     initSent = true;
@@ -1531,21 +1615,26 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     const aindNeurons = segments.map((s) =>
       makeNeuronItem('aind', { label: s.label, segmentId: s.id, region: s.region }, acronymToNode, byId));
 
-    // Default-on root region (root brain, structureId 997).
-    if (byId.has('997')) selectedRegions.add('997');
-
-    // Restore the neuron selection from the URL (?aind=…&ml=…) if present;
-    // otherwise default-on the first 5 published neurons so the viewer isn't
-    // empty. MouseLight ids are restored asynchronously below (they need the
-    // neuron list + skeleton fetches).
+    // Restore selection + view state from the URL. We always write `view`
+    // (and `plane`) when syncing, so the presence of any of our params marks
+    // this as an explicit shared link — in which case we restore EXACTLY what
+    // it encodes (respecting deliberately-empty selections) rather than adding
+    // the bare-URL defaults (whole-brain root + first 5 neurons).
     const urlParams = new URLSearchParams(window.location.search);
     const splitParam = (v) => (v || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const isSharedUrl = ['ccf', 'aind', 'ml', 'view', 'plane', 'cam'].some((k) => urlParams.has(k));
+
+    // CCF regions: restore from URL, else default-on the whole-brain root (997).
+    const urlCcf = splitParam(urlParams.get('ccf')).filter((id) => byId.has(String(id)));
+    for (const id of urlCcf) selectedRegions.add(String(id));
+    if (!isSharedUrl && byId.has('997')) selectedRegions.add('997');
+
+    // Neurons: AIND ids render immediately; MouseLight ids restore async below.
     const validAindIds = new Set(segments.map((s) => String(s.id)));
     const urlAind = splitParam(urlParams.get('aind')).filter((id) => validAindIds.has(id));
     const urlMl = splitParam(urlParams.get('ml'));
-    if (urlAind.length > 0) {
-      for (const id of urlAind) selectedNeurons.add(id);
-    } else if (urlMl.length === 0) {
+    for (const id of urlAind) selectedNeurons.add(id);
+    if (!isSharedUrl) {
       for (const s of segments.slice(0, 5)) selectedNeurons.add(s.id);
     }
 
@@ -1554,7 +1643,12 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     let mlNeuronsPromise = null;
     function getMlNeurons() {
       if (!mlNeuronsPromise) {
-        mlNeuronsPromise = fetchMouseLightNeurons(signal).then((raw) =>
+        // Prefer the fast biodata-cache parquet (DuckDB); fall back to the slow
+        // Janelia GraphQL search if no coordinator is available.
+        const rawPromise = coordinator
+          ? fetchMouseLightNeuronsCached(coordinator)
+          : fetchMouseLightNeurons(signal);
+        mlNeuronsPromise = rawPromise.then((raw) =>
           raw.map((n) => makeNeuronItem('ml', {
             label: n.idString, idString: n.idString, region: n.region, tracings: n.tracings,
           }, acronymToNode, byId)));
@@ -1593,42 +1687,51 @@ export function createExaSpimMorphologySection({ signal } = {}) {
     const neuronPanel = buildNeuronPanel(ctx);
     controls.appendChild(neuronPanel);
 
+    // Show the blocking spinner up-front when a shared link includes (slow)
+    // MouseLight neurons, then apply the initial 2D/3D mode and kick off the
+    // first viewer render.
+    if (urlMl.length > 0) setRestoring(true);
     updateIframe();
+    setViewMode(initialView);
 
     // Restore any MouseLight neurons named in the URL. Needs the ML neuron list
     // (to resolve idStrings → tracing ids) plus a skeleton fetch per neuron, so
     // it runs asynchronously after the initial render and refreshes once ready.
     if (urlMl.length > 0) {
       (async () => {
-        let mlList;
         try {
-          mlList = await getMlNeurons();
-        } catch (e) {
-          if (e?.name === 'AbortError') return;
-          return;
-        }
-        ctx.mlNeurons = mlList;
-        const mlById = new Map(mlList.map((it) => [it.idString, it]));
-        let added = false;
-        for (const idString of urlMl) {
-          const item = mlById.get(idString);
-          if (!item) continue;
-          selectedMouseLight.add(item.idString);
-          if (!mlLayerCache.has(item.idString)) {
-            try {
-              const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), signal);
-              mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, mlColorFor(item.idString)));
-            } catch (e) {
-              if (e?.name === 'AbortError') return;
-              selectedMouseLight.delete(item.idString);
-              continue;
-            }
+          let mlList;
+          try {
+            mlList = await getMlNeurons();
+          } catch (e) {
+            if (e?.name === 'AbortError') return;
+            return;
           }
-          added = true;
-        }
-        if (added) {
-          ctx.refreshPanel?.();
-          refreshView();
+          ctx.mlNeurons = mlList;
+          const mlById = new Map(mlList.map((it) => [it.idString, it]));
+          let added = false;
+          for (const idString of urlMl) {
+            const item = mlById.get(idString);
+            if (!item) continue;
+            selectedMouseLight.add(item.idString);
+            if (!mlLayerCache.has(item.idString)) {
+              try {
+                const fetched = await fetchMouseLightTracings(item.tracings.map((t) => t.id), signal);
+                mlLayerCache.set(item.idString, buildMouseLightAnnotationLayer(item.idString, fetched, mlColorFor(item.idString)));
+              } catch (e) {
+                if (e?.name === 'AbortError') return;
+                selectedMouseLight.delete(item.idString);
+                continue;
+              }
+            }
+            added = true;
+          }
+          if (added) {
+            ctx.refreshPanel?.();
+            refreshView();
+          }
+        } finally {
+          setRestoring(false);
         }
       })();
     }

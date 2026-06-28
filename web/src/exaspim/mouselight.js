@@ -32,6 +32,15 @@ const ML_BASE = '/mouselight';
 const ML_GRAPHQL_URL = `${ML_BASE}/graphql`;
 const ML_TRACINGS_URL = `${ML_BASE}/tracings`;
 
+/**
+ * biodata-cache parquet of the full MouseLight neuron list, queried via DuckDB
+ * instead of the (slow) Janelia GraphQL search. Pinned to bdc-v0.35 for now
+ * because `platform_mouselight` isn't in cache_registry.json yet — switch to
+ * the resolved registry location once it lands.
+ */
+const ML_CACHE_PQT_URL =
+  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/bdc-v0.35/platform_mouselight.pqt';
+
 /** Public search scope (SearchScope.Public). */
 const ML_SCOPE = 6;
 /** MouseLight UUID for the CCF root region (structureId 997, "wholebrain"). */
@@ -135,6 +144,36 @@ export async function fetchMouseLightNeurons(signal) {
     })),
   }));
   neurons.sort((a, b) => a.idString.localeCompare(b.idString, undefined, { numeric: true }));
+  return neurons;
+}
+
+/**
+ * Fetch the full MouseLight neuron list from the biodata-cache parquet via
+ * DuckDB — far faster than the Janelia GraphQL search. The cached `tracings`
+ * column is a JSON string of `[{id, kind}]`; everything else mirrors
+ * {@link fetchMouseLightNeurons}'s shape so callers are interchangeable.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @returns {Promise<Array<{id, idString, region, tracings:Array<{id, kind}>}>>}
+ */
+export async function fetchMouseLightNeuronsCached(coordinator) {
+  const result = await coordinator.query(
+    `SELECT id, id_string, region, tracings FROM read_parquet('${ML_CACHE_PQT_URL}') ORDER BY id_string`,
+  );
+  const neurons = [];
+  for (let i = 0; i < result.numRows; i++) {
+    let tracings = [];
+    const raw = result.getChild('tracings')?.get(i);
+    if (raw) {
+      try { tracings = JSON.parse(String(raw)); } catch { tracings = []; }
+    }
+    neurons.push({
+      id: result.getChild('id')?.get(i) ?? '',
+      idString: result.getChild('id_string')?.get(i) ?? '',
+      region: result.getChild('region')?.get(i) ?? '',
+      tracings,
+    });
+  }
   return neurons;
 }
 

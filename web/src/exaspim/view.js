@@ -170,7 +170,7 @@ export function createExaSpimView(coord) {
       assetFilter: { type: 'instrument_id_contains', value: 'exa' },
       platformKey: 'exaspim',
     }));
-    container.appendChild(createExaSpimMorphologySection());
+    container.appendChild(createExaSpimMorphologySection({ coordinator: coord }));
     container.appendChild(layout);
 
     // Subject sidebar

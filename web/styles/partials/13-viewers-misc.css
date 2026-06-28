@@ -1129,6 +1129,39 @@
   color: var(--text-muted, #9a9a9a);
 }
 
+/* Blocking overlay shown while a shared URL (esp. slow MouseLight skeletons)
+   is being restored. Sits above both the iframe and the 2D canvas. */
+.exaspim-morphology-restore-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: rgba(243, 244, 245, 0.82);
+  border-radius: 4px;
+  z-index: 5;
+}
+
+.exaspim-morphology-restore-overlay[hidden] {
+  display: none;
+}
+
+.exaspim-morphology-restore-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid var(--surface-border, #d9d9d9);
+  border-top-color: var(--color-red, #e0245e);
+  border-radius: 50%;
+  animation: dv-spin 0.75s linear infinite;
+}
+
+.exaspim-morphology-restore-text {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6a6a6a);
+}
+
 /* ── checkbox panels ────────────────────────────────────────────────────── */
 
 .morph-panel {

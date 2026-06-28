@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildNgState, classifySearchToken, filterNeurons } from '../exaspim/morphology.js';
+import { buildNgState, classifySearchToken, filterNeurons, encodeCamera, decodeCamera } from '../exaspim/morphology.js';
 import { buildMouseLightAnnotationLayer, buildSearchContext, mouseLightColor } from '../exaspim/mouselight.js';
 
 describe('buildNgState extraLayers', () => {
@@ -227,5 +227,36 @@ describe('filterNeurons', () => {
   it('combines region and keyword filters', () => {
     const out = filterNeurons(neurons, { regionIds: ['385'], keywords: ['aa'] });
     expect(out.map((n) => n.key)).toEqual(['ml:AA01']);
+  });
+});
+
+describe('encodeCamera / decodeCamera', () => {
+  it('round-trips orientation, scale and position', () => {
+    const cam = {
+      projectionOrientation: [-0.28927, 0.45397, 0.16984, 0.82546],
+      projectionScale: 1536,
+      position: [659.5, 399.5, 569.5],
+      crossSectionScale: 2.718,
+    };
+    const round = decodeCamera(encodeCamera(cam));
+    expect(round.projectionOrientation).toEqual(cam.projectionOrientation);
+    expect(round.projectionScale).toBe(1536);
+    expect(round.position).toEqual([659.5, 399.5, 569.5]);
+  });
+
+  it('encodes to a compact comma-separated string', () => {
+    const str = encodeCamera({ projectionOrientation: [0, 0, 0, 1], projectionScale: 100, position: [1, 2, 3] });
+    expect(str).toBe('0,0,0,1,100,1,2,3');
+  });
+
+  it('returns empty string for a malformed camera', () => {
+    expect(encodeCamera({})).toBe('');
+    expect(encodeCamera({ projectionOrientation: [1, 2, 3] })).toBe('');
+  });
+
+  it('returns null for malformed input', () => {
+    expect(decodeCamera('')).toBeNull();
+    expect(decodeCamera('1,2,3')).toBeNull();
+    expect(decodeCamera('a,b,c,d,e')).toBeNull();
   });
 });
