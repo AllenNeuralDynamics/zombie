@@ -103,7 +103,7 @@ export function renderAssetRow(row, visibleColumns) {
 
   const cellValues = {
     _id: row._id ?? '',
-    name: row.name ?? '',
+    name: row.name ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name)}">${escHtml(row.name)}</a>` : '',
     subject_id: `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
     acquisition_start_time: acqTime,
     acquisition_end_time: acqEndTime,

@@ -177,7 +177,7 @@ describe('renderAssetRow', () => {
 
   it('includes the subject_id as a link', () => {
     const html = renderAssetRow(row, visibleColumns);
-    expect(html).toContain('/subject?subject_id=12345');
+    expect(html).toContain('/view?subject_id=12345');
     expect(html).toContain('12345');
   });
 

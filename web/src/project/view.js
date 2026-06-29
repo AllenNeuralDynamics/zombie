@@ -89,6 +89,9 @@ export function createProjectView(opts = {}) {
   const root = document.createElement('div');
   root.className = 'project-view';
   let currentTimelineSvg = null;
+  let rawAssetsCache = [];
+  let pendingHighlight = null;
+  let currentSubjectHighlight = null;
 
   // Header
   const headerEl = document.createElement('div');
@@ -160,7 +163,15 @@ export function createProjectView(opts = {}) {
       selectedCurricula,
       onCurriculaChange: (set) => { selectedCurricula = set; load(); },
       onSubjectClick,
-      onTimelineSvg: (svg) => { currentTimelineSvg = svg; },
+      onAssetsLoaded: (assets) => { rawAssetsCache = assets; },
+      onTimelineSvg: (svg) => {
+        currentTimelineSvg = svg;
+        if (pendingHighlight) {
+          svg.highlightAsset?.(pendingHighlight);
+          pendingHighlight = null;
+        }
+        svg.highlightSubject?.(currentSubjectHighlight);
+      },
     });
   }
 
@@ -184,7 +195,29 @@ export function createProjectView(opts = {}) {
 
   // Highlight a specific asset dot in the timeline (called from subject view).
   root.highlightAsset = (assetName) => {
+    if (!assetName) {
+      currentTimelineSvg?.highlightAsset?.(null);
+      return;
+    }
+    const asset = rawAssetsCache.find((a) => a.name === assetName);
+    if (asset?.acquisition_start_time) {
+      const assetDay = utcDay(new Date(asset.acquisition_start_time));
+      const numDays = getNumDays(windowSize);
+      const wStart = windowStart ?? utcDay(new Date());
+      const wEnd = addDays(wStart, numDays);
+      if (assetDay < wStart || assetDay >= wEnd) {
+        pendingHighlight = assetName;
+        windowStart = computeDefaultWindowStart(windowSize, assetDay);
+        load();
+        return;
+      }
+    }
     currentTimelineSvg?.highlightAsset?.(assetName);
+  };
+
+  root.highlightSubject = (subjectId) => {
+    currentSubjectHighlight = subjectId ?? null;
+    currentTimelineSvg?.highlightSubject?.(currentSubjectHighlight);
   };
 
   load();
@@ -195,11 +228,13 @@ export function createProjectView(opts = {}) {
 // Internal load function
 // ---------------------------------------------------------------------------
 
-async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null, onSubjectClick = null, onTimelineSvg = null } = {}) {
+async function _loadProject(contentEl, projectName, coordinator, windowStart, signal, { onPrev, onNext, onWindowStartChange = null, viewMode = 'modality', onViewModeChange = null, windowSize = 'twoweeks', onWindowSizeChange = null, selectedCurricula = null, onCurriculaChange = null, onSubjectClick = null, onAssetsLoaded = null, onTimelineSvg = null } = {}) {
   // Remove any stale tooltip divs from a previous load
   document.querySelectorAll('.pt-html-tooltip').forEach((el) => el.remove());
+  const _prevH = contentEl.offsetHeight;
   contentEl.innerHTML = '';
-
+  if (_prevH > 0) contentEl.style.minHeight = `${_prevH}px`;
+  try {
   if (!projectName) {
     contentEl.innerHTML = `
       <div class="error-banner">
@@ -228,6 +263,8 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
       `project_name = '${safeProject}' AND (data_level IS NULL OR data_level != 'derived')`,
     );
     if (signal?.aborted) return;
+
+    onAssetsLoaded?.(rawAssets);
 
     if (!windowStart) {
       windowStart = findLastAcquisitionWindow(rawAssets, windowSize);
@@ -506,6 +543,9 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     if (err?.name === 'AbortError' || signal?.aborted) return;
     console.error('[ProjectView] Failed:', err);
     loadingEl.replaceWith(_errorEl(`Failed to load data: ${err.message}`));
+  }
+  } finally {
+    contentEl.style.minHeight = '';
   }
 }
 

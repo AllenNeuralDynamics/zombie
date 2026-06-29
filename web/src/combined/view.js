@@ -36,9 +36,12 @@ export function createCombinedView(opts = {}) {
   const params = new URLSearchParams(window.location.search);
   const initialProject = params.get('project') ?? params.get('project_name') ?? '';
   const initialSubject = params.get('subject_id') ?? '';
+  const initialAsset = params.get('asset') ?? '';
 
-  // Subject wins the "which section is open" tiebreak when both are present.
-  const subjectFirst = !!initialSubject;
+  // Open project if project param present; open subject if subject param present.
+  // Neither set → project opens as default.
+  const projectOpen = !!initialProject || !initialSubject;
+  const subjectOpen = !!initialSubject;
 
   const root = document.createElement('div');
   root.className = 'combined-view';
@@ -48,12 +51,14 @@ export function createCombinedView(opts = {}) {
   let pendingProjectName = initialProject || null; // project to load on first expand
   let currentSubject = initialSubject || '';
   let currentProject = initialProject || '';
+  let currentAsset = initialAsset || '';
+  let _preserveAsset = false;
 
   // ── Section scaffolding ──────────────────────────────────────────────────
   const { details: projectDetails, body: projectBody } =
-    buildSection('Project', !subjectFirst);
+    buildSection('Project', projectOpen);
   const { details: subjectDetails, body: subjectBody } =
-    buildSection('Subject', subjectFirst);
+    buildSection('Subject', subjectOpen);
 
   root.appendChild(projectDetails);
   root.appendChild(subjectDetails);
@@ -64,6 +69,7 @@ export function createCombinedView(opts = {}) {
     if (currentProject) p.set('project', currentProject); else p.delete('project');
     p.delete('project_name');
     if (currentSubject) p.set('subject_id', currentSubject); else p.delete('subject_id');
+    if (currentAsset) p.set('asset', currentAsset); else p.delete('asset');
     try {
       const url = new URL(window.location.href);
       url.search = p.toString();
@@ -75,12 +81,18 @@ export function createCombinedView(opts = {}) {
   const subjectView = createSubjectView({
     coordinator,
     embedded: true,
+    initialAcquisition: initialAsset || null,
     onSubjectLoaded: ({ subjectId, mostRecentProject }) => {
       currentSubject = subjectId || '';
+      if (!_preserveAsset) currentAsset = '';
+      _preserveAsset = false;
       if (!projectLoaded && mostRecentProject) pendingProjectName = mostRecentProject;
+      projectView.highlightSubject?.(subjectId || null);
       syncUrl();
     },
     onAcquisitionSelect: (assetName) => {
+      currentAsset = assetName || '';
+      syncUrl();
       projectView.highlightAsset?.(assetName);
     },
   });
@@ -102,8 +114,9 @@ export function createCombinedView(opts = {}) {
     const link = e.target.closest?.('a[href*="subject_id="]');
     if (!link) return;
     e.preventDefault();
-    const id = paramFromHref(link.href, 'subject_id');
-    if (id) openSubject(id, {});
+    const href = link.getAttribute('href') ?? (typeof link.href === 'string' ? link.href : null);
+    const id = paramFromHref(href, 'subject_id');
+    if (id) openSubject(id, { scroll: true });
   });
 
   // Project links inside the Subject view (info card "Projects" list).
@@ -127,12 +140,19 @@ export function createCombinedView(opts = {}) {
   });
 
   // ── Imperative helpers ───────────────────────────────────────────────────
-  function openSubject(subjectId, { acquisitionName } = {}) {
+  function openSubject(subjectId, { acquisitionName, scroll = false } = {}) {
     subjectDetails.open = true;
     currentSubject = subjectId || '';
+    currentAsset = acquisitionName || '';
+    _preserveAsset = !!acquisitionName;
     projectView.highlightAsset?.(acquisitionName ?? null);
     subjectView.loadSubject?.(subjectId, { acquisitionName });
     syncUrl();
+    if (scroll) {
+      requestAnimationFrame(() =>
+        subjectDetails.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      );
+    }
   }
 
   function openProject(name) {

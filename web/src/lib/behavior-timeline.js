@@ -187,8 +187,9 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
   svg.setAttribute('class', 'project-timeline-svg');
   svg.style.overflow = 'visible';
 
-  // Alternating row backgrounds
-  subjects.forEach((_, ri) => {
+  // Alternating row backgrounds + per-subject highlight rects (hidden by default)
+  const subjectHighlightMap = new Map();
+  subjects.forEach((subjectId, ri) => {
     const rect = document.createElementNS(NS, 'rect');
     rect.setAttribute('x', 0);
     rect.setAttribute('y', TIMELINE_HEAD_H + ri * TIMELINE_ROW_H);
@@ -196,6 +197,16 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
     rect.setAttribute('height', TIMELINE_ROW_H);
     rect.setAttribute('class', ri % 2 === 0 ? 'pt-row-even' : 'pt-row-odd');
     svg.appendChild(rect);
+
+    const hl = document.createElementNS(NS, 'rect');
+    hl.setAttribute('x', 0);
+    hl.setAttribute('y', TIMELINE_HEAD_H + ri * TIMELINE_ROW_H);
+    hl.setAttribute('width', svgW);
+    hl.setAttribute('height', TIMELINE_ROW_H);
+    hl.setAttribute('class', 'pt-row-highlight');
+    hl.style.display = 'none';
+    svg.appendChild(hl);
+    subjectHighlightMap.set(subjectId, hl);
   });
 
   // Vertical day dividers
@@ -237,6 +248,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
     text.textContent = subjectId;
     a.appendChild(text);
     svg.appendChild(a);
+    subjectHighlightMap.set(subjectId + '__label', text);
   });
 
   if (subjects.length === 0) {
@@ -432,6 +444,17 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
 
     svg.appendChild(g);
   });
+
+  let selectedHlEl = null;
+  let selectedLabelEl = null;
+  svg.highlightSubject = (subjectId) => {
+    if (selectedHlEl) selectedHlEl.style.display = 'none';
+    if (selectedLabelEl) selectedLabelEl.classList.remove('pt-subject-label--selected');
+    selectedHlEl = subjectId ? (subjectHighlightMap.get(subjectId) ?? null) : null;
+    selectedLabelEl = subjectId ? (subjectHighlightMap.get(subjectId + '__label') ?? null) : null;
+    if (selectedHlEl) selectedHlEl.style.display = '';
+    if (selectedLabelEl) selectedLabelEl.classList.add('pt-subject-label--selected');
+  };
 
   svg.highlightAsset = (assetName) => {
     if (selectedDotG) selectedDotG.classList.remove('pt-dot-selected');

@@ -412,6 +412,11 @@ function _wireAnimation(root, data, mouseImg, cueIcon, dropletImg) {
   const plot = createProbPlot(data);
   plotMount.appendChild(plot.element);
 
+  const headerEl = root.querySelector('.df-player-header');
+  const existingToggle = headerEl?.querySelector('.df-x-toggle');
+  if (existingToggle) existingToggle.remove();
+  if (plot.toggleEl && headerEl) headerEl.appendChild(plot.toggleEl);
+
   const anim = new DfAnimation(canvas, data, mouseImg, cueIcon, dropletImg);
   anim.setSpeed(SPEED_STEPS[DEFAULT_SPEED_IDX]);
   anim.onFrame = (t) => {

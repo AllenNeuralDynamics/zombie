@@ -80,6 +80,21 @@ export function createProbPlot(data) {
   const { rewardL, rewardR } = _splitRewards(rewards);
   const ignoredTicks         = _ignoredTrialTicks(trials);
   const { choiceL, choiceR } = _choiceSpans(trials, sessionEndS);
+
+  // Sorted go-cue times for trial-number x-axis labels.
+  const trialTimes = trials
+    .filter((tr) => Number.isFinite(tr.goCue_t))
+    .sort((a, b) => a.goCue_t - b.goCue_t)
+    .map((tr) => tr.goCue_t);
+  function _trialAtTime(t) {
+    let lo = 0, hi = trialTimes.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (trialTimes[mid] <= t) lo = mid; else hi = mid - 1;
+    }
+    return lo + 1;
+  }
+
   const trialSpans = trials
     .filter((tr) => Number.isFinite(tr.goCue_t))
     .map((tr, i, arr) => ({
@@ -121,6 +136,11 @@ export function createProbPlot(data) {
   overviewInteract.title = 'Drag to zoom · double-click to reset';
   overviewWrap.appendChild(overviewInteract);
 
+  const overviewHint = document.createElement('div');
+  overviewHint.className = 'df-brush-hint';
+  overviewHint.innerHTML = 'Click + drag<br>to zoom';
+  overviewWrap.appendChild(overviewHint);
+
   // Playhead inside the overview (shows absolute position in the session).
   const overviewPlayhead = document.createElement('div');
   Object.assign(overviewPlayhead.style, {
@@ -142,6 +162,25 @@ export function createProbPlot(data) {
   const mainWrap = document.createElement('div');
   mainWrap.style.position = 'relative';
   wrapper.appendChild(mainWrap);
+
+  // X-axis mode toggle — returned so the caller can place it wherever it likes.
+  const xToggle = document.createElement('div');
+  xToggle.className = 'df-x-toggle';
+  const _xBtns = {};
+  for (const mode of ['time', 'trials']) {
+    const btn = document.createElement('button');
+    btn.className = 'df-x-toggle-btn' + (mode === 'time' ? ' df-x-toggle-btn--active' : '');
+    btn.textContent = mode === 'time' ? 'Time' : 'Trials';
+    btn.addEventListener('click', () => {
+      if (xMode === mode) return;
+      xMode = mode;
+      _xBtns.time.classList.toggle('df-x-toggle-btn--active', mode === 'time');
+      _xBtns.trials.classList.toggle('df-x-toggle-btn--active', mode === 'trials');
+      _rebuild(lastW);
+    });
+    _xBtns[mode] = btn;
+    xToggle.appendChild(btn);
+  }
 
   const plotHolder = document.createElement('div');
   plotHolder.className = 'df-prob-plot-holder';
@@ -205,6 +244,7 @@ export function createProbPlot(data) {
   let brushT1            = sessionEndS;
   let dragState          = null;
   let pendingRebuild     = false;
+  let xMode              = 'time';
 
   // ===========================================================================
   // Overview helpers
@@ -306,9 +346,10 @@ export function createProbPlot(data) {
       style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
       clip: true,
       x: {
-        label: 'time (s) →',
+        label: xMode === 'time' ? 'time (s) →' : 'trial →',
         domain: [brushT0, brushT1],
         grid: false,
+        ...(xMode === 'trials' && trialTimes.length ? { tickFormat: (t) => String(_trialAtTime(t)) } : {}),
       },
       y: {
         axis: null,
@@ -476,6 +517,7 @@ export function createProbPlot(data) {
 
   return {
     element: wrapper,
+    toggleEl: xToggle,
     updatePlayhead(t) { lastT = t; _placePlayhead(); _placeOverviewPlayhead(); },
     setOnScrub(cb)    { scrubCb = cb; },
     dispose()         { ro.disconnect(); },

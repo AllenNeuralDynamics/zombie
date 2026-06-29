@@ -146,7 +146,7 @@ export function organizeSubjectData(records, subjectId) {
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null } = opts;
+  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null, initialAcquisition = null } = opts;
   const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
@@ -231,7 +231,8 @@ export function createSubjectView(opts = {}) {
 
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
-  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect });
+  if (initialAcquisition) root._pendingAcquisition = initialAcquisition;
+  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect, root });
 
   // Imperative API for the combined view: load a subject programmatically,
   // optionally pre-selecting a specific acquisition on the timeline.
@@ -255,8 +256,10 @@ export function createSubjectView(opts = {}) {
 async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, onAcquisitionSelect = null, root = null } = {}) {
   console.debug('[SubjectView] _loadSubject start:', subjectId, 'aborted:', signal?.aborted);
   // Clear previous content and show loading indicator
+  const _prevH = contentEl.offsetHeight;
   contentEl.innerHTML = '';
-
+  if (_prevH > 0) contentEl.style.minHeight = `${_prevH}px`;
+  try {
   if (!subjectId) {
     contentEl.innerHTML = `
       <div class="error-banner">
@@ -419,6 +422,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
     }
     console.error('[SubjectView] Failed to load subject data:', err);
     loadingEl.replaceWith(_errorEl(`Failed to load data: ${err.message}`));
+  }
+  } finally {
+    contentEl.style.minHeight = '';
   }
 }
 
