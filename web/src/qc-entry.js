@@ -37,6 +37,13 @@ async function init() {
       }
     }
 
+    const projectName = records[0]?.data_description?.project_name ?? '';
+    if (projectName) {
+      const u = new URL(window.location.href);
+      u.searchParams.set('project', projectName);
+      history.replaceState({}, '', u);
+    }
+
     app.innerHTML = '';
     app.appendChild(createQCView(records[0], rawS3Loc));
   } catch (err) {

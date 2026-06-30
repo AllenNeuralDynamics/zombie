@@ -76,9 +76,7 @@ function buildHeader(name, projectName, codeOceanId, modalities, stages) {
 
   if (projectName) {
     const a = document.createElement('a');
-    a.href = `https://qc.allenneuraldynamics.org/portal?projects=['${encodeURIComponent(projectName)}']`;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
+    a.href = `/view?project=${encodeURIComponent(projectName)}`;
     a.textContent = 'Project page';
     links.appendChild(a);
   }
