@@ -14,18 +14,26 @@ import { html } from 'htm/preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { QC_PORTAL_BASE } from '../constants.js';
 import {
-  buildMergedRecord,
   clearAuthCookies,
   clearMetadataCache,
   deepEqual,
   diffJson,
   DB_VERSIONS,
   DiffView,
+  ENDPOINT_CONFIG,
   ENDPOINTS,
   fetchFullRecord,
   fetchMetadataServiceSection,
+  getAtPath,
+  lookupIdForEndpoint,
+  lookupLabelForEndpoint,
   readCookie,
+  setAtPath,
 } from './lib.js';
+
+// Sentinel endpoint value for the free-form "Edit" mode — not a real
+// metadata-service endpoint, so it lives outside ENDPOINTS.
+const EDIT = 'edit';
 
 export function MigrateSubmitPage() {
   const initial = useMemo(() => {
@@ -37,7 +45,8 @@ export function MigrateSubmitPage() {
       : p.get('dbSvc') === 'v2' ? 'v2'
       : dbDocdb;
     const id = p.get('id') ?? p.get('name') ?? '';
-    const endpoint = ENDPOINTS.includes(p.get('endpoint')) ? p.get('endpoint') : 'subject';
+    const ep = p.get('endpoint');
+    const endpoint = ep === EDIT || ENDPOINTS.includes(ep) ? ep : 'subject';
     return { dbDocdb, dbSvc, id, endpoint };
   }, []);
 
@@ -64,6 +73,14 @@ export function MigrateSubmitPage() {
   const [submitError, setSubmitError] = useState('');
 
   const [originalRecord, setOriginalRecord] = useState(null);
+
+  // Free-form edit mode: editText holds the JSON the user is editing; editing
+  // toggles between the editor (true) and the summary-of-changes view (false).
+  const [editText, setEditText] = useState('');
+  const [editing, setEditing] = useState(false);
+
+  const isEdit = endpoint === EDIT;
+  const targetPath = isEdit ? null : ENDPOINT_CONFIG[endpoint]?.targetPath ?? null;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -107,6 +124,7 @@ export function MigrateSubmitPage() {
     setCacheHit(false);
     setCurrentRecord(null);
     setCandidate(null);
+    setEditing(false);
     setSubmitState('idle');
     setSubmitResult(null);
     setSubmitError('');
@@ -118,12 +136,21 @@ export function MigrateSubmitPage() {
         setCurrentRecord(record);
         setOriginalRecord((prev) => prev ?? record);
 
-        const subjectId = record?.subject?.subject_id;
-        if (!subjectId) {
-          throw new Error('Selected asset has no subject.subject_id — cannot query metadata service.');
+        // Edit mode pulls nothing from the metadata service — the user edits
+        // the DocDB record directly.
+        if (endpoint === EDIT) {
+          setEditText(JSON.stringify(record, null, 2));
+          setEditing(true);
+          setLoadStatus('ready');
+          return;
+        }
+
+        const lookupId = lookupIdForEndpoint(record, endpoint);
+        if (!lookupId) {
+          throw new Error(`Selected asset has no ${lookupLabelForEndpoint(endpoint)} — cannot query metadata service.`);
         }
         const { data: section, warning, fromCache } =
-          await fetchMetadataServiceSection(dbSvc, endpoint, subjectId, ctrl.signal);
+          await fetchMetadataServiceSection(dbSvc, endpoint, lookupId, ctrl.signal);
         if (ctrl.signal.aborted) return;
         setServiceWarning(warning ?? null);
         setCacheHit(fromCache);
@@ -140,19 +167,41 @@ export function MigrateSubmitPage() {
     return () => ctrl.abort();
   }, [dbDocdb, dbSvc, selectedId, endpoint]);
 
-  const merged = useMemo(
-    () => (currentRecord && candidate ? buildMergedRecord(currentRecord, endpoint, candidate) : null),
-    [currentRecord, candidate, endpoint],
-  );
-  const sectionDiff = useMemo(
-    () => (currentRecord && candidate ? diffJson(currentRecord[endpoint] ?? null, candidate) : null),
-    [currentRecord, candidate, endpoint],
-  );
+  // Parse the editor text (edit mode only). Returns { record } on success or
+  // { error } so the UI can show a parse error without throwing.
+  const parsedEdit = useMemo(() => {
+    if (!isEdit) return null;
+    try {
+      return { record: JSON.parse(editText) };
+    } catch (err) {
+      return { error: err.message || String(err) };
+    }
+  }, [isEdit, editText]);
+
+  const merged = useMemo(() => {
+    if (isEdit) return currentRecord; // submit the edited record as-is
+    return currentRecord && candidate != null
+      ? setAtPath(currentRecord, targetPath, candidate)
+      : null;
+  }, [isEdit, currentRecord, candidate, targetPath]);
+
+  const sectionDiff = useMemo(() => {
+    if (isEdit) {
+      // While editing, preview against the live (parseable) text; once done,
+      // currentRecord holds the committed edits.
+      const next = editing ? parsedEdit?.record : currentRecord;
+      return originalRecord && next ? diffJson(originalRecord, next) : null;
+    }
+    return currentRecord && candidate != null
+      ? diffJson(getAtPath(currentRecord, targetPath) ?? null, candidate)
+      : null;
+  }, [isEdit, editing, parsedEdit, originalRecord, currentRecord, candidate, targetPath]);
+
   const finalDiff = useMemo(
-    () => (originalRecord && currentRecord && originalRecord !== currentRecord
-      ? diffJson(originalRecord[endpoint] ?? null, currentRecord[endpoint] ?? null)
+    () => (!isEdit && originalRecord && currentRecord && originalRecord !== currentRecord && targetPath
+      ? diffJson(getAtPath(originalRecord, targetPath) ?? null, getAtPath(currentRecord, targetPath) ?? null)
       : null),
-    [originalRecord, currentRecord, endpoint],
+    [isEdit, originalRecord, currentRecord, targetPath],
   );
 
   useEffect(() => {
@@ -160,7 +209,10 @@ export function MigrateSubmitPage() {
     const id = setInterval(async () => {
       try {
         const fresh = await fetchFullRecord(dbDocdb, selectedId);
-        if (candidate && deepEqual(fresh[endpoint] ?? null, candidate)) {
+        const applied = isEdit
+          ? merged && deepEqual(fresh, merged)
+          : candidate != null && targetPath && deepEqual(getAtPath(fresh, targetPath) ?? null, candidate);
+        if (applied) {
           setCurrentRecord(fresh);
           setSubmitState('submitted');
           setSubmitResult((r) => r || { status: 'submitted', detected_via: 'polling' });
@@ -170,7 +222,7 @@ export function MigrateSubmitPage() {
       }
     }, 10000);
     return () => clearInterval(id);
-  }, [submitState, dbDocdb, selectedId, candidate, endpoint]);
+  }, [submitState, dbDocdb, selectedId, candidate, targetPath, isEdit, merged]);
 
   function handleFetch() {
     const name = assetInput.trim();
@@ -258,6 +310,18 @@ export function MigrateSubmitPage() {
     navigator.clipboard.writeText(window.location.href).catch(() => {});
   }
 
+  function handleDoneEditing() {
+    if (!parsedEdit || parsedEdit.error) return;
+    setCurrentRecord(parsedEdit.record);
+    setEditing(false);
+  }
+
+  function handleResumeEditing() {
+    // Re-open the editor with the current (committed) record as a starting point.
+    if (currentRecord) setEditText(JSON.stringify(currentRecord, null, 2));
+    setEditing(true);
+  }
+
   const tokenLabel = token
     ? (tokenExpiresAt
         ? `Submit (token expires ${new Date(tokenExpiresAt).toLocaleString()})`
@@ -268,12 +332,16 @@ export function MigrateSubmitPage() {
     <div class="migrate-page">
       <h1>Submit metadata migration</h1>
       <p class="migrate-intro">
-        Propose a DocDB record repair by pulling <code>subject.json</code> or
-        <code>procedures.json</code> from the internal
+        Propose a DocDB record repair by pulling <code>subject</code>,
+        <code>procedures</code>, <code>funding</code> or
+        <code>investigators</code> from the internal
         <code>aind-metadata-service</code> and merging it into a DocDB record.
-        The DocDB and metadata-service versions are independent — you can pull
-        v2 metadata into a v1 record, or vice versa. Once submitted, the
-        proposed change is visible publicly on the
+        Subject and procedures are looked up by <code>subject.subject_id</code>;
+        funding and investigators by <code>data_description.project_name</code>
+        and merged into <code>data_description</code>. Or pick <code>Edit</code>
+        to change any fields by hand. The DocDB and metadata-service versions are
+        independent — you can pull v2 metadata into a v1 record, or vice versa.
+        Once submitted, the proposed change is visible publicly on the
         <a href="/migrate/review">review page</a> until a second QC-portal user
         approves it.
       </p>
@@ -314,6 +382,11 @@ export function MigrateSubmitPage() {
                     onClick=${() => setEndpoint(e)}
                   >${e}</button>`,
               )}
+              <button
+                class=${`migrate-toggle-btn ${isEdit ? 'is-active' : ''}`}
+                title="Edit the DocDB record directly"
+                onClick=${() => setEndpoint(EDIT)}
+              >Edit</button>
             </div>
           </div>
           <div class="migrate-control migrate-control-right">
@@ -344,10 +417,10 @@ export function MigrateSubmitPage() {
           <button
             class="btn-secondary"
             title="Clear cached metadata-service response for this asset+endpoint"
-            disabled=${!assetInput.trim() || loadStatus === 'loading'}
+            disabled=${!assetInput.trim() || loadStatus === 'loading' || isEdit}
             onClick=${() => {
-              const subjectId = currentRecord?.subject?.subject_id ?? assetInput.trim();
-              clearMetadataCache(dbSvc, endpoint, subjectId);
+              const lookupId = (currentRecord && lookupIdForEndpoint(currentRecord, endpoint)) || assetInput.trim();
+              clearMetadataCache(dbSvc, endpoint, lookupId);
               setCacheHit(false);
             }}
           >Clear cache</button>
@@ -367,32 +440,76 @@ export function MigrateSubmitPage() {
                       <div><strong>_id:</strong> <code>${currentRecord._id ?? selectedId}</code></div>
                       <div><strong>name:</strong> ${currentRecord.name ?? '—'}</div>
                       <div><strong>subject_id:</strong> ${currentRecord?.subject?.subject_id ?? '—'}</div>
+                      <div><strong>project_name:</strong> ${currentRecord?.data_description?.project_name ?? '—'}</div>
                     `
                   : html`<div><strong>looking up:</strong> <code>${selectedId}</code></div>`}
               </div>
 
               ${loadStatus === 'loading'
-                ? html`<p class="loading-message">Fetching from DocDB ${dbDocdb} + metadata-service ${dbSvc}${endpoint === 'procedures' ? ' (procedures can take ~45s — cached for 24 h)' : ''}…</p>`
+                ? html`<p class="loading-message">${isEdit
+                    ? html`Fetching record from DocDB ${dbDocdb}…`
+                    : html`Fetching from DocDB ${dbDocdb} + metadata-service ${dbSvc}${endpoint === 'procedures' ? ' (procedures can take ~45s — cached for 24 h)' : ''}…`}</p>`
                 : null}
 
               ${loadStatus === 'ready'
                 ? html`
-                    ${cacheHit
-                      ? html`<p class="info-banner" style="margin-top:8px">Metadata-service response loaded from cache (24 h). Use "Clear cache" to force a fresh fetch.</p>`
-                      : null}
-                    ${serviceWarning
-                      ? html`<p class="warning-banner" style="margin-top:8px">${serviceWarning}</p>`
-                      : null}
-                    <${DiffView}
-                      entries=${sectionDiff}
-                      title=${`Proposed changes to '${endpoint}' (DocDB ${dbDocdb} ← metadata-service ${dbSvc})`}
-                    />
+                    ${isEdit
+                      ? html`
+                          ${editing
+                            ? html`
+                                <div class="migrate-edit">
+                                  <p class="migrate-edit-hint">
+                                    Edit the DocDB record JSON below, then click
+                                    <strong>Done editing</strong> to review the summary of changes.
+                                  </p>
+                                  <textarea
+                                    class="migrate-edit-textarea"
+                                    spellcheck="false"
+                                    value=${editText}
+                                    onInput=${(e) => setEditText(e.currentTarget.value)}
+                                  ></textarea>
+                                  ${parsedEdit?.error
+                                    ? html`<p class="error-banner" style="margin-top:8px">Invalid JSON: ${parsedEdit.error}</p>`
+                                    : null}
+                                  <div class="migrate-edit-actions">
+                                    <button
+                                      class="btn-primary"
+                                      disabled=${Boolean(parsedEdit?.error)}
+                                      onClick=${handleDoneEditing}
+                                    >Done editing</button>
+                                  </div>
+                                  <${DiffView}
+                                    entries=${parsedEdit?.error ? null : sectionDiff}
+                                    title="Summary of changes (live preview)"
+                                  />
+                                </div>`
+                            : html`
+                                <div class="migrate-edit-actions" style="margin-bottom:8px">
+                                  <button class="btn-secondary" onClick=${handleResumeEditing}>Resume editing</button>
+                                </div>
+                                <${DiffView}
+                                  entries=${sectionDiff}
+                                  title="Summary of changes to apply to DocDB"
+                                />`}
+                        `
+                      : html`
+                          ${cacheHit
+                            ? html`<p class="info-banner" style="margin-top:8px">Metadata-service response loaded from cache (24 h). Use "Clear cache" to force a fresh fetch.</p>`
+                            : null}
+                          ${serviceWarning
+                            ? html`<p class="warning-banner" style="margin-top:8px">${serviceWarning}</p>`
+                            : null}
+                          <${DiffView}
+                            entries=${sectionDiff}
+                            title=${`Proposed changes to '${endpoint}' (DocDB ${dbDocdb} ← metadata-service ${dbSvc})`}
+                          />`}
 
                     <div class="migrate-submit-row">
                       <button
                         class=${`${token ? 'btn-primary' : 'btn-secondary'} migrate-action-btn`}
                         onClick=${token ? handleSubmit : handleRequestToken}
-                        disabled=${(sectionDiff && sectionDiff.length === 0)
+                        disabled=${(isEdit && editing)
+                          || (sectionDiff && sectionDiff.length === 0)
                           || submitState === 'submitting'
                           || submitState === 'submitted'
                           || submitState === 'pending'}
