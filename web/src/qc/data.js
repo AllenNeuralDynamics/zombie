@@ -56,6 +56,10 @@ function cleanRef(ref) {
   return ref.replace(/^\//, '').replace(/^results\//, '');
 }
 
+function encodeS3Key(key) {
+  return key.split('/').map(encodeURIComponent).join('/');
+}
+
 export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   if (!reference) return { url: '', type: 'text' };
 
@@ -68,11 +72,11 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   if (reference.includes('s3://')) {
     const match = reference.match(/^s3:\/\/([^/]+)\/(.+)$/);
     if (match) {
-      url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${match[2]}`;
+      url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${encodeS3Key(match[2])}`;
     }
   } else if (!reference.startsWith('http')) {
     const cleaned = cleanRef(reference);
-    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${s3Prefix}/${cleaned}`;
+    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(cleaned)}`;
   }
 
   const lower = url.toLowerCase();
