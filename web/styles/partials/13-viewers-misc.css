@@ -2302,3 +2302,28 @@
 .morph-2d-status:empty {
   display: none;
 }
+
+/* ── 2D projection legend ───────────────────────────────────────────────── */
+
+.morph-2d-legend {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface-bg);
+  border-radius: 4px;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  pointer-events: none;
+  z-index: 3;
+  max-height: 80%;
+  overflow-y: auto;
+}
+
+.morph-2d-legend-item {
+  white-space: nowrap;
+  font-weight: 600;
+}
