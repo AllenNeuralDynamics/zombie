@@ -32,7 +32,12 @@ export function createProjection2DView() {
   el.appendChild(status);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf3f4f5);
+
+  function syncBackground() {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--surface-bg').trim();
+    scene.background = new THREE.Color(raw || '#f3f4f5');
+  }
+  syncBackground();
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
   camera.position.z = 10;
@@ -89,6 +94,7 @@ export function createProjection2DView() {
   }
 
   function render(items) {
+    syncBackground();
     clearLines();
     for (const it of items) {
       if (!it.positions || it.positions.length === 0) continue;

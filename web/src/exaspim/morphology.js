@@ -108,6 +108,15 @@ const CCF_ROOT_ALPHA = 0.18;
 /** Non-root regions are rendered more opaque so they read clearly. */
 const CCF_REGION_ALPHA = 0.3;
 
+/** Returns true when the page is currently in dark mode. */
+function isDarkMode() {
+  if (typeof document === 'undefined') return false;
+  const t = document.documentElement?.dataset?.theme;
+  if (t === 'dark') return true;
+  if (t === 'light') return false;
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+}
+
 // ─── GraphQL ────────────────────────────────────────────────────────────────
 
 const ATLAS_QUERY = `query CcfStructures {
@@ -218,10 +227,10 @@ export function buildNgState(
     projectionOrientation: camera.projectionOrientation,
     projectionScale: camera.projectionScale,
     crossSectionScale: camera.crossSectionScale,
-    // Light WebGL clear color so the perspective panel reads as white against
-    // our app's light theme — matches morphology.allenneuraldynamics.org.
-    projectionBackgroundColor: '#f3f4f5',
-    crossSectionBackgroundColor: '#f3f4f5',
+    // WebGL clear color — matches the app theme so the perspective panel
+    // blends with the surrounding page.
+    projectionBackgroundColor: isDarkMode() ? '#141414' : '#f3f4f5',
+    crossSectionBackgroundColor: isDarkMode() ? '#141414' : '#f3f4f5',
     layers,
     layout: '3d',
     layerListPanel: { visible: false },
@@ -1463,7 +1472,8 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
       catch (e) { if (e?.name === 'AbortError') return; continue; }
       if (token !== twoDToken) return;
       const isRoot = String(id) === CCF_ROOT_SEGMENT;
-      const color = isRoot ? '#111111' : (ccfColorById.get(String(id)) || '#111111');
+      const fallback = isDarkMode() ? '#eeeeee' : '#111111';
+      const color = isRoot ? fallback : (ccfColorById.get(String(id)) || fallback);
       items.push({ positions: segs, color, opacity: isRoot ? 0.5 : 0.85, lineWidth: 3 });
     }
 
