@@ -1,0 +1,80 @@
+/* ---------------------------------------------------------------------------
+ * 17-fib-playback.css — Fiber photometry trace + PSTH panels in the session
+ * playback widget (appended below the platform behaviour player).
+ * ------------------------------------------------------------------------ */
+
+.fib-playback-section {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--surface-border);
+}
+
+.fib-section-heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem 0;
+}
+
+.fib-playback-section .fib-section-heading + .fib-section-heading,
+.fib-playback-section .fib-traces-container + .fib-section-heading {
+  margin-top: 1.25rem;
+}
+
+.fib-loading,
+.fib-loading-inner {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0.25rem 0;
+}
+
+.fib-no-data {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.fib-traces-container {
+  overflow-x: auto;
+}
+
+/* ---- PSTH controls ---- */
+.psth-controls {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.psth-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.psth-controls select {
+  padding: 3px 6px;
+  font-size: 0.8rem;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* ---- PSTH plots ---- */
+.psth-plot-area {
+  overflow-x: auto;
+}
+
+.psth-plots {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}

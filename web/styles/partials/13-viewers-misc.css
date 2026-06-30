@@ -1103,7 +1103,7 @@
   min-height: 560px;
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 4px;
-  background: #f3f4f5;
+  background: var(--surface-bg);
 }
 
 .exaspim-morphology-cover {
@@ -1112,7 +1112,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f3f4f5;
+  background: var(--surface-bg);
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 4px;
   transition: opacity 0.3s ease;
@@ -1139,7 +1139,8 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background: rgba(243, 244, 245, 0.82);
+  background: var(--surface-bg);
+  opacity: 0.92;
   border-radius: 4px;
   z-index: 5;
 }
@@ -1836,6 +1837,39 @@
 .migrate-diff-changed td:nth-child(3) { background: color-mix(in srgb, #c0392b 10%, transparent); }
 .migrate-diff-changed td:nth-child(4) { background: color-mix(in srgb, #1D8649 10%, transparent); }
 
+/* ---- Free-form edit mode ------------------------------------------------ */
+
+.migrate-edit { margin-top: 16px; }
+.migrate-edit-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+.migrate-edit-textarea {
+  width: 100%;
+  height: 480px;
+  max-height: 70vh;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text-primary);
+}
+.migrate-edit-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
 /* ---- Submit / status ---------------------------------------------------- */
 
 .migrate-submit-row {
@@ -2239,7 +2273,7 @@
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 4px;
   overflow: hidden;
-  background: #f3f4f5;
+  background: var(--surface-bg);
   z-index: 1;
 }
 
@@ -2258,7 +2292,7 @@
   left: 10px;
   font-size: 0.78rem;
   color: var(--text-muted, #6a6a6a);
-  background: rgba(243, 244, 245, 0.85);
+  background: var(--surface-bg);
   padding: 2px 6px;
   border-radius: 3px;
   pointer-events: none;
@@ -2267,4 +2301,29 @@
 
 .morph-2d-status:empty {
   display: none;
+}
+
+/* ── 2D projection legend ───────────────────────────────────────────────── */
+
+.morph-2d-legend {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface-bg);
+  border-radius: 4px;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  pointer-events: none;
+  z-index: 3;
+  max-height: 80%;
+  overflow-y: auto;
+}
+
+.morph-2d-legend-item {
+  white-space: nowrap;
+  font-weight: 600;
 }

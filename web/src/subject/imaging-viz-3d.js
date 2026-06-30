@@ -27,6 +27,7 @@ import { createOrbitControls } from '../lib/orbit-controls.js';
 // 3D module. Re-exported here for backwards compatibility with existing importers.
 import { extractImagingData } from './imaging-data.js';
 export { hasImagingConfig, extractImagingData } from './imaging-data.js';
+import CCF_STRUCTURE_CENTERS from './allen_mouse_100um_v1.2/ccf_structure_centers.json';
 
 const MESH_BASE = 'https://allen-data-views.s3.amazonaws.com/data-asset-cache/meshes/';
 
@@ -247,8 +248,16 @@ async function _initImaging3D(container, statusEl, infoEl, acquisitionData) {
       });
       scene.add(group);
 
-      const centre = new THREE.Vector3();
-      box.getCenter(centre);
+      // Prefer the annotation-derived left-hemisphere centroid over the bilateral
+      // mesh bounding-box centre (which lands on the midline for symmetric meshes).
+      let centre;
+      const precomputed = CCF_STRUCTURE_CENTERS[id];
+      if (precomputed) {
+        centre = new THREE.Vector3(precomputed[0], precomputed[1], precomputed[2]);
+      } else {
+        centre = new THREE.Vector3();
+        box.getCenter(centre);
+      }
       structureCentres.set(id, centre);
 
       structureMeshesLoaded++;
@@ -337,11 +346,17 @@ async function _initImaging3D(container, statusEl, infoEl, acquisitionData) {
 function _placeImagingPlanes(scene, planes, structureCentres) {
   if (!planes.length) return;
 
-  // Find the primary structure centre — use the first plane's structure
+  // Find the primary structure centre — use the first plane's structure.
+  // The centres in structureCentres come from the CCF annotation left-hemisphere
+  // centroid (or mesh bounding box as fallback). If the plane's relativePosition
+  // indicates the right hemisphere, mirror the x-axis to move it to the right.
   let centre = null;
+  let isRight = false;
   for (const p of planes) {
     if (p.structureId && structureCentres.has(p.structureId)) {
       centre = structureCentres.get(p.structureId);
+      // "right" in any form → mirror to right hemisphere (negate x)
+      if (p.relativePosition?.includes('right')) isRight = true;
       break;
     }
   }
@@ -351,7 +366,10 @@ function _placeImagingPlanes(scene, planes, structureCentres) {
     return;
   }
 
-  _buildPlaneGeometry(scene, planes, centre);
+  const useCentre = isRight
+    ? new THREE.Vector3(-centre.x, centre.y, centre.z)
+    : centre;
+  _buildPlaneGeometry(scene, planes, useCentre);
 }
 
 /**

@@ -295,6 +295,7 @@ const AIND_SKEL_BASE = 'https://aind-neuron-morphology-community-portal-prod-o51
 
 const _meshCache = new Map(); // id → Promise<{positions, index}>
 const _outlineCache = new Map(); // `${id}:${plane}` → Promise<Float32Array>
+const _polylineCache = new Map(); // `${id}:${plane}` → Promise<Array<Array<[number,number]>>>
 const _skelCache = new Map(); // `${compartment}:${segId}` → Promise<{vertices, edges}>
 
 /** Fetch + parse a CCF area surface mesh (cached). */
@@ -321,6 +322,26 @@ export function getCcfOutlineSegments(id, planeKey, signal) {
     _outlineCache.set(ck, p);
   }
   return _outlineCache.get(ck);
+}
+
+/**
+ * Screen-space polyline rings for a CCF area on a plane (cached). Returns
+ * `Array<Array<[x, y]>>` with the plane's sign flips already applied — the
+ * same coordinate space used by the Three.js 2D renderer.
+ */
+export function getCcfScreenPolylines(id, planeKey, signal) {
+  const ck = `polys:${id}:${planeKey}`;
+  if (!_polylineCache.has(ck)) {
+    const plane = PLANES[planeKey];
+    const p = loadCcfMesh(id, signal)
+      .then((mesh) => {
+        const rings = computeSilhouettePolylines(mesh.positions, mesh.index, plane);
+        return rings.map((ring) => ring.map(([h, v]) => [plane.sh * h, plane.sv * v]));
+      })
+      .catch((e) => { _polylineCache.delete(ck); throw e; });
+    _polylineCache.set(ck, p);
+  }
+  return _polylineCache.get(ck);
 }
 
 /** Fetch + parse an AIND precomputed neuron skeleton (cached per compartment). */

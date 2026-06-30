@@ -62,6 +62,13 @@ export function extractImagingData(acquisitionData) {
             structureMap.set(String(struct.id), struct);
           }
 
+          // relative_position is an optional string (e.g. "left", "right") or
+          // array of strings that disambiguates hemisphere when the targeted
+          // structure is bilateral. Normalised to lowercase string or null.
+          const relPos = plane.relative_position;
+          const relativePosition = relPos == null ? null
+            : (Array.isArray(relPos) ? relPos[0] : relPos)?.toLowerCase?.() ?? null;
+
           planes.push({
             channelName: img.channel_name ?? '',
             dimX,
@@ -74,6 +81,7 @@ export function extractImagingData(acquisitionData) {
             structureId: struct?.id != null ? String(struct.id) : null,
             structureAcronym: struct?.acronym ?? '',
             structureName: struct?.name ?? '',
+            relativePosition,
           });
         }
       }

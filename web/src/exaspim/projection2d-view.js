@@ -6,6 +6,10 @@
  * (built by `projection2d.js`) and draws them with an orthographic camera.
  * Pan = drag, zoom = wheel. The plane choice and geometry projection live in
  * the integrator (morphology.js); this view only knows about 2D segments.
+ *
+ * Render items:
+ *   - Line item: { positions: Float32Array, color, opacity?, lineWidth? }
+ *   - Fill item: { rings: Array<Array<[x,y]>>, color, opacity? }
  */
 
 import * as THREE from 'three';
@@ -16,7 +20,8 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 /**
  * @returns {{
  *   el: HTMLElement,
- *   render: (items: Array<{positions: Float32Array, color: string, opacity?: number}>) => void,
+ *   render: (items: Array) => void,
+ *   setLegend: (entries: Array<{name:string,color:string}>, anchorWorldX: number|null) => void,
  *   frameBounds: (b: {minX:number,minY:number,maxX:number,maxY:number}) => void,
  *   setStatus: (text: string) => void,
  *   resize: () => void,
@@ -31,8 +36,19 @@ export function createProjection2DView() {
   status.className = 'morph-2d-status';
   el.appendChild(status);
 
+  // Legend overlay — absolutely positioned within the canvas container.
+  const legendEl = document.createElement('div');
+  legendEl.className = 'morph-2d-legend';
+  legendEl.hidden = true;
+  el.appendChild(legendEl);
+
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf3f4f5);
+
+  function syncBackground() {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--surface-bg').trim();
+    scene.background = new THREE.Color(raw || '#f3f4f5');
+  }
+  syncBackground();
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, -1000, 1000);
   camera.position.z = 10;
@@ -48,8 +64,25 @@ export function createProjection2DView() {
   let width = 1;
   let height = 1;
 
+  // Legend state.
+  let legendEntries = [];
+  let legendAnchorX = null; // world-space X for the right edge of the brain
+
   const lineObjs = [];
   const fatMaterials = []; // LineMaterials needing a `resolution` on resize.
+
+  function worldToScreenX(wx) { return width / 2 + (wx - cx) / upp; }
+
+  function updateLegendPosition() {
+    if (legendEntries.length === 0 || legendAnchorX == null) {
+      legendEl.hidden = true;
+      return;
+    }
+    const sx = Math.round(worldToScreenX(legendAnchorX)) + 10;
+    if (sx >= width - 4) { legendEl.hidden = true; return; }
+    legendEl.style.left = sx + 'px';
+    legendEl.hidden = false;
+  }
 
   function applyCamera() {
     const hw = (width / 2) * upp;
@@ -59,6 +92,7 @@ export function createProjection2DView() {
     camera.top = cy + hh;
     camera.bottom = cy - hh;
     camera.updateProjectionMatrix();
+    updateLegendPosition();
   }
 
   let raf = null;
@@ -89,33 +123,86 @@ export function createProjection2DView() {
   }
 
   function render(items) {
+    syncBackground();
     clearLines();
+    // Paint strictly in array order (first = back, last = front). depthTest is
+    // disabled and renderOrder set per item so the caller's ordering wins over
+    // Three's default transparency sorting.
+    let order = 0;
     for (const it of items) {
+      if (it.rings) {
+        // Filled polygon — one THREE.Mesh per ring.
+        const color = new THREE.Color(it.color || '#888888');
+        const opacity = it.opacity ?? 0.25;
+        const ro = order++;
+        for (const ring of it.rings) {
+          if (ring.length < 3) continue;
+          const shape = new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x, y)));
+          const g = new THREE.ShapeGeometry(shape);
+          const m = new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity, side: THREE.DoubleSide,
+            depthWrite: false, depthTest: false,
+          });
+          const mesh = new THREE.Mesh(g, m);
+          mesh.renderOrder = ro;
+          scene.add(mesh);
+          lineObjs.push(mesh);
+        }
+        continue;
+      }
       if (!it.positions || it.positions.length === 0) continue;
       const color = new THREE.Color(it.color || '#000000');
-      const transparent = it.opacity != null && it.opacity < 1;
+      // Force transparent:true even at opacity 1 so every object lives in the
+      // renderer's transparent queue — otherwise opaque lines (neurons) draw
+      // before the transparent fills and, with depthTest off, get painted over.
       const opacity = it.opacity ?? 1;
       const lw = it.lineWidth ?? 1;
       if (lw > 1) {
         // Fat lines (LineSegments2): the only way to get >1px strokes in WebGL.
         const g = new LineSegmentsGeometry();
         g.setPositions(it.positions);
-        const m = new LineMaterial({ color, transparent, opacity, linewidth: lw, worldUnits: false });
+        const m = new LineMaterial({
+          color, transparent: true, opacity, linewidth: lw, worldUnits: false, depthTest: false,
+        });
         m.resolution.set(width, height);
         const seg = new LineSegments2(g, m);
+        seg.renderOrder = order++;
         scene.add(seg);
         lineObjs.push(seg);
         fatMaterials.push(m);
       } else {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(it.positions, 3));
-        const m = new THREE.LineBasicMaterial({ color, transparent, opacity });
+        const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false });
         const seg = new THREE.LineSegments(g, m);
+        seg.renderOrder = order++;
         scene.add(seg);
         lineObjs.push(seg);
       }
     }
     requestRender();
+  }
+
+  function setLegend(entries, anchorWorldX) {
+    legendEntries = entries ?? [];
+    legendAnchorX = anchorWorldX ?? null;
+
+    if (legendEntries.length === 0) {
+      legendEl.hidden = true;
+      legendEl.innerHTML = '';
+      return;
+    }
+
+    legendEl.innerHTML = '';
+    for (const { name, color } of legendEntries) {
+      const row = document.createElement('div');
+      row.className = 'morph-2d-legend-item';
+      row.textContent = name;
+      row.style.color = color;
+      legendEl.appendChild(row);
+    }
+
+    updateLegendPosition();
   }
 
   function frameBounds(b) {
@@ -192,6 +279,7 @@ export function createProjection2DView() {
   return {
     el,
     render,
+    setLegend,
     frameBounds,
     setStatus,
     resize,

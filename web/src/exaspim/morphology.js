@@ -36,6 +36,7 @@ import {
   PLANES,
   PLANE_KEYS,
   getCcfOutlineSegments,
+  getCcfScreenPolylines,
   loadAindSkeleton,
   projectEdgesToSegments,
   tracingsToSkeleton,
@@ -107,6 +108,15 @@ const CCF_ROOT_SEGMENT = '997';
 const CCF_ROOT_ALPHA = 0.18;
 /** Non-root regions are rendered more opaque so they read clearly. */
 const CCF_REGION_ALPHA = 0.3;
+
+/** Returns true when the page is currently in dark mode. */
+function isDarkMode() {
+  if (typeof document === 'undefined') return false;
+  const t = document.documentElement?.dataset?.theme;
+  if (t === 'dark') return true;
+  if (t === 'light') return false;
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+}
 
 // ─── GraphQL ────────────────────────────────────────────────────────────────
 
@@ -218,10 +228,10 @@ export function buildNgState(
     projectionOrientation: camera.projectionOrientation,
     projectionScale: camera.projectionScale,
     crossSectionScale: camera.crossSectionScale,
-    // Light WebGL clear color so the perspective panel reads as white against
-    // our app's light theme — matches morphology.allenneuraldynamics.org.
-    projectionBackgroundColor: '#f3f4f5',
-    crossSectionBackgroundColor: '#f3f4f5',
+    // WebGL clear color — matches the app theme so the perspective panel
+    // blends with the surrounding page.
+    projectionBackgroundColor: isDarkMode() ? '#141414' : '#f3f4f5',
+    crossSectionBackgroundColor: isDarkMode() ? '#141414' : '#f3f4f5',
     layers,
     layout: '3d',
     layerListPanel: { visible: false },
@@ -1454,20 +1464,41 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
     const planeKey = plane2d;
     const plane = PLANES[planeKey];
     view2d.setStatus('Building projection…');
-    const items = [];
 
-    // CCF area outlines (black for the whole-brain root, else atlas colour).
+    const fillItems = [];
+    const rootOutlineItems = [];
+    const areaOutlineItems = [];
+    const legendItems = [];
+
+    // CCF area outlines + fills (black/white for root, atlas colour for regions).
     for (const id of selectedRegions) {
       let segs;
       try { segs = await getCcfOutlineSegments(id, planeKey, signal); }
       catch (e) { if (e?.name === 'AbortError') return; continue; }
       if (token !== twoDToken) return;
       const isRoot = String(id) === CCF_ROOT_SEGMENT;
-      const color = isRoot ? '#111111' : (ccfColorById.get(String(id)) || '#111111');
-      items.push({ positions: segs, color, opacity: isRoot ? 0.5 : 0.85, lineWidth: 3 });
+      const fallback = isDarkMode() ? '#eeeeee' : '#111111';
+      const color = isRoot ? fallback : (ccfColorById.get(String(id)) || fallback);
+      const outlineItem = { positions: segs, color, opacity: isRoot ? 0.5 : 0.85, lineWidth: 3 };
+      if (isRoot) {
+        rootOutlineItems.push(outlineItem);
+      } else {
+        areaOutlineItems.push(outlineItem);
+        // Filled area at 25% opacity — fetch polylines (shared mesh cache).
+        let rings;
+        try { rings = await getCcfScreenPolylines(id, planeKey, signal); }
+        catch (e) { if (e?.name === 'AbortError') return; }
+        if (token !== twoDToken) return;
+        if (rings?.length) fillItems.push({ rings, color, opacity: 0.25 });
+
+        // Legend entry (full name).
+        const name = ctxRef?.byId?.get(String(id))?.name;
+        if (name) legendItems.push({ name, color });
+      }
     }
 
     // AIND neuron skeletons (honour the per-neuron compartment selection).
+    const neuronItems = [];
     for (const segId of selectedNeurons) {
       if (hiddenNeurons.has('aind:' + segId)) continue;
       const comp = compartmentByNeuron.get(segId) || 'full';
@@ -1475,7 +1506,7 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
       try { skel = await loadAindSkeleton(segId, comp, signal); }
       catch (e) { if (e?.name === 'AbortError') return; continue; }
       if (token !== twoDToken) return;
-      items.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: aindColorFor(segId) });
+      neuronItems.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: aindColorFor(segId) });
     }
 
     // MouseLight neuron skeletons (fetch raw µm nodes once, cache per neuron).
@@ -1496,14 +1527,21 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
         mlNodeCache.set(idString, skel);
       }
       if (token !== twoDToken) return;
-      items.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: mlColorFor(idString) });
+      neuronItems.push({ positions: projectEdgesToSegments(skel.vertices, skel.edges, plane), color: mlColorFor(idString) });
     }
 
     if (token !== twoDToken) return;
+    // Paint back-to-front: root outline (back), then area fills + outlines,
+    // then neurons (front).
+    const items = [...rootOutlineItems, ...fillItems, ...areaOutlineItems, ...neuronItems];
     view2d.render(items);
     view2d.setStatus(items.length === 0 ? 'Select CCF regions or neurons to project.' : '');
+
+    // Position the legend to the right of the overall brain/neuron bounds.
+    const b = boundsOfItems([...rootOutlineItems, ...areaOutlineItems, ...neuronItems]);
+    view2d.setLegend(legendItems, b?.maxX ?? null);
+
     if (refit || !twoDFramed) {
-      const b = boundsOfItems(items);
       if (b) { view2d.frameBounds(b); twoDFramed = true; }
     }
   }
@@ -1583,6 +1621,28 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
     postToIframe({ type: 'resetView', state });
     initSent = true;
   });
+
+  // Re-theme the live viewers when the user toggles light/dark (or the system
+  // preference changes) without a page reload. The 2D scene background + root
+  // outline colour are recomputed by update2D (geometry is cached, so this is
+  // cheap). The 3D embed gets a full setState so its WebGL clear colour flips
+  // while the current camera (mirrored in currentCamera) is preserved — sent
+  // even while the iframe is hidden so switching back to 3D shows the right
+  // background.
+  function applyThemeToViewers() {
+    if (ngReady && initSent) {
+      postToIframe({ type: 'setState', state: buildCurrentState() });
+    }
+    if (viewMode === '2d') update2D();
+  }
+  const themeObserver = new MutationObserver(applyThemeToViewers);
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+  const themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+  themeMedia.addEventListener('change', applyThemeToViewers, { signal });
+  signal?.addEventListener('abort', () => themeObserver.disconnect());
 
   Promise.all([
     gql(ATLAS_QUERY, {}, signal).then((d) => d?.atlasStructures ?? []),

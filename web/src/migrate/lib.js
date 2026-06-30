@@ -19,15 +19,54 @@ export const METADATA_SERVICE_PATHS = {
   v1: {
     subject: (id) => `${METADATA_SERVICE_BASE}/subject/${encodeURIComponent(id)}`,
     procedures: (id) => `${METADATA_SERVICE_BASE}/procedures/${encodeURIComponent(id)}`,
+    funding: (id) => `${METADATA_SERVICE_BASE}/funding/${encodeURIComponent(id)}`,
+    // v1 has no /investigators endpoint — the investigator list is embedded in
+    // the funding response as a comma-separated string, so we fetch funding and
+    // derive it in normalizeServiceSection().
+    investigators: (id) => `${METADATA_SERVICE_BASE}/funding/${encodeURIComponent(id)}`,
   },
   v2: {
     subject: (id) => `${METADATA_SERVICE_BASE}/api/v2/subject/${encodeURIComponent(id)}`,
     procedures: (id) => `${METADATA_SERVICE_BASE}/api/v2/procedures/${encodeURIComponent(id)}`,
+    funding: (id) => `${METADATA_SERVICE_BASE}/api/v2/funding/${encodeURIComponent(id)}`,
+    investigators: (id) => `${METADATA_SERVICE_BASE}/api/v2/investigators/${encodeURIComponent(id)}`,
   },
 };
 
-export const ENDPOINTS = ['subject', 'procedures'];
+export const ENDPOINTS = ['subject', 'procedures', 'funding', 'investigators'];
 export const DB_VERSIONS = ['v1', 'v2'];
+
+/**
+ * Per-endpoint configuration:
+ *   lookup     — which record field identifies the asset for the metadata
+ *                service ('subject' → subject.subject_id, 'project' →
+ *                data_description.project_name).
+ *   targetPath — where in the DocDB record the candidate value lives. subject
+ *                and procedures are top-level sections; funding and
+ *                investigators are nested sub-fields of data_description.
+ */
+export const ENDPOINT_CONFIG = {
+  subject: { lookup: 'subject', targetPath: ['subject'] },
+  procedures: { lookup: 'subject', targetPath: ['procedures'] },
+  funding: { lookup: 'project', targetPath: ['data_description', 'funding_source'] },
+  investigators: { lookup: 'project', targetPath: ['data_description', 'investigators'] },
+};
+
+/** Read the identifier the metadata service expects for a given endpoint. */
+export function lookupIdForEndpoint(record, endpoint) {
+  const cfg = ENDPOINT_CONFIG[endpoint];
+  if (!cfg) return null;
+  return cfg.lookup === 'project'
+    ? record?.data_description?.project_name ?? null
+    : record?.subject?.subject_id ?? null;
+}
+
+/** Human label for the lookup field, used in error messages. */
+export function lookupLabelForEndpoint(endpoint) {
+  return ENDPOINT_CONFIG[endpoint]?.lookup === 'project'
+    ? 'data_description.project_name'
+    : 'subject.subject_id';
+}
 
 // ---------------------------------------------------------------------------
 // Pure helpers — exported for unit testing
@@ -132,6 +171,72 @@ export function buildMergedRecord(currentRecord, section, newValue) {
   return { ...currentRecord, [section]: newValue };
 }
 
+/** Read a nested value by path array, returning undefined if any hop is absent. */
+export function getAtPath(obj, path) {
+  let cur = obj;
+  for (const key of path) {
+    if (cur == null || typeof cur !== 'object') return undefined;
+    cur = cur[key];
+  }
+  return cur;
+}
+
+/** Immutably set a nested value by path array, cloning each level on the way down. */
+export function setAtPath(obj, path, value) {
+  if (path.length === 0) return value;
+  const base = obj && typeof obj === 'object' && !Array.isArray(obj) ? obj : {};
+  const [head, ...rest] = path;
+  return { ...base, [head]: setAtPath(base[head], rest, value) };
+}
+
+/**
+ * Coerce a raw metadata-service payload into the value that belongs at the
+ * endpoint's targetPath. subject/procedures are returned verbatim; funding and
+ * investigators need version-specific shaping because the v1 and v2 services
+ * disagree wildly:
+ *
+ *   funding      v1 → single Funding object (with an extra `investigators`
+ *                     string that is not part of the Funding model)
+ *                v2 → list of Funding objects
+ *   investigators v1 → no endpoint; derived from the funding response's
+ *                     comma-separated `investigators` string
+ *                v2 → list of Person objects
+ *
+ * The DocDB target (data_description.funding_source / .investigators) is always
+ * a list, so v1 funding is wrapped into one and its stray `investigators` key
+ * stripped, and v1 investigators are split into PIDName-shaped objects.
+ */
+export function normalizeServiceSection(endpoint, db, payload) {
+  if (endpoint === 'subject' || endpoint === 'procedures') return payload;
+
+  if (endpoint === 'funding') {
+    const list = Array.isArray(payload) ? payload : [payload];
+    return list.map((entry) => {
+      if (entry && typeof entry === 'object' && 'investigators' in entry) {
+        const { investigators, ...rest } = entry;
+        return rest;
+      }
+      return entry;
+    });
+  }
+
+  if (endpoint === 'investigators') {
+    if (Array.isArray(payload)) return payload; // v2 list of Person
+    // v1: payload is the funding object; investigators is a comma-separated string.
+    const raw = payload && typeof payload === 'object' ? payload.investigators : null;
+    if (typeof raw === 'string') {
+      return raw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((name) => ({ name, abbreviation: null, registry: null, registry_identifier: null }));
+    }
+    return [];
+  }
+
+  return payload;
+}
+
 /** Find the top-level fields that differ between two records — useful for
  * giving reviewers a quick summary of which sections a pending migration touches.
  */
@@ -197,14 +302,14 @@ export function clearMetadataCache(db, endpoint, subjectId) {
   } catch { /* ignore */ }
 }
 
-export async function fetchMetadataServiceSection(db, endpoint, subjectId, signal) {
-  const cacheKey = metadataCacheKey(db, endpoint, subjectId);
+export async function fetchMetadataServiceSection(db, endpoint, lookupId, signal) {
+  const cacheKey = metadataCacheKey(db, endpoint, lookupId);
   const cached = readMetadataCache(cacheKey);
   if (cached) {
     return { data: cached.data, warning: cached.warning, fromCache: true };
   }
 
-  const path = METADATA_SERVICE_PATHS[db][endpoint](subjectId);
+  const path = METADATA_SERVICE_PATHS[db][endpoint](lookupId);
   const resp = await fetch(path, { signal });
   let warning = null;
   if (!resp.ok) {
@@ -216,7 +321,8 @@ export async function fetchMetadataServiceSection(db, endpoint, subjectId, signa
     warning = `Metadata service returned ${resp.status} — model may not be fully valid, but changes will still be applied.`;
   }
   const body = await resp.json();
-  const data = extractServicePayload(body, db);
+  const payload = extractServicePayload(body, db);
+  const data = normalizeServiceSection(endpoint, db, payload);
   writeMetadataCache(cacheKey, data, warning);
   return { data, warning, fromCache: false };
 }

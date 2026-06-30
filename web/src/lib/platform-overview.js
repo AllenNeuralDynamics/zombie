@@ -12,7 +12,6 @@ import { createPlatformQcTable } from './platform-qc-table.js';
 import { buildModalityHistogram } from './charts.js';
 import { arrowTableToRows, queryRows } from './arrow.js';
 import { escHtml, mergeKey, parseExperimenters, downloadCsv, aggregateByExperimenter, aggregateByProject } from './utils.js';
-import { ensureTable } from './registry.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,14 +43,6 @@ function buildFilterCondition(assetFilter) {
 
 /** Validate that a value is a YYYY-MM-DD date string before interpolating into SQL. */
 const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s);
-
-function ensureUpgradeTable(coord) {
-  console.log(`[PlatformOverview] ensureTable metadata_upgrade START`);
-  return ensureTable(coord, 'metadata_upgrade').then((r) => {
-    console.log(`[PlatformOverview] ensureTable metadata_upgrade DONE`);
-    return r;
-  });
-}
 
 /**
  * Create the full platform overview section: summary stats + QC table + gear.
@@ -914,49 +905,36 @@ export function createPlatformOverview(coord, {
 }
 
 /**
- * Populate the stats element with total asset count and failed-upgrade count.
+ * Populate the stats element with the total asset count.
  *
  * If platformTableName is provided, counts distinct assetNameCol values from
  * that table (e.g. 'platform_smartspim').  Otherwise, counts from asset_basics
  * filtered by assetFilter.
+ *
+ * NOTE: the "N do not upgrade" failed-upgrade report was removed because it
+ * never worked — failed-upgrade assets are absent from V2 (asset_basics and the
+ * platform_* tables are V2-only), so the name-based intersection was always ~0.
+ * Recovering those counts requires precomputing them in the cache pipeline.
  */
 function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, statsEl) {
   let totalSql;
-  let failedSql;
-
   if (platformTableName && assetNameCol) {
     totalSql = `SELECT COUNT(DISTINCT ${assetNameCol}) AS cnt FROM ${platformTableName}`;
-    failedSql =
-      `SELECT COUNT(*) AS cnt FROM metadata_upgrade ` +
-      `WHERE status = 'failed' AND name IN ` +
-      `(SELECT DISTINCT ${assetNameCol} FROM ${platformTableName})`;
   } else {
     const filterCond = buildFilterCondition(assetFilter);
     totalSql = `SELECT COUNT(*) AS cnt FROM asset_basics WHERE ${filterCond}`;
-    failedSql =
-      `SELECT COUNT(*) AS cnt FROM metadata_upgrade ` +
-      `WHERE status = 'failed' AND name IN ` +
-      `(SELECT name FROM asset_basics WHERE ${filterCond})`;
   }
 
-  console.log(`[PlatformOverview] starting ensureUpgradeTable (metadata_upgrade)`);
-  ensureUpgradeTable(coord)
-    .then(() => {
-      console.log(`[PlatformOverview] metadata_upgrade ready, running stats query`);
-      return coord.query(
-        `SELECT (${totalSql}) AS total_assets, (${failedSql}) AS failed_assets`,
-      );
-    })
+  coord
+    .query(totalSql)
     .then((result) => {
-      console.log(`[PlatformOverview] stats query done`);
       const rows = Array.isArray(result)
         ? result
         : Array.isArray(result?.data)
           ? result.data
           : Array.from(result ?? []);
       const row = rows[0] ?? {};
-      const total = Number(row.total_assets ?? 0);
-      const failed = Number(row.failed_assets ?? 0);
+      const total = Number(row.cnt ?? 0);
 
       statsEl.textContent = '';
 
@@ -964,73 +942,11 @@ function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, stat
       countSpan.className = 'platform-summary-count';
       countSpan.textContent = `${total.toLocaleString()} Assets`;
       statsEl.appendChild(countSpan);
-
-      if (failed > 0) {
-        statsEl.appendChild(document.createTextNode(' ('));
-        const link = document.createElement('a');
-        link.className = 'platform-summary-failed-link';
-        link.href = '#';
-        link.textContent = `${failed.toLocaleString()} do not upgrade`;
-        link.addEventListener('click', (e) => {
-          e.preventDefault();
-          downloadFailedUpgrades(coord, platformTableName, assetNameCol, assetFilter);
-        });
-        statsEl.appendChild(link);
-        statsEl.appendChild(document.createTextNode(')'));
-      }
     })
     .catch((err) => {
       console.error('[PlatformOverview] stats query failed:', err?.message ?? err, err);
       statsEl.textContent = `Summary unavailable: ${err?.message ?? err}`;
     });
-}
-
-function downloadFailedUpgrades(coord, platformTableName, assetNameCol, assetFilter) {
-  let nameSql;
-  if (platformTableName && assetNameCol) {
-    nameSql = `SELECT DISTINCT ${assetNameCol} FROM ${platformTableName}`;
-  } else {
-    const filterCond = buildFilterCondition(assetFilter);
-    nameSql = `SELECT name FROM asset_basics WHERE ${filterCond}`;
-  }
-
-  coord
-    .query(
-      `SELECT * FROM metadata_upgrade WHERE status = 'failed' AND name IN (${nameSql})`,
-    )
-    .then((result) => {
-      const rows = Array.isArray(result)
-        ? result
-        : Array.isArray(result?.data)
-          ? result.data
-          : Array.from(result ?? []);
-      if (!rows.length) return;
-
-      const cols = Object.keys(rows[0]);
-      const csvLines = [
-        cols.join(','),
-        ...rows.map((r) =>
-          cols
-            .map((c) => {
-              const v = r[c] ?? '';
-              const s = String(v);
-              return s.includes(',') || s.includes('"') || s.includes('\n')
-                ? `"${s.replace(/"/g, '""')}"` : s;
-            })
-            .join(','),
-        ),
-      ];
-      const blob = new Blob([csvLines.join('\n')], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${platformTableName ?? 'platform'}_failed_upgrades.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    })
-    .catch((err) => console.error('[PlatformOverview] download failed:', err));
 }
 
 /**
