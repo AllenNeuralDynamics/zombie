@@ -54,25 +54,16 @@ function drSessionId(event, subjectId) {
 }
 
 /**
- * Build a session-playback element for a qualifying acquisition event, or
+ * Build the platform-specific player mount for a qualifying acquisition, or
  * null if the event does not qualify (or required context is missing).
  *
- * The returned element loads its data asynchronously and shows its own status
- * line, so callers can append it synchronously.
- *
- * @param {object} event - Subject timeline acquisition event.
- * @param {object} [context]
- * @param {object} [context.coordinator] - DuckDB coordinator.
- * @param {string} [context.subjectId]   - Subject ID (for DR session id).
+ * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'} platform
+ * @param {object} event   - Subject timeline acquisition event.
+ * @param {object} context - { coordinator, subjectId }.
+ * @param {object} coord   - DuckDB coordinator.
  * @returns {HTMLElement|null}
  */
-export function createSessionPlayback(event, context = {}) {
-  const platform = detectPlaybackPlatform(event);
-  if (!platform) return null;
-
-  const coord = context.coordinator ?? null;
-  if (!coord) return null;
-
+function buildPlatformPlayer(platform, event, context, coord) {
   // Synchronous placeholder; the real widget replaces it after its lazy import.
   const mount = document.createElement('div');
   mount.className = 'session-playback-mount';
@@ -114,4 +105,55 @@ export function createSessionPlayback(event, context = {}) {
   }
 
   return null;
+}
+
+/**
+ * Build a session-playback element for an acquisition event, or null if the
+ * event qualifies for neither a platform player nor a fiber-photometry panel
+ * (or required context is missing).
+ *
+ * When the acquisition has corresponding fiber-photometry traces, a fiber
+ * panel is appended below the platform player. The panel loads its own data
+ * asynchronously and removes itself if no fiber data exists for the asset.
+ *
+ * The returned element loads its data asynchronously and shows its own status
+ * line, so callers can append it synchronously.
+ *
+ * @param {object} event - Subject timeline acquisition event.
+ * @param {object} [context]
+ * @param {object} [context.coordinator] - DuckDB coordinator.
+ * @param {string} [context.subjectId]   - Subject ID (for DR session id / fiber).
+ * @returns {HTMLElement|null}
+ */
+export function createSessionPlayback(event, context = {}) {
+  if (!event || event.type !== 'Acquisition') return null;
+
+  const coord = context.coordinator ?? null;
+  if (!coord) return null;
+
+  const platform = detectPlaybackPlatform(event);
+  const subjectId = context.subjectId ?? event.data?.subject_id ?? null;
+  const rawAssetName = event.data?._assetName ?? null;
+  const canFiber = !!(subjectId && rawAssetName);
+
+  if (!platform && !canFiber) return null;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'session-playback-wrapper';
+
+  if (platform) {
+    const playerEl = buildPlatformPlayer(platform, event, context, coord);
+    if (playerEl) wrapper.appendChild(playerEl);
+  }
+
+  if (canFiber) {
+    const fiberMount = document.createElement('div');
+    wrapper.appendChild(fiberMount);
+    import('../../fiber_photometry/fib-playback.js')
+      .then(({ createFibPlayback }) =>
+        fiberMount.appendChild(createFibPlayback(coord, String(subjectId), rawAssetName)))
+      .catch((err) => { console.error('[playback] fiber load failed', err); });
+  }
+
+  return wrapper;
 }

@@ -52,7 +52,7 @@ export function createCombinedView(opts = {}) {
   let currentSubject = initialSubject || '';
   let currentProject = initialProject || '';
   let currentAsset = initialAsset || '';
-  let _preserveAsset = false;
+  let _preserveAsset = !!initialAsset;
 
   // ── Section scaffolding ──────────────────────────────────────────────────
   const { details: projectDetails, body: projectBody } =

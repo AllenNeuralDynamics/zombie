@@ -23,6 +23,28 @@
   margin-top: 1.25rem;
 }
 
+/* ---- Two-column layout: PSTH (left) next to traces (right) ---- */
+.fib-row {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.fib-psth-col {
+  flex: 0 1 420px;
+  min-width: 0;
+}
+
+.fib-traces-col {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 900px) {
+  .fib-row { flex-direction: column; }
+  .fib-psth-col { flex-basis: auto; width: 100%; }
+}
+
 .fib-loading,
 .fib-loading-inner {
   color: var(--text-muted);
