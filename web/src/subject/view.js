@@ -365,11 +365,13 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
 
     // Expose acquisition selection to the combined view and honour any
     // acquisition requested before this load completed (e.g. project dot click).
+    let pendingHighlight = null;
     if (root) {
       root._selectAcquisition = (name) => timelineSvg.selectAcquisition?.(name);
       if (root._pendingAcquisition) {
         const target = root._pendingAcquisition;
         root._pendingAcquisition = null;
+        pendingHighlight = target;
         // Defer until the bubble strip has laid out.
         requestAnimationFrame(() => timelineSvg.selectAcquisition?.(target));
       }
@@ -387,6 +389,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         if (!result) return;
         const { tableEl, assets } = result;
         assetsTableEl = tableEl;
+        if (pendingHighlight) assetsTableEl.goToAsset?.(pendingHighlight);
         // Report the most-recent asset's project to the combined view so it can
         // populate the project section when the subject was opened first.
         if (onSubjectLoaded) {
