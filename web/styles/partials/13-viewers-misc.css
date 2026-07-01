@@ -957,6 +957,10 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.vrf-player .vrf-videos-row .video-gate-container,
+.vrf-player .vrf-videos-row .vrf-videos-panel {
+  display: contents;
+}
 .vrf-player .vrf-video-wrap {
   flex: 1 1 0;
   min-width: 0;

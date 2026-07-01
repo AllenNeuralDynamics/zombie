@@ -400,11 +400,7 @@ export function createVrfSessionPlayback(coord, rawName) {
         const rawBase = s3LocationToHttps(rawLocation);
         loadCameraSync(rawBase, ctrl.signal).then((cameraSyncs) => {
           if (ctrl.signal.aborted || !cameraSyncs.length) return;
-          const videos = buildVideoPanel(videosRow, rawBase, cameraSyncs, traces.t0_offset);
-          videosEl.hidden = false;
-          animation.videos = videos;
-          const speedWarningEl = root.querySelector('#vrf-videos-speed-warning');
-          if (speedWarningEl) speedWarningEl.hidden = animation.speed === 1;
+          mountGatedVideos(root, animation, videosEl, videosRow, rawBase, cameraSyncs, traces.t0_offset);
         }).catch((err) => {
           console.warn('[VRF] camera video load failed', err);
         });
@@ -502,6 +498,7 @@ function mountGatedVideos(root, animation, videosEl, videosRow, rawBase, cameraS
   videosRow.innerHTML = '';
   videosRow.appendChild(withVideoGate(() => {
     const panel = document.createElement('div');
+    panel.className = 'vrf-videos-panel';
     const videos = buildVideoPanel(panel, rawBase, cameraSyncs, t0Harp);
     animation.videos = videos;
     // Show speed warning if already at >1× when videos become available.

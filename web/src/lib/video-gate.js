@@ -27,6 +27,20 @@ const PASSWORD_SHA256 =
 const COOKIE_NAME = 'aind_video_unlocked';
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year, in seconds
 
+const INTERNAL_NETWORK_URL = 'http://aind-metadata-service';
+const INTERNAL_NETWORK_TIMEOUT_MS = 3000;
+
+let _internalNetworkPromise = null;
+async function isOnInternalNetwork() {
+  if (_internalNetworkPromise === null) {
+    _internalNetworkPromise = fetch(INTERNAL_NETWORK_URL, {
+      mode: 'no-cors',
+      signal: AbortSignal.timeout(INTERNAL_NETWORK_TIMEOUT_MS),
+    }).then(() => true).catch(() => false);
+  }
+  return _internalNetworkPromise;
+}
+
 function readCookie(name) {
   const m = ('; ' + document.cookie).split(`; ${name}=`);
   if (m.length < 2) return null;
@@ -134,9 +148,22 @@ export function withVideoGate(build) {
 
   if (isVideoUnlocked()) {
     render();
-  } else {
-    container.appendChild(buildPrompt(render));
+    return container;
   }
+
+  const checking = document.createElement('p');
+  checking.className = 'video-gate-msg';
+  checking.textContent = 'Checking network…';
+  container.appendChild(checking);
+
+  isOnInternalNetwork().then((internal) => {
+    if (internal || isVideoUnlocked()) {
+      render();
+    } else {
+      container.innerHTML = '';
+      container.appendChild(buildPrompt(render));
+    }
+  });
 
   return container;
 }
