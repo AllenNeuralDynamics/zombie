@@ -39,7 +39,7 @@ export function detectPlaybackPlatform(event) {
 
   if (isForagingAcquisition(event)) return 'dynamic_foraging';
   if (data.acquisition_type === VRF_ACQUISITION_TYPE) return 'vr_foraging';
-  if (data._project_name === DR_PROJECT_NAME) return 'dynamic_routing';
+  if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
   return null;
 }
