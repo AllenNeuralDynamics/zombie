@@ -29,6 +29,7 @@ import {
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
 import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
+import { isISIAcquisition, createISIViewer } from './isi-viewer.js';
 import { escHtml, normalizeProtocolId } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
@@ -617,6 +618,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
 
   const hasEphys = hasEphysAssemblies(data);
   const hasImaging = hasImagingConfig(data);
+  const hasISI = isISIAcquisition(event);
 
   // Look up matching instrument for this acquisition
   const instrumentId = data.instrument_id ?? null;
@@ -624,7 +626,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   const instrumentData = instrumentId ? instruments.get(instrumentId) ?? null : null;
 
   // Simple case: no special data
-  if (!hasEphys && !hasImaging && !instrumentData) {
+  if (!hasEphys && !hasImaging && !hasISI && !instrumentData) {
     container.innerHTML = buildAcquisitionDetail(event);
     appendPlayback();
     return;
@@ -649,6 +651,10 @@ function renderAcquisitionDetail(event, container, context = {}) {
       return createImagingDetailsPanel(data);
     });
     tabDefs.push({ label: 'Imaging Details', content: imagingEl });
+  }
+
+  if (hasISI) {
+    tabDefs.push({ label: 'ISI Maps', content: createISIViewer(event, context.coordinator ?? null) });
   }
 
   if (instrumentData) {

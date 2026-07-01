@@ -2331,3 +2331,108 @@
   white-space: nowrap;
   font-weight: 600;
 }
+
+/* ===========================================================================
+   ISI (Intrinsic Signal Imaging) viewer
+   =========================================================================== */
+
+.isi-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.isi-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  padding: 6px 0;
+}
+
+.isi-toolbar-label {
+  font-weight: 600;
+  color: var(--color-muted, #666);
+}
+
+.isi-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.isi-opacity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.isi-opacity-slider {
+  width: 90px;
+  cursor: pointer;
+  accent-color: var(--color-accent, #2196F3);
+}
+
+.isi-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 min(50%, 800px);
+  max-width: min(50%, 800px);
+}
+
+.isi-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  border-radius: 4px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+}
+
+.isi-content-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.isi-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  pointer-events: none;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.isi-metrics {
+  flex: 1;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.isi-metrics-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--text-primary);
+}
+
+.isi-metrics-table-wrap {
+  overflow-x: auto;
+}
+
+.isi-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
