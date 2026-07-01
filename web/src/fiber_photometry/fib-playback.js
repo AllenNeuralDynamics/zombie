@@ -18,6 +18,8 @@
 
 import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
+import { queryDocDb } from '../lib/docdb.js';
+import { ITEM_COLORS } from '../subject/brain-viz.js';
 import * as Plot from '@observablehq/plot';
 
 // ---------------------------------------------------------------------------
@@ -30,13 +32,22 @@ const PSTH_POST   =  5;   // seconds after event
 const PSTH_BINS   = 100;
 const BIN_WIDTH   = (PSTH_POST - PSTH_PRE) / PSTH_BINS;
 
-// Map display label → trials column name
+// Map display label → trials column name. Ordered by within-trial progression.
 const PSTH_EVENTS = {
-  'Go cue':      'goCue_start_time_in_session',
-  'Trial start': 'bonsai_start_time_in_session',
-  'Reward':      'reward_time_in_session',
-  'Choice':      'choice_time_in_session',
+  'Trial start':    'bonsai_start_time_in_session',
+  'Delay start':    'delay_start_time_in_session',
+  'Go cue':         'goCue_start_time_in_session',
+  'Choice':         'choice_time_in_session',
+  'Reward':         'reward_time_in_session',
+  'Reward outcome': 'reward_outcome_time_in_session',
+  'Trial stop':     'bonsai_stop_time_in_session',
 };
+
+// Event selected by default when the panel opens.
+const PSTH_DEFAULT_EVENT = 'Go cue';
+
+// Default pre-event baseline window (milliseconds) when baselining is enabled.
+const BASELINE_DEFAULT_MS = 200;
 
 // Channel → colour mapping for trace plot
 const CHANNEL_COLORS = { G: '#22c55e', Iso: '#a855f7', R: '#ef4444' };
@@ -141,6 +152,77 @@ function sessionDate(rawAssetName) {
 }
 
 // ---------------------------------------------------------------------------
+// Fiber implant surgery (3D inset + per-fiber colours)
+// ---------------------------------------------------------------------------
+
+const _surgeryCache = new Map();
+
+/**
+ * Fetch the subject's implant surgery from DocDB and return the Surgery
+ * sub-record that contains Probe implant procedures, along with the
+ * procedures-level coordinate system.
+ *
+ * @returns {Promise<{surgeryData: object, proceduresCoordSys: object|null}|null>}
+ */
+async function loadSurgery(subjectId) {
+  const key = String(subjectId);
+  if (_surgeryCache.has(key)) return _surgeryCache.get(key);
+  const p = (async () => {
+    let records = [];
+    try {
+      records = await queryDocDb(
+        { 'subject.subject_id': key },
+        { projection: { procedures: 1 }, limit: 50 },
+      );
+    } catch { return null; }
+    for (const rec of records) {
+      const coordSys = rec.procedures?.coordinate_system ?? null;
+      for (const proc of (rec.procedures?.subject_procedures ?? [])) {
+        const hasImplant = (proc?.procedures ?? []).some(
+          (sp) => sp?.object_type === 'Probe implant' && sp.device_config,
+        );
+        if (hasImplant) return { surgeryData: proc, proceduresCoordSys: coordSys };
+      }
+    }
+    return null;
+  })();
+  _surgeryCache.set(key, p);
+  return p;
+}
+
+/**
+ * Build a per-fiber colour/structure map keyed by numeric fiber index.
+ * Colours are assigned in the same probe order used by the 3D brain viewer
+ * (ITEM_COLORS[i]) so PSTH/trace borders match the implant view.
+ *
+ * @returns {Map<number, {color: string, structureName: string, structureAcronym: string}>}
+ */
+function buildFiberColorInfo(surgery) {
+  const map = new Map();
+  if (!surgery?.surgeryData) return map;
+  const probes = (surgery.surgeryData.procedures ?? []).filter(
+    (p) => p?.object_type === 'Probe implant' && p.device_config,
+  );
+  probes.forEach((p, i) => {
+    const cfg = p.device_config ?? {};
+    const nameMatch = String(cfg.device_name ?? '').match(/(\d+)/);
+    const idx = nameMatch ? Number(nameMatch[1]) : i;
+    const struct = cfg.primary_targeted_structure ?? {};
+    map.set(idx, {
+      color: ITEM_COLORS[i % ITEM_COLORS.length],
+      structureName: struct.name ?? '',
+      structureAcronym: struct.acronym ?? '',
+    });
+  });
+  return map;
+}
+
+/** Colour for a fiber, falling back to the palette by ordinal position. */
+function fiberColor(fiberInfoMap, idx, order) {
+  return fiberInfoMap.get(idx)?.color ?? ITEM_COLORS[order % ITEM_COLORS.length];
+}
+
+// ---------------------------------------------------------------------------
 // Fiber trace plot
 // ---------------------------------------------------------------------------
 
@@ -210,21 +292,24 @@ async function loadEventTimes(coord, subjectId, rawAssetName, eventCol) {
   return rows.map((r) => r.t);
 }
 
-function buildTracePlot(rows, eventTimes = [], width = 700) {
+function buildTracePlot(rows, eventTimes = [], width = 700, opts = {}) {
   const channels = CHANNEL_ORDER.filter((c) => rows.some((r) => r.channel === c));
+  const { yDomain = undefined, height = 220, compact = false } = opts;
 
   return Plot.plot({
-    height: 220,
+    height,
     width:  Math.max(360, width),
-    marginLeft: 60,
-    style:  { background: 'transparent', fontFamily: 'inherit', fontSize: 11 },
+    marginLeft: compact ? 46 : 60,
+    marginTop: 8,
+    marginBottom: compact ? 22 : 30,
+    style:  { background: 'transparent', fontFamily: 'inherit', fontSize: compact ? 9 : 11 },
     color: {
       domain: channels,
       range:  channels.map(c => CHANNEL_COLORS[c] ?? '#888'),
-      legend: true,
+      legend: !compact,
     },
-    x:  { label: 'Session time (s)' },
-    y:  { label: 'ΔF/F', grid: true },
+    x:  { label: compact ? null : 'Session time (s)' },
+    y:  { label: compact ? null : 'ΔF/F', grid: true, ...(yDomain ? { domain: yDomain } : {}) },
     marks: [
       Plot.ruleX(eventTimes, { stroke: '#888', strokeOpacity: 0.35, strokeWidth: 0.6 }),
       Plot.lineY(rows, {
@@ -233,6 +318,43 @@ function buildTracePlot(rows, eventTimes = [], width = 700) {
       }),
     ],
   });
+}
+
+/**
+ * Build a small trace card for a single fiber, with a coloured left border
+ * matching the fiber implant colour and an equal (shared) Y-axis domain.
+ */
+function buildTraceCard(rows, eventTimes, yDomain, borderColor, area, width) {
+  const card = document.createElement('div');
+  card.className = 'fib-trace-card';
+  card.style.borderColor = borderColor;
+
+  if (area) {
+    const label = document.createElement('div');
+    label.className = 'fib-trace-label';
+    label.style.color = borderColor;
+    label.textContent = area;
+    card.appendChild(label);
+  }
+
+  card.appendChild(buildTracePlot(rows, eventTimes, width, {
+    yDomain, height: 130, compact: true,
+  }));
+  return card;
+}
+
+/** Compute a shared [min, max] Y domain across every fiber's trace rows. */
+function sharedYDomain(rowsByFiber) {
+  let lo = Infinity, hi = -Infinity;
+  for (const rows of rowsByFiber.values()) {
+    for (const r of rows) {
+      if (r.v < lo) lo = r.v;
+      if (r.v > hi) hi = r.v;
+    }
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
+  if (lo === hi) { lo -= 1; hi += 1; }
+  return [lo, hi];
 }
 
 // ---------------------------------------------------------------------------
@@ -297,33 +419,68 @@ function buildMeanData(rawRows) {
   }).filter(Boolean);
 }
 
-function buildPsthPlots(rawRows, meta, width = 420) {
-  const channels = CHANNEL_ORDER.filter(
-    (c) => rawRows.some((r) => r.channel === c),
-  );
+/**
+ * Subtract a per-trial, per-channel baseline (mean ΔF/F over the pre-event
+ * window [-baselineSec, 0)) from each sample.  Returns the rows unchanged when
+ * baselineSec is not a positive number.
+ */
+function applyBaseline(rawRows, baselineSec) {
+  if (!(baselineSec > 0)) return rawRows;
+  const base = new Map(); // "trial|channel" → { sum, n }
+  for (const r of rawRows) {
+    if (r.t_rel >= -baselineSec && r.t_rel < 0) {
+      const k = `${r.trial}|${r.channel}`;
+      const e = base.get(k) ?? { sum: 0, n: 0 };
+      e.sum += r.v; e.n += 1;
+      base.set(k, e);
+    }
+  }
+  return rawRows.map((r) => {
+    const e = base.get(`${r.trial}|${r.channel}`);
+    const b = e && e.n ? e.sum / e.n : 0;
+    return { ...r, v: r.v - b };
+  });
+}
 
+/**
+ * Compute the binned mean±SEM series (one entry per channel/time-bin) for a
+ * fiber, optionally baseline-corrected.  Returns { allMean, channels }.
+ */
+function computePsthSeries(rawRows, baselineSec = 0) {
+  const rows = applyBaseline(rawRows, baselineSec);
+  const channels = CHANNEL_ORDER.filter((c) => rows.some((r) => r.channel === c));
   const allMean = [];
   for (const ch of channels) {
-    const md = buildMeanData(rawRows.filter((r) => r.channel === ch));
+    const md = buildMeanData(rows.filter((r) => r.channel === ch));
     for (const d of md) allMean.push({ ...d, channel: ch });
   }
+  return { allMean, channels };
+}
 
-  const struct = meta?.targetedStructure || '?';
-  const legendData = channels.map((ch, i) => {
-    const meas = meta?.channels?.[ch];
-    const measLabel = meas && meas !== 'missing' ? meas : 'none';
-    return { channel: ch, label: `${measLabel}/${struct}`, i };
-  });
+/** Shared [min, max] Y domain (incl. SEM bands) across several PSTH series. */
+function psthYDomain(seriesList) {
+  let lo = Infinity, hi = -Infinity;
+  for (const s of seriesList) {
+    for (const d of s.allMean) {
+      if (d.lo < lo) lo = d.lo;
+      if (d.hi > hi) hi = d.hi;
+    }
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return undefined;
+  if (lo === hi) { lo -= 1; hi += 1; }
+  return [lo, hi];
+}
 
-  const plot = Plot.plot({
-    height: 240,
-    width:  Math.max(300, width),
-    marginLeft: 60,
-    marginTop: 14,
-    marginRight: 14,
-    style:  { background: 'transparent', fontFamily: 'inherit', fontSize: 11 },
+function buildPsthPlot({ allMean, channels }, yDomain, width = 320) {
+  return Plot.plot({
+    height: 200,
+    width:  Math.max(220, width),
+    marginLeft: 44,
+    marginTop: 8,
+    marginRight: 10,
+    style:  { background: 'transparent', fontFamily: 'inherit', fontSize: 10 },
     x: { domain: [PSTH_PRE, PSTH_POST], label: 'Time rel. event (s)' },
-    y: { label: 'Mean ΔF/F', grid: true },
+    y: { label: 'Mean ΔF/F', grid: true, ...(yDomain ? { domain: yDomain } : {}) },
     color: { domain: channels, range: channels.map((c) => CHANNEL_COLORS[c] ?? '#888') },
     marks: [
       Plot.areaY(allMean, {
@@ -336,22 +493,46 @@ function buildPsthPlots(rawRows, meta, width = 420) {
       }),
       Plot.ruleX([0], { stroke: '#888', strokeDasharray: '3,3' }),
       Plot.ruleY([0], { stroke: '#555', strokeOpacity: 0.4 }),
-      ...legendData.map((d) => Plot.text([d.label], {
-        frameAnchor: 'top-right',
-        text: (x) => x,
-        fill: CHANNEL_COLORS[d.channel] ?? '#888',
-        textAnchor: 'end',
-        fontWeight: 600,
-        dx: -4,
-        dy: 6 + d.i * 14,
-      })),
     ],
   });
+}
 
-  const container = document.createElement('div');
-  container.className = 'psth-plots';
-  container.appendChild(plot);
-  return container;
+/**
+ * Build a PSTH card for a single fiber.  Header shows the targeted area in
+ * large text (coloured with the fiber implant colour) and, below it, each
+ * channel's intended measurement in the channel colour.  A coloured left
+ * border matches the implant colour in the 3D view.  The plot uses the shared
+ * `yDomain` so all fibers are on an identical scale.
+ */
+function buildPsthCard(series, meta, borderColor, area, yDomain, width) {
+  const card = document.createElement('div');
+  card.className = 'fib-psth-card';
+  card.style.borderColor = borderColor;
+
+  const header = document.createElement('div');
+  header.className = 'fib-psth-header';
+
+  const areaEl = document.createElement('div');
+  areaEl.className = 'fib-psth-area';
+  areaEl.style.color = borderColor;
+  areaEl.textContent = area || '?';
+  header.appendChild(areaEl);
+
+  const measEl = document.createElement('div');
+  measEl.className = 'fib-psth-meas';
+  for (const ch of series.channels) {
+    const meas = meta?.channels?.[ch];
+    const measLabel = meas && meas !== 'missing' ? meas : 'none';
+    const span = document.createElement('span');
+    span.style.color = CHANNEL_COLORS[ch] ?? '#888';
+    span.textContent = measLabel;
+    measEl.appendChild(span);
+  }
+  header.appendChild(measEl);
+  card.appendChild(header);
+
+  card.appendChild(buildPsthPlot(series, yDomain, width));
+  return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,25 +571,142 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
 
     if (!hasData) { section.remove(); return; }
 
+    // Fetch the implant surgery in parallel (drives the 3D inset + colours).
+    const surgeryPromise = loadSurgery(subjectId);
+
+    const eventOptions = Object.keys(PSTH_EVENTS)
+      .map(e => `<option${e === PSTH_DEFAULT_EVENT ? ' selected' : ''}>${e}</option>`)
+      .join('');
+
     section.innerHTML = `
-      <div class="fib-row">
+      <div class="fib-controls">
+        <label>Align to
+          <select class="psth-event-sel">${eventOptions}</select>
+        </label>
+        <label class="fib-baseline-toggle">
+          <input type="checkbox" class="psth-baseline-chk"> Baseline
+        </label>
+        <label class="fib-baseline-ms">
+          <input type="number" class="psth-baseline-ms" value="${BASELINE_DEFAULT_MS}"
+                 min="0" step="50" disabled> ms
+        </label>
+      </div>
+      <div class="fib-top">
+        <div class="fib-3d-col">
+          <h4 class="fib-section-heading">Implant</h4>
+          <div class="fib-3d-inset"><p class="fib-loading">Loading\u2026</p></div>
+        </div>
         <div class="fib-psth-col">
           <h4 class="fib-section-heading">PSTH</h4>
-          <div class="fib-psth-container">
-            <p class="fib-loading">Loading\u2026</p>
-          </div>
+          <div class="fib-psth-grid"><p class="fib-loading">Loading\u2026</p></div>
         </div>
-        <div class="fib-traces-col">
-          <h4 class="fib-section-heading">Fiber Photometry Traces</h4>
-          <div class="fib-traces-container fib-loading-inner">Loading traces\u2026</div>
-        </div>
+      </div>
+      <div class="fib-traces-section">
+        <h4 class="fib-section-heading">Fiber Photometry Traces</h4>
+        <div class="fib-traces-grid fib-loading-inner">Loading traces\u2026</div>
       </div>
     `;
 
-    const tracesEl = section.querySelector('.fib-traces-container');
-    const psthEl   = section.querySelector('.fib-psth-container');
+    const inset3dEl  = section.querySelector('.fib-3d-inset');
+    const tracesEl   = section.querySelector('.fib-traces-grid');
+    const psthEl     = section.querySelector('.fib-psth-grid');
+    const eventSel   = section.querySelector('.psth-event-sel');
+    const baselineChk = section.querySelector('.psth-baseline-chk');
+    const baselineMs  = section.querySelector('.psth-baseline-ms');
 
-    // ---- PSTH: check if trial data exists ----
+    // Resolve implant surgery → per-fiber colours + 3D inset.
+    const surgery      = await surgeryPromise;
+    const fiberInfoMap = buildFiberColorInfo(surgery);
+
+    if (surgery?.surgeryData) {
+      import('../subject/brain-viz-3d.js')
+        .then(({ createBrainViz3D }) => {
+          const viz = createBrainViz3D(surgery.surgeryData, surgery.proceduresCoordSys);
+          viz.style.height = '100%';
+          inset3dEl.innerHTML = '';
+          inset3dEl.appendChild(viz);
+        })
+        .catch((err) => {
+          console.error('[fib-playback] 3D inset error', err);
+          inset3dEl.innerHTML = '<p class="fib-no-data">3D view unavailable.</p>';
+        });
+    } else {
+      section.querySelector('.fib-3d-col')?.remove();
+    }
+
+    // ---- Fiber list + metadata ----
+    let combos = [];
+    try {
+      combos = await queryRows(coord,
+        `SELECT DISTINCT CAST(fiber AS INT) AS fiber
+         FROM read_parquet(${fibSrc})
+         WHERE asset_name LIKE '${prefix}%'
+         ORDER BY fiber`
+      );
+    } catch {
+      psthEl.innerHTML  = '<p class="fib-no-data">Could not load fiber list.</p>';
+      tracesEl.textContent = 'Could not load fiber list.';
+      return;
+    }
+
+    const fibers    = [...new Set(combos.map(r => r.fiber))].sort((a, b) => a - b);
+    const fiberMeta = await loadFiberMeta(coord, rawAssetName);
+    const tRef      = await loadSessionRef(coord, subjectId, rawAssetName);
+
+    const areaFor = (idx) => {
+      const info = fiberInfoMap.get(idx);
+      return fiberMeta.get(idx)?.targetedStructure
+        || info?.structureAcronym || info?.structureName || '';
+    };
+
+    /** Width of one cell in a 2-column grid container. */
+    const cellWidth = (gridEl) => Math.max(220, Math.floor((gridEl.clientWidth - 12) / 2) - 14);
+
+    /** Current baseline window in seconds, or 0 when disabled. */
+    const currentBaselineSec = () => {
+      if (!baselineChk.checked) return 0;
+      const ms = Number(baselineMs.value);
+      return Number.isFinite(ms) && ms > 0 ? ms / 1000 : 0;
+    };
+
+    // ---- Traces: load every fiber once, cache, share a common Y-axis ----
+    const traceCache = new Map();
+    let traceYDomain;
+    async function ensureTraces() {
+      if (traceCache.size) return;
+      const results = await Promise.all(
+        fibers.map(f => loadTraces(coord, fibSrc, rawAssetName, f, tRef)),
+      );
+      fibers.forEach((f, i) => traceCache.set(f, results[i]));
+      traceYDomain = sharedYDomain(traceCache);
+    }
+
+    async function refreshTraces(eventCol) {
+      try {
+        await ensureTraces();
+        const eventTimes = eventCol
+          ? await loadEventTimes(coord, subjectId, rawAssetName, eventCol)
+          : [];
+        const width = cellWidth(tracesEl);
+        tracesEl.innerHTML = '';
+        let any = false;
+        fibers.forEach((f, order) => {
+          const rows = traceCache.get(f) ?? [];
+          if (!rows.length) return;
+          any = true;
+          const color = fiberColor(fiberInfoMap, f, order);
+          tracesEl.appendChild(
+            buildTraceCard(rows, eventTimes, traceYDomain, color, areaFor(f), width),
+          );
+        });
+        if (!any) tracesEl.textContent = 'No trace data available.';
+      } catch (err) {
+        console.error('[fib-playback] trace error', err);
+        tracesEl.textContent = 'Error loading fiber traces.';
+      }
+    }
+
+    // ---- PSTH: check trial availability ----
     const date = sessionDate(rawAssetName);
     let hasTrials = false;
     if (date) {
@@ -423,96 +721,75 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
 
     if (!hasTrials) {
       psthEl.innerHTML = '<p class="fib-no-data">No trial data available for PSTH.</p>';
-      try {
-        const firstFiber = (await queryRows(coord,
-          `SELECT MIN(CAST(fiber AS INT)) AS f FROM read_parquet(${fibSrc}) WHERE asset_name LIKE '${prefix}%'`
-        ))[0]?.f ?? 0;
-        const rows = await loadTraces(coord, fibSrc, rawAssetName, firstFiber);
-        tracesEl.innerHTML = '';
-        if (rows.length > 0) tracesEl.appendChild(buildTracePlot(rows, [], tracesEl.clientWidth));
-        else tracesEl.textContent = 'No trace data available.';
-      } catch (err) {
-        console.error('[fib-playback] trace error', err);
-        tracesEl.textContent = 'Error loading fiber traces.';
-      }
+      eventSel.disabled = true;
+      baselineChk.disabled = true;
+      baselineMs.disabled = true;
+      await refreshTraces(null);
       return;
     }
 
-    // Get unique fibers and per-fiber/channel metadata
-    let combos = [];
-    try {
-      combos = await queryRows(coord,
-        `SELECT DISTINCT CAST(fiber AS INT) AS fiber
-         FROM read_parquet(${fibSrc})
-         WHERE asset_name LIKE '${prefix}%'
-         ORDER BY fiber`
+    // Raw PSTH rows cached per event column (baseline is applied at render time).
+    const psthRawCache = new Map();
+    async function loadPsthAll(eventCol) {
+      if (psthRawCache.has(eventCol)) return psthRawCache.get(eventCol);
+      const results = await Promise.all(
+        fibers.map(f => loadPsthData(coord, fibSrc, subjectId, rawAssetName, eventCol, f)),
       );
-    } catch (err) {
-      psthEl.innerHTML = '<p class="fib-no-data">Could not load fiber list.</p>';
-      return;
+      psthRawCache.set(eventCol, results);
+      return results;
     }
 
-    const fibers   = [...new Set(combos.map(r => r.fiber))].sort((a, b) => a - b);
-    const fiberMeta = await loadFiberMeta(coord, rawAssetName);
-    const tRef      = await loadSessionRef(coord, subjectId, rawAssetName);
+    /** Render the 2×2 PSTH grid from cached raw rows using the current baseline. */
+    function renderPsth(results) {
+      const baselineSec = currentBaselineSec();
+      const withData = fibers
+        .map((f, order) => ({ f, order, rows: results[order] }))
+        .filter((s) => s.rows && s.rows.length);
 
-    psthEl.innerHTML = `
-      <div class="psth-controls">
-        <label>Event
-          <select class="psth-event-sel">
-            ${Object.keys(PSTH_EVENTS).map(e => `<option>${e}</option>`).join('')}
-          </select>
-        </label>
-        <label>Fiber
-          <select class="psth-fiber-sel">
-            ${fibers.map(f => `<option value="${f}">${f}</option>`).join('')}
-          </select>
-        </label>
-      </div>
-      <div class="psth-plot-area"><p class="fib-loading">Loading\u2026</p></div>
-    `;
+      if (!withData.length) { psthEl.textContent = 'No data for this selection.'; return; }
 
-    const plotArea  = psthEl.querySelector('.psth-plot-area');
-    const eventSel  = psthEl.querySelector('.psth-event-sel');
-    const fiberSel  = psthEl.querySelector('.psth-fiber-sel');
+      const computed = withData.map((s) => ({
+        ...s, series: computePsthSeries(s.rows, baselineSec),
+      }));
+      const yDomain = psthYDomain(computed.map((c) => c.series));
+      const width = cellWidth(psthEl);
 
-    async function refreshTraces(eventCol, fiberIdx) {
-      tracesEl.innerHTML = '<p class="fib-loading">Loading traces\u2026</p>';
-      try {
-        const [rows, eventTimes] = await Promise.all([
-          loadTraces(coord, fibSrc, rawAssetName, fiberIdx, tRef),
-          loadEventTimes(coord, subjectId, rawAssetName, eventCol),
-        ]);
-        tracesEl.innerHTML = '';
-        if (rows.length > 0) {
-          tracesEl.appendChild(buildTracePlot(rows, eventTimes, tracesEl.clientWidth));
-        } else {
-          tracesEl.textContent = 'No trace data available.';
-        }
-      } catch (err) {
-        console.error('[fib-playback] trace error', err);
-        tracesEl.textContent = 'Error loading fiber traces.';
+      psthEl.innerHTML = '';
+      for (const c of computed) {
+        const color = fiberColor(fiberInfoMap, c.f, c.order);
+        psthEl.appendChild(
+          buildPsthCard(c.series, fiberMeta.get(c.f), color, areaFor(c.f), yDomain, width),
+        );
       }
     }
 
     async function refreshPsth() {
-      plotArea.innerHTML = '<p class="fib-loading">Loading PSTH\u2026</p>';
-      const eventCol   = PSTH_EVENTS[eventSel.value];
-      const fiberIdx   = Number(fiberSel.value);
-      refreshTraces(eventCol, fiberIdx);
+      const eventCol = PSTH_EVENTS[eventSel.value];
+      refreshTraces(eventCol);
+      psthEl.innerHTML = '<p class="fib-loading">Loading PSTH\u2026</p>';
       try {
-        const rows = await loadPsthData(coord, fibSrc, subjectId, rawAssetName, eventCol, fiberIdx);
-        if (!rows || !rows.length) { plotArea.textContent = 'No data for this selection.'; return; }
-        plotArea.innerHTML = '';
-        plotArea.appendChild(buildPsthPlots(rows, fiberMeta.get(fiberIdx), plotArea.clientWidth));
+        const results = await loadPsthAll(eventCol);
+        renderPsth(results);
       } catch (err) {
         console.error('[fib-playback] psth error', err);
-        plotArea.textContent = 'Error loading PSTH data.';
+        psthEl.textContent = 'Error loading PSTH data.';
       }
     }
 
+    /** Re-render PSTH from cache when only the baseline changed (no reload). */
+    function rerenderBaseline() {
+      const results = psthRawCache.get(PSTH_EVENTS[eventSel.value]);
+      if (results) renderPsth(results);
+    }
+
     eventSel.addEventListener('change', refreshPsth);
-    fiberSel.addEventListener('change', refreshPsth);
+    baselineChk.addEventListener('change', () => {
+      baselineMs.disabled = !baselineChk.checked;
+      rerenderBaseline();
+    });
+    baselineMs.addEventListener('change', () => {
+      if (baselineChk.checked) rerenderBaseline();
+    });
     await refreshPsth();
   })();
 
