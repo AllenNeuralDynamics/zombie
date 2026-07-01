@@ -277,6 +277,41 @@ export function aggregateByProject(rawRows, selectedExperimenters) {
 }
 
 /**
+ * Normalise a raw `protocol_id` value to a canonical `https://dx.doi.org/…` URL.
+ *
+ * Handled input formats:
+ *   "dx.doi.org/10.17504/protocols.io.SLUG/vN"
+ *   "https://dx.doi.org/10.17504/protocols.io.SLUG/vN"
+ *   "10.17504/protocols.io.SLUG/vN"
+ *   "protocols.io.SLUG/vN"   (shorthand without DOI prefix)
+ *   "https://www.protocols.io/view/SLUG"
+ *
+ * @param {string|null|undefined} raw
+ * @returns {string|null} Canonical URL, or null if not recognisable.
+ */
+export function normalizeProtocolId(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+
+  if (/^https?:\/\/(www\.)?protocols\.io\//i.test(s)) {
+    return s;
+  }
+
+  s = s.replace(/^https?:\/\//i, '');
+  s = s.replace(/^(dx\.doi\.org|doi\.org)\//i, '');
+
+  if (/^protocols\.io\./i.test(s)) {
+    s = `10.17504/${s}`;
+  }
+
+  if (/^10\.\d{4,}\//.test(s)) {
+    return `https://dx.doi.org/${s}`;
+  }
+
+  return null;
+}
+
+/**
  * Generate a CSV file and trigger download using papaparse.
  * @param {string} filename
  * @param {string[]} headers

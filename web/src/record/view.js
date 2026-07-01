@@ -11,9 +11,26 @@
  *   renderJsonValue()   — Pure helper, exported for unit tests.
  */
 
-import { escHtml } from '../lib/utils.js';
+import { escHtml, normalizeProtocolId } from '../lib/utils.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { buildCoLink } from '../assets/links.js';
+
+// ---------------------------------------------------------------------------
+// Protocol title fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchProtocolTitle(canonicalUrl) {
+  try {
+    const doi = canonicalUrl.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+    const res = await fetch(`https://api.crossref.org/works/${doi}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const titles = data?.message?.title;
+    return Array.isArray(titles) && titles.length > 0 ? titles[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // JSON tree renderer
@@ -77,6 +94,18 @@ export function renderJsonValue(value, parentKey = null) {
     if (parentKey === 'Code Ocean' && value) {
       const href = buildCoLink(value);
       if (href) return makeLink(href, value);
+    }
+    if (parentKey === 'protocol_id' && value) {
+      const url = normalizeProtocolId(value);
+      if (url) {
+        const a = makeLink(url, value);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        fetchProtocolTitle(url).then((title) => {
+          if (title) a.textContent = title;
+        });
+        return a;
+      }
     }
     const span = document.createElement('span');
     span.className = 'json-string';

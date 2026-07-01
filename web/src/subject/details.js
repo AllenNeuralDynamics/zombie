@@ -29,6 +29,40 @@ import {
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
 import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
+import { escHtml, normalizeProtocolId } from '../lib/utils.js';
+
+// ---------------------------------------------------------------------------
+// Protocol helpers
+// ---------------------------------------------------------------------------
+
+async function fetchProtocolTitle(canonicalUrl) {
+  try {
+    const doi = canonicalUrl.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+    const res = await fetch(`https://api.crossref.org/works/${doi}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const titles = data?.message?.title;
+    return Array.isArray(titles) && titles.length > 0 ? titles[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+function fmtProtocolId(raw) {
+  if (!raw) return 'Not specified';
+  const url = normalizeProtocolId(raw);
+  if (!url) return escHtml(String(raw));
+  return `<a href="${escHtml(url)}" data-protocol-url="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(String(raw))}</a>`;
+}
+
+export async function upgradeProtocolLinks(container) {
+  const links = container.querySelectorAll('[data-protocol-url]');
+  for (const a of links) {
+    const url = a.getAttribute('data-protocol-url');
+    const title = await fetchProtocolTitle(url);
+    if (title) a.textContent = title;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -340,7 +374,7 @@ export function buildCraniotomySubProcHtml(subProc) {
     <dt>Protective material</dt><dd>${fmtDetailValue(subProc.protective_material)}</dd>
     <dt>Implant part number</dt><dd>${fmtDetailValue(subProc.implant_part_number)}</dd>
     <dt>Dura removed</dt><dd>${fmtDetailBoolean(subProc.dura_removed)}</dd>
-    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+    <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
   </dl></div>`;
 }
 
@@ -351,7 +385,7 @@ export function buildHeadframeSubProcHtml(subProc) {
     <dt>Headframe material</dt><dd>${fmtDetailValue(subProc.headframe_material)}</dd>
     <dt>Well type</dt><dd>${fmtDetailValue(subProc.well_type)}</dd>
     <dt>Well part number</dt><dd>${fmtDetailValue(subProc.well_part_number)}</dd>
-    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+    <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
   </dl></div>`;
 }
 
@@ -360,7 +394,7 @@ function buildSubProcHtml(subProc) {
   if (type === 'Perfusion') {
     const specimens = (subProc.output_specimen_ids ?? []).join(', ') || 'Unknown';
     return `<div class="detail-card"><h4>Perfusion</h4><dl>
-      <dt>Protocol</dt><dd>${subProc.protocol_id ?? 'Not specified'}</dd>
+      <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
       <dt>Output specimens</dt><dd>${specimens}</dd>
     </dl></div>`;
   }
@@ -642,6 +676,7 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
     if (type === 'Probe implant' || type === 'Brain injection') continue;
     const el = document.createElement('div');
     el.innerHTML = buildSubProcHtml(sub);
+    upgradeProtocolLinks(el);
     tabDefs.push({ label: type, content: el });
   }
 
