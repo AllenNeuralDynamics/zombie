@@ -22,12 +22,12 @@
 //   node -e 'const c=require("crypto");console.log(c.createHash("sha256").update("aind-video-gate-v1:"+process.argv[1]).digest("hex"))' 'NEW_PASSWORD'
 const SALT = 'aind-video-gate-v1';
 const PASSWORD_SHA256 =
-  'ce069fa6f9e0a38914aac784f803f18792da2dcfa4a50b7d29bc3e451fb3cab8';
+  '7ba518dd047cf036f47f1aac33cf59e81b3d26ba0c75d2034578694fdaa847a1';
 
 const COOKIE_NAME = 'aind_video_unlocked';
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60; // 1 year, in seconds
 
-const INTERNAL_NETWORK_URL = 'http://aind-metadata-service';
+const INTERNAL_NETWORK_URL = 'https://aind-metadata-service';
 const INTERNAL_NETWORK_TIMEOUT_MS = 3000;
 
 let _internalNetworkPromise = null;
