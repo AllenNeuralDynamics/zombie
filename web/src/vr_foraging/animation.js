@@ -5,6 +5,8 @@
  * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
+import { patchColor } from './theme.js';
+
 export const CW = 480;
 export const CH = 120;
 const MOUSE_X      = 140;
@@ -388,7 +390,7 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      const odorColor   = this.odorPalette.get(s.patch_label) ?? C.patch;
+      const odorColor   = patchColor(s.patch_index);
       const outcomeColor = s.has_reward ? C.rewardBlue : C.rewardRed;
       const foT  = this._findOut[i];
       const known = foT != null && nowT >= foT;

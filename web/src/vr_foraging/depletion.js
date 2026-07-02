@@ -7,11 +7,9 @@
  */
 
 import * as Plot from '@observablehq/plot';
+import { patchColor, VELOCITY_COLOR } from './theme.js';
 
-const ACCENT          = '#f39c12';
-const REWARD_COLOR    = '#2980b9';
-const NOREWARD_COLOR  = '#c0392b';
-const CURRENT_OUTLINE = '#111111';
+const PAST_NOREWARD_COLOR = '#bbbbbb';
 
 /** Pre-index reward sites by patch_index for fast per-frame lookup. */
 export function buildPatchIndex(sites) {
@@ -31,6 +29,7 @@ export function updateDepletion(el, patchIndex, currentSite) {
 
   const rp    = currentSite.reward_probability;
   const rpStr = rp != null ? `${(rp * 100).toFixed(1)}%` : '–';
+  const pc    = patchColor(currentSite.patch_index);
 
   const label = document.createElement('div');
   label.className = 'vrf-prew';
@@ -38,10 +37,10 @@ export function updateDepletion(el, patchIndex, currentSite) {
 
   const chart = Plot.plot({
     width:        270,
-    height:       80,
+    height:       92,
     marginLeft:   30,
     marginBottom: 20,
-    marginTop:    6,
+    marginTop:    18,
     marginRight:  4,
     style: { background: 'transparent', color: '#666', fontFamily: 'inherit', fontSize: 10 },
     x: { label: null, axis: null },
@@ -51,10 +50,12 @@ export function updateDepletion(el, patchIndex, currentSite) {
         x: 'site_by_type_in_patch_index',
         y: (d) => d.reward_probability ?? 0,
         fill: (d) => {
-          if (d.site_index === currentSite.site_index) return CURRENT_OUTLINE;
-          if (d.start_time_s >= currentSite.start_time_s) return ACCENT;
-          return d.has_reward ? REWARD_COLOR : NOREWARD_COLOR;
+          if (d.start_time_s < currentSite.start_time_s && !d.has_reward) return PAST_NOREWARD_COLOR;
+          return pc;
         },
+        fillOpacity: (d) => (d.start_time_s > currentSite.start_time_s ? 0.35 : 1),
+        stroke: (d) => (d.site_index === currentSite.site_index ? VELOCITY_COLOR : 'none'),
+        strokeWidth: 1.5,
         title: (d) =>
           `site ${d.site_by_type_in_patch_index + 1}: P=${((d.reward_probability ?? 0) * 100).toFixed(0)}%`,
       }),

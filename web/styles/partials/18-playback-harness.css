@@ -147,7 +147,7 @@
   gap: 12px 18px;
 }
 .pb-player--vrf .pb-scrub-row { order: 1; flex: 1 1 100%; }
-.pb-player--vrf .pb-plot      { order: 2; flex: 0 0 auto; width: auto; }
+.pb-player--vrf .pb-plot      { order: 2; flex: 1 1 100%; width: 100%; min-width: 0; }
 .pb-player--vrf .pb-stage     { order: 3; flex: 1 1 360px; min-width: 0; }
 
 .pb-plot { width: 100%; }

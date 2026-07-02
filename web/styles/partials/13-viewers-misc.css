@@ -2436,3 +2436,46 @@
   vertical-align: middle;
   flex-shrink: 0;
 }
+
+
+/* ==== VR / Patch Foraging: running-velocity trace plot ==================== */
+.vrf-trace-wrap { position: relative; width: 100%; display: block; }
+.vrf-trace-marker-holder,
+.vrf-trace-vel-holder { width: 100%; }
+.vrf-trace-marker-holder svg,
+.vrf-trace-vel-holder svg { display: block; overflow: visible; }
+
+.vrf-trace-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: flex-end;
+  font-size: 11px;
+  color: var(--text-mut, #6a6a6a);
+  padding: 0 4px 4px 0;
+}
+.vrf-trace-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.vrf-lg-line   { width: 16px; height: 0; border-top: 1.5px solid #222; }
+.vrf-lg-square { width: 9px; height: 9px; border-radius: 1px; }
+.vrf-lg-dot    { width: 9px; height: 9px; border-radius: 50%; }
+.vrf-lg-tick   { width: 2px; height: 12px; }
+
+.vrf-trace-row-label { user-select: none; }
+
+.pb-player--vrf .pb-trial-info { display: flex; flex-direction: column; gap: 8px; }
+.vrf-stats-line { line-height: 1.5; }
+
+/* VRF stage: patch-depletion readout sits to the left of the corridor. */
+.pb-player--vrf .pb-stage {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr;
+  grid-template-areas:
+    "label label"
+    "info  canvas";
+  align-items: start;
+  column-gap: 16px;
+  row-gap: 6px;
+}
+.pb-player--vrf .pb-stage-label       { grid-area: label; }
+.pb-player--vrf .pb-trial-info        { grid-area: info; }
+.pb-player--vrf .pb-stage-canvas-wrap { grid-area: canvas; align-self: stretch; }

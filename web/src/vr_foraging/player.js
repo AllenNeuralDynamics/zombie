@@ -15,6 +15,8 @@
 
 import { VrfAnimation, loadSprites, findSiteAt, buildOdorPalette } from './animation.js';
 import { buildPatchIndex, updateDepletion }       from './depletion.js';
+import { createVrfTracePlot }                     from './trace-plot.js';
+import { patchColor }                             from './theme.js';
 import { loadVrfSession }                         from './nwb-loader.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
@@ -399,21 +401,35 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
       harness.setStatus(`Loaded ${sites.length} sites · ${traces.lick_t.length} licks (${ms} ms)`);
 
       const odorPalette = buildOdorPalette(sites);
-      const patchIndex  = buildPatchIndex(sites);
       const anim = new VrfAnimation(harness.canvas, sites, sprites, traces, { odorPalette });
 
-      // VRF has no brush/full "standard plot" — the plot slot instead carries
-      // the odor legend and per-patch depletion mini-chart.
-      const { plotEl, depletionEl } = _buildVrfPlotSlot(odorPalette);
+      // Standard patch-foraging figure: running velocity + patch-colour bands
+      // with Choices / Rewards / Licks rows above, plus a brushable zoom strip.
+      const tracePlot = createVrfTracePlot({ sites, traces });
+      const patchIndex = buildPatchIndex(sites);
 
+      let statsLine = null;
+      let depEl = null;
       let lastSiteIdx = -1;
       const trialInfo = (el, t) => {
         const site = findSiteAt(sites, t);
         if (!site) return;
-        _renderVrfStats(el, anim, sites, site, odorPalette, totalPatches);
+        if (!statsLine) {
+          el.innerHTML = '';
+          statsLine = document.createElement('div');
+          statsLine.className = 'vrf-stats-line';
+          const card = document.createElement('div');
+          card.className = 'vrf-card vrf-card--depletion';
+          card.innerHTML = '<div class="vrf-card-label">Patch depletion</div>';
+          depEl = document.createElement('div');
+          card.appendChild(depEl);
+          el.appendChild(statsLine);
+          el.appendChild(card);
+        }
+        _renderVrfStats(statsLine, anim, sites, site, odorPalette, totalPatches);
         if (site.site_index !== lastSiteIdx) {
           lastSiteIdx = site.site_index;
-          updateDepletion(depletionEl, patchIndex, site);
+          updateDepletion(depEl, patchIndex, site);
         }
       };
 
@@ -424,11 +440,9 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
           acquisitionType: opts.acquisitionType ?? '',
         },
         animation: anim,
-        plot: { element: plotEl },
-        stageLabel: 'Top-down view — mouse running through corridor →',
+        plot: tracePlot,
         trialInfo,
         onStep: (a, dir) => jumpPatch(a, sites, dir),
-        scrubBg: (canvas, duration) => drawScrubBg(canvas, sites, odorPalette, duration),
         videos: {
           base: s3LocationToHttps(rawLocation),
           t0: traces.t0_offset,
@@ -482,8 +496,8 @@ function _renderVrfStats(el, anim, sites, site, odorPalette, totalPatches) {
     stateHtml = `<span class="vrf-state-up">${site.site_label}</span>`;
   }
 
-  const swatch = site.site_label !== 'InterPatch' && odorPalette.has(site.patch_label)
-    ? `<span class="vrf-odor-dot" style="background:${odorPalette.get(site.patch_label)}"></span>`
+  const swatch = site.site_label === 'RewardSite'
+    ? `<span class="vrf-odor-dot" style="background:${patchColor(site.patch_index)}"></span>`
     : '';
   el.innerHTML =
     `<b>Patch ${site.patch_index + 1}/${totalPatches}</b> · ${swatch}${site.patch_label} · ` +
