@@ -77,11 +77,17 @@ function buildPlatformPlayer(platform, event, context, coord) {
     else loading.textContent = 'Session playback unavailable for this acquisition.';
   };
 
+  // Shared options: header metadata + raw asset location (for behavior videos).
+  const playerOpts = {
+    acquisitionType: event.data?.acquisition_type ?? '',
+    location: event.data?._location ?? null,
+  };
+
   if (platform === 'dynamic_foraging') {
     const session = extractForagingSessionInfo(event);
     if (!session) return null;
     import('../../dynamic_foraging/player.js')
-      .then(({ createDfSessionPlayback }) => swap(createDfSessionPlayback(coord, session)))
+      .then(({ createDfSessionPlayback }) => swap(createDfSessionPlayback(coord, session, playerOpts)))
       .catch((err) => { console.error('[playback] DF load failed', err); swap(null); });
     return mount;
   }
@@ -90,7 +96,7 @@ function buildPlatformPlayer(platform, event, context, coord) {
     const rawName = event.data?._assetName ?? null;
     if (!rawName) return null;
     import('../../vr_foraging/player.js')
-      .then(({ createVrfSessionPlayback }) => swap(createVrfSessionPlayback(coord, rawName)))
+      .then(({ createVrfSessionPlayback }) => swap(createVrfSessionPlayback(coord, rawName, playerOpts)))
       .catch((err) => { console.error('[playback] VRF load failed', err); swap(null); });
     return mount;
   }
@@ -99,7 +105,7 @@ function buildPlatformPlayer(platform, event, context, coord) {
     const sessionId = drSessionId(event, context.subjectId);
     if (!sessionId) return null;
     import('../../dynamic_routing/player.js')
-      .then(({ createDrSessionPlayback }) => swap(createDrSessionPlayback(coord, sessionId)))
+      .then(({ createDrSessionPlayback }) => swap(createDrSessionPlayback(coord, sessionId, playerOpts)))
       .catch((err) => { console.error('[playback] DR load failed', err); swap(null); });
     return mount;
   }
@@ -134,24 +140,40 @@ export function createSessionPlayback(event, context = {}) {
   const platform = detectPlaybackPlatform(event);
   const subjectId = context.subjectId ?? event.data?.subject_id ?? null;
   const rawAssetName = event.data?._assetName ?? null;
-  const canFiber = !!(subjectId && rawAssetName);
+  // Only offer the fiber panel when the acquisition actually has a fiber
+  // photometry modality. Otherwise the fiber panel silently removes itself
+  // (no data) and leaves an empty "Data" tab.
+  const modalities = event.modalities ?? [];
+  const hasFiberModality = modalities.some((m) => /^fib/i.test(String(m)));
+  const canFiber = !!(subjectId && rawAssetName && hasFiberModality);
 
   if (!platform && !canFiber) return null;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'session-playback-wrapper';
 
+  let hasPlayer = false;
   if (platform) {
     const playerEl = buildPlatformPlayer(platform, event, context, coord);
-    if (playerEl) wrapper.appendChild(playerEl);
+    if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
   }
 
   if (canFiber) {
     const fiberMount = document.createElement('div');
+    fiberMount.className = 'session-playback-modality';
     wrapper.appendChild(fiberMount);
     import('../../fiber_photometry/fib-playback.js')
-      .then(({ createFibPlayback }) =>
-        fiberMount.appendChild(createFibPlayback(coord, String(subjectId), rawAssetName)))
+      .then(({ createFibPlayback }) => {
+        const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName);
+        // Separate additional modalities (fiber, …) from the behavior player
+        // above with a horizontal rule.
+        if (hasPlayer) {
+          const hr = document.createElement('hr');
+          hr.className = 'session-playback-sep';
+          fiberMount.appendChild(hr);
+        }
+        fiberMount.appendChild(fiberEl);
+      })
       .catch((err) => { console.error('[playback] fiber load failed', err); });
   }
 

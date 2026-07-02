@@ -28,6 +28,8 @@ import {
   loadSpeakerIcon,
 } from './animation.js';
 import { createEventPlot } from './event-plot.js';
+import { createPlaybackHarness } from '../lib/behaviors/playback-harness.js';
+import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -229,30 +231,34 @@ export function createDrSessionPlayer(coord) {
 
 /**
  * Create a single-session DR playback widget (no subject/session dropdowns).
- * Used inside the subject timeline's Event Details panel.
+ * Used inside the subject viewer's "Data" tab. Built on the shared playback
+ * harness so transport, video loading/sync and speed warnings are common to
+ * every behavior platform.
  *
  * @param {object} coord - DuckDB coordinator.
  * @param {string} sessionId - e.g. "762526_2025-03-20".
+ * @param {object} [opts]
+ * @param {string} [opts.acquisitionType] - Shown in the header row.
+ * @param {string} [opts.location]        - Raw asset S3 location (for videos).
  * @returns {HTMLElement}
  */
-export function createDrSessionPlayback(coord, sessionId) {
-  const root = document.createElement('section');
-  root.className = 'dr-player dr-player--embedded';
-  root.innerHTML = `
-    <div id="dr-player-status" class="dr-player-status">Loading session…</div>
-    ${DR_BODY_HTML}
-  `;
+export function createDrSessionPlayback(coord, sessionId, opts = {}) {
+  const harness = createPlaybackHarness({
+    taskClass: 'dr',
+    speedSteps: SPEED_STEPS,
+    defaultSpeedIdx: DEFAULT_SPEED_IDX,
+  });
+  const root = harness.root;
+  root.classList.add('dr-player', 'dr-player--embedded');
 
-  const statusEl = root.querySelector('#dr-player-status');
-  const bodyEl   = root.querySelector('.dr-player-body');
-  let animation = null;
+  const ctrl = new AbortController();
 
   (async () => {
-    statusEl.textContent = `Loading ${sessionId} from S3…`;
+    harness.setStatus(`Loading ${sessionId} from S3…`);
     try {
       const t0 = performance.now();
       const [data, [mouse, gabor, droplet, speaker]] = await Promise.all([
-        loadDrSession(coord, { sessionId }),
+        loadDrSession(coord, { sessionId, signal: ctrl.signal }),
         Promise.all([
           loadMouseSprite(),
           loadGaborSprite(),
@@ -260,27 +266,61 @@ export function createDrSessionPlayback(coord, sessionId) {
           loadSpeakerIcon(),
         ]),
       ]);
+      if (ctrl.signal.aborted) return;
       const ms = Math.round(performance.now() - t0);
-      statusEl.textContent =
+      harness.setStatus(
         `${sessionId} · ${data.trials.length} trials · ${data.blocks.length} blocks · ` +
-        `${data.responses.t.length} responses · ${data.rewards.t.length} rewards · ` +
-        `loaded in ${ms} ms`;
-      bodyEl.hidden = false;
-      animation = _wireAnimation(root, data, { mouse, gabor, droplet, speaker });
+        `${data.responses.t.length} responses · ${data.rewards.t.length} rewards · loaded in ${ms} ms`);
+
+      const anim = new DrAnimation(harness.canvas, data, { mouse, gabor, droplet, speaker });
+      const plot = createEventPlot(data);
+
+      // Wrap the event plot with the block/stim legend beneath it.
+      const plotWrap = document.createElement('div');
+      plotWrap.appendChild(plot.element);
+      plotWrap.appendChild(_buildLegend());
+
+      harness.activate({
+        header: {
+          count: data.trials.length,
+          label: 'trials',
+          acquisitionType: opts.acquisitionType ?? '',
+        },
+        animation: anim,
+        plot: {
+          element: plotWrap,
+          updatePlayhead: plot.updatePlayhead,
+          setOnScrub: plot.setOnScrub,
+        },
+        trialInfo: (el, t) => _updateTrialInfo(el, data, t),
+        videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
+      });
     } catch (err) {
-      statusEl.textContent = `Error loading session: ${err.message}`;
+      if (ctrl.signal.aborted) return;
+      harness.setStatus(`Error loading session: ${err.message}`, true);
       console.error('[DR] embedded session load failed', err);
     }
   })();
 
-  root.addEventListener('keydown', (ev) => {
-    if (ev.key === ' ' && animation) {
-      ev.preventDefault();
-      root.querySelector('#dr-play').click();
-    }
-  });
-
   return root;
+}
+
+/** Block / stim colour legend rendered beneath the event plot. */
+function _buildLegend() {
+  const el = document.createElement('div');
+  el.className = 'dr-legend';
+  el.innerHTML = `
+    <span class="dr-legend-item"><span class="dr-swatch" style="background:#7c3aed"></span>visual block</span>
+    <span class="dr-legend-item"><span class="dr-swatch" style="background:#f59e0b"></span>auditory block</span>
+    <span class="dr-legend-item"><span class="dr-tick" style="background:#1e40af"></span>vis target</span>
+    <span class="dr-legend-item"><span class="dr-tick" style="background:#60a5fa"></span>vis nontarget</span>
+    <span class="dr-legend-item"><span class="dr-tick" style="background:#b91c1c"></span>aud target</span>
+    <span class="dr-legend-item"><span class="dr-tick" style="background:#fca5a5"></span>aud nontarget</span>
+    <span class="dr-legend-item"><span class="dr-tick" style="background:#9ca3af"></span>catch</span>
+    <span class="dr-legend-item"><span class="dr-line dr-line-solid"></span>target response rate</span>
+    <span class="dr-legend-item"><span class="dr-line dr-line-dashed"></span>cross-modal FA rate</span>
+  `;
+  return el;
 }
 
 // ---------------------------------------------------------------------------

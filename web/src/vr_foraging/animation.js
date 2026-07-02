@@ -211,6 +211,14 @@ export class VrfAnimation {
   draw()      { this._render(); }
   setSpeed(s) { this.speed = s; }
 
+  /**
+   * Re-measure the canvas and redraw. Call this after the canvas has been laid
+   * out (it starts with clientWidth 0 while hidden) and whenever its width
+   * changes, so the corridor fills the available width by showing more track
+   * instead of horizontally stretching a fixed-width backing store.
+   */
+  resize() { this._setupHiDpi(); this._render(); }
+
   cumRewardsAt(siteIndex) { return this._cumRewards[Math.min(siteIndex, this._cumRewards.length - 1)]; }
   get totalRewards()      { return this._cumRewards[this.sites.length - 1]; }
 

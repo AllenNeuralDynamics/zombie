@@ -126,7 +126,17 @@ export function organizeSubjectData(records, subjectId) {
       rec.acquisition?.acquisition_start_time &&
       rec.data_description?.data_level !== 'derived'
     ) {
-      bundle.acquisitions.push({ ...rec.acquisition, _assetName: rec.name ?? '', _modalities: rec.data_description?.modalities ?? [] });
+      bundle.acquisitions.push({
+        ...rec.acquisition,
+        _assetName: rec.name ?? '',
+        _modalities: rec.data_description?.modalities ?? [],
+        // Seed project/location from the DocDB record so platform detection and
+        // video loading work immediately on deep-link, before the async DuckDB
+        // asset enrichment (below) has a chance to run. The enrichment later
+        // refreshes these with the same values.
+        _project_name: rec.data_description?.project_name ?? null,
+        _location: rec.location ?? null,
+      });
     }
   }
 

@@ -587,32 +587,36 @@ function createEphysPanel(acquisitionData) {
 
 /**
  * Render an Acquisition event detail: overview card, with optional
- * "Ephys Assembly", "Imaging Details", and "Instrument" tabs.
+ * "Data" (session playback), "Ephys Assembly", "Imaging Details", and
+ * "Instrument" tabs.
  */
 function renderAcquisitionDetail(event, container, context = {}) {
   const { data = {} } = event;
   const prevTab = container._activeTabLabel;
 
-  // If this acquisition qualifies for a platform's session playback, render
-  // the player inline below the overview content (see session-playback.js).
-  const appendPlayback = () => {
-    const player = createSessionPlayback(event, context);
-    if (player) container.appendChild(player);
+  // If this acquisition qualifies for behavior/fiber session playback, host it
+  // in its own "Data" tab (shared harness — see lib/behaviors/session-playback.js).
+  const playbackEl = createSessionPlayback(event, context);
+  const dataTab = playbackEl ? [{ label: 'Data', content: playbackEl }] : [];
+
+  const renderTabs = (tabDefs) => {
+    container.innerHTML = '';
+    container.appendChild(
+      createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }),
+    );
   };
 
-  // Dynamic foraging sessions get a dedicated panel
+  // Dynamic foraging sessions keep their choice-history "Foraging" summary tab.
   if (isForagingAcquisition(event)) {
     const sessionInfo = extractForagingSessionInfo(event);
-    container.innerHTML = '';
     const overviewEl = document.createElement('div');
     overviewEl.innerHTML = buildAcquisitionDetail(event);
     const foragingEl = createForagingSessionDetail(sessionInfo, null, context.coordinator ?? null);
-    const tabDefs = [
+    renderTabs([
+      ...dataTab,
       { label: 'Foraging',  content: foragingEl },
       { label: 'Overview',  content: overviewEl },
-    ];
-    container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
-    appendPlayback();
+    ]);
     return;
   }
 
@@ -625,10 +629,9 @@ function renderAcquisitionDetail(event, container, context = {}) {
   const instruments = context.instruments ?? new Map();
   const instrumentData = instrumentId ? instruments.get(instrumentId) ?? null : null;
 
-  // Simple case: no special data
-  if (!hasEphys && !hasImaging && !hasISI && !instrumentData) {
+  // Simple case: no special data and nothing to play back.
+  if (!hasEphys && !hasImaging && !hasISI && !instrumentData && !playbackEl) {
     container.innerHTML = buildAcquisitionDetail(event);
-    appendPlayback();
     return;
   }
 
@@ -637,6 +640,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   overviewEl.innerHTML = buildAcquisitionDetail(event);
 
   const tabDefs = [
+    ...dataTab,
     { label: 'Overview', content: overviewEl },
   ];
 
@@ -661,9 +665,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
     tabDefs.push({ label: 'Instrument', content: createInstrumentPanel(instrumentData, data) });
   }
 
-  container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
-  appendPlayback();
+  renderTabs(tabDefs);
 }
 
 function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {

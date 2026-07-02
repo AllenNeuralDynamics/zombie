@@ -20,6 +20,7 @@ import { arrowTableToRows }                       from '../lib/arrow.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { ensureTable }                            from '../lib/registry.js';
 import { withVideoGate }                          from '../lib/video-gate.js';
+import { createPlaybackHarness }                  from '../lib/behaviors/playback-harness.js';
 
 const SPRITE_URL = '/images/vrf';
 const PROJECT_NAME = 'Cognitive flexibility in patch foraging';
@@ -350,69 +351,144 @@ export async function resolveVrfDerivedName(coord, rawName) {
 
 /**
  * Create a single-session VRF playback widget (no subject/session dropdowns).
- * Used inside the subject timeline's Event Details panel. Accepts the RAW
- * acquisition asset name and resolves the derived session internally.
+ * Used inside the subject viewer's "Data" tab. Accepts the RAW acquisition
+ * asset name and resolves the derived session internally. Built on the shared
+ * playback harness (common transport + video subsystem).
  *
  * @param {object} coord - DuckDB coordinator.
  * @param {string} rawName - Raw acquisition asset name.
+ * @param {object} [opts]
+ * @param {string} [opts.acquisitionType] - Shown in the header row.
+ * @param {string} [opts.location]        - Raw asset S3 location (for videos).
  * @returns {HTMLElement}
  */
-export function createVrfSessionPlayback(coord, rawName) {
-  const root = document.createElement('section');
-  root.className = 'vrf-player vrf-player--embedded';
-  root.innerHTML = `
-    <div id="vrf-player-status" class="vrf-player-status">Resolving session…</div>
-    ${VRF_BODY_HTML}
-  `;
+export function createVrfSessionPlayback(coord, rawName, opts = {}) {
+  const harness = createPlaybackHarness({
+    taskClass: 'vrf',
+    speedSteps: VRF_SPEED_STEPS,
+    defaultSpeedIdx: VRF_DEFAULT_SPEED_IDX,
+    stepLabel: 'Patch',
+  });
+  const root = harness.root;
+  root.classList.add('vrf-player', 'vrf-player--embedded');
 
-  const statusEl  = root.querySelector('#vrf-player-status');
-  const bodyEl    = root.querySelector('.vrf-player-body');
-  const ctrl      = new AbortController();
-  let animation   = null;
+  const ctrl = new AbortController();
 
   (async () => {
     const derivedName = await resolveVrfDerivedName(coord, rawName);
     if (!derivedName) {
-      statusEl.textContent = 'No derived VR-foraging session found for this acquisition.';
+      harness.setStatus('No derived VR-foraging session found for this acquisition.', true);
       return;
     }
-    statusEl.textContent = `Loading ${derivedName} from S3…`;
+    harness.setStatus(`Loading ${derivedName} from S3…`);
     try {
       const t0 = performance.now();
+      // Prefer the raw location threaded in from the event; fall back to the
+      // source_data lookup when it isn't available.
       const [{ sites, traces }, sprites, rawLocation] = await Promise.all([
         loadVrfSession(derivedName, { signal: ctrl.signal }),
         loadSprites(SPRITE_URL),
-        fetchRawLocation(coord, derivedName),
+        opts.location
+          ? Promise.resolve(opts.location)
+          : fetchRawLocation(coord, derivedName),
       ]);
       if (ctrl.signal.aborted) return;
       const ms = Math.round(performance.now() - t0);
-      statusEl.textContent = `Loaded ${sites.length} sites · ${traces.lick_t.length} licks (${ms} ms)`;
-      bodyEl.hidden = false;
 
-      const videosEl  = root.querySelector('#vrf-videos');
-      const videosRow = root.querySelector('#vrf-videos-row');
-      videosEl.hidden = true;
-      videosRow.innerHTML = '';
+      const totalPatches = sites.length ? sites[sites.length - 1].patch_index + 1 : 0;
+      harness.setStatus(`Loaded ${sites.length} sites · ${traces.lick_t.length} licks (${ms} ms)`);
 
-      animation = wireAnimation(root, sites, sprites, traces, null);
+      const odorPalette = buildOdorPalette(sites);
+      const patchIndex  = buildPatchIndex(sites);
+      const anim = new VrfAnimation(harness.canvas, sites, sprites, traces, { odorPalette });
 
-      if (rawLocation) {
-        const rawBase = s3LocationToHttps(rawLocation);
-        loadCameraSync(rawBase, ctrl.signal).then((cameraSyncs) => {
-          if (ctrl.signal.aborted || !cameraSyncs.length) return;
-          mountGatedVideos(root, animation, videosEl, videosRow, rawBase, cameraSyncs, traces.t0_offset);
-        }).catch((err) => {
-          console.warn('[VRF] camera video load failed', err);
-        });
-      }
+      // VRF has no brush/full "standard plot" — the plot slot instead carries
+      // the odor legend and per-patch depletion mini-chart.
+      const { plotEl, depletionEl } = _buildVrfPlotSlot(odorPalette);
+
+      let lastSiteIdx = -1;
+      const trialInfo = (el, t) => {
+        const site = findSiteAt(sites, t);
+        if (!site) return;
+        _renderVrfStats(el, anim, sites, site, odorPalette, totalPatches);
+        if (site.site_index !== lastSiteIdx) {
+          lastSiteIdx = site.site_index;
+          updateDepletion(depletionEl, patchIndex, site);
+        }
+      };
+
+      harness.activate({
+        header: {
+          count: totalPatches,
+          label: 'patches',
+          acquisitionType: opts.acquisitionType ?? '',
+        },
+        animation: anim,
+        plot: { element: plotEl },
+        stageLabel: 'Top-down view — mouse running through corridor →',
+        trialInfo,
+        onStep: (a, dir) => jumpPatch(a, sites, dir),
+        scrubBg: (canvas, duration) => drawScrubBg(canvas, sites, odorPalette, duration),
+        videos: {
+          base: s3LocationToHttps(rawLocation),
+          t0: traces.t0_offset,
+          signal: ctrl.signal,
+        },
+      });
     } catch (err) {
       if (ctrl.signal.aborted) return;
-      statusEl.textContent = `Error loading session: ${err.message}`;
+      harness.setStatus(`Error loading session: ${err.message}`, true);
       console.error('[VRF] embedded session load failed', err);
     }
   })();
 
   return root;
+}
+
+// Speed presets for the shared harness (select-based). Keeps the original VRF
+// default of 10×.
+const VRF_SPEED_STEPS = [1, 5, 10, 20];
+const VRF_DEFAULT_SPEED_IDX = 2;
+
+/** Build the VRF plot-slot content: odor legend + patch-depletion chart. */
+function _buildVrfPlotSlot(odorPalette) {
+  const plotEl = document.createElement('div');
+  plotEl.className = 'vrf-plot-slot';
+
+  const legendEl = document.createElement('div');
+  legendEl.className = 'vrf-odor-legend';
+  renderOdorLegend(legendEl, odorPalette);
+  plotEl.appendChild(legendEl);
+
+  const card = document.createElement('div');
+  card.className = 'vrf-card vrf-card--depletion';
+  card.innerHTML = '<div class="vrf-card-label">Patch depletion</div>';
+  const depletionEl = document.createElement('div');
+  card.appendChild(depletionEl);
+  plotEl.appendChild(card);
+
+  return { plotEl, depletionEl };
+}
+
+/** Render the per-frame patch/site/reward readout into `el`. */
+function _renderVrfStats(el, anim, sites, site, odorPalette, totalPatches) {
+  const cumRew = anim.cumRewardsAt(site.site_index);
+  let stateHtml;
+  if (site.site_label === 'RewardSite') {
+    if (!site.has_choice)      stateHtml = '<span class="vrf-state-up">upcoming</span>';
+    else if (site.has_reward)  stateHtml = '<span class="vrf-state-rew">✓ reward</span>';
+    else                       stateHtml = '<span class="vrf-state-no">✗ no reward</span>';
+  } else {
+    stateHtml = `<span class="vrf-state-up">${site.site_label}</span>`;
+  }
+
+  const swatch = site.site_label !== 'InterPatch' && odorPalette.has(site.patch_label)
+    ? `<span class="vrf-odor-dot" style="background:${odorPalette.get(site.patch_label)}"></span>`
+    : '';
+  el.innerHTML =
+    `<b>Patch ${site.patch_index + 1}/${totalPatches}</b> · ${swatch}${site.patch_label} · ` +
+    `site ${site.site_in_patch_index + 1} · ` +
+    `${stateHtml} · rewards <b>${cumRew}/${anim.totalRewards}</b>`;
 }
 
 // ---------------------------------------------------------------------------
