@@ -2,7 +2,7 @@
  * dynamic-foraging.js — Foraging session detail panel.
  *
  * Renders a metadata card + pre-rendered choice_history PNG for a given
- * dynamic foraging session. Data comes from the `foraging_sessions`
+ * dynamic foraging session. Data comes from the `platform_dynamic_foraging_sessions`
  * DuckDB table (session-level metadata) and the public S3 bucket
  * `aind-behavior-data` (pre-rendered images).
  */
@@ -54,7 +54,7 @@ function buildMetadataHtml(meta) {
     <div class="foraging-meta-card">
       <dl>
         <dt>Subject</dt><dd>${meta.subject_id ?? 'Unknown'}</dd>
-        <dt>Date</dt><dd>${meta.session_date ?? 'Unknown'}, Session ${meta.session ?? '?'}</dd>
+        <dt>Date</dt><dd>${meta.session_date ?? 'Unknown'}</dd>
         <dt>Trainer / Rig</dt><dd>${meta.trainer ?? 'Unknown'} @ ${meta.rig ?? 'Unknown'}</dd>
         <dt>Curriculum</dt><dd>${meta.curriculum_name ?? 'Unknown'} v${meta.curriculum_version ?? '?'}</dd>
         <dt>Stage</dt><dd style="color: ${stageColor}; font-weight: bold;">${stage}</dd>
@@ -62,7 +62,7 @@ function buildMetadataHtml(meta) {
       <hr>
       <dl>
         <dt>Task</dt><dd>${meta.task ?? 'Unknown'}</dd>
-        <dt>Foraging Efficiency</dt><dd><strong>${formatEff(meta.foraging_eff)}</strong> (r.s. ${formatEff(meta.foraging_eff_random_seed)})</dd>
+        <dt>Foraging Efficiency</dt><dd><strong>${formatEff(meta.foraging_eff)}</strong></dd>
         <dt>Finished Trials</dt><dd><strong>${meta.finished_trials ?? 'N/A'}</strong> / ${meta.total_trials ?? 'N/A'}</dd>
         <dt>Finished Rate</dt><dd>${formatEff(meta.finished_rate)}</dd>
         <dt>Bias (naive)</dt><dd>${formatEff(meta.bias_naive)}</dd>

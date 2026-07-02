@@ -3,7 +3,7 @@
  * Foraging platform page.
  *
  * Renders a card with:
- *   • session selector (from foraging_sessions DuckDB table)
+ *   • session selector (from platform_dynamic_foraging_sessions DuckDB table)
  *   • mouse-head dorsal animation + lick spouts + tongue
  *   • reward-probability trace plot with moving playhead and choice ticks
  *   • transport (play/pause/seek/speed) and live trial readout
@@ -308,7 +308,7 @@ async function _populateSessions(coord, statusEl) {
   try {
     // Source the dropdown from the DF database's own session_table so every
     // listed session is guaranteed to have backing trial+event data. (The
-    // separate `foraging_sessions` cache can be days fresher than the DF
+    // separate `platform_dynamic_foraging_sessions` cache can be days fresher than the DF
     // build, leading to "session found, trials missing" mismatches.)
     const rows = await queryRows(coord, `
       SELECT

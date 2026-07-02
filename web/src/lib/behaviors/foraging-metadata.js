@@ -1,5 +1,5 @@
 /**
- * foraging-metadata.js — Query helpers for the foraging_sessions DuckDB table.
+ * foraging-metadata.js — Query helpers for the platform_dynamic_foraging_sessions DuckDB table.
  *
  * The table is registered from a parquet file on S3 (allen-data-views bucket)
  * via cache_registry.json acorn definitions (centralized in lib/registry.js).
@@ -8,10 +8,10 @@
 import { ensureTable } from '../registry.js';
 import { queryRows } from '../arrow.js';
 
-const TABLE_NAME = 'foraging_sessions';
+const TABLE_NAME = 'platform_dynamic_foraging_sessions';
 
 /**
- * Ensure the foraging_sessions table is registered in DuckDB.
+ * Ensure the platform_dynamic_foraging_sessions table is registered in DuckDB.
  * Safe to call multiple times — uses singleton promise in registry.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
