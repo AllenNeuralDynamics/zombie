@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve, basename } from 'path';
+import react from '@vitejs/plugin-react';
 import { PAGES, renderHeader } from './build/header-template.js';
 
 /**
@@ -23,7 +24,9 @@ function sharedHeaderPlugin() {
 }
 
 export default defineConfig({
-  plugins: [sharedHeaderPlugin()],
+  // The React plugin is scoped to .jsx/.tsx only so it never runs Babel over the
+  // Preact + htm (.js) code that makes up the rest of the app.
+  plugins: [sharedHeaderPlugin(), react({ include: /\.(jsx|tsx)$/ })],
   // Serve the `web/` directory as the project root during dev
   server: {
     port: 5173,

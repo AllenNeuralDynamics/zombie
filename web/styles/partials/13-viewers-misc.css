@@ -55,6 +55,60 @@
   font-size: 0.9rem;
 }
 
+/* Segmented JSON / Interactive view toggle */
+.record-view-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.record-tab {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  border: none;
+  background: var(--surface, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.record-tab + .record-tab {
+  border-left: 1px solid var(--border);
+}
+
+.record-tab:hover:not(:disabled):not(.is-active) {
+  background: var(--hover, var(--border));
+}
+
+.record-tab.is-active {
+  background: var(--accent, #0078d4);
+  color: #fff;
+}
+
+.record-tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The record-view toggle should sit before Copy JSON, not push it away */
+.record-heading-row .record-view-toggle + .record-copy-btn {
+  margin-left: 0;
+}
+
+/* React Flow needs an explicitly sized container */
+.record-interactive {
+  width: 100%;
+  height: 78vh;
+  min-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .record-tree {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 0.82rem;

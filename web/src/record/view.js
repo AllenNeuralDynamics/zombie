@@ -219,6 +219,20 @@ export function createRecordView() {
   heading.textContent = name;
   headingRow.appendChild(heading);
 
+  // View toggle: JSON (default) ↔ Interactive record diagram.
+  const toggle = document.createElement('div');
+  toggle.className = 'record-view-toggle';
+  const jsonTabBtn = document.createElement('button');
+  jsonTabBtn.className = 'record-tab is-active';
+  jsonTabBtn.textContent = 'JSON';
+  const interactiveTabBtn = document.createElement('button');
+  interactiveTabBtn.className = 'record-tab';
+  interactiveTabBtn.textContent = 'Interactive';
+  interactiveTabBtn.disabled = true;
+  toggle.appendChild(jsonTabBtn);
+  toggle.appendChild(interactiveTabBtn);
+  headingRow.appendChild(toggle);
+
   const copyBtn = document.createElement('button');
   copyBtn.className = 'record-copy-btn';
   copyBtn.textContent = 'Copy JSON';
@@ -236,6 +250,13 @@ export function createRecordView() {
   tree.className = 'record-tree';
   root.appendChild(tree);
 
+  // Mount point for the React interactive diagram — populated lazily on first
+  // switch so React + React Flow never load for the default JSON view.
+  const interactive = document.createElement('div');
+  interactive.className = 'record-interactive';
+  interactive.hidden = true;
+  root.appendChild(interactive);
+
   queryDocDb({ name }, { limit: 1 })
     .then((results) => {
       if (!results || results.length === 0) {
@@ -243,7 +264,8 @@ export function createRecordView() {
         return;
       }
       status.remove();
-      const rawJson = JSON.stringify(results[0], null, 2);
+      const record = results[0];
+      const rawJson = JSON.stringify(record, null, 2);
       copyBtn.disabled = false;
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(rawJson).then(() => {
@@ -252,7 +274,37 @@ export function createRecordView() {
           setTimeout(() => { copyBtn.textContent = prev; }, 1500);
         });
       });
-      tree.appendChild(renderJsonValue(results[0]));
+      tree.appendChild(renderJsonValue(record));
+
+      let mounted = false;
+      const showJson = () => {
+        tree.hidden = false;
+        interactive.hidden = true;
+        jsonTabBtn.classList.add('is-active');
+        interactiveTabBtn.classList.remove('is-active');
+      };
+      const showInteractive = () => {
+        tree.hidden = true;
+        interactive.hidden = false;
+        interactiveTabBtn.classList.add('is-active');
+        jsonTabBtn.classList.remove('is-active');
+        if (!mounted) {
+          mounted = true;
+          interactive.textContent = 'Loading interactive view…';
+          import('./interactive/mount.js')
+            .then(({ mountRecordDiagram }) => {
+              interactive.textContent = '';
+              mountRecordDiagram(interactive, record);
+            })
+            .catch((err) => {
+              mounted = false;
+              interactive.textContent = `Failed to load interactive view: ${err.message}`;
+            });
+        }
+      };
+      jsonTabBtn.addEventListener('click', showJson);
+      interactiveTabBtn.addEventListener('click', showInteractive);
+      interactiveTabBtn.disabled = false;
     })
     .catch((err) => {
       status.className = 'record-error';
