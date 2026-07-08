@@ -146,8 +146,10 @@ export function createSessionPlayback(event, context = {}) {
   const modalities = event.modalities ?? [];
   const hasFiberModality = modalities.some((m) => /^fib/i.test(String(m)));
   const canFiber = !!(subjectId && rawAssetName && hasFiberModality);
+  const hasEcephysModality = modalities.some((m) => /ecephys/i.test(String(m)));
+  const canEcephys = !!(subjectId && rawAssetName && hasEcephysModality);
 
-  if (!platform && !canFiber) return null;
+  if (!platform && !canFiber && !canEcephys) return null;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'session-playback-wrapper';
@@ -156,6 +158,23 @@ export function createSessionPlayback(event, context = {}) {
   if (platform) {
     const playerEl = buildPlatformPlayer(platform, event, context, coord);
     if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
+  }
+
+  if (canEcephys) {
+    const ephysMount = document.createElement('div');
+    ephysMount.className = 'session-playback-modality';
+    wrapper.appendChild(ephysMount);
+    import('../../ecephys/ecephys-playback.js')
+      .then(({ createEcephysPlayback }) => {
+        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName);
+        if (hasPlayer) {
+          const hr = document.createElement('hr');
+          hr.className = 'session-playback-sep';
+          ephysMount.appendChild(hr);
+        }
+        ephysMount.appendChild(ephysEl);
+      })
+      .catch((err) => { console.error('[playback] ecephys load failed', err); });
   }
 
   if (canFiber) {
@@ -167,7 +186,7 @@ export function createSessionPlayback(event, context = {}) {
         const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName);
         // Separate additional modalities (fiber, …) from the behavior player
         // above with a horizontal rule.
-        if (hasPlayer) {
+        if (hasPlayer || canEcephys) {
           const hr = document.createElement('hr');
           hr.className = 'session-playback-sep';
           fiberMount.appendChild(hr);

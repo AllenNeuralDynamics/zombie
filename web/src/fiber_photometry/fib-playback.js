@@ -18,6 +18,7 @@
 
 import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
+import { ensureTable } from '../lib/registry.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { ITEM_COLORS } from '../subject/brain-viz.js';
 import * as Plot from '@observablehq/plot';
@@ -59,24 +60,29 @@ const CHANNEL_COLORS = { G: '#22c55e', Iso: '#a855f7', R: '#ef4444' };
 /** Escape single quotes for SQL string literals (trusted-source data). */
 function esc(s) { return String(s).replace(/'/g, "''"); }
 
-// Per-subject fiber-trace shards are stored as multiple data_NNNN.pqt files
-// under each subject_id partition. DuckDB-WASM does not expand `*` globs over
-// virtual-hosted S3 HTTPS URLs, so the shard list is resolved explicitly via
-// an S3 ListObjectsV2 request and passed to read_parquet([...]) as an array.
+// Fiber-trace shards are stored as multiple data_NNNN.pqt files under each
+// derived-asset partition (asset_name=<derived>/). DuckDB-WASM does not expand
+// `*` globs over virtual-hosted S3 HTTPS URLs, so the shard list is resolved
+// explicitly via an S3 ListObjectsV2 request and passed to read_parquet([...])
+// as an array.
 const _fibFilesCache = new Map();
 
-/** List the per-subject fiber-trace parquet shards via S3 ListObjectsV2. */
-async function fibFiles(subjectId) {
-  const key = String(subjectId);
+/** List the derived-asset fiber-trace parquet shards via S3 ListObjectsV2. */
+async function fibFiles(derivedAssetName) {
+  const key = String(derivedAssetName);
   if (_fibFilesCache.has(key)) return _fibFilesCache.get(key);
   const p = (async () => {
-    const prefix = `data-asset-cache/${FIB_VERSION}/platform_fib_traces/subject_id=${key}/`;
+    const prefix = `data-asset-cache/${FIB_VERSION}/platform_fib_traces/asset_name=${key}/`;
     const listUrl =
       `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
       `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
     let resp;
-    try { resp = await fetch(listUrl); } catch { return []; }
-    if (!resp.ok) return [];
+    try { resp = await fetch(listUrl); }
+    catch (err) { console.error(`[fib-playback] S3 list request failed for "${key}"`, err); return []; }
+    if (!resp.ok) {
+      console.error(`[fib-playback] S3 list request returned ${resp.status} for "${key}"`);
+      return [];
+    }
     const xml = await resp.text();
     const re = /<Key>([^<]+\.pqt)<\/Key>/g;
     const urls = [];
@@ -93,6 +99,36 @@ async function fibFiles(subjectId) {
 /** Build the read_parquet source argument (SQL array literal) from file URLs. */
 function fibSource(urls) {
   return `[${urls.map((u) => `'${esc(u)}'`).join(', ')}]`;
+}
+
+// Resolve the latest derived fiber-photometry asset for a raw acquisition.
+// Fiber traces are partitioned by the DERIVED asset name (asset_name=<derived>).
+// The subject timeline only carries raw acquisitions, so we reverse-map raw →
+// derived via the source_data table. When an asset has been re-processed
+// multiple times, the most recent processing_time wins so we skip stale runs.
+async function resolveFibDerivedName(coord, rawAssetName) {
+  if (!rawAssetName) return null;
+  try {
+    await ensureTable(coord, 'source_data');
+    const rows = await queryRows(coord, `
+      SELECT sd.name
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.name
+      WHERE sd.source_data = '${esc(rawAssetName)}'
+        AND ab.data_level = 'derived'
+        AND list_contains(ab.modalities, 'fib')
+      ORDER BY sd.processing_time DESC
+      LIMIT 1
+    `);
+    const name = rows[0]?.name ?? null;
+    if (!name) {
+      console.warn(`[fib-playback] No derived fib asset found for raw asset "${rawAssetName}" in source_data`);
+    }
+    return name;
+  } catch (err) {
+    console.error(`[fib-playback] resolveFibDerivedName failed for "${rawAssetName}"`, err);
+    return null;
+  }
 }
 
 function trialsUrl(subjectId) {
@@ -554,10 +590,17 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
   section.innerHTML = '<p class="fib-loading">Checking for fiber data\u2026</p>';
 
   (async () => {
-    const urls   = await fibFiles(subjectId);
+    const derivedName = await resolveFibDerivedName(coord, rawAssetName);
+    if (!derivedName) { section.remove(); return; }
+
+    const urls   = await fibFiles(derivedName);
     const prefix = esc(rawAssetName);
 
-    if (urls.length === 0) { section.remove(); return; }
+    if (urls.length === 0) {
+      console.warn(`[fib-playback] No trace shards found on S3 for derived asset "${derivedName}"`);
+      section.remove();
+      return;
+    }
     const fibSrc = fibSource(urls);
 
     // Quick existence check — confirms this asset has rows in the shards
@@ -567,9 +610,15 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
         `SELECT 1 AS n FROM read_parquet(${fibSrc}) WHERE asset_name LIKE '${prefix}%' LIMIT 1`
       );
       hasData = rows.length > 0;
-    } catch { /* no fiber data for this subject */ }
+    } catch (err) {
+      console.error(`[fib-playback] Fiber-trace existence check failed for "${derivedName}"`, err);
+    }
 
-    if (!hasData) { section.remove(); return; }
+    if (!hasData) {
+      console.warn(`[fib-playback] No fiber-trace rows for asset "${rawAssetName}" in derived "${derivedName}"`);
+      section.remove();
+      return;
+    }
 
     // Fetch the implant surgery in parallel (drives the 3D inset + colours).
     const surgeryPromise = loadSurgery(subjectId);
