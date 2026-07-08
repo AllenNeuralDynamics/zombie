@@ -372,6 +372,8 @@
 .qc-accordion details[open] summary { border-radius: var(--radius) var(--radius) 0 0; }
 .qc-accordion .accordion-body { display: flex; gap: var(--gap); padding: var(--gap); align-items: flex-start; }
 .qc-accordion .accordion-metrics { flex: 0 0 320px; min-width: 0; }
+.qc-accordion .accordion-metrics-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--gap); align-content: start; }
+.qc-accordion .accordion-metrics-grid .qc-metric-card { margin-bottom: 0; }
 .qc-metric-card { border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; background: var(--surface-card); }
 .qc-metric-card .metric-name { font-weight: 600; margin-bottom: 4px; }
 .qc-metric-card .metric-desc { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
@@ -401,6 +403,29 @@
 .qc-edit-btn { background: var(--color-red); color: #fff; border: none; padding: 5px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; font-size: 0.85em; }
 .qc-edit-btn:hover { background: var(--color-red-hover); }
 .qc-loading, .qc-error, .qc-empty { padding: 40px; text-align: center; color: var(--text-secondary); }
+
+/* Evaluation-level notes (read-only) */
+.qc-notes { padding: 8px var(--gap); font-size: 0.85em; color: var(--text-secondary); border-bottom: 1px solid var(--surface-border); white-space: pre-wrap; }
+.qc-notes-label { font-weight: 600; color: var(--text-primary); }
+
+/* Read-only custom metric widgets (dropdown / checkbox) */
+.qc-custom-metric { cursor: help; }
+.qc-readonly-select { display: inline-block; min-width: 120px; padding: 3px 8px; border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-bg); color: var(--text-secondary); }
+.qc-readonly-checklist { display: flex; flex-direction: column; gap: 2px; }
+.qc-readonly-check { color: var(--text-secondary); }
+.qc-readonly-check .qc-checkbox { color: var(--text-muted); }
+.qc-readonly-check .qc-checkbox.checked { color: var(--color-blue, #4a8fc4); }
+
+/* HDF5 volumetric-data placeholder */
+.qc-media-h5 { color: var(--text-secondary); font-size: 0.9em; }
+.qc-media-h5 a { color: var(--color-red); }
+
+/* Image comparison swipe overlay */
+.qc-swipe { position: relative; display: inline-block; max-width: 100%; }
+.qc-swipe .qc-swipe-base { display: block; max-width: 100%; height: auto; border-radius: var(--radius); }
+.qc-swipe .qc-swipe-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: var(--radius); }
+.qc-swipe .qc-swipe-handle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 3px rgba(0,0,0,0.6); transform: translateX(-1px); pointer-events: none; }
+.qc-swipe .qc-swipe-slider { position: absolute; bottom: 8px; left: 5%; width: 90%; }
 
 /* ---------------------------------------------------------------------------
  * Project view

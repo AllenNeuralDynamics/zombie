@@ -23,7 +23,18 @@ export function parseQCRecord(record) {
 
   const rawAssetName = record.data_description?.source_data?.[0] ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping };
+  const notes = qc.notes ?? '';
+
+  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping, notes };
+}
+
+/**
+ * Detect the custom metric value shapes from aind-qcportal-schema (DropdownMetric,
+ * CheckboxMetric). Mirrors CustomMetricValue.is_custom_metric in the Panel app.
+ */
+export function isCustomMetric(val) {
+  return val !== null && typeof val === 'object' && !Array.isArray(val) &&
+    ('type' in val || 'rule' in val);
 }
 
 function decodeJsonField(val) {
@@ -114,6 +125,9 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   }
   if (ext === 'pdf') {
     return { url, type: 'pdf' };
+  }
+  if (['h5', 'hdf5'].includes(ext)) {
+    return { url, type: 'h5' };
   }
 
   if (reference.startsWith('http')) {

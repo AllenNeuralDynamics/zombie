@@ -4,12 +4,24 @@ import { renderMetrics } from './metrics.js';
 
 export function createQCView(record, rawS3Loc = '') {
   const parsed = parseQCRecord(record);
-  const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping } = parsed;
+  const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
 
   const root = document.createElement('div');
 
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages);
   root.appendChild(header);
+
+  if (notes) {
+    const notesEl = document.createElement('div');
+    notesEl.className = 'qc-notes';
+    notesEl.title = 'Use edit mode to edit notes';
+    const label = document.createElement('span');
+    label.className = 'qc-notes-label';
+    label.textContent = 'Notes: ';
+    notesEl.appendChild(label);
+    notesEl.appendChild(document.createTextNode(notes));
+    root.appendChild(notesEl);
+  }
 
   const body = document.createElement('div');
   body.className = 'qc-container';

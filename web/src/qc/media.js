@@ -44,6 +44,13 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc =
 
   if (reference.includes(';')) {
     const parts = reference.split(';').map(s => s.trim()).filter(Boolean);
+    // Two-image comparisons render as a swipe/slider overlay (matches Panel's pn.layout.Swipe).
+    if (parts.length === 2) {
+      const resolved = parts.map(p => resolveReference(p, s3Bucket, s3Prefix, rawS3Loc));
+      if (resolved.every(r => r.type === 'image')) {
+        return buildSwipe(parts, resolved, s3Bucket, assetName);
+      }
+    }
     const wrapper = document.createElement('div');
     wrapper.className = 'qc-media-multi';
     for (const part of parts) {
@@ -71,13 +78,33 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc =
     video.src = presign ? '' : url;
     video.controls = true;
     wrapper.appendChild(video);
+    wrapper.appendChild(buildFullscreenBtn(video));
     if (presign) applyPresignedUrl(video, 'video', assetName, reference);
   } else if (type === 'pdf' || type === 'iframe') {
     const iframe = document.createElement('iframe');
     iframe.src = presign ? '' : url;
     iframe.setAttribute('allowfullscreen', '');
     wrapper.appendChild(iframe);
+    wrapper.appendChild(buildFullscreenBtn(iframe));
     if (presign) applyPresignedUrl(iframe, 'iframe', assetName, reference);
+  } else if (type === 'h5') {
+    // Volumetric HDF5 data: the Panel app has an interactive z-slice viewer; the read-only
+    // web view shows a message plus a link to the file.
+    const msg = document.createElement('p');
+    msg.className = 'qc-media-h5';
+    msg.textContent = 'Volumetric data (HDF5) — open in edit mode to view slices. ';
+    const a = document.createElement('a');
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'Download file';
+    if (presign) {
+      a.href = '#';
+      fetchPresignedUrl(assetName, reference).then(signed => { a.href = signed; }).catch(() => { a.textContent = 'File unavailable'; });
+    } else {
+      a.href = url;
+    }
+    msg.appendChild(a);
+    wrapper.appendChild(msg);
   } else if (type === 'link') {
     const a = document.createElement('a');
     a.href = url;
@@ -94,13 +121,59 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc =
   return wrapper;
 }
 
-function buildFullscreenBtn(img) {
+function buildFullscreenBtn(el) {
   const btn = document.createElement('button');
   btn.className = 'qc-fullscreen-btn';
   btn.title = 'Full screen';
   btn.textContent = '⛶';
   btn.addEventListener('click', () => {
-    if (img.requestFullscreen) img.requestFullscreen();
+    if (el.requestFullscreen) el.requestFullscreen();
   });
   return btn;
+}
+
+/**
+ * Draggable image-comparison overlay for a two-image (semicolon-separated) reference,
+ * matching the Panel app's pn.layout.Swipe.
+ */
+function buildSwipe(references, resolved, s3Bucket, assetName) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'qc-media qc-swipe';
+
+  const imgs = resolved.map((r, i) => {
+    const img = document.createElement('img');
+    const presign = needsPresign(references[i], s3Bucket, r.type);
+    img.src = presign ? '' : r.url;
+    img.loading = 'lazy';
+    img.alt = references[i];
+    if (presign) applyPresignedUrl(img, 'img', assetName, references[i]);
+    return img;
+  });
+
+  // imgs[0] is the base (fills flow and defines size); imgs[1] overlays it, clipped from the left.
+  imgs[0].className = 'qc-swipe-base';
+  imgs[1].className = 'qc-swipe-overlay';
+
+  const handle = document.createElement('div');
+  handle.className = 'qc-swipe-handle';
+
+  const slider = document.createElement('input');
+  slider.type = 'range';
+  slider.min = '0';
+  slider.max = '100';
+  slider.value = '50';
+  slider.className = 'qc-swipe-slider';
+
+  const setPos = (pct) => {
+    imgs[1].style.clipPath = `inset(0 ${100 - pct}% 0 0)`;
+    handle.style.left = `${pct}%`;
+  };
+  slider.addEventListener('input', () => setPos(Number(slider.value)));
+
+  wrapper.appendChild(imgs[0]);
+  wrapper.appendChild(imgs[1]);
+  wrapper.appendChild(handle);
+  wrapper.appendChild(slider);
+  setPos(50);
+  return wrapper;
 }
