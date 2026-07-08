@@ -18,7 +18,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   STRUCTURE_COLORS,
   TARGET_X, TARGET_Y, TARGET_Z,
-  makeCCFMatrix,
+  makeTemplateMatrix,
   loadBrainMesh,
 } from './brain-viz-3d.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
@@ -144,7 +144,7 @@ export function createImagingViz3D(acquisitionData) {
 }
 
 async function _initImaging3D(container, statusEl, infoEl, acquisitionData) {
-  const CCF_MATRIX = makeCCFMatrix(THREE);
+  const CCF_MATRIX = makeTemplateMatrix(THREE);
   const { planes, structures } = extractImagingData(acquisitionData);
 
   if (!planes.length) {
@@ -204,7 +204,7 @@ async function _initImaging3D(container, statusEl, infoEl, acquisitionData) {
   const totalStructureMeshes = structures.filter(s => STRUCTURE_COLORS[String(s.id)]).length;
 
   // Load brain surface
-  loadBrainMesh(loader, MESH_BASE + '997.obj', (group) => {
+  loadBrainMesh(loader, MESH_BASE + '997_b5.obj', (group) => {
     group.traverse((child) => {
       if (!child.isMesh) return;
       child.geometry.applyMatrix4(CCF_MATRIX);
@@ -235,7 +235,7 @@ async function _initImaging3D(container, statusEl, infoEl, acquisitionData) {
       shininess: 30,
     });
 
-    loadBrainMesh(loader, MESH_BASE + id + '.obj', (group) => {
+    loadBrainMesh(loader, MESH_BASE + id + '_b5.obj', (group) => {
       // Compute centre of the structure mesh in three.js coords
       const box = new THREE.Box3();
       group.traverse((child) => {

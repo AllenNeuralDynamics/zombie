@@ -23,7 +23,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import {
   STRUCTURE_COLORS,
   TARGET_X, TARGET_Y, TARGET_Z,
-  makeCCFMatrix,
+  makeTemplateMatrix,
   cssHexToThree,
   surfaceY,
   loadBrainMesh,
@@ -104,7 +104,7 @@ export function createEphysViz3D(acquisitionData) {
 // ── Internal initialiser ──────────────────────────────────────────────────
 
 async function _initEphys3D(container, statusEl, infoEl, acquisitionData) {
-  const CCF_MATRIX = makeCCFMatrix(THREE);
+  const CCF_MATRIX = makeTemplateMatrix(THREE);
 
   // ── Scene ────────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
@@ -167,7 +167,7 @@ async function _initEphys3D(container, statusEl, infoEl, acquisitionData) {
 
   const loader = new OBJLoader();
 
-  loadBrainMesh(loader, MESH_BASE + '997.obj', (group) => {
+  loadBrainMesh(loader, MESH_BASE + '997_b5.obj', (group) => {
     group.traverse((child) => {
       if (!child.isMesh) return;
       child.geometry.applyMatrix4(CCF_MATRIX);
@@ -191,7 +191,7 @@ async function _initEphys3D(container, statusEl, infoEl, acquisitionData) {
       depthWrite: false,
       shininess: 30,
     });
-    loadBrainMesh(loader, MESH_BASE + struct.id + '.obj', (group) => {
+    loadBrainMesh(loader, MESH_BASE + struct.id + '_b5.obj', (group) => {
       group.traverse((child) => {
         if (!child.isMesh) return;
         child.geometry.applyMatrix4(CCF_MATRIX);
