@@ -83,6 +83,20 @@ export function makeCCFMatrix(THREE) {
   );
 }
 
+// ── build5 template → three.js affine matrix ──────────────────────────────
+// Template meshes are in LPS mm with Bregma at (0,0,0):
+//   +X = Left, +Y = Posterior, +Z = Superior.
+// three.js space is Bregma-centred mm: +X = Right, +Y = Superior, +Z = Anterior.
+//   x_out = -tpl_x,  y_out = tpl_z,  z_out = -tpl_y
+export function makeTemplateMatrix(THREE) {
+  return new THREE.Matrix4().set(
+    -1,  0,  0,  0,
+     0,  0,  1,  0,
+     0, -1,  0,  0,
+     0,  0,  0,  1,
+  );
+}
+
 // ── Probe extraction ──────────────────────────────────────────────────────
 
 /**
@@ -180,7 +194,7 @@ export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
 // ── Internal initialiser ─────────────────────────────────────────────────
 
 async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys) {
-  const CCF_MATRIX = makeCCFMatrix(THREE);
+  const CCF_MATRIX = makeTemplateMatrix(THREE);
 
   // ── Scene ──────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
@@ -242,7 +256,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
   const meshBase = 'https://allen-data-views.s3.amazonaws.com/data-asset-cache/meshes/';
 
   // Load brain surface
-  _loadOBJ(loader, meshBase + '997.obj', (group) => {
+  _loadOBJ(loader, meshBase + '997_b5.obj', (group) => {
     group.traverse((child) => {
       if (!child.isMesh) return;
       child.geometry.applyMatrix4(CCF_MATRIX);
@@ -267,7 +281,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
       depthWrite: false,
       shininess: 30,
     });
-    _loadOBJ(loader, meshBase + struct.id + '.obj', (group) => {
+    _loadOBJ(loader, meshBase + struct.id + '_b5.obj', (group) => {
       group.traverse((child) => {
         if (!child.isMesh) return;
         child.geometry.applyMatrix4(CCF_MATRIX);
