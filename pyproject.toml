@@ -11,6 +11,7 @@ dependencies = [
     "duckdb-server>=0.21.1",
     "aind-data-access-api[docdb]",
     "pymysql",
+    "numcodecs>=0.16.5",
 ]
 
 [tool.setuptools.packages.find]
