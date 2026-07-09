@@ -102,6 +102,10 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--text-mut, #6a6a6a);
+  width: 8.5em;
+  flex: none;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* ---- Status line --------------------------------------------------------- */
