@@ -170,6 +170,7 @@ export function createRecordView() {
 
   const params = new URLSearchParams(window.location.search);
   const name = params.get('name') ?? '';
+  const initialView = params.get('view') === 'interactive' ? 'interactive' : 'json';
 
   if (!name) {
     const msg = document.createElement('p');
@@ -223,7 +224,46 @@ export function createRecordView() {
           setTimeout(() => { copyBtn.textContent = prev; }, 1500);
         });
       });
-      tree.appendChild(renderJsonValue(results[0]));
+      tree.appendChild(renderJsonValue(record));
+
+      let mounted = false;
+      const setViewParam = (mode) => {
+        const url = new URL(window.location.href);
+        if (mode === 'interactive') url.searchParams.set('view', 'interactive');
+        else url.searchParams.delete('view');
+        history.replaceState({}, '', url);
+      };
+      const showJson = () => {
+        tree.hidden = false;
+        interactive.hidden = true;
+        jsonTabBtn.classList.add('is-active');
+        interactiveTabBtn.classList.remove('is-active');
+        setViewParam('json');
+      };
+      const showInteractive = () => {
+        tree.hidden = true;
+        interactive.hidden = false;
+        interactiveTabBtn.classList.add('is-active');
+        jsonTabBtn.classList.remove('is-active');
+        setViewParam('interactive');
+        if (!mounted) {
+          mounted = true;
+          interactive.textContent = 'Loading interactive view…';
+          import('./interactive/mount.js')
+            .then(({ mountRecordDiagram }) => {
+              interactive.textContent = '';
+              mountRecordDiagram(interactive, record);
+            })
+            .catch((err) => {
+              mounted = false;
+              interactive.textContent = `Failed to load interactive view: ${err.message}`;
+            });
+        }
+      };
+      jsonTabBtn.addEventListener('click', showJson);
+      interactiveTabBtn.addEventListener('click', showInteractive);
+      interactiveTabBtn.disabled = false;
+      if (initialView === 'interactive') showInteractive();
     })
     .catch((err) => {
       status.className = 'record-error';
