@@ -1,5 +1,48 @@
-import { getMetricStatus } from './data.js';
+import { getMetricStatus, isCustomMetric } from './data.js';
 import { renderMedia } from './media.js';
+
+const EDIT_TOOLTIP = 'Use edit mode to make changes';
+
+/**
+ * Read-only rendering of the custom metric value widgets (DropdownMetric / CheckboxMetric)
+ * that the Panel app shows as interactive Select / MultiChoice controls.
+ */
+function renderCustomMetric(val) {
+  const wrap = document.createElement('div');
+  wrap.className = 'qc-custom-metric';
+  wrap.title = EDIT_TOOLTIP;
+
+  if (val.type === 'dropdown') {
+    const sel = document.createElement('div');
+    sel.className = 'qc-readonly-select';
+    const v = val.value;
+    sel.textContent = (v === '' || v === null || v === undefined) ? '—' : String(v);
+    wrap.appendChild(sel);
+  } else if (val.type === 'checkbox') {
+    const selected = Array.isArray(val.value) ? val.value : (val.value != null ? [val.value] : []);
+    const list = document.createElement('div');
+    list.className = 'qc-readonly-checklist';
+    for (const opt of (val.options ?? [])) {
+      const item = document.createElement('div');
+      item.className = 'qc-readonly-check';
+      const checked = selected.includes(opt);
+      const box = document.createElement('span');
+      box.className = 'qc-checkbox' + (checked ? ' checked' : '');
+      box.textContent = checked ? '☑' : '☐';
+      item.appendChild(box);
+      item.appendChild(document.createTextNode(` ${opt}`));
+      list.appendChild(item);
+    }
+    wrap.appendChild(list);
+  } else {
+    // Unknown custom shape (e.g. rule-based): fall back to JSON.
+    const pre = document.createElement('pre');
+    pre.className = 'qc-value-json';
+    pre.textContent = JSON.stringify(val, null, 2);
+    wrap.appendChild(pre);
+  }
+  return wrap;
+}
 
 function parseMarkdownLinks(text) {
   if (!text) return '';
@@ -57,7 +100,31 @@ function renderValue(val) {
   }
 
   if (typeof val === 'object') {
-    const entries = Object.entries(val);
+    // Custom metric widgets (dropdown / checkbox) render as read-only controls.
+    if (isCustomMetric(val)) {
+      return renderCustomMetric(val);
+    }
+
+    let entries = Object.entries(val);
+
+    // Curation dicts carry a "reference" key (rendered as media alongside). Show the
+    // remaining key/value pairs as a small read-only table, matching GenericCuration.
+    if ('reference' in val) {
+      const rest = entries.filter(([k]) => k !== 'reference');
+      if (!rest.length) return document.createTextNode('—');
+      const table = document.createElement('table');
+      table.className = 'qc-value-table';
+      const tbody = table.createTBody();
+      for (const [k, v] of rest) {
+        const row = tbody.insertRow();
+        const keyCell = row.insertCell();
+        keyCell.textContent = k;
+        keyCell.style.fontWeight = '600';
+        row.insertCell().textContent = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
+      }
+      return table;
+    }
+
     const listsOnly = entries.every(([, v]) => Array.isArray(v));
     if (listsOnly && entries.length) {
       const lengths = entries.map(([, v]) => v.length);
@@ -150,6 +217,7 @@ function buildMetricCard(metric) {
   const status = getMetricStatus(metric);
   const statusEl = document.createElement('div');
   statusEl.className = 'metric-status';
+  statusEl.title = EDIT_TOOLTIP;
   const dot = document.createElement('span');
   dot.className = `status-dot ${statusDotClass(status)}`;
   statusEl.appendChild(dot);
@@ -184,7 +252,9 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
     body.className = 'accordion-body';
 
     const leftCol = document.createElement('div');
-    leftCol.className = 'accordion-metrics';
+    // With a media reference the cards sit in a fixed-width column beside the media;
+    // without one they fill the width as a responsive grid instead of a single stack.
+    leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
     for (const m of groupMetrics) {
       leftCol.appendChild(buildMetricCard(m));
     }

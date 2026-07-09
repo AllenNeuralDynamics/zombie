@@ -126,7 +126,17 @@ export function organizeSubjectData(records, subjectId) {
       rec.acquisition?.acquisition_start_time &&
       rec.data_description?.data_level !== 'derived'
     ) {
-      bundle.acquisitions.push({ ...rec.acquisition, _assetName: rec.name ?? '', _modalities: rec.data_description?.modalities ?? [] });
+      bundle.acquisitions.push({
+        ...rec.acquisition,
+        _assetName: rec.name ?? '',
+        _modalities: rec.data_description?.modalities ?? [],
+        // Seed project/location from the DocDB record so platform detection and
+        // video loading work immediately on deep-link, before the async DuckDB
+        // asset enrichment (below) has a chance to run. The enrichment later
+        // refreshes these with the same values.
+        _project_name: rec.data_description?.project_name ?? null,
+        _location: rec.location ?? null,
+      });
     }
   }
 
@@ -146,7 +156,7 @@ export function organizeSubjectData(records, subjectId) {
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null } = opts;
+  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null, initialAcquisition = null } = opts;
   const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
@@ -231,7 +241,8 @@ export function createSubjectView(opts = {}) {
 
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
-  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect });
+  if (initialAcquisition) root._pendingAcquisition = initialAcquisition;
+  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect, root });
 
   // Imperative API for the combined view: load a subject programmatically,
   // optionally pre-selecting a specific acquisition on the timeline.
@@ -255,8 +266,10 @@ export function createSubjectView(opts = {}) {
 async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, onAcquisitionSelect = null, root = null } = {}) {
   console.debug('[SubjectView] _loadSubject start:', subjectId, 'aborted:', signal?.aborted);
   // Clear previous content and show loading indicator
+  const _prevH = contentEl.offsetHeight;
   contentEl.innerHTML = '';
-
+  if (_prevH > 0) contentEl.style.minHeight = `${_prevH}px`;
+  try {
   if (!subjectId) {
     contentEl.innerHTML = `
       <div class="error-banner">
@@ -362,11 +375,13 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
 
     // Expose acquisition selection to the combined view and honour any
     // acquisition requested before this load completed (e.g. project dot click).
+    let pendingHighlight = null;
     if (root) {
       root._selectAcquisition = (name) => timelineSvg.selectAcquisition?.(name);
       if (root._pendingAcquisition) {
         const target = root._pendingAcquisition;
         root._pendingAcquisition = null;
+        pendingHighlight = target;
         // Defer until the bubble strip has laid out.
         requestAnimationFrame(() => timelineSvg.selectAcquisition?.(target));
       }
@@ -384,6 +399,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         if (!result) return;
         const { tableEl, assets } = result;
         assetsTableEl = tableEl;
+        if (pendingHighlight) assetsTableEl.goToAsset?.(pendingHighlight);
         // Report the most-recent asset's project to the combined view so it can
         // populate the project section when the subject was opened first.
         if (onSubjectLoaded) {
@@ -419,6 +435,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
     }
     console.error('[SubjectView] Failed to load subject data:', err);
     loadingEl.replaceWith(_errorEl(`Failed to load data: ${err.message}`));
+  }
+  } finally {
+    contentEl.style.minHeight = '';
   }
 }
 

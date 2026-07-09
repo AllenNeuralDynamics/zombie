@@ -1,0 +1,22 @@
+/* ============================================================
+ * Time-to-QC histogram inside platform overview
+ * ============================================================ */
+
+.platform-ttq-section {
+  padding: 0.5rem 0;
+}
+
+.platform-ttq-charts {
+  display: flex;
+  align-items: flex-end;
+}
+
+.platform-ttq-break {
+  align-self: flex-end;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-muted, #888);
+  padding: 0 2px;
+  letter-spacing: -2px;
+  /* margin-bottom set inline to match chart's marginBottom exactly */
+}

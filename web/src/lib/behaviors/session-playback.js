@@ -39,7 +39,7 @@ export function detectPlaybackPlatform(event) {
 
   if (isForagingAcquisition(event)) return 'dynamic_foraging';
   if (data.acquisition_type === VRF_ACQUISITION_TYPE) return 'vr_foraging';
-  if (data._project_name === DR_PROJECT_NAME) return 'dynamic_routing';
+  if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
   return null;
 }
@@ -54,25 +54,16 @@ function drSessionId(event, subjectId) {
 }
 
 /**
- * Build a session-playback element for a qualifying acquisition event, or
+ * Build the platform-specific player mount for a qualifying acquisition, or
  * null if the event does not qualify (or required context is missing).
  *
- * The returned element loads its data asynchronously and shows its own status
- * line, so callers can append it synchronously.
- *
- * @param {object} event - Subject timeline acquisition event.
- * @param {object} [context]
- * @param {object} [context.coordinator] - DuckDB coordinator.
- * @param {string} [context.subjectId]   - Subject ID (for DR session id).
+ * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'} platform
+ * @param {object} event   - Subject timeline acquisition event.
+ * @param {object} context - { coordinator, subjectId }.
+ * @param {object} coord   - DuckDB coordinator.
  * @returns {HTMLElement|null}
  */
-export function createSessionPlayback(event, context = {}) {
-  const platform = detectPlaybackPlatform(event);
-  if (!platform) return null;
-
-  const coord = context.coordinator ?? null;
-  if (!coord) return null;
-
+function buildPlatformPlayer(platform, event, context, coord) {
   // Synchronous placeholder; the real widget replaces it after its lazy import.
   const mount = document.createElement('div');
   mount.className = 'session-playback-mount';
@@ -86,11 +77,17 @@ export function createSessionPlayback(event, context = {}) {
     else loading.textContent = 'Session playback unavailable for this acquisition.';
   };
 
+  // Shared options: header metadata + raw asset location (for behavior videos).
+  const playerOpts = {
+    acquisitionType: event.data?.acquisition_type ?? '',
+    location: event.data?._location ?? null,
+  };
+
   if (platform === 'dynamic_foraging') {
     const session = extractForagingSessionInfo(event);
     if (!session) return null;
     import('../../dynamic_foraging/player.js')
-      .then(({ createDfSessionPlayback }) => swap(createDfSessionPlayback(coord, session)))
+      .then(({ createDfSessionPlayback }) => swap(createDfSessionPlayback(coord, session, playerOpts)))
       .catch((err) => { console.error('[playback] DF load failed', err); swap(null); });
     return mount;
   }
@@ -99,7 +96,7 @@ export function createSessionPlayback(event, context = {}) {
     const rawName = event.data?._assetName ?? null;
     if (!rawName) return null;
     import('../../vr_foraging/player.js')
-      .then(({ createVrfSessionPlayback }) => swap(createVrfSessionPlayback(coord, rawName)))
+      .then(({ createVrfSessionPlayback }) => swap(createVrfSessionPlayback(coord, rawName, playerOpts)))
       .catch((err) => { console.error('[playback] VRF load failed', err); swap(null); });
     return mount;
   }
@@ -108,10 +105,96 @@ export function createSessionPlayback(event, context = {}) {
     const sessionId = drSessionId(event, context.subjectId);
     if (!sessionId) return null;
     import('../../dynamic_routing/player.js')
-      .then(({ createDrSessionPlayback }) => swap(createDrSessionPlayback(coord, sessionId)))
+      .then(({ createDrSessionPlayback }) => swap(createDrSessionPlayback(coord, sessionId, playerOpts)))
       .catch((err) => { console.error('[playback] DR load failed', err); swap(null); });
     return mount;
   }
 
   return null;
+}
+
+/**
+ * Build a session-playback element for an acquisition event, or null if the
+ * event qualifies for neither a platform player nor a fiber-photometry panel
+ * (or required context is missing).
+ *
+ * When the acquisition has corresponding fiber-photometry traces, a fiber
+ * panel is appended below the platform player. The panel loads its own data
+ * asynchronously and removes itself if no fiber data exists for the asset.
+ *
+ * The returned element loads its data asynchronously and shows its own status
+ * line, so callers can append it synchronously.
+ *
+ * @param {object} event - Subject timeline acquisition event.
+ * @param {object} [context]
+ * @param {object} [context.coordinator] - DuckDB coordinator.
+ * @param {string} [context.subjectId]   - Subject ID (for DR session id / fiber).
+ * @returns {HTMLElement|null}
+ */
+export function createSessionPlayback(event, context = {}) {
+  if (!event || event.type !== 'Acquisition') return null;
+
+  const coord = context.coordinator ?? null;
+  if (!coord) return null;
+
+  const platform = detectPlaybackPlatform(event);
+  const subjectId = context.subjectId ?? event.data?.subject_id ?? null;
+  const rawAssetName = event.data?._assetName ?? null;
+  // Only offer the fiber panel when the acquisition actually has a fiber
+  // photometry modality. Otherwise the fiber panel silently removes itself
+  // (no data) and leaves an empty "Data" tab.
+  const modalities = event.modalities ?? [];
+  const hasFiberModality = modalities.some((m) => /^fib/i.test(String(m)));
+  const canFiber = !!(subjectId && rawAssetName && hasFiberModality);
+  const hasEcephysModality = modalities.some((m) => /ecephys/i.test(String(m)));
+  const canEcephys = !!(subjectId && rawAssetName && hasEcephysModality);
+
+  if (!platform && !canFiber && !canEcephys) return null;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'session-playback-wrapper';
+
+  let hasPlayer = false;
+  if (platform) {
+    const playerEl = buildPlatformPlayer(platform, event, context, coord);
+    if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
+  }
+
+  if (canEcephys) {
+    const ephysMount = document.createElement('div');
+    ephysMount.className = 'session-playback-modality';
+    wrapper.appendChild(ephysMount);
+    import('../../ecephys/ecephys-playback.js')
+      .then(({ createEcephysPlayback }) => {
+        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName);
+        if (hasPlayer) {
+          const hr = document.createElement('hr');
+          hr.className = 'session-playback-sep';
+          ephysMount.appendChild(hr);
+        }
+        ephysMount.appendChild(ephysEl);
+      })
+      .catch((err) => { console.error('[playback] ecephys load failed', err); });
+  }
+
+  if (canFiber) {
+    const fiberMount = document.createElement('div');
+    fiberMount.className = 'session-playback-modality';
+    wrapper.appendChild(fiberMount);
+    import('../../fiber_photometry/fib-playback.js')
+      .then(({ createFibPlayback }) => {
+        const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName);
+        // Separate additional modalities (fiber, …) from the behavior player
+        // above with a horizontal rule.
+        if (hasPlayer || canEcephys) {
+          const hr = document.createElement('hr');
+          hr.className = 'session-playback-sep';
+          fiberMount.appendChild(hr);
+        }
+        fiberMount.appendChild(fiberEl);
+      })
+      .catch((err) => { console.error('[playback] fiber load failed', err); });
+  }
+
+  return wrapper;
 }

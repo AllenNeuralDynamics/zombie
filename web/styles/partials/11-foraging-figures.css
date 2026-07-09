@@ -183,8 +183,14 @@
 }
 
 .platform-dropdown-col {
-  flex: 1 1 0;
+  flex: 0 0 auto;
   min-width: 0;
+  transition: flex 0.15s ease;
+}
+
+.platform-dropdown-col:has([aria-expanded="true"]) {
+  flex: 1 1 0;
+  min-width: 200px;
 }
 
 .platform-summary-section {

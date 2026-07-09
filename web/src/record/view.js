@@ -11,9 +11,26 @@
  *   renderJsonValue()   — Pure helper, exported for unit tests.
  */
 
-import { escHtml } from '../lib/utils.js';
+import { escHtml, normalizeProtocolId } from '../lib/utils.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { buildCoLink } from '../assets/links.js';
+
+// ---------------------------------------------------------------------------
+// Protocol title fetcher
+// ---------------------------------------------------------------------------
+
+async function fetchProtocolTitle(canonicalUrl) {
+  try {
+    const doi = canonicalUrl.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+    const res = await fetch(`https://api.crossref.org/works/${doi}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const titles = data?.message?.title;
+    return Array.isArray(titles) && titles.length > 0 ? titles[0] : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // JSON tree renderer
@@ -77,6 +94,18 @@ export function renderJsonValue(value, parentKey = null) {
     if (parentKey === 'Code Ocean' && value) {
       const href = buildCoLink(value);
       if (href) return makeLink(href, value);
+    }
+    if (parentKey === 'protocol_id' && value) {
+      const url = normalizeProtocolId(value);
+      if (url) {
+        const a = makeLink(url, value);
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        fetchProtocolTitle(url).then((title) => {
+          if (title) a.textContent = title;
+        });
+        return a;
+      }
     }
     const span = document.createElement('span');
     span.className = 'json-string';
@@ -191,6 +220,20 @@ export function createRecordView() {
   heading.textContent = name;
   headingRow.appendChild(heading);
 
+  // View toggle: JSON (default) ↔ Interactive record diagram.
+  const toggle = document.createElement('div');
+  toggle.className = 'record-view-toggle';
+  const jsonTabBtn = document.createElement('button');
+  jsonTabBtn.className = 'record-tab is-active';
+  jsonTabBtn.textContent = 'JSON';
+  const interactiveTabBtn = document.createElement('button');
+  interactiveTabBtn.className = 'record-tab';
+  interactiveTabBtn.textContent = 'Interactive';
+  interactiveTabBtn.disabled = true;
+  toggle.appendChild(jsonTabBtn);
+  toggle.appendChild(interactiveTabBtn);
+  headingRow.appendChild(toggle);
+
   const copyBtn = document.createElement('button');
   copyBtn.className = 'record-copy-btn';
   copyBtn.textContent = 'Copy JSON';
@@ -208,6 +251,13 @@ export function createRecordView() {
   tree.className = 'record-tree';
   root.appendChild(tree);
 
+  // Mount point for the React interactive diagram — populated lazily on first
+  // switch so React + React Flow never load for the default JSON view.
+  const interactive = document.createElement('div');
+  interactive.className = 'record-interactive';
+  interactive.hidden = true;
+  root.appendChild(interactive);
+
   queryDocDb({ name }, { limit: 1 })
     .then((results) => {
       if (!results || results.length === 0) {
@@ -215,7 +265,8 @@ export function createRecordView() {
         return;
       }
       status.remove();
-      const rawJson = JSON.stringify(results[0], null, 2);
+      const record = results[0];
+      const rawJson = JSON.stringify(record, null, 2);
       copyBtn.disabled = false;
       copyBtn.addEventListener('click', () => {
         navigator.clipboard.writeText(rawJson).then(() => {

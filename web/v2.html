@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>V2 Acquisition Heatmap</title>
+    <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
+    <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
+    <link rel="stylesheet" href="/styles/app.css" />
+  </head>
+  <body>
+    <!--APP_HEADER-->
+
+    <main id="app" class="app-main">
+      <p id="loading-message" class="loading-message">Loading…</p>
+    </main>
+
+    <script type="module" src="/src/v2-entry.js"></script>
+    <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'☀':'☾';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
+  </body>
+</html>

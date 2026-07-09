@@ -13,6 +13,10 @@ import {
   diffJson,
   extractServicePayload,
   formatDiffValue,
+  getAtPath,
+  lookupIdForEndpoint,
+  normalizeServiceSection,
+  setAtPath,
   topLevelChangedSections,
 } from '../migrate/lib.js';
 
@@ -184,5 +188,100 @@ describe('topLevelChangedSections', () => {
   it('returns empty when either side is missing', () => {
     expect(topLevelChangedSections(null, { a: 1 })).toEqual([]);
     expect(topLevelChangedSections({ a: 1 }, null)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getAtPath / setAtPath
+// ---------------------------------------------------------------------------
+
+describe('getAtPath', () => {
+  it('reads nested values', () => {
+    expect(getAtPath({ a: { b: { c: 1 } } }, ['a', 'b', 'c'])).toBe(1);
+  });
+  it('returns undefined when a hop is missing', () => {
+    expect(getAtPath({ a: {} }, ['a', 'b', 'c'])).toBeUndefined();
+    expect(getAtPath(null, ['a'])).toBeUndefined();
+  });
+});
+
+describe('setAtPath', () => {
+  it('immutably sets a nested value, cloning each level', () => {
+    const orig = { data_description: { project_name: 'P', funding_source: [{ old: true }] } };
+    const next = setAtPath(orig, ['data_description', 'funding_source'], [{ new: true }]);
+    expect(next.data_description.funding_source).toEqual([{ new: true }]);
+    // siblings preserved, original untouched
+    expect(next.data_description.project_name).toBe('P');
+    expect(orig.data_description.funding_source).toEqual([{ old: true }]);
+    expect(next).not.toBe(orig);
+  });
+
+  it('creates intermediate objects when absent', () => {
+    expect(setAtPath({}, ['data_description', 'investigators'], [1]))
+      .toEqual({ data_description: { investigators: [1] } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// lookupIdForEndpoint
+// ---------------------------------------------------------------------------
+
+describe('lookupIdForEndpoint', () => {
+  const record = {
+    subject: { subject_id: '12345' },
+    data_description: { project_name: 'AIBS WB AAV Toolbox' },
+  };
+  it('uses subject.subject_id for subject/procedures', () => {
+    expect(lookupIdForEndpoint(record, 'subject')).toBe('12345');
+    expect(lookupIdForEndpoint(record, 'procedures')).toBe('12345');
+  });
+  it('uses data_description.project_name for funding/investigators', () => {
+    expect(lookupIdForEndpoint(record, 'funding')).toBe('AIBS WB AAV Toolbox');
+    expect(lookupIdForEndpoint(record, 'investigators')).toBe('AIBS WB AAV Toolbox');
+  });
+  it('returns null when the field is absent', () => {
+    expect(lookupIdForEndpoint({}, 'funding')).toBeNull();
+    expect(lookupIdForEndpoint({}, 'subject')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeServiceSection
+// ---------------------------------------------------------------------------
+
+describe('normalizeServiceSection', () => {
+  it('returns subject/procedures payloads verbatim', () => {
+    const p = { subject_id: '1' };
+    expect(normalizeServiceSection('subject', 'v2', p)).toBe(p);
+    expect(normalizeServiceSection('procedures', 'v1', p)).toBe(p);
+  });
+
+  it('uses the v2 funding list as funding_source', () => {
+    const list = [{ object_type: 'Funding', grant_number: 'G1' }];
+    expect(normalizeServiceSection('funding', 'v2', list)).toEqual(list);
+  });
+
+  it('wraps the v1 funding object into a list and strips its investigators key', () => {
+    const v1 = { funder: { name: 'NIMH' }, grant_number: 'G1', fundee: 'A, B', investigators: 'X, Y' };
+    expect(normalizeServiceSection('funding', 'v1', v1)).toEqual([
+      { funder: { name: 'NIMH' }, grant_number: 'G1', fundee: 'A, B' },
+    ]);
+  });
+
+  it('uses the v2 investigators list as-is', () => {
+    const list = [{ object_type: 'Person', name: 'Avery Hunker' }];
+    expect(normalizeServiceSection('investigators', 'v2', list)).toEqual(list);
+  });
+
+  it('derives v1 investigators from the funding response string', () => {
+    const v1 = { grant_number: 'G1', investigators: 'Avery Hunker, Bosiljka Tasic' };
+    expect(normalizeServiceSection('investigators', 'v1', v1)).toEqual([
+      { name: 'Avery Hunker', abbreviation: null, registry: null, registry_identifier: null },
+      { name: 'Bosiljka Tasic', abbreviation: null, registry: null, registry_identifier: null },
+    ]);
+  });
+
+  it('returns an empty investigators list when v1 funding has no investigators string', () => {
+    expect(normalizeServiceSection('investigators', 'v1', { grant_number: 'G1' })).toEqual([]);
   });
 });

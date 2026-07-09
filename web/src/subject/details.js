@@ -29,6 +29,41 @@ import {
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
 import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
+import { isISIAcquisition, createISIViewer } from './isi-viewer.js';
+import { escHtml, normalizeProtocolId } from '../lib/utils.js';
+
+// ---------------------------------------------------------------------------
+// Protocol helpers
+// ---------------------------------------------------------------------------
+
+async function fetchProtocolTitle(canonicalUrl) {
+  try {
+    const doi = canonicalUrl.replace(/^https?:\/\/(dx\.)?doi\.org\//i, '');
+    const res = await fetch(`https://api.crossref.org/works/${doi}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const titles = data?.message?.title;
+    return Array.isArray(titles) && titles.length > 0 ? titles[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+function fmtProtocolId(raw) {
+  if (!raw) return 'Not specified';
+  const url = normalizeProtocolId(raw);
+  if (!url) return escHtml(String(raw));
+  return `<a href="${escHtml(url)}" data-protocol-url="${escHtml(url)}" target="_blank" rel="noopener noreferrer">${escHtml(String(raw))}</a>`;
+}
+
+export async function upgradeProtocolLinks(container) {
+  const links = container.querySelectorAll('[data-protocol-url]');
+  for (const a of links) {
+    const url = a.getAttribute('data-protocol-url');
+    const title = await fetchProtocolTitle(url);
+    if (title) a.textContent = title;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Pure HTML-string builders (Node-testable)
@@ -340,7 +375,7 @@ export function buildCraniotomySubProcHtml(subProc) {
     <dt>Protective material</dt><dd>${fmtDetailValue(subProc.protective_material)}</dd>
     <dt>Implant part number</dt><dd>${fmtDetailValue(subProc.implant_part_number)}</dd>
     <dt>Dura removed</dt><dd>${fmtDetailBoolean(subProc.dura_removed)}</dd>
-    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+    <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
   </dl></div>`;
 }
 
@@ -351,7 +386,7 @@ export function buildHeadframeSubProcHtml(subProc) {
     <dt>Headframe material</dt><dd>${fmtDetailValue(subProc.headframe_material)}</dd>
     <dt>Well type</dt><dd>${fmtDetailValue(subProc.well_type)}</dd>
     <dt>Well part number</dt><dd>${fmtDetailValue(subProc.well_part_number)}</dd>
-    <dt>Protocol</dt><dd>${fmtDetailValue(subProc.protocol_id)}</dd>
+    <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
   </dl></div>`;
 }
 
@@ -360,7 +395,7 @@ function buildSubProcHtml(subProc) {
   if (type === 'Perfusion') {
     const specimens = (subProc.output_specimen_ids ?? []).join(', ') || 'Unknown';
     return `<div class="detail-card"><h4>Perfusion</h4><dl>
-      <dt>Protocol</dt><dd>${subProc.protocol_id ?? 'Not specified'}</dd>
+      <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
       <dt>Output specimens</dt><dd>${specimens}</dd>
     </dl></div>`;
   }
@@ -552,47 +587,51 @@ function createEphysPanel(acquisitionData) {
 
 /**
  * Render an Acquisition event detail: overview card, with optional
- * "Ephys Assembly", "Imaging Details", and "Instrument" tabs.
+ * "Data" (session playback), "Ephys Assembly", "Imaging Details", and
+ * "Instrument" tabs.
  */
 function renderAcquisitionDetail(event, container, context = {}) {
   const { data = {} } = event;
   const prevTab = container._activeTabLabel;
 
-  // If this acquisition qualifies for a platform's session playback, render
-  // the player inline below the overview content (see session-playback.js).
-  const appendPlayback = () => {
-    const player = createSessionPlayback(event, context);
-    if (player) container.appendChild(player);
+  // If this acquisition qualifies for behavior/fiber session playback, host it
+  // in its own "Data" tab (shared harness — see lib/behaviors/session-playback.js).
+  const playbackEl = createSessionPlayback(event, context);
+  const dataTab = playbackEl ? [{ label: 'Data', content: playbackEl }] : [];
+
+  const renderTabs = (tabDefs) => {
+    container.innerHTML = '';
+    container.appendChild(
+      createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }),
+    );
   };
 
-  // Dynamic foraging sessions get a dedicated panel
+  // Dynamic foraging sessions keep their choice-history "Foraging" summary tab.
   if (isForagingAcquisition(event)) {
     const sessionInfo = extractForagingSessionInfo(event);
-    container.innerHTML = '';
     const overviewEl = document.createElement('div');
     overviewEl.innerHTML = buildAcquisitionDetail(event);
     const foragingEl = createForagingSessionDetail(sessionInfo, null, context.coordinator ?? null);
-    const tabDefs = [
+    renderTabs([
+      ...dataTab,
       { label: 'Foraging',  content: foragingEl },
       { label: 'Overview',  content: overviewEl },
-    ];
-    container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
-    appendPlayback();
+    ]);
     return;
   }
 
   const hasEphys = hasEphysAssemblies(data);
   const hasImaging = hasImagingConfig(data);
+  const hasISI = isISIAcquisition(event);
 
   // Look up matching instrument for this acquisition
   const instrumentId = data.instrument_id ?? null;
   const instruments = context.instruments ?? new Map();
   const instrumentData = instrumentId ? instruments.get(instrumentId) ?? null : null;
 
-  // Simple case: no special data
-  if (!hasEphys && !hasImaging && !instrumentData) {
+  // Simple case: no special data and nothing to play back.
+  if (!hasEphys && !hasImaging && !hasISI && !instrumentData && !playbackEl) {
     container.innerHTML = buildAcquisitionDetail(event);
-    appendPlayback();
     return;
   }
 
@@ -601,6 +640,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   overviewEl.innerHTML = buildAcquisitionDetail(event);
 
   const tabDefs = [
+    ...dataTab,
     { label: 'Overview', content: overviewEl },
   ];
 
@@ -617,13 +657,15 @@ function renderAcquisitionDetail(event, container, context = {}) {
     tabDefs.push({ label: 'Imaging Details', content: imagingEl });
   }
 
+  if (hasISI) {
+    tabDefs.push({ label: 'ISI Maps', content: createISIViewer(event, context.coordinator ?? null) });
+  }
+
   if (instrumentData) {
     tabDefs.push({ label: 'Instrument', content: createInstrumentPanel(instrumentData, data) });
   }
 
-  container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevTab, parentContainer: container }));
-  appendPlayback();
+  renderTabs(tabDefs);
 }
 
 function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
@@ -642,6 +684,7 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
     if (type === 'Probe implant' || type === 'Brain injection') continue;
     const el = document.createElement('div');
     el.innerHTML = buildSubProcHtml(sub);
+    upgradeProtocolLinks(el);
     tabDefs.push({ label: type, content: el });
   }
 

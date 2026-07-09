@@ -3,7 +3,7 @@
  * Foraging platform page.
  *
  * Renders a card with:
- *   • session selector (from foraging_sessions DuckDB table)
+ *   • session selector (from platform_dynamic_foraging_sessions DuckDB table)
  *   • mouse-head dorsal animation + lick spouts + tongue
  *   • reward-probability trace plot with moving playhead and choice ticks
  *   • transport (play/pause/seek/speed) and live trial readout
@@ -16,6 +16,8 @@ import { queryRows } from '../lib/arrow.js';
 import { loadDfSession, findTrialAt, SESSION_TABLE_URL } from './data-loader.js';
 import { DfAnimation, loadMouseSprite, loadCueIcon, loadWaterDroplet } from './animation.js';
 import { createProbPlot } from './prob-plot.js';
+import { createPlaybackHarness } from '../lib/behaviors/playback-harness.js';
+import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -222,27 +224,30 @@ export function createDfSessionPlayer(coord) {
 
 /**
  * Create a single-session DF playback widget (no subject/session dropdowns).
- * Used inside the subject timeline's Event Details panel.
+ * Used inside the subject viewer's "Data" tab. Built on the shared playback
+ * harness so transport, video loading/sync and speed warnings are common to
+ * every behavior platform.
  *
  * @param {object} coord - DuckDB coordinator.
  * @param {{ subject_id: string, session_date: string, nwb_suffix: string|number }} session
+ * @param {object} [opts]
+ * @param {string} [opts.acquisitionType] - Shown in the header row.
+ * @param {string} [opts.location]        - Raw asset S3 location (for videos).
  * @returns {HTMLElement}
  */
-export function createDfSessionPlayback(coord, session) {
-  const root = document.createElement('section');
-  root.className = 'df-player df-player--embedded';
-  root.innerHTML = `
-    <div id="df-player-status" class="df-player-status">Loading session…</div>
-    ${DF_BODY_HTML}
-  `;
+export function createDfSessionPlayback(coord, session, opts = {}) {
+  const harness = createPlaybackHarness({
+    taskClass: 'df',
+    speedSteps: SPEED_STEPS,
+    defaultSpeedIdx: DEFAULT_SPEED_IDX,
+  });
+  const root = harness.root;
+  root.classList.add('df-player', 'df-player--embedded');
 
-  const statusEl = root.querySelector('#df-player-status');
-  const bodyEl   = root.querySelector('.df-player-body');
-  let animation = null;
+  const ctrl = new AbortController();
 
   (async () => {
-    statusEl.textContent =
-      `Loading ${session.subject_id} · ${session.session_date} from S3…`;
+    harness.setStatus(`Loading ${session.subject_id} · ${session.session_date} from S3…`);
     try {
       const t0 = performance.now();
       const [data, [mouseImg, cueIcon, dropletImg]] = await Promise.all([
@@ -250,29 +255,49 @@ export function createDfSessionPlayback(coord, session) {
           subjectId: session.subject_id,
           sessionDate: session.session_date,
           nwbSuffix: session.nwb_suffix,
+          signal: ctrl.signal,
         }),
         Promise.all([loadMouseSprite(), loadCueIcon(), loadWaterDroplet()]),
       ]);
+      if (ctrl.signal.aborted) return;
       const ms = Math.round(performance.now() - t0);
-      statusEl.textContent =
+      harness.setStatus(
         `${session.subject_id} · ${session.session_date} · ` +
-        `${data.trials.length} trials · ${data.licks.t.length} licks · loaded in ${ms} ms`;
-      bodyEl.hidden = false;
-      animation = _wireAnimation(root, data, mouseImg, cueIcon, dropletImg);
+        `${data.trials.length} trials · ${data.licks.t.length} licks · loaded in ${ms} ms`);
+
+      const anim = new DfAnimation(harness.canvas, data, mouseImg, cueIcon, dropletImg);
+      const plot = createProbPlot(data);
+
+      harness.activate({
+        header: {
+          count: data.trials.length,
+          label: 'trials',
+          acquisitionType: opts.acquisitionType ?? '',
+        },
+        animation: anim,
+        plot,
+        stageOverlay: _buildSpoutLabels(),
+        trialInfo: (el, t) => _updateTrialInfo(el, data.trials, t),
+        videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
+      });
     } catch (err) {
-      statusEl.textContent = `Error loading session: ${err.message}`;
+      if (ctrl.signal.aborted) return;
+      harness.setStatus(`Error loading session: ${err.message}`, true);
       console.error('[DF] embedded session load failed', err);
     }
   })();
 
-  root.addEventListener('keydown', (ev) => {
-    if (ev.key === ' ' && animation) {
-      ev.preventDefault();
-      root.querySelector('#df-play').click();
-    }
-  });
-
   return root;
+}
+
+/** L/R spout labels overlaid on the animation canvas. */
+function _buildSpoutLabels() {
+  const wrap = document.createElement('div');
+  wrap.className = 'df-stage-labels';
+  wrap.innerHTML =
+    '<span class="df-spout-label df-spout-label-l">L</span>' +
+    '<span class="df-spout-label df-spout-label-r">R</span>';
+  return wrap;
 }
 
 // ---------------------------------------------------------------------------
@@ -283,7 +308,7 @@ async function _populateSessions(coord, statusEl) {
   try {
     // Source the dropdown from the DF database's own session_table so every
     // listed session is guaranteed to have backing trial+event data. (The
-    // separate `foraging_sessions` cache can be days fresher than the DF
+    // separate `platform_dynamic_foraging_sessions` cache can be days fresher than the DF
     // build, leading to "session found, trials missing" mismatches.)
     const rows = await queryRows(coord, `
       SELECT
@@ -411,6 +436,11 @@ function _wireAnimation(root, data, mouseImg, cueIcon, dropletImg) {
   plotMount.innerHTML = '';
   const plot = createProbPlot(data);
   plotMount.appendChild(plot.element);
+
+  const headerEl = root.querySelector('.df-player-header');
+  const existingToggle = headerEl?.querySelector('.df-x-toggle');
+  if (existingToggle) existingToggle.remove();
+  if (plot.toggleEl && headerEl) headerEl.appendChild(plot.toggleEl);
 
   const anim = new DfAnimation(canvas, data, mouseImg, cueIcon, dropletImg);
   anim.setSpeed(SPEED_STEPS[DEFAULT_SPEED_IDX]);

@@ -5,6 +5,8 @@
  * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
+import { patchColor } from './theme.js';
+
 export const CW = 480;
 export const CH = 120;
 const MOUSE_X      = 140;
@@ -211,6 +213,14 @@ export class VrfAnimation {
   draw()      { this._render(); }
   setSpeed(s) { this.speed = s; }
 
+  /**
+   * Re-measure the canvas and redraw. Call this after the canvas has been laid
+   * out (it starts with clientWidth 0 while hidden) and whenever its width
+   * changes, so the corridor fills the available width by showing more track
+   * instead of horizontally stretching a fixed-width backing store.
+   */
+  resize() { this._setupHiDpi(); this._render(); }
+
   cumRewardsAt(siteIndex) { return this._cumRewards[Math.min(siteIndex, this._cumRewards.length - 1)]; }
   get totalRewards()      { return this._cumRewards[this.sites.length - 1]; }
 
@@ -380,7 +390,7 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      const odorColor   = this.odorPalette.get(s.patch_label) ?? C.patch;
+      const odorColor   = patchColor(s.patch_index);
       const outcomeColor = s.has_reward ? C.rewardBlue : C.rewardRed;
       const foT  = this._findOut[i];
       const known = foT != null && nowT >= foT;

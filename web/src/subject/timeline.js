@@ -189,13 +189,27 @@ export function createSubjectTimeline(events, opts = {}) {
   let selectedBubble = null;
   const bubbleEls = []; // parallel to sorted[]
 
-  function selectBubble(bubble, ev) {
+  function selectBubble(bubble, ev, { focus = false } = {}) {
     if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
     bubble.classList.add('tl-bubble--selected');
     selectedBubble = bubble;
     bubble.scrollIntoView?.({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    // Keep keyboard focus on the selected bubble so arrow-key navigation keeps working.
+    if (focus) bubble.focus?.({ preventScroll: true });
     onSelect?.(ev);
   }
+
+  // Arrow-key navigation: move one event into the past (←) or future (→).
+  // Events (bubbleEls) are ordered oldest → newest, matching sorted[].
+  bubbleScroll.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    const currentIdx = bubbleEls.indexOf(selectedBubble);
+    if (currentIdx === -1) return;
+    const nextIdx = e.key === 'ArrowLeft' ? currentIdx - 1 : currentIdx + 1;
+    if (nextIdx < 0 || nextIdx >= sorted.length) return;
+    e.preventDefault();
+    selectBubble(bubbleEls[nextIdx], sorted[nextIdx], { focus: true });
+  });
 
   for (const ev of sorted) {
     const bubble = document.createElement('button');
@@ -247,11 +261,25 @@ export function createSubjectTimeline(events, opts = {}) {
   // to a specific acquisition when arriving from a project-page dot click).
   wrapper.selectAcquisition = (assetName) => {
     if (!assetName) return false;
-    const idx = sorted.findIndex(
+    let idx = sorted.findIndex(
       (ev) => ev.type === 'Acquisition' && ev.data?._assetName === assetName,
     );
+    // Fallback for derived assets: the timeline only carries raw acquisitions, but a
+    // deep-link may arrive with a derived asset name (e.g. "<raw>_processed_<datetime>").
+    // Derived names are prefixed by their source raw name, so select the acquisition
+    // whose _assetName is the longest prefix of the requested name.
+    if (idx === -1) {
+      let bestLen = 0;
+      sorted.forEach((ev, i) => {
+        const raw = ev.type === 'Acquisition' ? ev.data?._assetName : '';
+        if (raw && assetName.startsWith(`${raw}_`) && raw.length > bestLen) {
+          bestLen = raw.length;
+          idx = i;
+        }
+      });
+    }
     if (idx === -1) return false;
-    selectBubble(bubbleEls[idx], sorted[idx]);
+    selectBubble(bubbleEls[idx], sorted[idx], { focus: true });
     return true;
   };
 

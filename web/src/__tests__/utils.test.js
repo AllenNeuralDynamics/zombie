@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { escHtml, formatDatetime, formatDatetimeRaw, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter, aggregateByProject } from '../lib/utils.js';
+import { escHtml, formatDatetime, formatDatetimeRaw, formatDate, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD, parseExperimenters, aggregateByExperimenter, aggregateByProject, normalizeProtocolId } from '../lib/utils.js';
 
 describe('escHtml', () => {
   it('escapes ampersands', () => expect(escHtml('a&b')).toBe('a&amp;b'));
@@ -314,5 +314,55 @@ describe('aggregateByProject', () => {
 
   it('handles empty input', () => {
     expect(aggregateByProject([], null)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeProtocolId
+// ---------------------------------------------------------------------------
+
+describe('normalizeProtocolId', () => {
+  it('returns null for null', () => expect(normalizeProtocolId(null)).toBeNull());
+  it('returns null for empty string', () => expect(normalizeProtocolId('')).toBeNull());
+  it('returns null for unrecognised string', () => expect(normalizeProtocolId('just some text')).toBeNull());
+
+  it('handles dx.doi.org prefix without scheme', () => {
+    expect(normalizeProtocolId('dx.doi.org/10.17504/protocols.io.kqdg392o7g25/v2'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.kqdg392o7g25/v2');
+  });
+
+  it('handles https://dx.doi.org prefix', () => {
+    expect(normalizeProtocolId('https://dx.doi.org/10.17504/protocols.io.8epv51bejl1b/v6'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.8epv51bejl1b/v6');
+  });
+
+  it('handles http://dx.doi.org prefix', () => {
+    expect(normalizeProtocolId('http://dx.doi.org/10.17504/protocols.io.8epv51bejl1b/v6'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.8epv51bejl1b/v6');
+  });
+
+  it('handles doi.org prefix', () => {
+    expect(normalizeProtocolId('https://doi.org/10.17504/protocols.io.kqdg392o7g25/v2'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.kqdg392o7g25/v2');
+  });
+
+  it('handles bare DOI string', () => {
+    expect(normalizeProtocolId('10.17504/protocols.io.kqdg392o7g25/v2'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.kqdg392o7g25/v2');
+  });
+
+  it('handles shorthand protocols.io.SLUG/vN', () => {
+    expect(normalizeProtocolId('protocols.io.8epv51bejl1b/v6'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.8epv51bejl1b/v6');
+  });
+
+  it('handles shorthand protocols.io.SLUG without version', () => {
+    expect(normalizeProtocolId('protocols.io.kqdg392o7g25'))
+      .toBe('https://dx.doi.org/10.17504/protocols.io.kqdg392o7g25');
+  });
+
+  it('passes through a full https://www.protocols.io URL unchanged', () => {
+    expect(normalizeProtocolId('https://www.protocols.io/view/kqdg392o7g25'))
+      .toBe('https://www.protocols.io/view/kqdg392o7g25');
   });
 });

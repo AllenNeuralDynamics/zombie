@@ -98,11 +98,11 @@ async function _loadFiguresSection(coord, section, loadingEl) {
         f.subject_id,
         f.session_date,
         f.nwb_suffix,
-        f.trainer_normalized AS trainer,
+        f.trainer,
         f.curriculum_name,
         f.current_stage_actual AS stage_name,
         c.stage_node_id
-      FROM foraging_sessions f
+      FROM platform_dynamic_foraging_sessions f
       LEFT JOIN (
         SELECT DISTINCT curriculum_name, stage_name, stage_node_id
         FROM behavior_curriculum
@@ -115,10 +115,10 @@ async function _loadFiguresSection(coord, section, loadingEl) {
     console.warn('[DFView] curriculum join failed, falling back to sessions-only query:', err);
     try {
       allSessions = await queryRows(coord, `
-        SELECT subject_id, session_date, nwb_suffix, trainer_normalized AS trainer,
+        SELECT subject_id, session_date, nwb_suffix, trainer,
                curriculum_name, current_stage_actual AS stage_name,
                NULL AS stage_node_id
-        FROM foraging_sessions
+        FROM platform_dynamic_foraging_sessions
         ORDER BY session_date DESC, subject_id ASC
       `);
     } catch (err2) {

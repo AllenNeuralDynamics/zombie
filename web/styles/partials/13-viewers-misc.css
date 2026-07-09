@@ -55,6 +55,60 @@
   font-size: 0.9rem;
 }
 
+/* Segmented JSON / Interactive view toggle */
+.record-view-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.record-tab {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  border: none;
+  background: var(--surface, var(--bg));
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.record-tab + .record-tab {
+  border-left: 1px solid var(--border);
+}
+
+.record-tab:hover:not(:disabled):not(.is-active) {
+  background: var(--hover, var(--border));
+}
+
+.record-tab.is-active {
+  background: var(--accent, #0078d4);
+  color: #fff;
+}
+
+.record-tab:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The record-view toggle should sit before Copy JSON, not push it away */
+.record-heading-row .record-view-toggle + .record-copy-btn {
+  margin-left: 0;
+}
+
+/* React Flow needs an explicitly sized container */
+.record-interactive {
+  width: 100%;
+  height: 78vh;
+  min-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .record-tree {
   font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
   font-size: 0.82rem;
@@ -957,6 +1011,10 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.vrf-player .vrf-videos-row .video-gate-container,
+.vrf-player .vrf-videos-row .vrf-videos-panel {
+  display: contents;
+}
 .vrf-player .vrf-video-wrap {
   flex: 1 1 0;
   min-width: 0;
@@ -1044,16 +1102,6 @@
   white-space: nowrap;
 }
 
-.exaspim-morphology-summary {
-  font-size: 0.9rem;
-  line-height: 1.4;
-  margin-bottom: 10px;
-}
-
-.exaspim-morphology-summary.error {
-  color: var(--danger, #b00020);
-}
-
 .exaspim-morphology-body {
   display: flex;
   gap: 12px;
@@ -1080,7 +1128,14 @@
 .exaspim-morphology-link-bar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.exaspim-morphology-left-controls,
+.exaspim-morphology-right-controls {
+  display: flex;
+  align-items: center;
   gap: 10px;
 }
 
@@ -1093,13 +1148,77 @@
   font-size: 0.8rem;
 }
 
+.exaspim-morphology-frame {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 560px;
+}
+
 .exaspim-morphology-iframe {
   flex: 1 1 auto;
   width: 100%;
   min-height: 560px;
   border: 1px solid var(--border, #e1e1e1);
   border-radius: 4px;
-  background: #181818;
+  background: var(--surface-bg);
+}
+
+.exaspim-morphology-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-bg);
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  transition: opacity 0.3s ease;
+  z-index: 2;
+}
+
+.exaspim-morphology-cover.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.exaspim-morphology-cover-text {
+  font-size: 0.85rem;
+  color: var(--text-muted, #9a9a9a);
+}
+
+/* Blocking overlay shown while a shared URL (esp. slow MouseLight skeletons)
+   is being restored. Sits above both the iframe and the 2D canvas. */
+.exaspim-morphology-restore-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--surface-bg);
+  opacity: 0.92;
+  border-radius: 4px;
+  z-index: 5;
+}
+
+.exaspim-morphology-restore-overlay[hidden] {
+  display: none;
+}
+
+.exaspim-morphology-restore-spinner {
+  width: 38px;
+  height: 38px;
+  border: 3px solid var(--surface-border, #d9d9d9);
+  border-top-color: var(--color-red, #e0245e);
+  border-radius: 50%;
+  animation: dv-spin 0.75s linear infinite;
+}
+
+.exaspim-morphology-restore-text {
+  font-size: 0.85rem;
+  color: var(--text-muted, #6a6a6a);
 }
 
 /* ── checkbox panels ────────────────────────────────────────────────────── */
@@ -1365,6 +1484,237 @@
   flex-shrink: 0;
 }
 
+/* ── Unified neuron panel (single search entry point) ───────────────────── */
+
+.morph-search-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  background: var(--surface, #fff);
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.morph-search-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+}
+
+.morph-selected-row {
+  gap: 6px;
+}
+
+.morph-badge {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.3;
+}
+
+.morph-badge-aind {
+  background: #e3effb;
+  color: #1f5fa6;
+}
+
+.morph-badge-ml {
+  background: #fbe9e3;
+  color: #a6491f;
+}
+
+.morph-remove-btn {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #6a6a6a);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.morph-remove-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+  color: var(--text, #222);
+}
+
+.morph-eye-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text, #333);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.morph-eye-btn:hover {
+  background: var(--surface-alt, #f0f0f0);
+}
+
+.morph-eye-btn.is-hidden {
+  color: var(--text-muted, #9a9a9a);
+}
+
+.morph-color-input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+.morph-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.morph-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.morph-color-input::-moz-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+/* ── Unified search modal extras ────────────────────────────────────────── */
+
+.morph-modal-wide {
+  min-width: 460px;
+  max-width: 560px;
+}
+
+.morph-dataset-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.morph-dataset-opt {
+  border: none;
+  background: var(--surface, #fff);
+  padding: 4px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-dataset-opt:last-child {
+  border-right: none;
+}
+
+.morph-dataset-opt.active {
+  background: var(--accent, #2f6fb0);
+  color: #fff;
+  font-weight: 600;
+}
+
+.morph-modal-search {
+  margin-top: 2px;
+}
+
+.morph-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.morph-chips[hidden] {
+  display: none;
+}
+
+.morph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 6px;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  background: var(--surface-alt, #eef0f2);
+  border: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-chip-ccf {
+  background: #e3effb;
+  border-color: #c5dcf3;
+}
+
+.morph-chip-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted, #6a6a6a);
+}
+
+.morph-chip-remove {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: var(--text-muted, #6a6a6a);
+  border-radius: 50%;
+}
+
+.morph-chip-remove:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text, #222);
+}
+
+.morph-results-head {
+  font-size: 0.74rem;
+  color: var(--text-muted, #6a6a6a);
+  margin-top: 2px;
+}
+
+.morph-results {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  padding: 4px;
+}
+
+.morph-result-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px;
+}
+
+.morph-modal-selinfo {
+  flex: 1 1 auto;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6a6a6a);
+}
+
 @media (max-width: 900px) {
   .exaspim-morphology-body {
     flex-direction: column;
@@ -1544,6 +1894,39 @@
 .migrate-diff-removed td:nth-child(3) { background: color-mix(in srgb, #c0392b 12%, transparent); }
 .migrate-diff-changed td:nth-child(3) { background: color-mix(in srgb, #c0392b 10%, transparent); }
 .migrate-diff-changed td:nth-child(4) { background: color-mix(in srgb, #1D8649 10%, transparent); }
+
+/* ---- Free-form edit mode ------------------------------------------------ */
+
+.migrate-edit { margin-top: 16px; }
+.migrate-edit-hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+.migrate-edit-textarea {
+  width: 100%;
+  height: 480px;
+  max-height: 70vh;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+  color: var(--text-primary);
+}
+.migrate-edit-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
 
 /* ---- Submit / status ---------------------------------------------------- */
 
@@ -1769,6 +2152,46 @@
   touch-action: none;
 }
 
+/* Hint label overlaid on the left of the overview strip */
+.df-brush-hint {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 82px; /* matches MARGIN.left - 6 */
+  transform: translateY(-50%);
+  font-size: 10.5px;
+  color: var(--text-mut, #888);
+  pointer-events: none;
+  text-align: right;
+  padding-right: 8px;
+  user-select: none;
+  line-height: 1.3;
+}
+
+/* X-axis mode toggle (Time / Trials) */
+.df-x-toggle {
+  display: flex;
+  gap: 0;
+  align-self: center;
+}
+.df-x-toggle-btn {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: var(--input-bg, #fff);
+  border: 1px solid var(--border, #ccc);
+  color: var(--text-mut, #888);
+  cursor: pointer;
+  line-height: 1.6;
+  user-select: none;
+}
+.df-x-toggle-btn:first-child { border-radius: 3px 0 0 3px; }
+.df-x-toggle-btn:last-child  { border-radius: 0 3px 3px 0; border-left: none; }
+.df-x-toggle-btn--active {
+  background: var(--accent, #2563eb);
+  border-color: var(--accent, #2563eb);
+  color: #fff;
+}
+
 .df-trial-info {
   font-size: 13px;
   color: var(--text, #111);
@@ -1866,3 +2289,247 @@
   cursor: default;
   opacity: 0.7;
 }
+
+/* ── exaspim morphology: 3D/2D mode + projection-plane toggles ───────────── */
+
+.morph-mode-toggle,
+.morph-plane-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.morph-mode-opt,
+.morph-plane-opt {
+  border: none;
+  background: var(--surface, #fff);
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border-right: 1px solid var(--border, #e1e1e1);
+}
+
+.morph-mode-opt:last-child,
+.morph-plane-opt:last-child {
+  border-right: none;
+}
+
+.morph-mode-opt.active,
+.morph-plane-opt.active {
+  background: var(--accent, #2f6fb0);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ── exaspim morphology: 2D projection canvas ───────────────────────────── */
+
+.morph-2d {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--border, #e1e1e1);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--surface-bg);
+  z-index: 1;
+}
+
+.morph-2d canvas {
+  display: block;
+  cursor: grab;
+}
+
+.morph-2d canvas.is-grabbing {
+  cursor: grabbing;
+}
+
+.morph-2d-status {
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 0.78rem;
+  color: var(--text-muted, #6a6a6a);
+  background: var(--surface-bg);
+  padding: 2px 6px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.morph-2d-status:empty {
+  display: none;
+}
+
+/* ── 2D projection legend ───────────────────────────────────────────────── */
+
+.morph-2d-legend {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface-bg);
+  border-radius: 4px;
+  font-size: 0.92rem;
+  color: var(--text-primary);
+  pointer-events: none;
+  z-index: 3;
+  max-height: 80%;
+  overflow-y: auto;
+}
+
+.morph-2d-legend-item {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+/* ===========================================================================
+   ISI (Intrinsic Signal Imaging) viewer
+   =========================================================================== */
+
+.isi-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.isi-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  padding: 6px 0;
+}
+
+.isi-toolbar-label {
+  font-weight: 600;
+  color: var(--color-muted, #666);
+}
+
+.isi-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.isi-opacity-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.isi-opacity-slider {
+  width: 90px;
+  cursor: pointer;
+  accent-color: var(--color-accent, #2196F3);
+}
+
+.isi-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 min(50%, 800px);
+  max-width: min(50%, 800px);
+}
+
+.isi-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: crosshair;
+  border-radius: 4px;
+  border: 1px solid var(--surface-border, #e5e7eb);
+}
+
+.isi-content-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.isi-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  pointer-events: none;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.isi-metrics {
+  flex: 1;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.isi-metrics-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--text-primary);
+}
+
+.isi-metrics-table-wrap {
+  overflow-x: auto;
+}
+
+.isi-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+
+/* ==== VR / Patch Foraging: running-velocity trace plot ==================== */
+.vrf-trace-wrap { position: relative; width: 100%; display: block; }
+.vrf-trace-marker-holder,
+.vrf-trace-vel-holder { width: 100%; }
+.vrf-trace-marker-holder svg,
+.vrf-trace-vel-holder svg { display: block; overflow: visible; }
+
+.vrf-trace-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: flex-end;
+  font-size: 11px;
+  color: var(--text-mut, #6a6a6a);
+  padding: 0 4px 4px 0;
+}
+.vrf-trace-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.vrf-lg-line   { width: 16px; height: 0; border-top: 1.5px solid #222; }
+.vrf-lg-square { width: 9px; height: 9px; border-radius: 1px; }
+.vrf-lg-dot    { width: 9px; height: 9px; border-radius: 50%; }
+.vrf-lg-tick   { width: 2px; height: 12px; }
+
+.vrf-trace-row-label { user-select: none; }
+
+.pb-player--vrf .pb-trial-info { display: flex; flex-direction: column; gap: 8px; }
+.vrf-stats-line { line-height: 1.5; }
+
+/* VRF stage: patch-depletion readout sits to the left of the corridor. */
+.pb-player--vrf .pb-stage {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) 1fr;
+  grid-template-areas:
+    "label label"
+    "info  canvas";
+  align-items: start;
+  column-gap: 16px;
+  row-gap: 6px;
+}
+.pb-player--vrf .pb-stage-label       { grid-area: label; }
+.pb-player--vrf .pb-trial-info        { grid-area: info; }
+.pb-player--vrf .pb-stage-canvas-wrap { grid-area: canvas; align-self: stretch; }
