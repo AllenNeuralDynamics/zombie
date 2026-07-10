@@ -86,6 +86,7 @@ export async function createV2View({ coordinator }) {
       style: { background: 'transparent', fontFamily: 'inherit' },
       x: {
         label: 'Acquisition date',
+        domain: [(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })(), new Date()],
         tickFormat: (d) => {
           const dt = d instanceof Date ? d : new Date(d);
           return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
