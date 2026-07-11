@@ -18,6 +18,8 @@ import { buildPatchIndex, updateDepletion }       from './depletion.js';
 import { createVrfTracePlot }                     from './trace-plot.js';
 import { patchColor }                             from './theme.js';
 import { loadVrfSession }                         from './nwb-loader.js';
+import { createPatchEthogram }                    from './patch-ethogram.js';
+import { createAlignedPlot }                      from './aligned-plot.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { ensureTable }                            from '../lib/registry.js';
@@ -374,6 +376,8 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
   const root = harness.root;
   root.classList.add('vrf-player', 'vrf-player--embedded');
 
+  const viewMgr = createVrfViewSwitcher(root, opts);
+
   const ctrl = new AbortController();
 
   (async () => {
@@ -449,6 +453,9 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
           signal: ctrl.signal,
         },
       });
+
+      // Enable the Patch-ethogram / Aligned tabs now that data is available.
+      viewMgr.ready({ sites, traces, anim });
     } catch (err) {
       if (ctrl.signal.aborted) return;
       harness.setStatus(`Error loading session: ${err.message}`, true);
@@ -463,6 +470,99 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
 // default of 10×.
 const VRF_SPEED_STEPS = [1, 5, 10, 20];
 const VRF_DEFAULT_SPEED_IDX = 2;
+
+// ---------------------------------------------------------------------------
+// View switcher (Playback | Patch ethogram | Aligned)
+// ---------------------------------------------------------------------------
+
+const VRF_VIEWS = [
+  { key: 'playback', label: 'Playback' },
+  { key: 'ethogram', label: 'Patch ethogram' },
+  { key: 'aligned',  label: 'Aligned' },
+];
+
+/**
+ * Add a tab strip to the embedded VRF player that swaps the standard playback
+ * body for the Patch-ethogram / Aligned figures. Leaving Playback also hides
+ * the sibling fiber / ecephys panels via `opts.onModalitiesVisible`.
+ *
+ * @param {HTMLElement} root - The playback-harness root.
+ * @param {object} opts - Player options ({ onModalitiesVisible }).
+ * @returns {{ ready: (data:{sites:object[], traces:object, anim:object}) => void }}
+ */
+function createVrfViewSwitcher(root, opts) {
+  const tabs = document.createElement('div');
+  tabs.className = 'vrf-view-tabs';
+  tabs.setAttribute('role', 'tablist');
+  const buttons = new Map();
+  for (const v of VRF_VIEWS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'vrf-view-tab';
+    btn.textContent = v.label;
+    btn.dataset.view = v.key;
+    btn.setAttribute('role', 'tab');
+    if (v.key !== 'playback') btn.disabled = true;
+    tabs.appendChild(btn);
+    buttons.set(v.key, btn);
+  }
+  root.insertBefore(tabs, root.firstChild);
+
+  const altView = document.createElement('div');
+  altView.className = 'vrf-altview-host';
+  altView.hidden = true;
+  root.appendChild(altView);
+
+  let data = null;
+  let current = 'playback';
+  const built = new Map();   // key → { element }
+
+  const q = (sel) => root.querySelector(sel);
+
+  function setActive(view) {
+    for (const [key, btn] of buttons) btn.classList.toggle('is-active', key === view);
+  }
+
+  function show(view) {
+    if (view === current) return;
+    current = view;
+    setActive(view);
+
+    const body = q('.pb-body');
+    const transport = q('.pb-transport');
+    const isPlayback = view === 'playback';
+
+    if (!isPlayback && data?.anim) data.anim.pause();
+
+    if (body) body.hidden = !isPlayback;
+    if (transport) transport.hidden = !isPlayback;
+    altView.hidden = isPlayback;
+    opts.onModalitiesVisible?.(isPlayback);
+
+    if (!isPlayback) {
+      let widget = built.get(view);
+      if (!widget && data) {
+        widget = view === 'ethogram'
+          ? createPatchEthogram(data)
+          : createAlignedPlot(data);
+        built.set(view, widget);
+      }
+      altView.innerHTML = '';
+      if (widget) altView.appendChild(widget.element);
+    }
+  }
+
+  for (const [key, btn] of buttons) {
+    btn.addEventListener('click', () => { if (!btn.disabled) show(key); });
+  }
+
+  return {
+    ready(loaded) {
+      data = loaded;
+      for (const [key, btn] of buttons) if (key !== 'playback') btn.disabled = false;
+    },
+  };
+}
 
 /** Build the VRF plot-slot content: odor legend + patch-depletion chart. */
 function _buildVrfPlotSlot(odorPalette) {

@@ -63,7 +63,7 @@ function drSessionId(event, subjectId) {
  * @param {object} coord   - DuckDB coordinator.
  * @returns {HTMLElement|null}
  */
-function buildPlatformPlayer(platform, event, context, coord) {
+function buildPlatformPlayer(platform, event, context, coord, extraOpts = {}) {
   // Synchronous placeholder; the real widget replaces it after its lazy import.
   const mount = document.createElement('div');
   mount.className = 'session-playback-mount';
@@ -81,6 +81,7 @@ function buildPlatformPlayer(platform, event, context, coord) {
   const playerOpts = {
     acquisitionType: event.data?.acquisition_type ?? '',
     location: event.data?._location ?? null,
+    ...extraOpts,
   };
 
   if (platform === 'dynamic_foraging') {
@@ -154,9 +155,19 @@ export function createSessionPlayback(event, context = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = 'session-playback-wrapper';
 
+  // Additional-modality panels (fiber / ecephys) are siblings of the platform
+  // player. The VR-foraging player's non-Playback tabs (patch ethogram /
+  // aligned) hide them via this callback so only the selected figure shows.
+  const modalityMounts = [];
+  const setModalitiesVisible = (visible) => {
+    for (const m of modalityMounts) m.hidden = !visible;
+  };
+
   let hasPlayer = false;
   if (platform) {
-    const playerEl = buildPlatformPlayer(platform, event, context, coord);
+    const playerEl = buildPlatformPlayer(platform, event, context, coord, {
+      onModalitiesVisible: setModalitiesVisible,
+    });
     if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
   }
 
@@ -164,6 +175,7 @@ export function createSessionPlayback(event, context = {}) {
     const ephysMount = document.createElement('div');
     ephysMount.className = 'session-playback-modality';
     wrapper.appendChild(ephysMount);
+    modalityMounts.push(ephysMount);
     import('../../ecephys/ecephys-playback.js')
       .then(({ createEcephysPlayback }) => {
         const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName);
@@ -181,6 +193,7 @@ export function createSessionPlayback(event, context = {}) {
     const fiberMount = document.createElement('div');
     fiberMount.className = 'session-playback-modality';
     wrapper.appendChild(fiberMount);
+    modalityMounts.push(fiberMount);
     import('../../fiber_photometry/fib-playback.js')
       .then(({ createFibPlayback }) => {
         const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName);

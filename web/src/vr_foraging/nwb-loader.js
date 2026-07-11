@@ -96,9 +96,18 @@ export async function loadVrfSession(assetName, { signal } = {}) {
   const lickChP  = zarr.open(root.resolve('acquisition/Behavior.HarpLickometer.LickState/Channel0'),         { kind: 'array' }).then((a) => zarr.get(a));
   const lickTP   = zarr.open(root.resolve('acquisition/Behavior.HarpLickometer.LickState/Time'),             { kind: 'array' }).then((a) => zarr.get(a));
 
-  const [trialEntries, pos, posT, lickCh, lickT] = await Promise.all([
+  // Force-reward onsets come from a software-event stream that is not present
+  // in every session; treat it as best-effort so its absence never fails the
+  // load. The `timestamp` array shares the Harp epoch with the trial table.
+  const forceRewardP = zarr
+    .open(root.resolve('acquisition/Behavior.SoftwareEvents.ForceGiveReward/timestamp'), { kind: 'array' })
+    .then((a) => zarr.get(a))
+    .then((chunk) => chunk.data)
+    .catch(() => null);
+
+  const [trialEntries, pos, posT, lickCh, lickT, forceRewardRaw] = await Promise.all([
     Promise.all(trialPromises),
-    posPosP, posTP, lickChP, lickTP,
+    posPosP, posTP, lickChP, lickTP, forceRewardP,
   ]);
   if (signal?.aborted) throw new Error('aborted');
 
@@ -164,8 +173,17 @@ export async function loadVrfSession(assetName, { signal } = {}) {
     prev = v;
   }
 
+  // ---- Force-reward onsets ---------------------------------------------
+  // Software-event timestamps on the same Harp epoch; t0-subtract to session
+  // time. Missing stream → empty array.
+  const force_reward_t = forceRewardRaw
+    ? Array.from(forceRewardRaw)
+        .map((v) => +(Number(v) - t0).toFixed(4))
+        .filter((v) => Number.isFinite(v))
+    : [];
+
   return {
     sites,
-    traces: { t0_offset: t0, pos_t, pos_cm, lick_t },
+    traces: { t0_offset: t0, pos_t, pos_cm, lick_t, force_reward_t },
   };
 }
