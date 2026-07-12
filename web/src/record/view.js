@@ -240,6 +240,13 @@ export function createRecordView() {
   copyBtn.disabled = true;
   headingRow.appendChild(copyBtn);
 
+  // Link to the STAR Methods view for this asset.
+  const starLink = document.createElement('a');
+  starLink.className = 'record-star-link';
+  starLink.textContent = 'STAR Methods →';
+  starLink.href = `/star?asset=${encodeURIComponent(name)}`;
+  headingRow.appendChild(starLink);
+
   root.appendChild(headingRow);
 
   const status = document.createElement('p');

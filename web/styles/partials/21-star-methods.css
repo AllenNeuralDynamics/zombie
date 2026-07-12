@@ -1,0 +1,145 @@
+/* ==========================================================================
+   21-star-methods.css — STAR Methods viewer (/star)
+   ========================================================================== */
+
+.star-view {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+}
+
+.star-view .record-heading-row {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.star-record-link,
+.record-star-link {
+  font-size: 0.85rem;
+  color: var(--link, var(--accent, #0078d4));
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.star-record-link:hover,
+.record-star-link:hover {
+  text-decoration: underline;
+}
+
+.star-view section {
+  margin-top: 2rem;
+}
+
+.star-intro {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-top: 0.4rem;
+}
+
+.star-heading {
+  font-size: 1.05rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 2px solid var(--border);
+  padding-bottom: 0.3rem;
+  margin-bottom: 0.9rem;
+}
+
+.star-subheading {
+  font-size: 0.9rem;
+  font-style: italic;
+  margin: 1.1rem 0 0.4rem;
+  color: var(--text);
+}
+
+.star-proc,
+.star-stream {
+  margin: 0.3rem 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.star-resources {
+  margin: 0.4rem 0;
+  padding-left: 1.2rem;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.star-resources a,
+.star-table a {
+  color: var(--link, var(--accent, #0078d4));
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.star-resources a:hover,
+.star-table a:hover {
+  text-decoration: underline;
+}
+
+/* Summary definition list --------------------------------------------------- */
+
+.star-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 1.2rem;
+  margin: 0;
+}
+
+.star-dl dt {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.star-dl dd {
+  margin: 0;
+  color: var(--text);
+}
+
+/* Key resources table ------------------------------------------------------- */
+
+.star-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.star-table th,
+.star-table td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.star-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.star-table tr.star-category td {
+  background: var(--hover, var(--border));
+  font-weight: 700;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text);
+}
+
+.star-table .star-resource {
+  width: 45%;
+}
+
+.star-na {
+  color: var(--text-muted);
+}
+
+.star-note {
+  color: var(--text-muted);
+  font-style: italic;
+}

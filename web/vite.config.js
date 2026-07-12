@@ -98,6 +98,7 @@ export default defineConfig({
         tables: resolve(__dirname, 'tables.html'),
         names: resolve(__dirname, 'names.html'),
         record: resolve(__dirname, 'record.html'),
+        star: resolve(__dirname, 'star.html'),
         upgrade: resolve(__dirname, 'upgrade.html'),
         migrate: resolve(__dirname, 'migrate.html'),
         migrate_submit: resolve(__dirname, 'migrate/submit.html'),

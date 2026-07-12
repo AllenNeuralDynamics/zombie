@@ -56,6 +56,7 @@ export const PAGES = {
   'migrate/review.html':   { sub: 'review pending migrations', active: null },
   'upgrade.html':          { sub: 'metadata upgrade',          active: null },
   'record.html':           { sub: 'metadata record',           active: null },
+  'star.html':             { sub: 'STAR methods',               active: null },
   'v2.html':               { sub: 'v2 acquisition heatmap',     active: null },
 };
 
