@@ -575,9 +575,22 @@ export function createAnalysisFrameworkView(_coord) {
   function fetchImages(s3loc) {
     if (imageCache.has(s3loc)) return imageCache.get(s3loc);
     const promise = fetch(`/s3-list?loc=${encodeURIComponent(s3loc)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data && data.error) throw new Error(data.error);
+      .then(async (r) => {
+        // Read as text first: if the proxy is unreachable (stale nginx route,
+        // an auth/ingress page, or a 5xx), the body is HTML — surface that
+        // instead of a cryptic "JSON.parse: unexpected character" error.
+        const text = await r.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          const snippet = text.trim().slice(0, 80).replace(/\s+/g, ' ');
+          throw new Error(
+            `/s3-list returned ${r.status} ${r.statusText} (non-JSON: "${snippet}…"). ` +
+            `The proxy route is likely not reachable in this deployment.`
+          );
+        }
+        if (!r.ok || (data && data.error)) throw new Error(data.error || `HTTP ${r.status}`);
         return data.images || [];
       });
     imageCache.set(s3loc, promise);
