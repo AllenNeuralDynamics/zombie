@@ -32,6 +32,7 @@ RUN apt-get update \
 RUN pip install uv && uv pip install --system \
     "duckdb-server>=0.21.1" \
     "aind-data-access-api[docdb]" \
+    "pymysql" \
     --no-cache
 
 # Pre-install DuckDB extensions at build time so they are available without

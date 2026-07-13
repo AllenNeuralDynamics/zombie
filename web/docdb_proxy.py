@@ -29,9 +29,11 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-import pymysql
-import pymysql.cursors
 from aind_data_access_api.document_db import MetadataDbClient
+
+# pymysql is only needed by the /log-server endpoint. Import it lazily there so
+# a missing optional dependency can't crash the whole proxy at startup (which
+# would 502 every endpoint, including DocDB and S3 listing).
 
 PORT = 3001
 HOST = "127.0.0.1"
@@ -137,6 +139,13 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def _handle_camstim_completed(self):
+        try:
+            import pymysql
+            import pymysql.cursors
+        except ImportError:
+            self._respond(501, {"error": "Log server support unavailable (pymysql not installed)"})
+            return
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) if length else b"{}")
