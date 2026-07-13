@@ -52,7 +52,7 @@ export const PAGES = {
   'sessions.html':         { sub: 'behavior sessions',         active: '/sessions' },
   'quality_control.html':  { sub: 'quality control',           active: '/quality_control' },
   'contributions.html':    { sub: 'contributions',             active: '/contributions' },
-  'analysis_framework.html': { sub: 'analysis framework',       active: '/analysis-framework' },
+  'analysis-framework.html': { sub: 'analysis framework',       active: '/analysis-framework' },
   'migrate.html':          { sub: 'metadata migration',        active: null },
   'migrate/submit.html':   { sub: 'submit metadata migration', active: null },
   'migrate/review.html':   { sub: 'review pending migrations', active: null },

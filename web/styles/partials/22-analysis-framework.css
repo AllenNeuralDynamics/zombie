@@ -1,5 +1,9 @@
 /* ---------------------------------------------------------------------------
  * 22-analysis-framework.css — /analysis-framework dashboard.
+ *
+ * The data table reuses the shared `.assets-table` component and the
+ * `buildTableHead` / `buildPagingBar` helpers, so most table styling comes
+ * from 03-assets-view.css. Only dashboard-specific chrome lives here.
  * ------------------------------------------------------------------------ */
 
 .af-page {
@@ -31,9 +35,7 @@
   color: var(--text-secondary);
 }
 
-.af-field > span {
-  font-weight: 600;
-}
+.af-field > span { font-weight: 600; }
 
 .af-field select,
 .af-field input {
@@ -46,8 +48,6 @@
 }
 
 .af-field-limit input { width: 110px; }
-.af-field-filter { flex: 1 1 260px; }
-.af-field-filter input { width: 100%; }
 
 /* ---- Column settings gear ---- */
 .af-gear-wrap { position: relative; }
@@ -86,11 +86,7 @@
   margin-bottom: 6px;
 }
 
-.af-gear-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
+.af-gear-list { display: flex; flex-direction: column; gap: 2px; }
 
 .af-gear-item {
   display: flex;
@@ -118,49 +114,57 @@
 /* ---- Status + counts ---- */
 .af-status { font-size: 13px; color: var(--text-secondary); }
 .af-status-error { color: var(--color-red); }
-.af-count { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.af-count { font-size: 12px; color: var(--text-muted); }
 .af-empty { font-size: 13px; color: var(--text-muted); padding: 12px 0; }
 
-/* ---- Data table ---- */
-.af-table-wrap { overflow-x: auto; }
+/* ---- Table: reuse .assets-table; only add selection + click affordance ---- */
+.af-page .assets-table tbody tr { cursor: pointer; }
 
-.af-table {
-  border-collapse: collapse;
-  width: 100%;
-  font-size: 12px;
+.af-page .assets-table tbody tr.af-row-selected,
+.af-page .assets-table tbody tr.af-row-selected:nth-child(even),
+.af-page .assets-table tbody tr.af-row-selected:hover {
+  background: color-mix(in srgb, var(--color-green) 20%, var(--surface-bg));
 }
 
-.af-table th,
-.af-table td {
+/* ---- Pagination bar (buildPagingBar), scoped so it doesn't affect others ---- */
+.af-page .paging-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+}
+.af-page .paging-bar button {
   border: 1px solid var(--surface-border);
-  padding: 4px 8px;
-  text-align: left;
-  white-space: nowrap;
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.af-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--surface-card);
+  background: var(--surface-bg);
   color: var(--text-primary);
-  z-index: 1;
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  cursor: pointer;
 }
-
-.af-table tbody tr { cursor: pointer; }
-.af-table tbody tr:hover { background: var(--surface-card); }
-.af-row-selected,
-.af-table tbody tr.af-row-selected:hover {
-  background: color-mix(in srgb, var(--color-green) 18%, var(--surface-bg));
-}
-
-.af-th-sel, .af-td-sel { width: 28px; text-align: center; }
+.af-page .paging-bar button:hover:not(:disabled) { background: var(--surface-card); }
+.af-page .paging-bar button:disabled { opacity: 0.4; cursor: default; }
+.af-page .paging-info { color: var(--text-secondary); }
 
 /* ---- Assets ---- */
 .af-assets { border-top: 1px solid var(--surface-border); padding-top: var(--gap); }
-.af-assets-title { font-size: 15px; margin: 0 0 8px; color: var(--text-primary); }
+.af-assets-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.af-assets-title { font-size: 15px; margin: 0; color: var(--text-primary); }
+.af-clear-btn {
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.af-clear-btn:hover { background: var(--surface-card); }
 .af-assets-body { display: flex; flex-direction: column; gap: var(--gap); }
 
 .af-asset-card {
@@ -181,11 +185,7 @@
 .af-asset-head code { color: var(--text-primary); font-weight: 600; }
 .af-asset-loc { color: var(--text-muted); word-break: break-all; }
 
-.af-asset-imgs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--gap);
-}
+.af-asset-imgs { display: flex; flex-wrap: wrap; gap: var(--gap); }
 
 .af-fig { margin: 0; max-width: 480px; }
 .af-fig img {
@@ -201,3 +201,41 @@
   margin-top: 4px;
   word-break: break-all;
 }
+.af-fig-img { cursor: zoom-in; }
+
+/* ---- Fullscreen lightbox ---- */
+.af-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.85);
+  cursor: zoom-out;
+}
+.af-lightbox[hidden] { display: none; }
+.af-lightbox-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+  border-radius: var(--radius);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+.af-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.af-lightbox-close:hover { background: rgba(255, 255, 255, 0.3); }

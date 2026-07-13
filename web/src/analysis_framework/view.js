@@ -6,12 +6,14 @@
  *
  * Flow:
  *   1. Pick a project (DocDB collection in the `analysis` database).
- *   2. Load recent records via the /analysis/search proxy, flatten each nested
- *      record into dot-path columns, and show them in a filterable table.
+ *   2. Load records via the /analysis/search proxy, flatten each nested record
+ *      into dot-path columns, and show them in the shared sortable/filterable
+ *      `assets-table` (buildTableHead + buildPagingBar + filterRows/sortRows).
  *   3. A settings gear toggles which columns are visible.
  *   4. Selecting rows lists every PNG under that record's S3 prefix
  *      (via the /s3-list proxy) and renders them inline.
- *   5. Project, limit, filter, visible columns and selection all sync to the URL.
+ *   5. Project, limit, page, sort, per-column filters, visible columns and
+ *      selection all sync to the URL.
  *
  * The original app hard-coded a single asset filename per project
  * (e.g. `result.png`), which does not exist for most records — that is why it
@@ -23,7 +25,8 @@
  * @module
  */
 
-import { escHtml } from '../lib/utils.js';
+import { escHtml, filterRows, sortRows } from '../lib/utils.js';
+import { buildTableHead, buildPagingBar } from '../lib/paginated-table.js';
 
 // ---------------------------------------------------------------------------
 // Project registry
@@ -73,7 +76,10 @@ const PROJECTS = {
 };
 
 const ID_COLUMN = '_id';
-const DEFAULT_LIMIT = 500;
+/** Rows shown per page in the table. */
+const PAGE_SIZE = 25;
+/** 0 means "no cap" — load every matching record. */
+const DEFAULT_LIMIT = 0;
 
 // ---------------------------------------------------------------------------
 // Record flattening
@@ -126,12 +132,20 @@ function formatCell(value) {
 function readUrlState() {
   const p = new URLSearchParams(window.location.search);
   const parseList = (v) => (v ? v.split(',').map((s) => s.trim()).filter(Boolean) : []);
+  let filters = {};
+  try {
+    if (p.get('filters')) filters = JSON.parse(p.get('filters'));
+  } catch { filters = {}; }
+  const [sortCol = '', sortDir = 'asc'] = (p.get('sort') || '').split(':');
   return {
     project: p.get('project') || '',
-    limit: Math.max(1, parseInt(p.get('limit'), 10) || DEFAULT_LIMIT),
-    q: p.get('q') || '',
+    limit: Math.max(0, parseInt(p.get('limit'), 10) || DEFAULT_LIMIT),
+    page: Math.max(0, (parseInt(p.get('page'), 10) || 1) - 1),
     cols: parseList(p.get('cols')),
     sel: parseList(p.get('sel')),
+    filters: filters && typeof filters === 'object' ? filters : {},
+    sortCol,
+    sortDir: sortDir === 'desc' ? 'desc' : 'asc',
   };
 }
 
@@ -139,7 +153,12 @@ function writeUrlState(state) {
   const p = new URLSearchParams();
   if (state.project) p.set('project', state.project);
   if (state.limit && state.limit !== DEFAULT_LIMIT) p.set('limit', String(state.limit));
-  if (state.q) p.set('q', state.q);
+  if (state.page) p.set('page', String(state.page + 1));
+  if (state.sortCol) p.set('sort', `${state.sortCol}:${state.sortDir}`);
+  const activeFilters = Object.fromEntries(
+    Object.entries(state.filters).filter(([, v]) => v !== '' && v != null)
+  );
+  if (Object.keys(activeFilters).length) p.set('filters', JSON.stringify(activeFilters));
   if (state.cols.length) p.set('cols', state.cols.join(','));
   if (state.sel.size) p.set('sel', [...state.sel].join(','));
   const qs = p.toString();
@@ -164,13 +183,15 @@ export function createAnalysisFrameworkView(_coord) {
   const state = {
     project: PROJECTS[url.project] ? url.project : '',
     limit: url.limit,
-    q: url.q,
+    page: url.page,             // 0-based current table page
     rows: [],                    // flattened records
     allColumns: [],             // union of columns across loaded rows
     visibleCols: url.cols,      // ordered list; empty => project defaults
     selected: new Set(url.sel), // selected record ids
+    filters: url.filters,       // per-column text filters { col: substring }
+    sortCol: url.sortCol,
+    sortDir: url.sortDir,
     loading: false,
-    error: '',
     loadedProject: '',          // which project `rows` belongs to
   };
 
@@ -192,11 +213,7 @@ export function createAnalysisFrameworkView(_coord) {
       </label>
       <label class="af-field af-field-limit">
         <span>Max records</span>
-        <input id="af-limit" type="number" min="1" max="20000" step="100" />
-      </label>
-      <label class="af-field af-field-filter">
-        <span>Filter</span>
-        <input id="af-filter" type="text" placeholder="substring across visible columns…" />
+        <input id="af-limit" type="number" min="0" step="100" placeholder="all" />
       </label>
       <div class="af-gear-wrap">
         <button id="af-gear" class="af-gear-btn" title="Choose visible columns" aria-label="Column settings">⚙</button>
@@ -206,25 +223,38 @@ export function createAnalysisFrameworkView(_coord) {
     <div id="af-status" class="af-status"></div>
     <div id="af-table-wrap" class="af-table-wrap"></div>
     <div class="af-assets">
-      <h2 class="af-assets-title">Selected record assets</h2>
+      <div class="af-assets-head">
+        <h2 class="af-assets-title">Selected record assets</h2>
+        <button id="af-clear" class="af-clear-btn" type="button" hidden>Clear selection</button>
+      </div>
       <div id="af-assets-body" class="af-assets-body"></div>
+    </div>
+    <div id="af-lightbox" class="af-lightbox" hidden>
+      <button class="af-lightbox-close" aria-label="Close">✕</button>
+      <img class="af-lightbox-img" alt="" />
     </div>
   `;
 
   const els = {
     project: root.querySelector('#af-project'),
     limit: root.querySelector('#af-limit'),
-    filter: root.querySelector('#af-filter'),
     gear: root.querySelector('#af-gear'),
     gearMenu: root.querySelector('#af-gear-menu'),
     status: root.querySelector('#af-status'),
     tableWrap: root.querySelector('#af-table-wrap'),
     assetsBody: root.querySelector('#af-assets-body'),
+    clear: root.querySelector('#af-clear'),
+    lightbox: root.querySelector('#af-lightbox'),
+    lightboxImg: root.querySelector('#af-lightbox .af-lightbox-img'),
   };
 
   els.project.value = state.project;
-  els.limit.value = state.limit;
-  els.filter.value = state.q;
+  els.limit.value = state.limit ? String(state.limit) : '';
+
+  // Persistent table scaffold (built once, reused across refreshes so that
+  // typing in a per-column filter never rebuilds the header and loses focus).
+  let tableEls = null;
+  let currentColumns = [];
 
   // ---- helpers ----
 
@@ -232,9 +262,12 @@ export function createAnalysisFrameworkView(_coord) {
     writeUrlState({
       project: state.project,
       limit: state.limit,
-      q: state.q,
+      page: state.page,
       cols: state.visibleCols,
       sel: state.selected,
+      filters: state.filters,
+      sortCol: state.sortCol,
+      sortDir: state.sortDir,
     });
   }
 
@@ -252,13 +285,11 @@ export function createAnalysisFrameworkView(_coord) {
     return state.allColumns.slice(0, 8);
   }
 
-  function filteredRows() {
-    const q = state.q.trim().toLowerCase();
-    if (!q) return state.rows;
-    const cols = effectiveColumns();
-    return state.rows.filter((row) =>
-      cols.some((c) => String(row[c] ?? '').toLowerCase().includes(q))
-    );
+  function visibleRows() {
+    const filtered = filterRows(state.rows, state.filters);
+    if (!state.sortCol) return filtered;
+    // filterRows may return the original array reference; copy before sorting.
+    return sortRows(filtered.slice(), state.sortCol, state.sortDir);
   }
 
   function setStatus(msg, isError = false) {
@@ -280,7 +311,6 @@ export function createAnalysisFrameworkView(_coord) {
     }
     const cfg = PROJECTS[state.project];
     state.loading = true;
-    state.error = '';
     setStatus(`Loading ${cfg.label}…`);
     renderTable();
 
@@ -310,9 +340,13 @@ export function createAnalysisFrameworkView(_coord) {
       state.allColumns = [...colSet].sort();
       state.loadedProject = requestedProject;
       state.loading = false;
-      // Drop selections that no longer exist in the loaded set.
+      // Drop selections / filters that no longer apply to the loaded set.
       const ids = new Set(rows.map((r) => String(r[ID_COLUMN])));
       state.selected = new Set([...state.selected].filter((id) => ids.has(id)));
+      for (const col of Object.keys(state.filters)) {
+        if (!colSet.has(col)) delete state.filters[col];
+      }
+      if (state.sortCol && !colSet.has(state.sortCol)) state.sortCol = '';
 
       setStatus(`Loaded ${rows.length} record${rows.length === 1 ? '' : 's'}.`);
       renderGearMenu();
@@ -330,7 +364,7 @@ export function createAnalysisFrameworkView(_coord) {
     }
   }
 
-  // ---- rendering: gear menu ----
+  // ---- rendering: gear menu (column visibility) ----
 
   function renderGearMenu() {
     if (!state.allColumns.length) {
@@ -356,8 +390,6 @@ export function createAnalysisFrameworkView(_coord) {
     `;
     els.gearMenu.querySelectorAll('input[type=checkbox]').forEach((cb) => {
       cb.addEventListener('change', () => {
-        // Materialise current effective columns, then add/remove this one,
-        // preserving column order by the sorted allColumns index.
         const chosen = new Set(effectiveColumns());
         if (cb.checked) chosen.add(cb.value);
         else chosen.delete(cb.value);
@@ -374,71 +406,133 @@ export function createAnalysisFrameworkView(_coord) {
     });
   }
 
-  // ---- rendering: table ----
+  // ---- rendering: table (shared assets-table helpers) ----
+
+  function onRowClick(e) {
+    const tr = e.target.closest('tr');
+    if (!tr || !tr.dataset.id) return;
+    const id = tr.dataset.id;
+    const nowSelected = !state.selected.has(id);
+    if (nowSelected) state.selected.add(id);
+    else state.selected.delete(id);
+    tr.classList.toggle('af-row-selected', nowSelected);
+    syncUrl();
+    renderAssets();
+  }
+
+  function ensureTableScaffold() {
+    if (tableEls) return tableEls;
+    const count = document.createElement('div');
+    count.className = 'af-count';
+    const container = document.createElement('div');
+    container.className = 'table-responsive';
+    const table = document.createElement('table');
+    table.className = 'assets-table af-table';
+    const thead = document.createElement('thead');
+    const tbody = document.createElement('tbody');
+    tbody.addEventListener('click', onRowClick);
+    table.append(thead, tbody);
+    container.appendChild(table);
+    const paging = document.createElement('div');
+    tableEls = { count, container, table, thead, tbody, paging };
+    return tableEls;
+  }
+
+  /** Rebuild the header (fresh element → no stacked listeners). */
+  function renderHeader() {
+    const fresh = document.createElement('thead');
+    // Pass [] for the rows arg so header filters are always text inputs; with
+    // dotted/high-cardinality columns a value-select dropdown is unhelpful and
+    // scanning every row per column would be costly on large collections.
+    fresh.innerHTML = buildTableHead(
+      currentColumns, {}, state.sortCol, state.sortDir, state.filters, []
+    );
+    fresh.addEventListener('click', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      const th = e.target.closest('th.sortable');
+      if (!th) return;
+      const col = th.dataset.col;
+      if (state.sortCol === col) {
+        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.sortCol = col;
+        state.sortDir = 'asc';
+      }
+      state.page = 0;
+      syncUrl();
+      renderHeader();
+      refreshBody();
+    });
+    const onFilter = (e) => {
+      const el = e.target.closest('.col-filter');
+      if (!el) return;
+      state.filters[el.dataset.col] = el.value;
+      state.page = 0;
+      syncUrl();
+      refreshBody(); // body/paging only — header stays, filter keeps focus
+    };
+    fresh.addEventListener('input', onFilter);
+    fresh.addEventListener('change', onFilter);
+    tableEls.table.replaceChild(fresh, tableEls.thead);
+    tableEls.thead = fresh;
+  }
+
+  /** Refresh tbody rows, count and paging for the current page. */
+  function refreshBody() {
+    const rows = visibleRows();
+    const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+    if (state.page > pageCount - 1) state.page = pageCount - 1;
+    const start = state.page * PAGE_SIZE;
+    const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+    tableEls.tbody.innerHTML = pageRows
+      .map((row) => {
+        const id = String(row[ID_COLUMN]);
+        const sel = state.selected.has(id) ? ' class="af-row-selected"' : '';
+        const cells = currentColumns
+          .map((c) => {
+            const text = formatCell(row[c]);
+            return `<td title="${escHtml(text)}">${escHtml(text)}</td>`;
+          })
+          .join('');
+        return `<tr data-id="${escHtml(id)}"${sel}>${cells}</tr>`;
+      })
+      .join('');
+
+    const totalNote =
+      rows.length === state.rows.length
+        ? `${state.rows.length} records`
+        : `${rows.length} of ${state.rows.length} records`;
+    tableEls.count.textContent = rows.length
+      ? `Showing ${start + 1}–${start + pageRows.length} of ${totalNote}`
+      : 'No records match the current filters.';
+
+    tableEls.paging.innerHTML = buildPagingBar(state.page, PAGE_SIZE, rows.length, 'af-prev', 'af-next');
+    tableEls.paging.querySelector('#af-prev')?.addEventListener('click', () => {
+      if (state.page > 0) { state.page--; syncUrl(); refreshBody(); }
+    });
+    tableEls.paging.querySelector('#af-next')?.addEventListener('click', () => {
+      if (state.page < pageCount - 1) { state.page++; syncUrl(); refreshBody(); }
+    });
+  }
 
   function renderTable() {
     if (state.loading) {
       els.tableWrap.innerHTML = '<p class="af-empty">Loading…</p>';
+      tableEls = null;
       return;
     }
     if (!state.loadedProject) {
       els.tableWrap.innerHTML = '<p class="af-empty">No data. Select a project above.</p>';
+      tableEls = null;
       return;
     }
-    const cols = effectiveColumns();
-    const rows = filteredRows();
-    if (!rows.length) {
-      els.tableWrap.innerHTML = '<p class="af-empty">No records match the current filter.</p>';
-      return;
-    }
-
-    const table = document.createElement('table');
-    table.className = 'af-table';
-    const thead = document.createElement('thead');
-    thead.innerHTML = `<tr><th class="af-th-sel"></th>${cols
-      .map((c) => `<th title="${escHtml(c)}">${escHtml(c)}</th>`)
-      .join('')}</tr>`;
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    const frag = document.createDocumentFragment();
-    for (const row of rows) {
-      const id = String(row[ID_COLUMN]);
-      const tr = document.createElement('tr');
-      tr.dataset.id = id;
-      if (state.selected.has(id)) tr.classList.add('af-row-selected');
-      const check = state.selected.has(id) ? 'checked' : '';
-      tr.innerHTML =
-        `<td class="af-td-sel"><input type="checkbox" ${check} /></td>` +
-        cols.map((c) => `<td title="${escHtml(formatCell(row[c]))}">${escHtml(formatCell(row[c]))}</td>`).join('');
-      frag.appendChild(tr);
-    }
-    tbody.appendChild(frag);
-    table.appendChild(tbody);
-
-    // Row / checkbox selection (event-delegated).
-    tbody.addEventListener('click', (e) => {
-      const tr = e.target.closest('tr');
-      if (!tr) return;
-      const id = tr.dataset.id;
-      const isCheckbox = e.target.matches('input[type=checkbox]');
-      // A plain click on a non-checkbox cell toggles too, for convenience.
-      const nowSelected = isCheckbox ? e.target.checked : !state.selected.has(id);
-      if (nowSelected) state.selected.add(id);
-      else state.selected.delete(id);
-      tr.classList.toggle('af-row-selected', nowSelected);
-      const cb = tr.querySelector('input[type=checkbox]');
-      if (cb) cb.checked = nowSelected;
-      syncUrl();
-      renderAssets();
-    });
-
+    currentColumns = effectiveColumns();
+    ensureTableScaffold();
     els.tableWrap.innerHTML = '';
-    const count = document.createElement('div');
-    count.className = 'af-count';
-    count.textContent = `Showing ${rows.length} of ${state.rows.length} records`;
-    els.tableWrap.appendChild(count);
-    els.tableWrap.appendChild(table);
+    els.tableWrap.append(tableEls.count, tableEls.container, tableEls.paging);
+    renderHeader();
+    refreshBody();
   }
 
   // ---- rendering: assets ----
@@ -455,8 +549,20 @@ export function createAnalysisFrameworkView(_coord) {
     return promise;
   }
 
+  function clearSelection() {
+    if (!state.selected.size) return;
+    state.selected.clear();
+    // Drop row highlights without a full re-render.
+    tableEls?.tbody
+      .querySelectorAll('tr.af-row-selected')
+      .forEach((tr) => tr.classList.remove('af-row-selected'));
+    syncUrl();
+    renderAssets();
+  }
+
   function renderAssets() {
     const cfg = PROJECTS[state.loadedProject];
+    els.clear.hidden = !state.selected.size;
     if (!cfg || !state.selected.size) {
       els.assetsBody.innerHTML =
         '<p class="af-empty">Select one or more records to view their figures.</p>';
@@ -493,9 +599,8 @@ export function createAnalysisFrameworkView(_coord) {
           imgWrap.innerHTML = images
             .map(
               (img) => `<figure class="af-fig">
-                <a href="${escHtml(img.url)}" target="_blank" rel="noopener">
-                  <img loading="lazy" src="${escHtml(img.url)}" alt="${escHtml(img.name)}" />
-                </a>
+                <img class="af-fig-img" loading="lazy" src="${escHtml(img.url)}"
+                     alt="${escHtml(img.name)}" title="Click to view fullscreen" />
                 <figcaption>${escHtml(img.name)}</figcaption>
               </figure>`
             )
@@ -515,6 +620,9 @@ export function createAnalysisFrameworkView(_coord) {
     state.project = els.project.value;
     state.visibleCols = []; // reset column choice per project
     state.selected = new Set();
+    state.filters = {};
+    state.sortCol = '';
+    state.page = 0;
     syncUrl();
     loadData();
   });
@@ -523,17 +631,32 @@ export function createAnalysisFrameworkView(_coord) {
   els.limit.addEventListener('input', () => {
     clearTimeout(limitTimer);
     limitTimer = setTimeout(() => {
-      const v = Math.max(1, parseInt(els.limit.value, 10) || DEFAULT_LIMIT);
-      state.limit = v;
+      state.limit = Math.max(0, parseInt(els.limit.value, 10) || 0);
+      state.page = 0;
       syncUrl();
       if (state.project) loadData();
     }, 500);
   });
 
-  els.filter.addEventListener('input', () => {
-    state.q = els.filter.value;
-    syncUrl();
-    renderTable();
+  els.clear.addEventListener('click', clearSelection);
+
+  // ---- fullscreen image lightbox ----
+  function openLightbox(src, alt) {
+    els.lightboxImg.src = src;
+    els.lightboxImg.alt = alt || '';
+    els.lightbox.hidden = false;
+  }
+  function closeLightbox() {
+    els.lightbox.hidden = true;
+    els.lightboxImg.src = '';
+  }
+  els.assetsBody.addEventListener('click', (e) => {
+    const img = e.target.closest('.af-fig-img');
+    if (img) openLightbox(img.src, img.alt);
+  });
+  els.lightbox.addEventListener('click', closeLightbox); // click anywhere (incl. ✕) closes
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !els.lightbox.hidden) closeLightbox();
   });
 
   els.gear.addEventListener('click', (e) => {
