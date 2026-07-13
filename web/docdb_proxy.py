@@ -59,31 +59,10 @@ log = logging.getLogger(__name__)
 client_v2 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v2")
 client_v1 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v1")
 
-# ---------------------------------------------------------------------------
-# Analysis-framework DocDB collections (database="analysis").
-# These live in per-project collections queried by /analysis/search.
-# Clients are cached per collection since MetadataDbClient binds host/db/coll.
-# ---------------------------------------------------------------------------
-ANALYSIS_HOST = "api.allenneuraldynamics.org"
-ANALYSIS_DATABASE = "analysis"
-# Allow-list of collections the analysis-framework dashboard may query.
-ANALYSIS_COLLECTIONS = {
-    "dynamic-foraging-model-fitting",
-    "dynamic-foraging-nm",
-    "dynamic-foraging-lifetime",
-}
-_analysis_clients: dict[str, MetadataDbClient] = {}
-
-
-def _analysis_client(collection: str) -> MetadataDbClient:
-    if collection not in _analysis_clients:
-        _analysis_clients[collection] = MetadataDbClient(
-            host=ANALYSIS_HOST,
-            database=ANALYSIS_DATABASE,
-            collection=collection,
-        )
-    return _analysis_clients[collection]
-
+# The analysis-framework dashboard queries the DocDB `analysis` database
+# directly from the browser (that API is public + CORS-enabled), so no proxy
+# endpoint is needed for it. The proxy only handles S3 object listing below,
+# because those buckets have no CORS policy.
 
 # Public S3 buckets the /s3-list endpoint is allowed to enumerate. Restricting
 # to a known set avoids turning the proxy into an open S3 listing relay.
@@ -152,8 +131,6 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._handle_search(client_v1)
         elif self.path == "/metadata/search":
             self._handle_search(client_v2)
-        elif self.path == "/analysis/search":
-            self._handle_analysis_search()
         elif self.path == "/log-server/camstim-completed":
             self._handle_camstim_completed()
         else:
@@ -265,41 +242,6 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._respond(200, records)
         except Exception as e:
             log.error("DocDB query failed: %s", e)
-            self._respond(500, {"error": str(e)})
-
-    def _handle_analysis_search(self):
-        """Query an analysis-framework collection in the DocDB 'analysis' database.
-
-        Body: {"collection": str, "filter": {...}, "limit": N, "projection": {...}}
-        Responds with the raw list of DocDB records.
-        """
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length) if length else b"{}")
-        except Exception as e:
-            self._respond(400, {"error": f"Invalid JSON: {e}"})
-            return
-
-        collection = (body.get("collection") or "").strip()
-        if collection not in ANALYSIS_COLLECTIONS:
-            self._respond(400, {"error": f"Unknown collection: {collection}"})
-            return
-
-        filter_query = body.get("filter", {})
-        limit = body.get("limit", 0)
-        projection = body.get("projection") or None
-        sort = body.get("sort") or None
-
-        try:
-            kwargs = dict(filter_query=filter_query, limit=limit)
-            if projection:
-                kwargs["projection"] = projection
-            if sort:
-                kwargs["sort"] = sort
-            records = _analysis_client(collection).retrieve_docdb_records(**kwargs)
-            self._respond(200, records)
-        except Exception as e:
-            log.error("Analysis DocDB query failed (%s): %s", collection, e)
             self._respond(500, {"error": str(e)})
 
     def _handle_s3_list(self):

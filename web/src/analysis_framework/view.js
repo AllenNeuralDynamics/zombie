@@ -81,6 +81,48 @@ const PAGE_SIZE = 25;
 /** 0 means "no cap" — load every matching record. */
 const DEFAULT_LIMIT = 0;
 
+/**
+ * Public DocDB REST API (CORS-enabled, no auth) for the `analysis` database.
+ * Called directly from the browser — no server-side proxy needed.
+ */
+const DOCDB_API_BASE = 'https://api.allenneuraldynamics.org/v1/analysis';
+/** Records requested per /find call while paging through a collection. */
+const FETCH_CHUNK = 5000;
+
+/**
+ * Fetch records for a collection directly from the public DocDB API.
+ *
+ * The /find endpoint caps each response at the API-Gateway payload size (not a
+ * fixed record count), so we page with `skip` until the collection is
+ * exhausted or the caller's `limit` is reached. `limit = 0` means "all".
+ *
+ * @param {string} collection
+ * @param {{ limit?: number, sort?: object }} opts
+ * @param {() => boolean} [isStale] returns true to abort (e.g. project switched)
+ * @returns {Promise<object[]>}
+ */
+async function fetchDocdbRecords(collection, { limit = 0, sort } = {}, isStale) {
+  const out = [];
+  let skip = 0;
+  for (;;) {
+    if (isStale && isStale()) return out;
+    const want = limit ? Math.min(FETCH_CHUNK, limit - out.length) : FETCH_CHUNK;
+    if (want <= 0) break;
+    const params = new URLSearchParams({ limit: String(want), skip: String(skip) });
+    if (sort) params.set('sort', JSON.stringify(sort));
+    const resp = await fetch(`${DOCDB_API_BASE}/${collection}/find?${params}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const batch = await resp.json();
+    if (batch && batch.error) throw new Error(batch.error);
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    out.push(...batch);
+    skip += batch.length;
+    // A short-but-nonempty batch means payload truncation, not end of data, so
+    // keep paging; the loop stops when a request comes back empty.
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Record flattening
 // ---------------------------------------------------------------------------
@@ -315,24 +357,17 @@ export function createAnalysisFrameworkView(_coord) {
     renderTable();
 
     const requestedProject = state.project;
+    const isStale = () => state.project !== requestedProject;
     try {
-      const resp = await fetch('/analysis/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          collection: requestedProject,
-          filter: {},
-          limit: state.limit,
-          sort: cfg.sort,
-        }),
-      });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const records = await resp.json();
-      if (records && records.error) throw new Error(records.error);
+      const records = await fetchDocdbRecords(
+        requestedProject,
+        { limit: state.limit, sort: cfg.sort },
+        isStale
+      );
       // Ignore stale responses if the user switched projects mid-flight.
-      if (state.project !== requestedProject) return;
+      if (isStale()) return;
 
-      const rows = (Array.isArray(records) ? records : []).map((r) => flattenRecord(r));
+      const rows = records.map((r) => flattenRecord(r));
       const colSet = new Set();
       for (const row of rows) for (const key of Object.keys(row)) colSet.add(key);
 

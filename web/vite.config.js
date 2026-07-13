@@ -42,12 +42,10 @@ export default defineConfig({
       '/log-server': {
         target: 'http://localhost:3001',
       },
-      // Forward /analysis/* and /s3-list → docdb_proxy.py, which query the
-      // DocDB `analysis` database and public S3 buckets for the
-      // /analysis-framework dashboard.
-      '/analysis/': {
-        target: 'http://localhost:3001',
-      },
+      // Forward /s3-list → docdb_proxy.py, which lists images under a public
+      // S3 prefix for the /analysis-framework dashboard. (The DocDB query is
+      // made directly from the browser; only S3 listing needs a proxy because
+      // those buckets have no CORS policy.)
       '/s3-list': {
         target: 'http://localhost:3001',
       },
