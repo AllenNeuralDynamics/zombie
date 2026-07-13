@@ -22,7 +22,8 @@ import {
 const ROW_HEIGHT = 0.8;          // fraction of 1.0 each row occupies
 const FORCE_REWARD_COLOR = '#9467bd';
 const BLOCK_SEPARATOR_COLOR = '#555555';
-const DEFAULT_WINDOW = 20;       // patches shown at once
+const DEFAULT_WINDOW = 10;       // patches shown at once
+const PLOT_HEIGHT = 640;         // fixed panel height; rows fill it
 
 function isInterSite(label) {
   return String(label ?? '').toLowerCase().startsWith('inter');
@@ -173,7 +174,7 @@ export function createPatchEthogram({ sites, traces }) {
 
     const fig = Plot.plot({
       width: Math.max(360, plotHolder.clientWidth || 700),
-      height: Math.max(240, 60 + 48 * nRows),
+      height: PLOT_HEIGHT,
       marginLeft: 130,
       marginRight: 16,
       marginTop: 28,

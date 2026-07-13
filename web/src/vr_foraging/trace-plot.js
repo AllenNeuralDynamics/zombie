@@ -18,7 +18,7 @@
 
 import * as Plot from '@observablehq/plot';
 import {
-  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, siteColor,
+  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, VELOCITY_TRACE_COLOR, siteColor,
 } from './theme.js';
 
 // ---------------------------------------------------------------------------
@@ -355,7 +355,7 @@ export function createVrfTracePlot(data) {
       marks: [
         Plot.rect(bands, { x1: 'x1', x2: 'x2', y1: velMin, y2: velMax,
           fill: 'color', fillOpacity: BAND_OPACITY, stroke: 'none' }),
-        Plot.lineY(vel, { x: 't', y: 'v', stroke: VELOCITY_COLOR,
+        Plot.lineY(vel, { x: 't', y: 'v', stroke: VELOCITY_TRACE_COLOR,
           strokeWidth: 1 }),
       ],
     });

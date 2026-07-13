@@ -54,7 +54,6 @@ const PROJECTS = {
     s3Column: 'location',
     sort: { 'processing.data_processes.end_date_time': -1 },
     defaultColumns: [
-      'name',
       'processing.data_processes.name',
       'processing.data_processes.code.parameters.plot_types',
       'processing.data_processes.code.parameters.channels',
@@ -66,7 +65,6 @@ const PROJECTS = {
     s3Column: 'location',
     sort: { 'processing.data_processes.end_date_time': -1 },
     defaultColumns: [
-      'name',
       'processing.data_processes.name',
       'processing.data_processes.code.parameters.analysis_name',
       'processing.data_processes.code.parameters.analysis_tag',

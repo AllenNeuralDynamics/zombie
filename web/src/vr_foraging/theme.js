@@ -15,6 +15,7 @@ export const CHOICE_COLOR   = '#d62728';
 export const REWARD_COLOR   = '#1f77b4';
 export const LICK_COLOR     = '#2ca02c';
 export const VELOCITY_COLOR = '#222222';
+export const VELOCITY_TRACE_COLOR = '#e11d48';
 
 /** Stable colour for a patch by its (instance) index. */
 export function patchColor(index) {
