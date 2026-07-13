@@ -42,6 +42,15 @@ export default defineConfig({
       '/log-server': {
         target: 'http://localhost:3001',
       },
+      // Forward /analysis/* and /s3-list → docdb_proxy.py, which query the
+      // DocDB `analysis` database and public S3 buckets for the
+      // /analysis-framework dashboard.
+      '/analysis': {
+        target: 'http://localhost:3001',
+      },
+      '/s3-list': {
+        target: 'http://localhost:3001',
+      },
       '/qc-presign': {
         target: 'https://qc.allenneuraldynamics.org',
         changeOrigin: true,
@@ -81,6 +90,7 @@ export default defineConfig({
         search: resolve(__dirname, 'search.html'),
         view: resolve(__dirname, 'view.html'),
         contributions: resolve(__dirname, 'contributions.html'),
+        analysis_framework: resolve(__dirname, 'analysis_framework.html'),
         contributions_view: resolve(__dirname, 'contributions/view.html'),
         contributions_edit: resolve(__dirname, 'contributions/edit.html'),
         contributions_add: resolve(__dirname, 'contributions/add.html'),

@@ -24,7 +24,9 @@ import logging
 import re
 import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pymysql
@@ -56,6 +58,41 @@ log = logging.getLogger(__name__)
 
 client_v2 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v2")
 client_v1 = MetadataDbClient(host="api.allenneuraldynamics.org", version="v1")
+
+# ---------------------------------------------------------------------------
+# Analysis-framework DocDB collections (database="analysis").
+# These live in per-project collections queried by /analysis/search.
+# Clients are cached per collection since MetadataDbClient binds host/db/coll.
+# ---------------------------------------------------------------------------
+ANALYSIS_HOST = "api.allenneuraldynamics.org"
+ANALYSIS_DATABASE = "analysis"
+# Allow-list of collections the analysis-framework dashboard may query.
+ANALYSIS_COLLECTIONS = {
+    "dynamic-foraging-model-fitting",
+    "dynamic-foraging-nm",
+    "dynamic-foraging-lifetime",
+}
+_analysis_clients: dict[str, MetadataDbClient] = {}
+
+
+def _analysis_client(collection: str) -> MetadataDbClient:
+    if collection not in _analysis_clients:
+        _analysis_clients[collection] = MetadataDbClient(
+            host=ANALYSIS_HOST,
+            database=ANALYSIS_DATABASE,
+            collection=collection,
+        )
+    return _analysis_clients[collection]
+
+
+# Public S3 buckets the /s3-list endpoint is allowed to enumerate. Restricting
+# to a known set avoids turning the proxy into an open S3 listing relay.
+S3_LIST_ALLOWED_BUCKETS = {
+    "aind-dynamic-foraging-analysis-prod-o5171v",
+    "aind-analysis-prod-o5171v",
+}
+S3_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+S3_LIST_TIMEOUT = 30
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -105,6 +142,8 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/metadata-service/"):
             self._handle_metadata_service(self.path[len("/metadata-service/"):])
+        elif self.path.startswith("/s3-list"):
+            self._handle_s3_list()
         else:
             self._respond(404, {"error": "Not found"})
 
@@ -113,6 +152,8 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._handle_search(client_v1)
         elif self.path == "/metadata/search":
             self._handle_search(client_v2)
+        elif self.path == "/analysis/search":
+            self._handle_analysis_search()
         elif self.path == "/log-server/camstim-completed":
             self._handle_camstim_completed()
         else:
@@ -225,6 +266,117 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
         except Exception as e:
             log.error("DocDB query failed: %s", e)
             self._respond(500, {"error": str(e)})
+
+    def _handle_analysis_search(self):
+        """Query an analysis-framework collection in the DocDB 'analysis' database.
+
+        Body: {"collection": str, "filter": {...}, "limit": N, "projection": {...}}
+        Responds with the raw list of DocDB records.
+        """
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length) if length else b"{}")
+        except Exception as e:
+            self._respond(400, {"error": f"Invalid JSON: {e}"})
+            return
+
+        collection = (body.get("collection") or "").strip()
+        if collection not in ANALYSIS_COLLECTIONS:
+            self._respond(400, {"error": f"Unknown collection: {collection}"})
+            return
+
+        filter_query = body.get("filter", {})
+        limit = body.get("limit", 0)
+        projection = body.get("projection") or None
+        sort = body.get("sort") or None
+
+        try:
+            kwargs = dict(filter_query=filter_query, limit=limit)
+            if projection:
+                kwargs["projection"] = projection
+            if sort:
+                kwargs["sort"] = sort
+            records = _analysis_client(collection).retrieve_docdb_records(**kwargs)
+            self._respond(200, records)
+        except Exception as e:
+            log.error("Analysis DocDB query failed (%s): %s", collection, e)
+            self._respond(500, {"error": str(e)})
+
+    def _handle_s3_list(self):
+        """List image objects under a public S3 prefix.
+
+        Query params: ?loc=s3://bucket/prefix   (or ?bucket=..&prefix=..)
+        Responds with {"images": [{"key": str, "url": str, "name": str}, ...]}.
+        Only buckets in S3_LIST_ALLOWED_BUCKETS are permitted.
+        """
+        query = urllib.parse.urlparse(self.path).query
+        params = urllib.parse.parse_qs(query)
+        loc = (params.get("loc", [""])[0]).strip()
+        bucket = (params.get("bucket", [""])[0]).strip()
+        prefix = (params.get("prefix", [""])[0]).strip()
+
+        if loc:
+            if loc.startswith("s3://"):
+                loc = loc[len("s3://"):]
+            parts = loc.split("/", 1)
+            bucket = parts[0]
+            prefix = parts[1] if len(parts) > 1 else ""
+
+        if bucket not in S3_LIST_ALLOWED_BUCKETS:
+            self._respond(400, {"error": f"Bucket not allowed: {bucket}"})
+            return
+
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+
+        try:
+            images = self._s3_list_images(bucket, prefix)
+        except Exception as e:
+            log.error("S3 list failed (%s/%s): %s", bucket, prefix, e)
+            self._respond(502, {"error": f"S3 list failed: {e}"})
+            return
+
+        self._respond(200, {"images": images})
+
+    @staticmethod
+    def _s3_list_images(bucket: str, prefix: str) -> list:
+        """Enumerate image objects under a bucket/prefix via the public S3 REST API."""
+        ns = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+        base = f"https://{bucket}.s3.amazonaws.com/"
+        images: list[dict] = []
+        token = None
+
+        while True:
+            qs = {"list-type": "2", "prefix": prefix, "max-keys": "1000"}
+            if token:
+                qs["continuation-token"] = token
+            url = base + "?" + urllib.parse.urlencode(qs)
+            with urllib.request.urlopen(url, timeout=S3_LIST_TIMEOUT) as resp:
+                root = ET.fromstring(resp.read())
+
+            for contents in root.findall(f"{ns}Contents"):
+                key_el = contents.find(f"{ns}Key")
+                if key_el is None or not key_el.text:
+                    continue
+                key = key_el.text
+                if key.lower().endswith(S3_IMAGE_EXTENSIONS):
+                    images.append({
+                        "key": key,
+                        "url": base + urllib.parse.quote(key),
+                        "name": key.rsplit("/", 1)[-1],
+                    })
+
+            truncated = root.find(f"{ns}IsTruncated")
+            if truncated is not None and truncated.text == "true":
+                next_token = root.find(f"{ns}NextContinuationToken")
+                token = next_token.text if next_token is not None else None
+                if not token:
+                    break
+            else:
+                break
+
+        images.sort(key=lambda item: item["key"])
+        return images
 
     def _handle_metadata_service(self, subpath):
         # Pass the request verbatim to the upstream.

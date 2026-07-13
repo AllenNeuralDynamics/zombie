@@ -1,6 +1,8 @@
 import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
 import { escHtml } from '../lib/utils.js';
+import { ensureTable } from '../lib/registry.js';
+import { createBaselineControls, baselineSeries, buildPsthPlot } from '../lib/psth.js';
 import * as Plot from '@observablehq/plot';
 
 const EPHYS_VERSION = 'bdc-v0.37';
@@ -21,6 +23,15 @@ const PSTH_EVENTS = {
   'Trial stop': 'stop_time',
 };
 const PSTH_DEFAULT_EVENT = 'Go cue';
+
+const VR_EVENTS = {
+  'Trial start': 'start_time_s',
+  'Odor onset': 'odor_onset_time_s',
+  'Choice cue': 'choice_cue_time_s',
+  'Reward onset': 'reward_onset_time_s',
+  'Trial stop': 'stop_time_s',
+};
+const VR_DEFAULT_EVENT = 'Odor onset';
 
 function esc(s) { return String(s).replace(/'/g, "''"); }
 
@@ -94,7 +105,7 @@ async function loadBins(coord, url, probe) {
     )
     SELECT u.uidx AS uidx,
            LEAST(${TIME_BINS} - 1,
-                 CAST((s.spike_time - r.lo) / ((r.hi - r.lo) / ${TIME_BINS}) AS INT)) AS tbin,
+                 CAST(FLOOR((s.spike_time - r.lo) / ((r.hi - r.lo) / ${TIME_BINS})) AS INT)) AS tbin,
            COUNT(*) AS n,
            r.lo AS lo,
            r.hi AS hi
@@ -124,9 +135,9 @@ async function loadBinsByDepth(coord, spkUrl, unitsUrl, probe) {
       FROM s
     )
     SELECT LEAST(${TIME_BINS} - 1,
-                 CAST((s.t - r.lo) / ((r.hi - r.lo) / ${TIME_BINS}) AS INT)) AS tbin,
+                 CAST(FLOOR((s.t - r.lo) / ((r.hi - r.lo) / ${TIME_BINS})) AS INT)) AS tbin,
            LEAST(${DEPTH_BINS} - 1,
-                 CAST((s.depth - r.dlo) / ((r.dhi - r.dlo) / ${DEPTH_BINS}) AS INT)) AS dbin,
+                 CAST(FLOOR((s.depth - r.dlo) / ((r.dhi - r.dlo) / ${DEPTH_BINS})) AS INT)) AS dbin,
            COUNT(*) AS n,
            r.lo AS lo, r.hi AS hi, r.dlo AS dlo, r.dhi AS dhi
     FROM s
@@ -183,7 +194,74 @@ async function loadAlignedPsth(coord, spkUrl, probe, subjectId, date, eventCol, 
       FROM read_parquet('${esc(spkUrl)}')
       WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL${unitFilter}
     )
-    SELECT CAST((sp.spike_time - ev.t0 - (${PSTH_PRE})) / ${PSTH_BIN_WIDTH} AS INT) AS bin,
+    SELECT CAST(FLOOR((sp.spike_time - ev.t0 - (${PSTH_PRE})) / ${PSTH_BIN_WIDTH}) AS INT) AS bin,
+           COUNT(*) AS n
+    FROM sp
+    JOIN ev ON sp.spike_time >= ev.t0 + (${PSTH_PRE})
+           AND sp.spike_time < ev.t0 + (${PSTH_POST})
+    GROUP BY bin
+  `);
+  return rows.map((r) => ({ bin: Number(r.bin), n: Number(r.n) }));
+}
+
+async function resolveVrfDerived(coord, rawAssetName) {
+  if (!rawAssetName) return null;
+  try {
+    await ensureTable(coord, 'source_data');
+    const safe = esc(rawAssetName);
+    const rows = await queryRows(coord, `
+      SELECT sd.name
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.name
+      WHERE ('; ' || replace(sd.source_data, ', ', '; ') || ';') LIKE '%; ${safe};%'
+        AND ab.acquisition_type = 'AindVrForaging'
+        AND ab.data_level = 'derived'
+        AND list_contains(ab.modalities, 'behavior')
+      ORDER BY ab.acquisition_start_time DESC
+      LIMIT 1
+    `);
+    return rows[0]?.name ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadVrEvents(coord, rawAssetName) {
+  const derived = await resolveVrfDerived(coord, rawAssetName);
+  if (!derived) return {};
+  let session;
+  try {
+    const { loadVrfSession } = await import('../vr_foraging/nwb-loader.js');
+    session = await loadVrfSession(derived);
+  } catch (err) {
+    console.error('[ecephys-playback] VRF load error', err);
+    return {};
+  }
+  const sites = session?.sites ?? [];
+  const events = {};
+  for (const [label, col] of Object.entries(VR_EVENTS)) {
+    const times = [];
+    for (const s of sites) {
+      const v = s[col];
+      if (v != null && Number.isFinite(v)) times.push(Number(v));
+    }
+    if (times.length) events[label] = times;
+  }
+  return events;
+}
+
+async function loadVrAlignedPsth(coord, spkUrl, probe, eventTimes, unitName) {
+  if (!eventTimes.length) return [];
+  const unitFilter = unitName ? ` AND unit_name = '${esc(unitName)}'` : '';
+  const values = eventTimes.map((t) => `(${Number(t)})`).join(', ');
+  const rows = await queryRows(coord, `
+    WITH ev(t0) AS (VALUES ${values}),
+    sp AS (
+      SELECT spike_time
+      FROM read_parquet('${esc(spkUrl)}')
+      WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL${unitFilter}
+    )
+    SELECT CAST(FLOOR((sp.spike_time - ev.t0 - (${PSTH_PRE})) / ${PSTH_BIN_WIDTH}) AS INT) AS bin,
            COUNT(*) AS n
     FROM sp
     JOIN ev ON sp.spike_time >= ev.t0 + (${PSTH_PRE})
@@ -212,7 +290,7 @@ async function loadUnitSessionPsth(coord, spkUrl, probe, unitName, lo, hi) {
   const binWidth = (hi - lo) / TIME_BINS;
   if (!(binWidth > 0)) return [];
   const rows = await queryRows(coord, `
-    SELECT LEAST(${TIME_BINS} - 1, CAST((spike_time - ${lo}) / ${binWidth} AS INT)) AS bin,
+    SELECT LEAST(${TIME_BINS} - 1, CAST(FLOOR((spike_time - ${lo}) / ${binWidth}) AS INT)) AS bin,
            COUNT(*) AS n
     FROM read_parquet('${esc(spkUrl)}')
     WHERE device_name = '${esc(probe)}' AND unit_name = '${esc(unitName)}'
@@ -224,7 +302,7 @@ async function loadUnitSessionPsth(coord, spkUrl, probe, unitName, lo, hi) {
     const b = Number(r.bin);
     if (b >= 0 && b < TIME_BINS) totals[b] = Number(r.n);
   }
-  return totals.map((n, i) => ({ t: (i + 0.5) * binWidth, rate: n / binWidth }));
+  return totals.map((n, i) => ({ t: (i + 0.5) * binWidth, mean: n / binWidth }));
 }
 
 function computeAlignedPsth(bins, nTrials, nUnits) {
@@ -235,7 +313,7 @@ function computeAlignedPsth(bins, nTrials, nUnits) {
   }
   return totals.map((n, i) => ({
     t: PSTH_PRE + (i + 0.5) * PSTH_BIN_WIDTH,
-    rate: n / (nTrials * nUnits * PSTH_BIN_WIDTH),
+    mean: n / (nTrials * nUnits * PSTH_BIN_WIDTH),
   }));
 }
 
@@ -246,45 +324,8 @@ function computePopulationPsth(bins, lo, hi, nUnits) {
   for (const b of bins) totals[b.tbin] += b.n;
   return totals.map((n, i) => ({
     t: (i + 0.5) * binWidth,
-    rate: n / (nUnits * binWidth),
+    mean: n / (nUnits * binWidth),
   }));
-}
-
-function buildAlignedPsthPlot(psth, eventLabel, yLabel, width) {
-  return Plot.plot({
-    height: 340,
-    width: Math.max(240, width),
-    marginLeft: 88,
-    marginTop: 24,
-    marginRight: 12,
-    marginBottom: 30,
-    style: { background: 'transparent', fontFamily: 'inherit', fontSize: 10 },
-    x: { label: `Time from ${eventLabel} (s)`, domain: [PSTH_PRE, PSTH_POST] },
-    y: { label: yLabel, grid: true, nice: true },
-    marks: [
-      Plot.lineY(psth, { x: 't', y: 'rate', stroke: '#c0392b', strokeWidth: 1.6 }),
-      Plot.ruleX([0], { stroke: '#888', strokeDasharray: '3,3' }),
-      Plot.ruleY([0], { stroke: '#555', strokeOpacity: 0.4 }),
-    ],
-  });
-}
-
-function buildPopulationPsthPlot(psth, yLabel, width) {
-  return Plot.plot({
-    height: 340,
-    width: Math.max(240, width),
-    marginLeft: 88,
-    marginTop: 24,
-    marginRight: 12,
-    marginBottom: 30,
-    style: { background: 'transparent', fontFamily: 'inherit', fontSize: 10 },
-    x: { label: 'Time from recording start (s)' },
-    y: { label: yLabel, grid: true, nice: true },
-    marks: [
-      Plot.lineY(psth, { x: 't', y: 'rate', stroke: '#c0392b', strokeWidth: 1.6 }),
-      Plot.ruleY([0], { stroke: '#555', strokeOpacity: 0.4 }),
-    ],
-  });
 }
 
 function parseWaveform(raw) {
@@ -458,22 +499,31 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
     const dfEventLabels = Object.keys(PSTH_EVENTS).filter((l) => dfCounts[l] > 0);
     const isDf = dfEventLabels.length > 0;
 
+    let vrEvents = {};
+    if (!isDf) vrEvents = await loadVrEvents(coord, rawAssetName);
+    const vrEventLabels = Object.keys(VR_EVENTS).filter((l) => (vrEvents[l]?.length ?? 0) > 0);
+    const isVr = !isDf && vrEventLabels.length > 0;
+
+    const eventLabels = isDf ? dfEventLabels : vrEventLabels;
+    const defaultEvent = isDf ? PSTH_DEFAULT_EVENT : VR_DEFAULT_EVENT;
+    const hasEvents = isDf || isVr;
+
     const probeOptions = probes
       .map((p) => `<option value="${esc(p.device_name)}">${esc(p.device_name)} `
         + `(${Number(p.nunits)} units)</option>`)
       .join('');
 
-    const eventControl = isDf
+    const eventControl = hasEvents
       ? `<label>Align to
            <select class="ecephys-event-sel">${
-             dfEventLabels
-               .map((l) => `<option${l === PSTH_DEFAULT_EVENT ? ' selected' : ''}>${esc(l)}</option>`)
+             eventLabels
+               .map((l) => `<option${l === defaultEvent ? ' selected' : ''}>${esc(l)}</option>`)
                .join('')
            }</select>
          </label>`
       : '';
 
-    const hint = isDf
+    const hint = hasEvents
       ? 'PSTH aligned to behavioral events; full-session raster (binned in DuckDB).'
       : 'No behavioral events \u2014 showing session population rate; full-session raster.';
 
@@ -537,6 +587,15 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
     const unitCache = new Map();
     const unitSort = { key: 'num_spikes', dir: 'desc' };
     let gen = 0;
+
+    let baselineControls = null;
+    if (hasEvents) {
+      baselineControls = createBaselineControls({
+        defaultMs: 200, defaultOn: true, onChange: () => renderPsthPlot(),
+      });
+      const controlsBar = section.querySelector('.ecephys-controls');
+      if (controlsBar && selectionEl) controlsBar.insertBefore(baselineControls.element, selectionEl);
+    }
 
     const qcPass = () => (qcFilterSel ? qcFilterSel.value === 'pass' : false);
     const filteredUnits = () => (qcPass() ? unitRows.filter((u) => u.default_qc) : unitRows);
@@ -640,22 +699,42 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
       renderUnitDetail();
     }
 
+    let lastPsth = null;
+
+    function renderPsthPlot() {
+      if (!lastPsth) return;
+      const { series, xLabel, yLabel, pre, post, aligned } = lastPsth;
+      const width = Math.max(240, Math.floor(psthEl.clientWidth) - 8);
+      const s = aligned && baselineControls ? baselineSeries(series, baselineControls.getBaselineSec()) : series;
+      psthEl.innerHTML = '';
+      psthEl.appendChild(buildPsthPlot(s, {
+        pre, post, xLabel, yLabel,
+        width, height: 340, marginLeft: 88, marginTop: 24, marginRight: 12, marginBottom: 30,
+        stroke: '#c0392b', showArea: false, showEventRule: aligned,
+      }));
+    }
+
     async function renderPsth() {
       psthEl.innerHTML = '<p class="ecephys-loading">Loading\u2026</p>';
       const probe = probeSel.value;
       const unit = selectedUnit;
       const yLabel = unit ? 'Firing rate (Hz)' : 'Firing rate (Hz/unit)';
-      const width = Math.max(240, Math.floor(psthEl.clientWidth) - 8);
       const g = gen;
 
-      if (isDf) {
+      if (isDf || isVr) {
         const label = eventSel.value;
-        const eventCol = PSTH_EVENTS[label];
-        const nTrials = dfCounts[label] ?? 0;
         const divisor = unit ? 1 : nUnitsFor(probe);
         let bins;
+        let nTrials;
         try {
-          bins = await loadAlignedPsth(coord, url, probe, subjectId, date, eventCol, unit);
+          if (isDf) {
+            nTrials = dfCounts[label] ?? 0;
+            bins = await loadAlignedPsth(coord, url, probe, subjectId, date, PSTH_EVENTS[label], unit);
+          } else {
+            const times = vrEvents[label] ?? [];
+            nTrials = times.length;
+            bins = await loadVrAlignedPsth(coord, url, probe, times, unit);
+          }
         } catch (err) {
           console.error('[ecephys-playback] psth query error', err);
           if (g === gen) psthEl.innerHTML = '<p class="ecephys-no-data">Error loading PSTH.</p>';
@@ -665,10 +744,11 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
         const series = computeAlignedPsth(bins, nTrials, divisor);
         if (series.length === 0) {
           psthEl.innerHTML = '<p class="ecephys-no-data">No spikes near this event.</p>';
+          lastPsth = null;
           return;
         }
-        psthEl.innerHTML = '';
-        psthEl.appendChild(buildAlignedPsthPlot(series, label, yLabel, width));
+        lastPsth = { series, xLabel: `Time from ${label} (s)`, yLabel, pre: PSTH_PRE, post: PSTH_POST, aligned: true };
+        renderPsthPlot();
         return;
       }
 
@@ -689,10 +769,11 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
       }
       if (series.length === 0) {
         psthEl.innerHTML = '<p class="ecephys-no-data">No spikes in range.</p>';
+        lastPsth = null;
         return;
       }
-      psthEl.innerHTML = '';
-      psthEl.appendChild(buildPopulationPsthPlot(series, yLabel, width));
+      lastPsth = { series, xLabel: 'Time from recording start (s)', yLabel, pre: 0, post: hi - lo, aligned: false };
+      renderPsthPlot();
     }
 
     function selectUnit(unitName) {

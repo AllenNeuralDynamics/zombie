@@ -21,6 +21,7 @@ import { queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { ITEM_COLORS } from '../subject/brain-viz.js';
+import { createBaselineControls, buildPsthPlot as sharedPsthPlot } from '../lib/psth.js';
 import * as Plot from '@observablehq/plot';
 
 // ---------------------------------------------------------------------------
@@ -508,28 +509,22 @@ function psthYDomain(seriesList) {
 }
 
 function buildPsthPlot({ allMean, channels }, yDomain, width = 320) {
-  return Plot.plot({
+  return sharedPsthPlot(allMean, {
+    pre: PSTH_PRE,
+    post: PSTH_POST,
+    xLabel: 'Time rel. event (s)',
+    yLabel: 'Mean ΔF/F',
+    width,
     height: 200,
-    width:  Math.max(220, width),
     marginLeft: 44,
     marginTop: 8,
     marginRight: 10,
-    style:  { background: 'transparent', fontFamily: 'inherit', fontSize: 10 },
-    x: { domain: [PSTH_PRE, PSTH_POST], label: 'Time rel. event (s)' },
-    y: { label: 'Mean ΔF/F', grid: true, ...(yDomain ? { domain: yDomain } : {}) },
-    color: { domain: channels, range: channels.map((c) => CHANNEL_COLORS[c] ?? '#888') },
-    marks: [
-      Plot.areaY(allMean, {
-        x: 't', y1: 'lo', y2: 'hi',
-        fill: 'channel', fillOpacity: 0.15,
-      }),
-      Plot.lineY(allMean, {
-        x: 't', y: 'mean',
-        stroke: 'channel', strokeWidth: 2,
-      }),
-      Plot.ruleX([0], { stroke: '#888', strokeDasharray: '3,3' }),
-      Plot.ruleY([0], { stroke: '#555', strokeOpacity: 0.4 }),
-    ],
+    yDomain,
+    colorKey: 'channel',
+    colorDomain: channels,
+    colorRange: channels.map((c) => CHANNEL_COLORS[c] ?? '#888'),
+    strokeWidth: 2,
+    fillOpacity: 0.15,
   });
 }
 
@@ -632,13 +627,6 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
         <label>Align to
           <select class="psth-event-sel">${eventOptions}</select>
         </label>
-        <label class="fib-baseline-toggle">
-          <input type="checkbox" class="psth-baseline-chk"> Baseline
-        </label>
-        <label class="fib-baseline-ms">
-          <input type="number" class="psth-baseline-ms" value="${BASELINE_DEFAULT_MS}"
-                 min="0" step="50" disabled> ms
-        </label>
       </div>
       <div class="fib-top">
         <div class="fib-3d-col">
@@ -660,8 +648,10 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     const tracesEl   = section.querySelector('.fib-traces-grid');
     const psthEl     = section.querySelector('.fib-psth-grid');
     const eventSel   = section.querySelector('.psth-event-sel');
-    const baselineChk = section.querySelector('.psth-baseline-chk');
-    const baselineMs  = section.querySelector('.psth-baseline-ms');
+    const baselineControls = createBaselineControls({
+      defaultMs: BASELINE_DEFAULT_MS, defaultOn: false, onChange: () => rerenderBaseline(),
+    });
+    section.querySelector('.fib-controls')?.appendChild(baselineControls.element);
 
     // Resolve implant surgery → per-fiber colours + 3D inset.
     const surgery      = await surgeryPromise;
@@ -712,11 +702,7 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     const cellWidth = (gridEl) => Math.max(220, Math.floor((gridEl.clientWidth - 12) / 2) - 14);
 
     /** Current baseline window in seconds, or 0 when disabled. */
-    const currentBaselineSec = () => {
-      if (!baselineChk.checked) return 0;
-      const ms = Number(baselineMs.value);
-      return Number.isFinite(ms) && ms > 0 ? ms / 1000 : 0;
-    };
+    const currentBaselineSec = () => baselineControls.getBaselineSec();
 
     // ---- Traces: load every fiber once, cache, share a common Y-axis ----
     const traceCache = new Map();
@@ -771,8 +757,7 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     if (!hasTrials) {
       psthEl.innerHTML = '<p class="fib-no-data">No trial data available for PSTH.</p>';
       eventSel.disabled = true;
-      baselineChk.disabled = true;
-      baselineMs.disabled = true;
+      baselineControls.setDisabled(true);
       await refreshTraces(null);
       return;
     }
@@ -832,13 +817,6 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     }
 
     eventSel.addEventListener('change', refreshPsth);
-    baselineChk.addEventListener('change', () => {
-      baselineMs.disabled = !baselineChk.checked;
-      rerenderBaseline();
-    });
-    baselineMs.addEventListener('change', () => {
-      if (baselineChk.checked) rerenderBaseline();
-    });
     await refreshPsth();
   })();
 

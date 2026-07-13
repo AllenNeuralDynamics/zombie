@@ -90,6 +90,22 @@
   padding: 0.1rem 0.3rem;
 }
 
+.psth-baseline-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.psth-baseline-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.psth-baseline-ms input {
+  width: 3.5rem;
+}
+
 .ecephys-units-wrap {
   display: flex;
   gap: 1.25rem;

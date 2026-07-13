@@ -1,0 +1,203 @@
+/* ---------------------------------------------------------------------------
+ * 22-analysis-framework.css — /analysis-framework dashboard.
+ * ------------------------------------------------------------------------ */
+
+.af-page {
+  max-width: 100%;
+  padding: var(--gap);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+/* ---- Controls row ---- */
+.af-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap);
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  box-shadow: var(--shadow);
+}
+
+.af-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.af-field > span {
+  font-weight: 600;
+}
+
+.af-field select,
+.af-field input {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.af-field-limit input { width: 110px; }
+.af-field-filter { flex: 1 1 260px; }
+.af-field-filter input { width: 100%; }
+
+/* ---- Column settings gear ---- */
+.af-gear-wrap { position: relative; }
+
+.af-gear-btn {
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  width: 34px;
+  height: 34px;
+  font-size: 17px;
+  cursor: pointer;
+}
+.af-gear-btn:hover { background: var(--surface-card); }
+
+.af-gear-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  width: 340px;
+  max-height: 420px;
+  overflow: auto;
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+
+.af-gear-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.af-gear-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.af-gear-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-primary);
+  padding: 2px 3px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+.af-gear-item:hover { background: var(--surface-card); }
+.af-gear-empty { font-size: 12px; color: var(--text-muted); }
+
+.af-linkbtn {
+  background: none;
+  border: none;
+  color: var(--color-red);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.af-linkbtn:hover { text-decoration: underline; }
+
+/* ---- Status + counts ---- */
+.af-status { font-size: 13px; color: var(--text-secondary); }
+.af-status-error { color: var(--color-red); }
+.af-count { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+.af-empty { font-size: 13px; color: var(--text-muted); padding: 12px 0; }
+
+/* ---- Data table ---- */
+.af-table-wrap { overflow-x: auto; }
+
+.af-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+
+.af-table th,
+.af-table td {
+  border: 1px solid var(--surface-border);
+  padding: 4px 8px;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.af-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  z-index: 1;
+}
+
+.af-table tbody tr { cursor: pointer; }
+.af-table tbody tr:hover { background: var(--surface-card); }
+.af-row-selected,
+.af-table tbody tr.af-row-selected:hover {
+  background: color-mix(in srgb, var(--color-green) 18%, var(--surface-bg));
+}
+
+.af-th-sel, .af-td-sel { width: 28px; text-align: center; }
+
+/* ---- Assets ---- */
+.af-assets { border-top: 1px solid var(--surface-border); padding-top: var(--gap); }
+.af-assets-title { font-size: 15px; margin: 0 0 8px; color: var(--text-primary); }
+.af-assets-body { display: flex; flex-direction: column; gap: var(--gap); }
+
+.af-asset-card {
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  padding: 10px;
+}
+
+.af-asset-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.af-asset-head code { color: var(--text-primary); font-weight: 600; }
+.af-asset-loc { color: var(--text-muted); word-break: break-all; }
+
+.af-asset-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+}
+
+.af-fig { margin: 0; max-width: 480px; }
+.af-fig img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+.af-fig figcaption {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  word-break: break-all;
+}
