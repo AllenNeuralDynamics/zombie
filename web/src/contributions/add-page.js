@@ -14,6 +14,7 @@
 import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
+import { getCurrentUser, loginWithOrcid, joinProject } from '../lib/auth.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -469,7 +470,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, token, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
+  doi, token, orcidFlow, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   setAuthorName, setOrcid, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
@@ -621,12 +622,15 @@ function StepFullEditor({
       });
 
       let url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(doi)}`;
-      if (token) url += `&password=${encodeURIComponent(token)}`;
+      // ORCID flow saves via the session cookie (the user is a member); the
+      // legacy flow presents the token as the password.
+      if (!orcidFlow && token) url += `&password=${encodeURIComponent(token)}`;
 
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        credentials: 'include',
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -846,7 +850,11 @@ function StepFullEditor({
 // Main Add App
 // ---------------------------------------------------------------------------
 
-function AddApp({ doi, token, existingAuthor }) {
+function AddApp({ project, doi, token, existingAuthor }) {
+  // New ORCID invite links pass `project`; legacy token links pass `doi`.
+  const orcidFlow = Boolean(project);
+  const effProject = project || doi;
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [step, setStep] = useState(0);
@@ -854,6 +862,9 @@ function AddApp({ doi, token, existingAuthor }) {
   const [allRows, setAllRows] = useState([]);
   const [sections, setSections] = useState([]);
   const [affiliations, setAffiliations] = useState([]);
+  // ORCID flow gate: 'checking' | 'login' | 'joining' | 'ready'
+  const [authGate, setAuthGate] = useState(orcidFlow ? 'checking' : 'ready');
+  const [user, setUser] = useState(null);
 
   const _draft = token ? loadDraft(token) : null;
   const isExisting = Boolean(existingAuthor);
@@ -879,18 +890,49 @@ function AddApp({ doi, token, existingAuthor }) {
     saveDraft(token, { step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
   }, [step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
+  // ORCID flow: require login, then join the project with the invite token.
   useEffect(() => {
-    if (!doi || !token) {
+    if (!orcidFlow) return;
+    if (!effProject || !token) {
+      setAuthGate('ready');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const me = await getCurrentUser();
+      if (cancelled) return;
+      setUser(me);
+      if (!me) { setAuthGate('login'); return; }
+      setAuthGate('joining');
+      const result = await joinProject(effProject, token);
+      if (cancelled) return;
+      if (!result.ok) {
+        setError(result.error || 'This invite link is invalid or has been disabled.');
+        setLoading(false);
+        setAuthGate('login');
+        return;
+      }
+      setAuthGate('ready');
+    })();
+    return () => { cancelled = true; };
+  }, [orcidFlow, effProject, token]);
+
+  useEffect(() => {
+    if (orcidFlow && authGate !== 'ready') return;
+    if (!effProject || !token) {
       setLoading(false);
-      setError('Missing DOI or token in URL.');
+      setError('Missing project or token in URL.');
       return;
     }
     (async () => {
       try {
-        const res = await fetch(
-          `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}&password=${encodeURIComponent(token)}`,
-        );
-        if (res.status === 404) throw new Error(`Project "${doi}" not found.`);
+        // ORCID flow loads the (public) project without a password; the legacy
+        // flow presents the token as the password.
+        const getUrl = orcidFlow
+          ? `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}`
+          : `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}&password=${encodeURIComponent(token)}`;
+        const res = await fetch(getUrl, { credentials: 'include' });
+        if (res.status === 404) throw new Error(`Project "${effProject}" not found.`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error || `Access denied (${res.status})`);
@@ -945,7 +987,7 @@ function AddApp({ doi, token, existingAuthor }) {
 
         if (_draft?.step) {
           setStep(_draft.step);
-        } else if (isExisting || hasVisitedCookie(doi, token)) {
+        } else if (isExisting || hasVisitedCookie(effProject, token)) {
           setStep(5);
         } else {
           setStep(1);
@@ -956,11 +998,11 @@ function AddApp({ doi, token, existingAuthor }) {
         setLoading(false);
       }
     })();
-  }, [doi, token]);
+  }, [orcidFlow, authGate, effProject, token]);
 
   function goToStep(n) {
     setStep(n);
-    if (n === 5) setVisitedCookie(doi, token);
+    if (n === 5) setVisitedCookie(effProject, token);
   }
 
   function goNextFromRoleDetails() {
@@ -973,13 +1015,30 @@ function AddApp({ doi, token, existingAuthor }) {
 
   const totalWizardSteps = sections.length > 0 ? 4 : 3;
 
-  if (!doi || !token) {
+  if (!effProject || !token) {
     return html`<div class="contributions-add-page">
-      <p class="cv-placeholder">Invalid link. A DOI and token are required. <a href="/contributions">Go back</a>.</p>
+      <p class="cv-placeholder">Invalid link. A project and token are required. <a href="/contributions">Go back</a>.</p>
     </div>`;
   }
 
-  if (loading) {
+  // ORCID flow: prompt for login before joining. Show any join error too.
+  if (orcidFlow && authGate === 'login') {
+    return html`<div class="contributions-add-page">
+      <div class="cv-modal">
+        <h2 class="cv-modal-title">Log in to join</h2>
+        <p class="cv-modal-desc">
+          Sign in with your ORCID account to add yourself to
+          <strong>${effProject}</strong>.
+        </p>
+        ${error && html`<p class="cv-modal-error">${error}</p>`}
+        <button class="btn-primary cv-modal-btn" onClick=${() => loginWithOrcid()}>
+          Log in with ORCID
+        </button>
+      </div>
+    </div>`;
+  }
+
+  if ((orcidFlow && (authGate === 'checking' || authGate === 'joining')) || loading) {
     return html`<div class="contributions-add-page"><p class="cv-placeholder">Loading…</p></div>`;
   }
 
@@ -1045,7 +1104,7 @@ function AddApp({ doi, token, existingAuthor }) {
 
       ${step === 5 && html`
         <${StepFullEditor}
-          doi=${doi} token=${token}
+          doi=${effProject} token=${token} orcidFlow=${orcidFlow}
           authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
           joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
@@ -1066,8 +1125,11 @@ function AddApp({ doi, token, existingAuthor }) {
 // Entry
 // ---------------------------------------------------------------------------
 
-export function createContributionsAddPage({ doi, token, author = '' }) {
+export function createContributionsAddPage({ project = '', doi, token, author = '' }) {
   const container = document.createElement('div');
-  render(html`<${AddApp} doi=${doi} token=${token} existingAuthor=${author} />`, container);
+  render(
+    html`<${AddApp} project=${project} doi=${doi} token=${token} existingAuthor=${author} />`,
+    container,
+  );
   return container;
 }

@@ -9,10 +9,13 @@ function init() {
   if (!app) return;
 
   const params = new URLSearchParams(window.location.search);
+  // New ORCID invite links use `?project=…&token=…`; legacy token links use
+  // `?doi=…&token=…&author=…`. Support both.
+  const project = params.get('project') ?? '';
   const doi = params.get('doi') ?? '';
   const token = params.get('token') ?? '';
   const author = params.get('author') ?? '';
-  app.appendChild(createContributionsAddPage({ doi, token, author }));
+  app.appendChild(createContributionsAddPage({ project, doi, token, author }));
 }
 
 init();

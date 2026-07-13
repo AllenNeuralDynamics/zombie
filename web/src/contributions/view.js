@@ -1180,6 +1180,51 @@ const DEFAULT_AFFILIATIONS = [
   { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
 ];
 
+/**
+ * InviteAdmin — admin-only panel for the single permanent invite link and the
+ * list of ORCID members who can edit the project.
+ */
+function InviteAdmin({ inviteLink, inviteBusy, members, onGenerate, onDisable, onCopy }) {
+  const hasLink = inviteLink && !inviteLink.startsWith('Error');
+  const isError = inviteLink && inviteLink.startsWith('Error');
+  return html`
+    <div class="cv-invite-admin">
+      <h4 class="cv-invite-heading">Invite link</h4>
+      <p class="cv-invite-desc">
+        Share this permanent link so collaborators can log in with ORCID and add
+        themselves. Disable it any time to stop new people from joining;
+        existing members keep their access.
+      </p>
+      ${!hasLink && html`
+        <button class="btn-primary cv-invite-btn" onClick=${onGenerate} disabled=${inviteBusy}>
+          ${inviteBusy ? 'Working…' : 'Show invite link'}
+        </button>
+      `}
+      ${hasLink && html`
+        <div class="cv-token-link-result">
+          <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
+          <button class="btn-secondary" onClick=${() => onCopy(inviteLink)}>Copy</button>
+          <button class="btn-secondary cv-invite-disable" onClick=${onDisable} disabled=${inviteBusy}>
+            Disable
+          </button>
+        </div>
+      `}
+      ${isError && html`<span class="cv-token-error">${inviteLink}</span>`}
+      <div class="cv-members">
+        <h4 class="cv-invite-heading">Members (${members.length})</h4>
+        ${members.length === 0
+          ? html`<p class="cv-invite-desc">No one has joined yet.</p>`
+          : html`<ul class="cv-members-list">
+              ${members.map((m) => html`<li key=${m.orcid}>
+                ${m.name || m.orcid}
+                <span class="cv-member-orcid">${m.orcid}</span>
+              </li>`)}
+            </ul>`}
+      </div>
+    </div>
+  `;
+}
+
 function ContributionsApp({ initialProjectName, initialAssetName, initialPassword, initialDraft, docdbOptions, actionsRef, showTokenLinks }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
@@ -1210,11 +1255,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [endpointStatus, setEndpointStatus]   = useState({ text: '', cls: '' });
   const [historyCommits, setHistoryCommits]   = useState([]);
   const [selectedCommit, setSelectedCommit]   = useState(null);
-  const [tokenLinkResults, setTokenLinkResults] = useState({});
   const [inviteLink, setInviteLink]           = useState('');
   const [inviteBusy, setInviteBusy]           = useState(false);
-  const [multiLink, setMultiLink]             = useState('');
-  const [multiBusy, setMultiBusy]             = useState(false);
+  const [members, setMembers]                 = useState([]);
   const [showSections, setShowSections]       = useState(initialDraft?.showSections ?? false);
   const [showLevels, setShowLevels]           = useState(initialDraft?.showLevels ?? true);
   const [showTimeline, setShowTimeline]       = useState(initialDraft?.showTimeline ?? false);
@@ -1373,6 +1416,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        // Send the ORCID session cookie so members/admins can save without a
+        // password. Falls back to the password/token in `url` when present.
+        credentials: 'include',
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -1441,48 +1487,29 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     }
   }
 
-  // ── Token link generation ─────────────────────────────────────────────────
-  async function hashPw(pw) {
-    const encoded = new TextEncoder().encode(pw);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-    return Array.from(new Uint8Array(hashBuffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+  // ── Invite link + membership (ORCID flow, admin only) ─────────────────────
+  // The single permanent invite link lets any ORCID-authenticated user add
+  // themselves to the project. It is created on demand and only revoked when
+  // the admin clicks "Disable".
+  function buildInviteLink(token) {
+    const project = sr.current.projectName;
+    return `${window.location.origin}/contributions/add?project=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
   }
 
-  async function generateEditLink(authorName) {
+  async function loadInviteLink() {
     const project = sr.current.projectName;
-    const pw = sr.current.projectPassword;
-    try {
-      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { busy: true } }));
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=edit_author&author=${encodeURIComponent(authorName)}`;
-      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
-      const data = await res.json();
-      const token = data.token || data.key || '';
-      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}&author=${encodeURIComponent(authorName)}`;
-      navigator.clipboard.writeText(link).catch(() => {});
-      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { link, copied: true } }));
-    } catch (err) {
-      setTokenLinkResults((prev) => ({ ...prev, [authorName]: { error: err.message } }));
-    }
-  }
-
-  async function generateInviteLink() {
-    const project = sr.current.projectName;
-    const pw = sr.current.projectPassword;
     setInviteBusy(true);
     try {
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=add_author`;
-      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
+      const res = await fetch(
+        `${CONTRIBUTIONS_API_BASE}/contributions/invite?project=${encodeURIComponent(project)}`,
+        { credentials: 'include' },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed (${res.status})`);
+      }
       const data = await res.json();
-      const token = data.token || data.key || '';
-      const invLink = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
-      navigator.clipboard.writeText(invLink).catch(() => {});
-      setInviteLink(invLink);
+      setInviteLink(buildInviteLink(data.token));
     } catch (err) {
       setInviteLink(`Error: ${err.message}`);
     } finally {
@@ -1490,30 +1517,50 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     }
   }
 
-  async function generateMultiLink() {
+  async function disableInviteLink() {
     const project = sr.current.projectName;
-    const pw = sr.current.projectPassword;
-    setMultiBusy(true);
+    setInviteBusy(true);
     try {
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/token?doi=${encodeURIComponent(project)}&type=multi_author`;
-      if (pw) url += `&password=${encodeURIComponent(await hashPw(pw))}`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`Failed (${res.status})`);
-      const data = await res.json();
-      const token = data.token || data.key || '';
-      const link = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
-      navigator.clipboard.writeText(link).catch(() => {});
-      setMultiLink(link);
+      const res = await fetch(
+        `${CONTRIBUTIONS_API_BASE}/contributions/invite?project=${encodeURIComponent(project)}`,
+        { method: 'DELETE', credentials: 'include' },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed (${res.status})`);
+      }
+      setInviteLink('');
     } catch (err) {
-      setMultiLink(`Error: ${err.message}`);
+      setInviteLink(`Error: ${err.message}`);
     } finally {
-      setMultiBusy(false);
+      setInviteBusy(false);
+    }
+  }
+
+  async function loadMembers() {
+    const project = sr.current.projectName;
+    try {
+      const res = await fetch(
+        `${CONTRIBUTIONS_API_BASE}/contributions/members?project=${encodeURIComponent(project)}`,
+        { credentials: 'include' },
+      );
+      if (!res.ok) { setMembers([]); return; }
+      const data = await res.json();
+      setMembers(Array.isArray(data.members) ? data.members : []);
+    } catch (_) {
+      setMembers([]);
     }
   }
 
   function copyToClipboard(text) {
     navigator.clipboard.writeText(text);
   }
+
+  // Load the current member list once when the admin editor mounts.
+  useEffect(() => {
+    if (showTokenLinks && sr.current.projectName) loadMembers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showTokenLinks, projectName]);
 
   // ── Row mutations ──────────────────────────────────────────────────────────
   function removeRow(idx) {
@@ -1711,7 +1758,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
               <thead>
                 <tr id="cv-authors-thead-row">
                   <th></th>
-                  ${showTokenLinks && html`<th></th>`}
                   <th>Name</th>
                   ${CREDIT_CATEGORIES.map((cat) => html`<th key=${cat}><${RoleTip} name=${cat} /></th>`)}
                 </tr>
@@ -1726,9 +1772,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
                     onRemove=${removeRow}
                     onRename=${renameRow}
                     onCategoryChange=${updateCategory}
-                    showTokenLinks=${showTokenLinks}
-                    tokenResult=${tokenLinkResults[row.name]}
-                    onGenerateLink=${generateEditLink}
+                    showTokenLinks=${false}
                     allowLead=${allowLead}
                     allowLevels=${allowLevels}
                   />
@@ -1742,36 +1786,15 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
               for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
               setRows((prev) => [...prev, newRow]);
             }}>+ Add author</button>
-            ${showTokenLinks && html`
-              <button class="btn-primary cv-invite-btn" onClick=${generateInviteLink} disabled=${inviteBusy}>
-                ${inviteBusy ? 'Generating…' : '+ Invite new author'}
-              </button>
-              ${inviteLink && !inviteLink.startsWith('Error') && html`
-                <div class="cv-token-link-result">
-                  <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
-                  <button class="btn-secondary" onClick=${() => copyToClipboard(inviteLink)}>Copy</button>
-                  <span class="cv-token-copied-badge">✓ Copied</span>
-                </div>
-              `}
-              ${inviteLink && inviteLink.startsWith('Error') && html`
-                <span class="cv-token-error">${inviteLink}</span>
-              `}
-              <button class="btn-secondary cv-invite-btn" onClick=${generateMultiLink} disabled=${multiBusy}
-                      title="Reusable link valid for 1 week — multiple new authors can use the same URL">
-                ${multiBusy ? 'Generating…' : '+ Shared link (1 week)'}
-              </button>
-              ${multiLink && !multiLink.startsWith('Error') && html`
-                <div class="cv-token-link-result">
-                  <input type="text" readonly value=${multiLink} class="cv-token-link-input" />
-                  <button class="btn-secondary" onClick=${() => copyToClipboard(multiLink)}>Copy</button>
-                  <span class="cv-token-copied-badge">✓ Copied</span>
-                </div>
-              `}
-              ${multiLink && multiLink.startsWith('Error') && html`
-                <span class="cv-token-error">${multiLink}</span>
-              `}
-            `}
           </div>
+          ${showTokenLinks && html`<${InviteAdmin}
+            inviteLink=${inviteLink}
+            inviteBusy=${inviteBusy}
+            members=${members}
+            onGenerate=${loadInviteLink}
+            onDisable=${disableInviteLink}
+            onCopy=${copyToClipboard}
+          />`}
         </div>
       </section>
 

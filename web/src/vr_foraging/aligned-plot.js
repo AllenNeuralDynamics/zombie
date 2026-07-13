@@ -9,7 +9,7 @@
 
 import * as Plot from '@observablehq/plot';
 import { computeVelocity } from './trace-plot.js';
-import { patchColor, VELOCITY_COLOR } from './theme.js';
+import { patchColor, VELOCITY_TRACE_COLOR } from './theme.js';
 
 const WINDOW = [-2.0, 2.0];
 const BIN_WIDTH = 0.05;
@@ -166,7 +166,7 @@ export function createAlignedPlot({ sites, traces }) {
         groups.push({ name: lbl, color: labelColor.get(lbl) ?? patchColor(0), eventTimes: byLabel.get(lbl) });
       }
     } else {
-      groups.push({ name: 'All', color: VELOCITY_COLOR, eventTimes: valid.map((s) => s[eventKey]) });
+      groups.push({ name: 'All', color: VELOCITY_TRACE_COLOR, eventTimes: valid.map((s) => s[eventKey]) });
     }
 
     const bandRows = [];
