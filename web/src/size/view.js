@@ -1,6 +1,7 @@
 import { escHtml, formatDatetime } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
 import { getResolvedBaseUrl } from '../lib/metadata.js';
+import { ensureTable } from '../lib/registry.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 
 const STORAGE_LENS_URL = () => {
@@ -94,9 +95,9 @@ export function createSizeView(coord) {
   loadingEl.textContent = 'Loading storage data…';
   container.appendChild(loadingEl);
 
-  _loadData(coord).then((rows) => {
+  _loadData(coord).then(({ rows, sourceMap }) => {
     loadingEl.remove();
-    _buildTable(container, settingsBtn, rows);
+    _buildTable(container, settingsBtn, rows, sourceMap);
   }).catch((err) => {
     loadingEl.textContent = `Failed to load: ${err?.message ?? err}`;
     loadingEl.className = 'loading-message error';
@@ -114,6 +115,7 @@ async function _loadData(coord) {
     GROUP BY bucket, prefix, storage_class
   `;
   await coord.query(registerSql);
+  await ensureTable(coord, 'source_data');
 
   const sql = `
     SELECT
@@ -133,22 +135,50 @@ async function _loadData(coord) {
       ab.code_ocean,
       sl.size_in_bytes AS size_bytes,
       sl.number_of_files AS num_files,
-      sl.storage_class
+      sl.storage_class,
+      sd.source_data
     FROM asset_basics ab
     LEFT JOIN storage_lens sl
       ON ab.location = 's3://' || sl.bucket || '/' || sl.prefix
+    LEFT JOIN source_data sd
+      ON sd.name = ab.name AND sd.source_data IS NOT NULL AND sd.source_data != ''
     ORDER BY sl.size_in_bytes DESC NULLS LAST
   `;
-  return queryRows(coord, sql);
+  const rows = await queryRows(coord, sql);
+
+  const sourceMap = {};
+  const cleanRows = rows.map(({ source_data, ...rest }) => {
+    if (source_data) {
+      sourceMap[rest.name] = String(source_data).split(', ').filter(Boolean);
+    }
+    return rest;
+  });
+
+  return { rows: cleanRows, sourceMap };
 }
 
-function _buildTable(container, settingsBtn, allRows) {
+function _buildTable(container, settingsBtn, allRows, sourceMap) {
   let sortCol = 'size_bytes';
   let sortDir = 'desc';
   let visibleColumns = [...DEFAULT_COLUMNS, 'links'];
-  let searchText = '';
+  const filters = Object.fromEntries(ALL_COLUMNS.map(c => [c, '']));
   let page = 0;
   const PAGE_SIZE = 100;
+
+  // Precomputed lowercased string per column (aligned to allRows index) so
+  // per-column filtering doesn't rebuild strings on every keystroke.
+  const colStringCache = new Map();
+  function getColStrings(col) {
+    if (!colStringCache.has(col)) {
+      const arr = allRows.map(row => {
+        const val = row[col];
+        if (val == null) return '';
+        return (Array.isArray(val) ? val.join(' ') : String(val)).toLowerCase();
+      });
+      colStringCache.set(col, arr);
+    }
+    return colStringCache.get(col);
+  }
 
   const COOKIE = 'size_cols';
 
@@ -171,13 +201,6 @@ function _buildTable(container, settingsBtn, allRows) {
   const savedCols = readCookie();
   if (savedCols) visibleColumns = [...savedCols, 'links'];
 
-  const searchBar = document.createElement('div');
-  searchBar.className = 'size-search-bar';
-  searchBar.innerHTML = `<input type="search" class="size-search-input" placeholder="Search all columns…" aria-label="Search" />`;
-  container.appendChild(searchBar);
-
-  const searchInput = searchBar.querySelector('.size-search-input');
-
   const countEl = document.createElement('div');
   countEl.className = 'assets-count';
   container.appendChild(countEl);
@@ -195,19 +218,13 @@ function _buildTable(container, settingsBtn, allRows) {
   container.appendChild(pagingBar);
 
   function getFilteredRows() {
-    if (!searchText) return allRows;
-    const q = searchText.toLowerCase();
-    return allRows.filter(row => {
-      return ALL_COLUMNS.some(col => {
-        const val = row[col];
-        if (val == null) return false;
-        const s = Array.isArray(val) ? val.join(' ') : String(val);
-        return s.toLowerCase().includes(q);
-      });
-    });
+    const active = Object.entries(filters).filter(([, v]) => v);
+    if (active.length === 0) return allRows;
+    const caches = active.map(([col, v]) => [getColStrings(col), v.toLowerCase()]);
+    return allRows.filter((_row, i) => caches.every(([arr, q]) => arr[i].includes(q)));
   }
 
-  function getSortedRows(rows) {
+  function sortRowList(rows) {
     return [...rows].sort((a, b) => {
       let av = a[sortCol];
       let bv = b[sortCol];
@@ -225,19 +242,60 @@ function _buildTable(container, settingsBtn, allRows) {
     });
   }
 
+  function buildGroupedRows(rows) {
+    const nameSet = new Set(rows.map(r => r.name));
+    const rawRows = [];
+    const derivedByRaw = {};
+
+    for (const row of rows) {
+      const sources = sourceMap[row.name];
+      const knownSources = sources ? sources.filter(s => nameSet.has(s)) : [];
+      if (!sources || sources.length === 0 || knownSources.length === 0) {
+        rawRows.push(row);
+      } else {
+        for (const src of knownSources) {
+          if (!derivedByRaw[src]) derivedByRaw[src] = [];
+          derivedByRaw[src].push(row);
+        }
+      }
+    }
+
+    const assignedDerived = new Set(
+      Object.values(derivedByRaw).flat().map(r => r.name)
+    );
+    const orphans = rows.filter(r => !rawRows.includes(r) && !assignedDerived.has(r.name));
+
+    const sortedRaw = sortRowList(rawRows);
+    const groups = [];
+    for (const raw of sortedRaw) {
+      const group = [{ row: raw, isChild: false }];
+      const children = sortRowList(derivedByRaw[raw.name] ?? []);
+      for (const child of children) {
+        group.push({ row: child, isChild: true });
+      }
+      groups.push(group);
+    }
+    for (const orphan of sortRowList(orphans)) {
+      groups.push([{ row: orphan, isChild: false }]);
+    }
+    return groups;
+  }
+
   function renderHeader() {
     const cols = [...visibleColumns];
     thead.innerHTML = `<tr>${cols.map(col => {
       if (col === 'links') return `<th class="col-links"><span class="col-label">Links</span></th>`;
       const label = COLUMN_LABELS[col] ?? col;
-      const sortable = SORTABLE_COLS.has(col) ? ' class="sortable"' : '';
+      const sortable = SORTABLE_COLS.has(col) ? ' sortable' : '';
       const arrow = sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
-      return `<th${sortable} data-col="${col}"><span class="col-label">${label}${arrow}</span></th>`;
+      return `<th class="col-head${sortable}" data-col="${col}">` +
+        `<span class="col-label">${label}${arrow}</span>` +
+        `<input class="col-filter" type="text" data-col="${col}" placeholder="filter…" value="${escHtml(filters[col] ?? '')}" />` +
+        `</th>`;
     }).join('')}</tr>`;
 
     thead.querySelectorAll('th.sortable').forEach(th => {
-      th.addEventListener('click', (e) => {
-        if (!e.target.closest('.col-label')) return;
+      th.querySelector('.col-label').addEventListener('click', () => {
         const col = th.dataset.col;
         if (sortCol === col) {
           sortDir = sortDir === 'asc' ? 'desc' : 'asc';
@@ -249,9 +307,29 @@ function _buildTable(container, settingsBtn, allRows) {
         refresh();
       });
     });
+
+    let debounce = null;
+    thead.querySelectorAll('.col-filter').forEach(input => {
+      input.addEventListener('input', () => {
+        filters[input.dataset.col] = input.value.trim();
+        clearTimeout(debounce);
+        debounce = setTimeout(() => { page = 0; refresh(); }, 200);
+      });
+    });
   }
 
-  function renderRow(row) {
+  function updateSortArrows() {
+    thead.querySelectorAll('th[data-col]').forEach(th => {
+      const col = th.dataset.col;
+      const labelEl = th.querySelector('.col-label');
+      if (!labelEl) return;
+      const base = COLUMN_LABELS[col] ?? col;
+      const arrow = sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+      labelEl.textContent = base + arrow;
+    });
+  }
+
+  function renderRow(row, isChild = false) {
     const s3Href = buildS3ConsoleUrl(row.location ?? null);
     const qcHref = buildQcLink(row.name ?? null);
     const metaHref = buildMetadataLink(row.name ?? null);
@@ -264,7 +342,7 @@ function _buildTable(container, settingsBtn, allRows) {
         ? `<span data-bytes="${sizeBytes}">${escHtml(formatBytes(sizeBytes))}</span>`
         : '<span class="no-link">—</span>',
       name: row.name
-        ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name)}">${escHtml(row.name)}</a>`
+        ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name)}">${isChild ? '↳ ' : ''}${escHtml(row.name)}</a>`
         : '',
       subject_id: `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
       acquisition_start_time: formatDatetime(row.acquisition_start_time ?? null),
@@ -289,22 +367,39 @@ function _buildTable(container, settingsBtn, allRows) {
       }
       return `<td>${cellValues[col] ?? ''}</td>`;
     });
-    return `<tr>${cells.join('')}</tr>`;
+    const trClass = isChild ? ' class="asset-derived-row"' : '';
+    return `<tr${trClass}>${cells.join('')}</tr>`;
   }
 
   function refresh() {
     const filtered = getFilteredRows();
-    const sorted = getSortedRows(filtered);
-    const total = sorted.length;
-    const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
-    if (page >= totalPages) page = totalPages - 1;
+    const groups = buildGroupedRows(filtered);
+    const total = filtered.length;
 
-    const pageRows = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+    // Paginate over whole groups so a raw + its derived children are never
+    // split across a page boundary. Each page holds up to ~PAGE_SIZE rows,
+    // but always keeps a group intact.
+    const pages = [];
+    let current = [];
+    for (const group of groups) {
+      if (current.length > 0 && current.length + group.length > PAGE_SIZE) {
+        pages.push(current);
+        current = [];
+      }
+      current.push(...group);
+    }
+    if (current.length > 0) pages.push(current);
+
+    const totalPages = pages.length || 1;
+    if (page >= totalPages) page = totalPages - 1;
+    if (page < 0) page = 0;
+
+    const pageItems = pages[page] ?? [];
 
     countEl.textContent = `${total.toLocaleString()} assets`;
 
-    renderHeader();
-    tbody.innerHTML = pageRows.map(renderRow).join('');
+    updateSortArrows();
+    tbody.innerHTML = pageItems.map(({ row, isChild }) => renderRow(row, isChild)).join('');
 
     pagingBar.innerHTML = '';
     if (totalPages > 1) {
@@ -326,12 +421,6 @@ function _buildTable(container, settingsBtn, allRows) {
       pagingBar.appendChild(next);
     }
   }
-
-  searchInput.addEventListener('input', () => {
-    searchText = searchInput.value.trim();
-    page = 0;
-    refresh();
-  });
 
   let settingsOpen = false;
 
@@ -388,6 +477,7 @@ function _buildTable(container, settingsBtn, allRows) {
         visibleColumns = [...selected, 'links'];
         writeCookie(selected);
         page = 0;
+        renderHeader();
         refresh();
       }
       close();
@@ -397,5 +487,6 @@ function _buildTable(container, settingsBtn, allRows) {
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
   });
 
+  renderHeader();
   refresh();
 }

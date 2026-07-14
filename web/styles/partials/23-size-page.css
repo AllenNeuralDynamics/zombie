@@ -2,25 +2,39 @@
    Size page — storage sizes table
    ============================================================ */
 
-.size-search-bar {
-  margin-bottom: 0.75rem;
+/* Gray out derived rows so raw→derived grouping reads clearly */
+.assets-table .asset-derived-row {
+  opacity: 0.72;
+  background: var(--surface-bg, #f8f8f8);
 }
 
-.size-search-input {
+/* Per-column filter inputs live under each header label */
+.assets-table th.col-head {
+  vertical-align: top;
+}
+
+.assets-table th.col-head .col-filter {
+  display: block;
   width: 100%;
-  max-width: 480px;
-  padding: 0.45rem 0.75rem;
-  font-size: 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
+  margin-top: 0.35rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.8rem;
+  font-weight: normal;
+  border: 1px solid var(--surface-border);
+  border-radius: 3px;
+  background: var(--surface-bg);
+  color: inherit;
+  box-sizing: border-box;
 }
 
-.size-search-input:focus {
+.assets-table th.col-head .col-filter:focus {
   outline: none;
   border-color: var(--accent, #3b82f6);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #3b82f6) 25%, transparent);
+}
+
+.assets-table th.sortable .col-label {
+  cursor: pointer;
+  user-select: none;
 }
 
 /* Settings modal */
