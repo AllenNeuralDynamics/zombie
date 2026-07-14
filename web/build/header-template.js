@@ -32,6 +32,7 @@ const DASHBOARDS = [
   ['/quality_control', 'Quality Control'],
   ['/contributions', 'Contributions'],
   ['/analysis-framework', 'Analysis Framework'],
+  ['/size', 'Storage Sizes'],
 ];
 
 /**
@@ -60,6 +61,7 @@ export const PAGES = {
   'record.html':           { sub: 'metadata record',           active: null },
   'star.html':             { sub: 'STAR methods',               active: null },
   'v2.html':               { sub: 'v2 acquisition heatmap',     active: null },
+  'size.html':             { sub: 'storage sizes',               active: '/size' },
 };
 
 function navLink(href, label, active, indent) {

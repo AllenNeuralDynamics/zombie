@@ -112,6 +112,7 @@ export default defineConfig({
         migrate_submit: resolve(__dirname, 'migrate/submit.html'),
         migrate_review: resolve(__dirname, 'migrate/review.html'),
         v2: resolve(__dirname, 'v2.html'),
+        size: resolve(__dirname, 'size.html'),
       },
     },
   },
