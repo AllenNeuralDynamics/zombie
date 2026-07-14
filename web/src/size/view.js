@@ -32,6 +32,7 @@ const ALL_COLUMNS = [
   'size_bytes',
   'subject_id',
   'acquisition_start_time',
+  'process_date',
   'project_name',
   'modalities',
   'data_level',
@@ -50,6 +51,7 @@ const DEFAULT_COLUMNS = [
   'size_bytes',
   'subject_id',
   'acquisition_start_time',
+  'process_date',
   'project_name',
   'modalities',
   'data_level',
@@ -60,6 +62,7 @@ const COLUMN_LABELS = {
   size_bytes: 'Size',
   subject_id: 'Subject',
   acquisition_start_time: 'Acquired (UTC)',
+  process_date: 'Processed',
   project_name: 'Project',
   modalities: 'Modalities',
   data_level: 'Level',
@@ -134,6 +137,7 @@ async function _loadData(coord) {
       ab.instrument_id,
       ab.location,
       ab.code_ocean,
+      ab.process_date,
       sl.size_in_bytes AS size_bytes,
       sl.number_of_files AS num_files,
       sl.storage_class,
@@ -208,7 +212,7 @@ function _buildProjectChart(allRows) {
         x: 'project',
         y: 'bytes',
         sort: { x: 'y', reverse: true },
-        fill: 'var(--color-accent, #2196F3)',
+        fill: 'var(--color-accent, #000000)',
         title: (d) => `${d.project}\n${formatBytes(d.bytes)}`,
       }),
       Plot.ruleY([0]),
@@ -232,6 +236,23 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
   const filters = Object.fromEntries(ALL_COLUMNS.map(c => [c, '']));
   let page = 0;
   const PAGE_SIZE = 100;
+
+  // Seed filters from the URL so shared links reproduce the filtered view.
+  const urlParams = new URLSearchParams(window.location.search);
+  for (const col of ALL_COLUMNS) {
+    const v = urlParams.get(`f_${col}`);
+    if (v) filters[col] = v;
+  }
+
+  function writeFiltersToUrl() {
+    const params = new URLSearchParams(window.location.search);
+    for (const col of ALL_COLUMNS) {
+      if (filters[col]) params.set(`f_${col}`, filters[col]);
+      else params.delete(`f_${col}`);
+    }
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+  }
 
   // Precomputed lowercased string per column (aligned to allRows index) so
   // per-column filtering doesn't rebuild strings on every keystroke.
@@ -381,7 +402,7 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
       input.addEventListener('input', () => {
         filters[input.dataset.col] = input.value.trim();
         clearTimeout(debounce);
-        debounce = setTimeout(() => { page = 0; refresh(); }, 200);
+        debounce = setTimeout(() => { page = 0; writeFiltersToUrl(); refresh(); }, 200);
       });
     });
   }
@@ -414,6 +435,7 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
         : '',
       subject_id: `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
       acquisition_start_time: formatDatetime(row.acquisition_start_time ?? null),
+      process_date: formatDatetime(row.process_date ?? null),
       project_name: row.project_name
         ? `<a href="/view?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>`
         : '',
