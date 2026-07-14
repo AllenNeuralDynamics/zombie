@@ -190,7 +190,7 @@ function _buildProjectChart(allRows) {
     return wrapper;
   }
 
-  const marginBottom = 220;
+  const marginBottom = 250;
   const width = container_width(wrapper);
   const chart = Plot.plot({
     width,
