@@ -55,7 +55,7 @@ const DEFAULT_COLUMNS = [
   'project_name',
   'modalities',
   'data_level',
-  'acquisition_type',
+  'location',
 ];
 
 const COLUMN_LABELS = {
@@ -135,7 +135,7 @@ async function _loadData(coord) {
       ab.age,
       ab.experimenters,
       ab.instrument_id,
-      ab.location,
+      COALESCE(ab.location, 's3://' || sl.bucket || '/' || sl.prefix) AS location,
       ab.code_ocean,
       ab.process_date,
       sl.size_in_bytes AS size_bytes,
@@ -143,7 +143,7 @@ async function _loadData(coord) {
       sl.storage_class,
       sd.source_data
     FROM asset_basics ab
-    LEFT JOIN storage_lens sl
+    FULL OUTER JOIN storage_lens sl
       ON ab.location = 's3://' || sl.bucket || '/' || sl.prefix
     LEFT JOIN source_data sd
       ON sd.name = ab.name AND sd.source_data IS NOT NULL AND sd.source_data != ''
