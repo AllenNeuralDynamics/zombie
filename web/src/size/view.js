@@ -3,6 +3,7 @@ import { queryRows } from '../lib/arrow.js';
 import { getResolvedBaseUrl } from '../lib/metadata.js';
 import { ensureTable } from '../lib/registry.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
+import * as Plot from '@observablehq/plot';
 
 const STORAGE_LENS_URL = () => {
   const base = getResolvedBaseUrl();
@@ -77,7 +78,7 @@ const SORTABLE_COLS = new Set(ALL_COLUMNS);
 
 export function createSizeView(coord) {
   const container = document.createElement('div');
-  container.className = 'assets-view';
+  container.className = 'assets-view size-view';
 
   const header = document.createElement('div');
   header.className = 'assets-header';
@@ -157,7 +158,74 @@ async function _loadData(coord) {
   return { rows: cleanRows, sourceMap };
 }
 
+function _buildProjectChart(allRows) {
+  const totals = new Map();
+  for (const row of allRows) {
+    if (row.size_bytes == null) continue;
+    const project = row.project_name || '(no project)';
+    totals.set(project, (totals.get(project) ?? 0) + Number(row.size_bytes));
+  }
+
+  const data = [...totals.entries()]
+    .map(([project, bytes]) => ({ project, bytes }))
+    .sort((a, b) => b.bytes - a.bytes);
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'size-chart';
+
+  const heading = document.createElement('h3');
+  heading.className = 'size-chart-title';
+  heading.textContent = 'Data usage by project';
+  wrapper.appendChild(heading);
+
+  if (data.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'loading-message';
+    empty.textContent = 'No storage data available.';
+    wrapper.appendChild(empty);
+    return wrapper;
+  }
+
+  const marginBottom = 220;
+  const width = container_width(wrapper);
+  const chart = Plot.plot({
+    width,
+    height: Math.round(window.innerHeight * 0.15) + marginBottom,
+    marginLeft: 80,
+    marginBottom,
+    style: { background: 'transparent', fontFamily: 'inherit' },
+    x: {
+      label: null,
+      tickRotate: -45,
+    },
+    y: {
+      label: 'Total size (bytes)',
+      tickFormat: (d) => formatBytes(d),
+      grid: true,
+    },
+    marks: [
+      Plot.barY(data, {
+        x: 'project',
+        y: 'bytes',
+        sort: { x: 'y', reverse: true },
+        fill: 'var(--color-accent, #2196F3)',
+        title: (d) => `${d.project}\n${formatBytes(d.bytes)}`,
+      }),
+      Plot.ruleY([0]),
+    ],
+  });
+  wrapper.appendChild(chart);
+  return wrapper;
+}
+
+function container_width(el) {
+  const w = el.getBoundingClientRect().width;
+  return w > 0 ? w : (document.getElementById('app')?.getBoundingClientRect().width || 900);
+}
+
 function _buildTable(container, settingsBtn, allRows, sourceMap) {
+  container.appendChild(_buildProjectChart(allRows));
+
   let sortCol = 'size_bytes';
   let sortDir = 'desc';
   let visibleColumns = [...DEFAULT_COLUMNS, 'links'];

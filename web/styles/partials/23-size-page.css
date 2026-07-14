@@ -2,10 +2,37 @@
    Size page — storage sizes table
    ============================================================ */
 
-/* Gray out derived rows so raw→derived grouping reads clearly */
-.assets-table .asset-derived-row {
-  opacity: 0.72;
-  background: var(--surface-bg, #f8f8f8);
+.size-chart {
+  margin-bottom: 1.25rem;
+}
+
+.size-chart-title {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.size-chart svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Remove zebra striping on this page — it conflicts visually with the
+   grayed-out derived rows. */
+.size-view .assets-table tbody tr:nth-child(even) {
+  background: transparent;
+}
+
+/* Gray out derived rows so raw→derived grouping reads clearly.
+   Selectors include :nth-child(even) to override the zebra striping in
+   03-assets-view.css, which would otherwise win on specificity. */
+.assets-table tbody tr.asset-derived-row,
+.assets-table tbody tr.asset-derived-row:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-card) 55%, transparent);
+  color: var(--color-muted, #666);
+}
+
+.assets-table tbody tr.asset-derived-row a {
+  color: var(--color-muted, #666);
 }
 
 /* Per-column filter inputs live under each header label */
