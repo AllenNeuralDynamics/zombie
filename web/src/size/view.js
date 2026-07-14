@@ -227,15 +227,199 @@ function container_width(el) {
   return w > 0 ? w : (document.getElementById('app')?.getBoundingClientRect().width || 900);
 }
 
-function _buildTable(container, settingsBtn, allRows, sourceMap) {
-  container.appendChild(_buildProjectChart(allRows));
+const UNKNOWN_PROJECTS = new Set(['', '(no project)', 'unknown']);
 
+function isUnknownProject(row) {
+  const p = (row.project_name ?? '').toString().trim().toLowerCase();
+  return UNKNOWN_PROJECTS.has(p);
+}
+
+function _readSimpleCookie(name) {
+  const m = ('; ' + document.cookie).split(`; ${name}=`);
+  if (m.length < 2) return null;
+  return decodeURIComponent(m.pop().split(';')[0]);
+}
+
+function _writeSimpleCookie(name, value) {
+  const exp = new Date(Date.now() + 365 * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${exp}; path=/; SameSite=Lax`;
+}
+
+function _procDateValue(v) {
+  if (v == null) return null;
+  const t = new Date(v).getTime();
+  return isNaN(t) ? null : t;
+}
+
+function _findReprocessedAssets(rows) {
+  const derived = rows.filter(r => (r.data_level ?? '').toString().toLowerCase() === 'derived');
+  const groups = new Map();
+  for (const row of derived) {
+    const mods = Array.isArray(row.modalities) ? [...row.modalities].sort().join(',') : String(row.modalities ?? '');
+    const key = `${row.subject_id ?? ''}|${mods}|${row.acquisition_start_time ?? ''}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+
+  const superseded = [];
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const dated = group.map(r => ({ row: r, t: _procDateValue(r.process_date) }));
+    const times = dated.map(d => d.t).filter(t => t != null);
+    if (times.length < 2) continue;
+    const distinct = new Set(times);
+    if (distinct.size < 2) continue;
+    const latest = Math.max(...times);
+    for (const d of dated) {
+      if (d.t != null && d.t < latest) {
+        superseded.push({ ...d.row, _latest_process: latest });
+      }
+    }
+  }
+  superseded.sort((a, b) => {
+    const av = a.size_bytes != null ? Number(a.size_bytes) : -1;
+    const bv = b.size_bytes != null ? Number(b.size_bytes) : -1;
+    return bv - av;
+  });
+  return superseded;
+}
+
+function _buildReprocessingSection(getRows) {
+  let collapsed = true;
+
+  const section = document.createElement('div');
+  section.className = 'platform-overview size-reprocess';
+
+  const toggle = document.createElement('button');
+  toggle.className = 'platform-qc-toggle';
+  toggle.setAttribute('aria-expanded', 'false');
+
+  const arrow = document.createElement('span');
+  arrow.className = 'platform-qc-toggle-arrow';
+  arrow.textContent = '▶';
+  toggle.appendChild(arrow);
+  toggle.appendChild(document.createTextNode(' Reprocessed (superseded) derived assets'));
+  section.appendChild(toggle);
+
+  const body = document.createElement('div');
+  body.className = 'platform-overview-body';
+  body.hidden = true;
+  section.appendChild(body);
+
+  let page = 0;
+  const PAGE_SIZE = 50;
+
+  function renderTable(rows) {
+    body.innerHTML = '';
+
+    const info = document.createElement('div');
+    info.className = 'assets-count';
+    info.textContent = `${rows.length.toLocaleString()} superseded derived asset(s)`;
+    body.appendChild(info);
+
+    if (rows.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'loading-message';
+      empty.textContent = 'No reprocessed assets found in the current view.';
+      body.appendChild(empty);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'assets-table';
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr>' +
+      '<th>Size</th><th>Subject</th><th>Modalities</th>' +
+      '<th>Processed</th><th>Latest processed</th><th>Asset Name</th><th class="col-links">Links</th></tr>';
+    const tbody = document.createElement('tbody');
+    table.appendChild(thead);
+    table.appendChild(tbody);
+    body.appendChild(table);
+
+    const paging = document.createElement('div');
+    paging.className = 'assets-paging';
+    body.appendChild(paging);
+
+    function draw() {
+      const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      if (page >= totalPages) page = totalPages - 1;
+      if (page < 0) page = 0;
+      const slice = rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+      tbody.innerHTML = slice.map(row => {
+        const s3Href = buildS3ConsoleUrl(row.location ?? null);
+        const qcHref = buildQcLink(row.name ?? null);
+        const metaHref = buildMetadataLink(row.name ?? null);
+        const coHref = buildCoLink(row.code_ocean ?? null);
+        const sizeBytes = row.size_bytes != null ? Number(row.size_bytes) : null;
+        const mods = Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? '');
+        return '<tr>' +
+          `<td>${sizeBytes != null ? `<span data-bytes="${sizeBytes}">${escHtml(formatBytes(sizeBytes))}</span>` : '<span class="no-link">—</span>'}</td>` +
+          `<td><a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a></td>` +
+          `<td>${escHtml(mods)}</td>` +
+          `<td>${formatDatetime(row.process_date ?? null)}</td>` +
+          `<td>${formatDatetime(row._latest_process ?? null)}</td>` +
+          `<td><a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name ?? '')}">${escHtml(row.name ?? '')}</a></td>` +
+          `<td class="link-cell">${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}</td>` +
+          '</tr>';
+      }).join('');
+
+      paging.innerHTML = '';
+      if (totalPages > 1) {
+        const prev = document.createElement('button');
+        prev.textContent = '← Prev';
+        prev.disabled = page === 0;
+        prev.addEventListener('click', () => { page--; draw(); });
+        const label = document.createElement('span');
+        label.textContent = ` Page ${page + 1} of ${totalPages} `;
+        const next = document.createElement('button');
+        next.textContent = 'Next →';
+        next.disabled = page === totalPages - 1;
+        next.addEventListener('click', () => { page++; draw(); });
+        paging.appendChild(prev);
+        paging.appendChild(label);
+        paging.appendChild(next);
+      }
+    }
+    draw();
+  }
+
+  function build() {
+    body.innerHTML = '<p class="loading-message">Scanning for reprocessed assets…</p>';
+    page = 0;
+    const rows = _findReprocessedAssets(getRows());
+    renderTable(rows);
+  }
+
+  toggle.addEventListener('click', () => {
+    collapsed = !collapsed;
+    body.hidden = collapsed;
+    arrow.textContent = collapsed ? '▶' : '▼';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    if (!collapsed) build();
+  });
+
+  return section;
+}
+
+function _buildTable(container, settingsBtn, allRows, sourceMap) {
   let sortCol = 'size_bytes';
   let sortDir = 'desc';
   let visibleColumns = [...DEFAULT_COLUMNS, 'links'];
   const filters = Object.fromEntries(ALL_COLUMNS.map(c => [c, '']));
   let page = 0;
   const PAGE_SIZE = 100;
+
+  const HIDE_UNKNOWN_COOKIE = 'size_hide_unknown_projects';
+  let hideUnknownProjects = _readSimpleCookie(HIDE_UNKNOWN_COOKIE) === '1';
+
+  let currentChartEl = _buildProjectChart(hideUnknownProjects ? allRows.filter(r => !isUnknownProject(r)) : allRows);
+  container.appendChild(currentChartEl);
+
+  function rebuildChart() {
+    const next = _buildProjectChart(hideUnknownProjects ? allRows.filter(r => !isUnknownProject(r)) : allRows);
+    currentChartEl.replaceWith(next);
+    currentChartEl = next;
+  }
 
   // Seed filters from the URL so shared links reproduce the filtered view.
   const urlParams = new URLSearchParams(window.location.search);
@@ -290,6 +474,9 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
   const savedCols = readCookie();
   if (savedCols) visibleColumns = [...savedCols, 'links'];
 
+  const reprocessSection = _buildReprocessingSection(() => getFilteredRows());
+  container.appendChild(reprocessSection);
+
   const countEl = document.createElement('div');
   countEl.className = 'assets-count';
   container.appendChild(countEl);
@@ -308,9 +495,11 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
 
   function getFilteredRows() {
     const active = Object.entries(filters).filter(([, v]) => v);
-    if (active.length === 0) return allRows;
     const caches = active.map(([col, v]) => [getColStrings(col), v.toLowerCase()]);
-    return allRows.filter((_row, i) => caches.every(([arr, q]) => arr[i].includes(q)));
+    return allRows.filter((row, i) => {
+      if (hideUnknownProjects && isUnknownProject(row)) return false;
+      return caches.every(([arr, q]) => arr[i].includes(q));
+    });
   }
 
   function sortRowList(rows) {
@@ -540,6 +729,18 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
     }
     modal.appendChild(list);
 
+    const optHeading = document.createElement('h3');
+    optHeading.textContent = 'Options';
+    modal.appendChild(optHeading);
+
+    const optList = document.createElement('div');
+    optList.className = 'settings-col-list';
+    const hideItem = document.createElement('label');
+    hideItem.className = 'settings-col-item';
+    hideItem.innerHTML = `<input type="checkbox" class="opt-hide-unknown" ${hideUnknownProjects ? 'checked' : ''} /> Hide "(no project)" / "unknown" projects`;
+    optList.appendChild(hideItem);
+    modal.appendChild(optList);
+
     const btnRow = document.createElement('div');
     btnRow.className = 'settings-btn-row';
 
@@ -563,13 +764,19 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
 
     applyBtn.addEventListener('click', () => {
       const selected = [...list.querySelectorAll('input[type=checkbox]:checked')].map(el => el.value);
+      const nextHideUnknown = modal.querySelector('.opt-hide-unknown').checked;
+      if (nextHideUnknown !== hideUnknownProjects) {
+        hideUnknownProjects = nextHideUnknown;
+        _writeSimpleCookie(HIDE_UNKNOWN_COOKIE, hideUnknownProjects ? '1' : '0');
+        rebuildChart();
+      }
       if (selected.length > 0) {
         visibleColumns = [...selected, 'links'];
         writeCookie(selected);
-        page = 0;
         renderHeader();
-        refresh();
       }
+      page = 0;
+      refresh();
       close();
     });
 
