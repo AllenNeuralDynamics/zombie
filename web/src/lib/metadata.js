@@ -244,6 +244,12 @@ function compareSemver(a, b) {
  * @returns {Promise<{registryUrl: string, baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
+  // TEMPORARY: pinned to bdc-v0.37 — remove this block to restore dynamic resolution
+  const PINNED_VERSION = 'bdc-v0.37';
+  const baseUrl = `${DATA_CACHE_PREFIX}/${PINNED_VERSION}`;
+  const registryUrl = `${baseUrl}/cache_registry.json`;
+  return { registryUrl, baseUrl };
+
   const resp = await fetch(versionsUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch versions index: ${resp.status} ${resp.statusText}`);
