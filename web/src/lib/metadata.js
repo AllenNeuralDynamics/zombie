@@ -265,9 +265,9 @@ async function resolveLatestVersion(versionsUrl) {
   });
   parsed.sort((a, b) => compareSemver(a.bare, b.bare));
   const latest = parsed[parsed.length - 1];
-  const baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
-  const registryUrl = `${baseUrl}/cache_registry.json`;
-  return { registryUrl, baseUrl };
+  const _baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
+  const _registryUrl = `${_baseUrl}/cache_registry.json`;
+  return { registryUrl: _registryUrl, baseUrl: _baseUrl };
 }
 
 // ---------------------------------------------------------------------------
