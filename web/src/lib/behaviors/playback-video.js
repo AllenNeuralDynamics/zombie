@@ -48,6 +48,26 @@ const VIDEO_FILE_CANDIDATES = [
 // Recognised video container extensions (used when parsing an S3 listing).
 const VIDEO_EXT_RE = /\.(mp4|avi|mov|mkv|webm)$/i;
 
+/**
+ * Collapse duplicate captures that differ only by container extension.
+ *
+ * Some assets originally recorded `.avi` (etc.) files that were later
+ * transcoded to `.mp4` alongside the original. When the same base filename
+ * exists in more than one format we only want the `.mp4`; non-mp4 files are
+ * kept only when their filename is unique (no `.mp4` counterpart).
+ */
+function _preferMp4(videoKeys) {
+  const mp4Stems = new Set(
+    videoKeys
+      .filter((k) => /\.mp4$/i.test(k))
+      .map((k) => k.replace(VIDEO_EXT_RE, '')),
+  );
+  return videoKeys.filter((k) => {
+    if (/\.mp4$/i.test(k)) return true;
+    return !mp4Stems.has(k.replace(VIDEO_EXT_RE, ''));
+  });
+}
+
 // Only hard-seek a <video> when we drift more than this (avoids constant
 // interruption from tiny float imprecision while playing).
 const VIDEO_SEEK_THRESHOLD_S = 0.5;
@@ -116,7 +136,7 @@ async function _listCameraVideos(rawBase, signal) {
   }
 
   const keys = [...xml.matchAll(/<Key>([^<]+)<\/Key>/g)].map((m) => m[1]);
-  const videoKeys = keys.filter((k) => VIDEO_EXT_RE.test(k));
+  const videoKeys = _preferMp4(keys.filter((k) => VIDEO_EXT_RE.test(k)));
   if (!videoKeys.length) return [];
 
   const byCamera = new Map();
