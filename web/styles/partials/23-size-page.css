@@ -4,6 +4,17 @@
 
 .size-chart {
   margin-bottom: 1.25rem;
+  --size-bar-fill: #000000;
+}
+
+[data-theme="dark"] .size-chart {
+  --size-bar-fill: #ffffff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .size-chart {
+    --size-bar-fill: #ffffff;
+  }
 }
 
 .size-chart-title {
