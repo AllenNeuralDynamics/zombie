@@ -27,6 +27,55 @@
   height: auto;
 }
 
+/* Collapsible dropdown sections sit side by side and greedily share width */
+.size-sections-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.size-sections-row > .platform-overview {
+  flex: 0 0 auto;
+}
+
+.size-sections-row > .platform-overview.is-open {
+  flex: 1 1 0;
+  min-width: 320px;
+}
+
+/* Project × bucket pivot table */
+.size-pivot-wrap {
+  overflow-x: auto;
+}
+
+.size-pivot-table th.size-pivot-bucket {
+  white-space: nowrap;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.size-pivot-table .size-pivot-rowhead {
+  text-align: left;
+  font-weight: 500;
+}
+
+.size-pivot-table td,
+.size-pivot-table th.size-pivot-total {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.size-pivot-table .size-pivot-total {
+  font-weight: 600;
+}
+
+.size-pivot-table tr.size-pivot-totalrow {
+  border-top: 2px solid var(--surface-border);
+  font-weight: 600;
+}
+
 /* Remove zebra striping on this page — it conflicts visually with the
    grayed-out derived rows. */
 .size-view .assets-table tbody tr:nth-child(even) {
