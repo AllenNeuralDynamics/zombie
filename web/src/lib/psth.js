@@ -2,11 +2,11 @@ import * as Plot from '@observablehq/plot';
 
 export const PSTH_BASELINE_DEFAULT_MS = 200;
 
-export function createBaselineControls({ defaultMs = PSTH_BASELINE_DEFAULT_MS, defaultOn = true, onChange } = {}) {
+export function createBaselineControls({ label = 'Baseline', defaultMs = PSTH_BASELINE_DEFAULT_MS, defaultOn = true, onChange } = {}) {
   const wrap = document.createElement('span');
   wrap.className = 'psth-baseline-controls';
   wrap.innerHTML =
-    `<label class="psth-baseline-toggle"><input type="checkbox" class="psth-baseline-chk"${defaultOn ? ' checked' : ''}> Baseline</label>`
+    `<label class="psth-baseline-toggle"><input type="checkbox" class="psth-baseline-chk"${defaultOn ? ' checked' : ''}> ${label}</label>`
     + `<label class="psth-baseline-ms"><input type="number" class="psth-baseline-ms-input" value="${defaultMs}" min="0" step="50"${defaultOn ? '' : ' disabled'}> ms</label>`;
   const chk = wrap.querySelector('.psth-baseline-chk');
   const ms = wrap.querySelector('.psth-baseline-ms-input');

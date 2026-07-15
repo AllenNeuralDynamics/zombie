@@ -4,6 +4,7 @@ import {
   baselineTrace,
   censorWindows,
   computePsthSeries,
+  makeGrid,
   PSTH_GRID,
   PSTH_PRE,
   PSTH_POST,
@@ -158,6 +159,21 @@ describe('computePsthSeries — event-triggered averaging', () => {
     expect(d.mean).toBeCloseTo(7, 6);
     expect(d.lo).toBeCloseTo(7, 6);
     expect(d.hi).toBeCloseTo(7, 6);
+  });
+
+  it('honours a custom PSTH range', () => {
+    const pre = -1;
+    const post = 2;
+    const rows = [
+      ...constRows({ trial: 0, ev_t: 0, value: 4, pre: pre - 0.25, post: post + 0.25 }),
+      ...constRows({ trial: 1, ev_t: 100, value: 6, pre: pre - 0.25, post: post + 0.25 }),
+    ];
+    const { allMean } = computePsthSeries(rows, 0, { pre, post });
+    const grid = makeGrid(pre, post);
+    expect(allMean).toHaveLength(grid.length);
+    expect(allMean[0].t).toBeCloseTo(pre, 6);
+    expect(allMean[allMean.length - 1].t).toBeCloseTo(post, 6);
+    for (const d of allMean) expect(d.mean).toBeCloseTo(5, 6);
   });
 
   it('applies a per-trial baseline subtraction when baselineSec > 0', () => {
