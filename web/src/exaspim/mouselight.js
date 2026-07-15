@@ -18,6 +18,8 @@
  * exported for unit tests.
  */
 
+import { ensureTable } from '../lib/registry.js';
+
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
 /**
@@ -31,15 +33,6 @@
 const ML_BASE = '/mouselight';
 const ML_GRAPHQL_URL = `${ML_BASE}/graphql`;
 const ML_TRACINGS_URL = `${ML_BASE}/tracings`;
-
-/**
- * biodata-cache parquet of the full MouseLight neuron list, queried via DuckDB
- * instead of the (slow) Janelia GraphQL search. Pinned to bdc-v0.35 for now
- * because `platform_mouselight` isn't in cache_registry.json yet — switch to
- * the resolved registry location once it lands.
- */
-const ML_CACHE_PQT_URL =
-  'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/bdc-v0.35/platform_mouselight.pqt';
 
 /** Public search scope (SearchScope.Public). */
 const ML_SCOPE = 6;
@@ -157,8 +150,9 @@ export async function fetchMouseLightNeurons(signal) {
  * @returns {Promise<Array<{id, idString, region, tracings:Array<{id, kind}>}>>}
  */
 export async function fetchMouseLightNeuronsCached(coordinator) {
+  await ensureTable(coordinator, 'platform_mouselight');
   const result = await coordinator.query(
-    `SELECT id, id_string, region, tracings FROM read_parquet('${ML_CACHE_PQT_URL}') ORDER BY id_string`,
+    `SELECT id, id_string, region, tracings FROM platform_mouselight ORDER BY id_string`,
   );
   const neurons = [];
   for (let i = 0; i < result.numRows; i++) {

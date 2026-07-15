@@ -14,7 +14,7 @@ A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. Brow
 
 ## How Data Works
 
-1. At startup, `web/src/lib/metadata.js:fetchAndRegisterMetadata()` fetches `cache_versions.json` from S3 (`allen-data-views` bucket, `data-asset-cache/` prefix), picks the latest version, then loads the corresponding `cache_registry.json`. This lists all available datasets ("acorns"/"tables") with their S3 locations and column definitions.
+1. At startup, `web/src/lib/metadata.js:fetchAndRegisterMetadata()` fetches `cache_versions.json` from S3 (`allen-data-views` bucket, `data-asset-cache/` prefix), picks the latest version, then loads the distributed registry by listing that version's `cache_registry/` folder (one `<table>.json` per dataset) and fetching each entry. This lists all available datasets ("acorns"/"tables") with their S3 locations and column definitions.
 2. Each acorn is registered as a DuckDB table via `CREATE OR REPLACE TABLE … AS SELECT … FROM read_parquet(…)`.
 3. Pages query those tables through `coordinator.query(sql)` which returns Apache Arrow results. Use `arrowTableToRows(result)` from `web/src/lib/assets-table.js` to convert to plain JS objects.
 

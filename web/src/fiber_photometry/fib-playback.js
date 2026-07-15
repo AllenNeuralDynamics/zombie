@@ -5,7 +5,7 @@
  * Appended below the platform-specific behavior player whenever an acquisition
  * has corresponding fiber photometry data in the `platform_fib_traces` table.
  *
- * Fiber trace schema (per-subject Parquet at bdc-v0.37, split into
+ * Fiber trace schema (per-subject Parquet in the resolved cache version, split into
  * data_NNNN.pqt shards under each subject_id partition):
  *   subject_id, asset_name, fiber (int), channel (G/Iso/R),
  *   timestamp (hardware-clock seconds), "dff-bright_mc-iso-IRLS" (float32)
@@ -16,9 +16,10 @@
  *   t_rel            = fiber.timestamp − event_hw_time
  */
 
-import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
+import { S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
+import { getResolvedBaseUrl, getResolvedVersion } from '../lib/metadata.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { ITEM_COLORS } from '../subject/brain-viz.js';
 import { createBaselineControls, buildPsthPlot as sharedPsthPlot } from '../lib/psth.js';
@@ -28,7 +29,6 @@ import * as Plot from '@observablehq/plot';
 // Constants
 // ---------------------------------------------------------------------------
 
-const FIB_VERSION = 'bdc-v0.37';
 export const PSTH_PRE    = -2;   // seconds before event (default)
 export const PSTH_POST   =  5;   // seconds after event (default)
 
@@ -92,7 +92,7 @@ async function fibFiles(derivedAssetName) {
   const key = String(derivedAssetName);
   if (_fibFilesCache.has(key)) return _fibFilesCache.get(key);
   const p = (async () => {
-    const prefix = `data-asset-cache/${FIB_VERSION}/platform_fib_traces/asset_name=${key}/`;
+    const prefix = `data-asset-cache/${getResolvedVersion()}/platform_fib_traces/asset_name=${key}/`;
     const listUrl =
       `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
       `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
@@ -152,11 +152,11 @@ async function resolveFibDerivedName(coord, rawAssetName) {
 }
 
 function trialsUrl(subjectId) {
-  return `${DATA_CACHE_PREFIX}/${FIB_VERSION}/platform_dynamic_foraging_trials/subject_id=${esc(subjectId)}/data.pqt`;
+  return `${getResolvedBaseUrl()}/platform_dynamic_foraging_trials/subject_id=${esc(subjectId)}/data.pqt`;
 }
 
 function fibMetaUrl() {
-  return `${DATA_CACHE_PREFIX}/${FIB_VERSION}/platform_fib.pqt`;
+  return `${getResolvedBaseUrl()}/platform_fib.pqt`;
 }
 
 // Map platform_fib channel suffix → trace-table channel code.

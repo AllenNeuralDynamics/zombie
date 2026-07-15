@@ -6,7 +6,7 @@
  * coordinator are grouped at the bottom under "# DB Operations".
  */
 
-import { S3_REGION, DATA_CACHE_PREFIX } from '../constants.js';
+import { S3_REGION, S3_BUCKET, DATA_CACHE_PREFIX } from '../constants.js';
 
 // ---------------------------------------------------------------------------
 // # Schema validation helpers
@@ -209,14 +209,27 @@ export function getAcornByName(acorns, name) {
 /** Module-level resolved base URL (set after first successful fetch). */
 let _resolvedBaseUrl = null;
 
+/** Module-level resolved version folder name (e.g. `bdc-v0.39`). */
+let _resolvedVersion = null;
+
 /**
- * Return the resolved data-cache base URL (e.g. `https://…/data-asset-cache/zs-v0.28.1`).
+ * Return the resolved data-cache base URL (e.g. `https://…/data-asset-cache/bdc-v0.39`).
  * Available only after `fetchAndRegisterMetadata` has completed successfully.
  *
  * @returns {string|null}
  */
 export function getResolvedBaseUrl() {
   return _resolvedBaseUrl;
+}
+
+/**
+ * Return the resolved version folder name (e.g. `bdc-v0.39`).
+ * Available only after `fetchAndRegisterMetadata` has completed successfully.
+ *
+ * @returns {string|null}
+ */
+export function getResolvedVersion() {
+  return _resolvedVersion;
 }
 
 /**
@@ -237,19 +250,12 @@ function compareSemver(a, b) {
 }
 
 /**
- * Fetch the versions index, pick the latest version, and return the
- * cache_registry.json URL for that version.
+ * Fetch the versions index and pick the latest version.
  *
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
- * @returns {Promise<{registryUrl: string, baseUrl: string}>}
+ * @returns {Promise<{version: string, baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
-  // TEMPORARY: pinned to bdc-v0.37 — remove this block to restore dynamic resolution
-  const PINNED_VERSION = 'bdc-v0.37';
-  const baseUrl = `${DATA_CACHE_PREFIX}/${PINNED_VERSION}`;
-  const registryUrl = `${baseUrl}/cache_registry.json`;
-  return { registryUrl, baseUrl };
-
   const resp = await fetch(versionsUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch versions index: ${resp.status} ${resp.statusText}`);
@@ -258,16 +264,69 @@ async function resolveLatestVersion(versionsUrl) {
   if (!Array.isArray(versions) || versions.length === 0) {
     throw new Error('cache_versions.json must be a non-empty array');
   }
-  // versions are folder names like "bc-v0.1.0" or bare version strings "0.1.0"
+  // versions are folder names like "bdc-v0.39" or bare version strings "0.1.0"
   const parsed = versions.map((v) => {
     const bare = String(v).replace(/^[a-z]+-v/, '');
     return { raw: v, bare };
   });
   parsed.sort((a, b) => compareSemver(a.bare, b.bare));
   const latest = parsed[parsed.length - 1];
-  const _baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
-  const _registryUrl = `${_baseUrl}/cache_registry.json`;
-  return { registryUrl: _registryUrl, baseUrl: _baseUrl };
+  const baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
+  return { version: latest.raw, baseUrl };
+}
+
+/**
+ * List the per-table registry entry keys under `<version>/cache_registry/`
+ * via an anonymous S3 ListObjectsV2 request over HTTPS.
+ *
+ * The registry is distributed: each table has its own `<table>.json` file in
+ * the `cache_registry/` folder (there is no single cache_registry.json).
+ *
+ * @param {string} version - Version folder name (e.g. `bdc-v0.39`).
+ * @returns {Promise<string[]>} Absolute HTTPS URLs of each registry entry JSON.
+ */
+async function listRegistryEntryUrls(version) {
+  const prefix = `data-asset-cache/${version}/cache_registry/`;
+  const listUrl =
+    `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
+    `?list-type=2&prefix=${encodeURIComponent(prefix)}&delimiter=/&max-keys=1000`;
+  const resp = await fetch(listUrl, { cache: 'no-cache' });
+  if (!resp.ok) {
+    throw new Error(`Failed to list registry entries: ${resp.status} ${resp.statusText}`);
+  }
+  const xml = await resp.text();
+  const re = /<Key>([^<]+\.json)<\/Key>/g;
+  const urls = [];
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    urls.push(`https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${m[1]}`);
+  }
+  return urls;
+}
+
+/**
+ * Fetch and assemble the distributed cache registry into a single
+ * `{ tables: [...] }` object by listing the `cache_registry/` folder and
+ * fetching each table's registry entry JSON.
+ *
+ * @param {string} version - Version folder name (e.g. `bdc-v0.39`).
+ * @returns {Promise<{ tables: object[] }>}
+ */
+async function fetchDistributedRegistry(version) {
+  const urls = await listRegistryEntryUrls(version);
+  if (urls.length === 0) {
+    throw new Error(`No registry entries found under ${version}/cache_registry/`);
+  }
+  const entries = await Promise.all(
+    urls.map(async (url) => {
+      const resp = await fetch(url, { cache: 'no-cache' });
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch registry entry ${url}: ${resp.status} ${resp.statusText}`);
+      }
+      return resp.json();
+    }),
+  );
+  return { tables: entries };
 }
 
 // ---------------------------------------------------------------------------
@@ -298,19 +357,16 @@ async function resolveLatestVersion(versionsUrl) {
 export async function fetchMetadata(versionsUrl, { onProgress } = {}) {
   // 1. Resolve the latest version from the versions index.
   onProgress?.({ phase: 'versions' });
-  const { registryUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
+  const { version, baseUrl } = await resolveLatestVersion(versionsUrl);
   _resolvedBaseUrl = baseUrl;
+  _resolvedVersion = version;
 
-  // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
-  // cache: 'no-cache' forces a conditional revalidation request so that a
-  // stale browser-cached copy of cache_registry.json is never used after the
-  // file on S3 is updated (e.g. after removing an acorn entry).
+  // 2. Fetch the distributed registry over plain HTTPS (not DuckDB — it's tiny).
+  // The registry is split across per-table JSON files in the cache_registry/
+  // folder; we list that folder and fetch each entry. cache: 'no-cache' forces
+  // conditional revalidation so stale browser-cached copies are never used.
   onProgress?.({ phase: 'registry' });
-  const resp = await fetch(registryUrl, { cache: 'no-cache' });
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
-  }
-  const json = await resp.json();
+  const json = await fetchDistributedRegistry(version);
   const metadata = parseCacheRegistryJson(json);
   metadata.baseUrl = baseUrl;
   return metadata;
