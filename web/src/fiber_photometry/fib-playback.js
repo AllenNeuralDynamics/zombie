@@ -29,10 +29,24 @@ import * as Plot from '@observablehq/plot';
 // ---------------------------------------------------------------------------
 
 const FIB_VERSION = 'bdc-v0.37';
-const PSTH_PRE    = -2;   // seconds before event
-const PSTH_POST   =  5;   // seconds after event
-const PSTH_BINS   = 100;
-const BIN_WIDTH   = (PSTH_POST - PSTH_PRE) / PSTH_BINS;
+export const PSTH_PRE    = -2;   // seconds before event
+export const PSTH_POST   =  5;   // seconds after event
+
+// Output sampling rate for the event-triggered response grid. Matches the FIP
+// canonical value in aind_dynamic_foraging_basic_analysis (40 Hz).
+export const PSTH_SAMPLING_RATE = 40;
+const PSTH_STEP          = 1 / PSTH_SAMPLING_RATE;
+
+// Common time grid onto which every trial's trace is interpolated.
+export const PSTH_GRID = (() => {
+  const n = Math.round((PSTH_POST - PSTH_PRE) * PSTH_SAMPLING_RATE) + 1;
+  return Array.from({ length: n }, (_, i) => PSTH_PRE + i * PSTH_STEP);
+})();
+
+// Extra window fetched on each side so interpolation has bracketing samples at
+// the grid edges (matches the aind event_triggered_response "+/- dt" slice and
+// avoids the edge subset-bias artifact).
+const PSTH_EDGE_MARGIN = 0.25;
 
 // Map display label → trials column name. Ordered by within-trial progression.
 const PSTH_EVENTS = {
@@ -430,67 +444,102 @@ async function loadPsthData(coord, fibSrc, subjectId, rawAssetName, eventCol, fi
         AND fiber  = ${Number(fiberIdx)}
     )
     SELECT e.trial, f.channel,
+           CAST(e.ev_t AS DOUBLE) AS ev_t,
            CAST(f.timestamp - e.ev_t AS FLOAT) AS t_rel,
            CAST(f.v AS FLOAT) AS v
     FROM fib f
-    JOIN events e ON f.timestamp BETWEEN e.ev_t + ${PSTH_PRE} AND e.ev_t + ${PSTH_POST}
+    JOIN events e ON f.timestamp BETWEEN e.ev_t + ${PSTH_PRE} - ${PSTH_EDGE_MARGIN} AND e.ev_t + ${PSTH_POST} + ${PSTH_EDGE_MARGIN}
     ORDER BY f.channel, e.trial, t_rel
   `;
   return queryRows(coord, sql);
 }
 
-/** Bin raw PSTH rows into mean ± SEM per time bin across all trials. */
-function buildMeanData(rawRows) {
-  const bins = Array.from({ length: PSTH_BINS }, () => ({ vals: [] }));
-  for (const row of rawRows) {
-    const i = Math.floor((row.t_rel - PSTH_PRE) / BIN_WIDTH);
-    if (i >= 0 && i < PSTH_BINS) bins[i].vals.push(row.v);
+export function interpTrace(samples, censorLo, censorHi) {
+  const out = new Array(PSTH_GRID.length).fill(NaN);
+  if (samples.length < 2) return out;
+  const minT = samples[0].t;
+  const maxT = samples[samples.length - 1].t;
+  let j = 0;
+  for (let i = 0; i < PSTH_GRID.length; i++) {
+    const t = PSTH_GRID[i];
+    if (t < minT || t > maxT || t < censorLo || t > censorHi) continue;
+    while (j < samples.length - 1 && samples[j + 1].t < t) j++;
+    const a = samples[j];
+    const b = samples[j + 1] ?? a;
+    if (b.t === a.t) { out[i] = a.v; continue; }
+    const frac = (t - a.t) / (b.t - a.t);
+    out[i] = a.v + frac * (b.v - a.v);
   }
-  return bins.map((b, i) => {
-    if (!b.vals.length) return null;
-    const t    = PSTH_PRE + (i + 0.5) * BIN_WIDTH;
-    const mean = b.vals.reduce((s, v) => s + v, 0) / b.vals.length;
-    const variance = b.vals.reduce((s, v) => s + (v - mean) ** 2, 0) / b.vals.length;
-    const sem  = Math.sqrt(variance / b.vals.length);
-    return { t, mean, lo: mean - sem, hi: mean + sem };
-  }).filter(Boolean);
+  return out;
 }
 
-/**
- * Subtract a per-trial, per-channel baseline (mean ΔF/F over the pre-event
- * window [-baselineSec, 0)) from each sample.  Returns the rows unchanged when
- * baselineSec is not a positive number.
- */
-function applyBaseline(rawRows, baselineSec) {
-  if (!(baselineSec > 0)) return rawRows;
-  const base = new Map(); // "trial|channel" → { sum, n }
-  for (const r of rawRows) {
-    if (r.t_rel >= -baselineSec && r.t_rel < 0) {
-      const k = `${r.trial}|${r.channel}`;
-      const e = base.get(k) ?? { sum: 0, n: 0 };
-      e.sum += r.v; e.n += 1;
-      base.set(k, e);
+export function baselineTrace(trace, baselineSec) {
+  if (!(baselineSec > 0)) return trace;
+  let sum = 0, n = 0;
+  for (let i = 0; i < PSTH_GRID.length; i++) {
+    const t = PSTH_GRID[i];
+    if (t >= -baselineSec && t < 0 && Number.isFinite(trace[i])) { sum += trace[i]; n += 1; }
+  }
+  const b = n ? sum / n : 0;
+  return trace.map((v) => (Number.isFinite(v) ? v - b : v));
+}
+
+export function censorWindows(rawRows) {
+  const evByTrial = new Map();
+  for (const r of rawRows) if (!evByTrial.has(r.trial)) evByTrial.set(r.trial, r.ev_t);
+  const trials = [...evByTrial.entries()]
+    .map(([trial, ev]) => ({ trial, ev }))
+    .sort((a, b) => a.ev - b.ev);
+  const win = new Map();
+  for (let i = 0; i < trials.length; i++) {
+    const prevGap = i > 0 ? trials[i].ev - trials[i - 1].ev : Infinity;
+    const nextGap = i < trials.length - 1 ? trials[i + 1].ev - trials[i].ev : Infinity;
+    win.set(trials[i].trial, {
+      lo: -Math.min(Math.abs(PSTH_PRE), prevGap),
+      hi: Math.min(PSTH_POST, nextGap),
+    });
+  }
+  return win;
+}
+
+export function computePsthSeries(rawRows, baselineSec = 0) {
+  const cwin = censorWindows(rawRows);
+  const channels = CHANNEL_ORDER.filter((c) => rawRows.some((r) => r.channel === c));
+  const allMean = [];
+
+  for (const ch of channels) {
+    const byTrial = new Map();
+    for (const r of rawRows) {
+      if (r.channel !== ch) continue;
+      if (!byTrial.has(r.trial)) byTrial.set(r.trial, []);
+      byTrial.get(r.trial).push(r);
+    }
+
+    const traces = [];
+    for (const [trial, samples] of byTrial) {
+      samples.sort((a, b) => a.t_rel - b.t_rel);
+      const pts = samples.map((s) => ({ t: s.t_rel, v: s.v }));
+      const w = cwin.get(trial) ?? { lo: PSTH_PRE, hi: PSTH_POST };
+      traces.push(baselineTrace(interpTrace(pts, w.lo, w.hi), baselineSec));
+    }
+
+    for (let i = 0; i < PSTH_GRID.length; i++) {
+      const vals = [];
+      for (const tr of traces) {
+        const v = tr[i];
+        if (Number.isFinite(v)) vals.push(v);
+      }
+      if (!vals.length) continue;
+      const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+      let sem = 0;
+      if (vals.length > 1) {
+        const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+        sem = Math.sqrt(variance / vals.length);
+      }
+      allMean.push({ t: PSTH_GRID[i], mean, lo: mean - sem, hi: mean + sem, channel: ch });
     }
   }
-  return rawRows.map((r) => {
-    const e = base.get(`${r.trial}|${r.channel}`);
-    const b = e && e.n ? e.sum / e.n : 0;
-    return { ...r, v: r.v - b };
-  });
-}
 
-/**
- * Compute the binned mean±SEM series (one entry per channel/time-bin) for a
- * fiber, optionally baseline-corrected.  Returns { allMean, channels }.
- */
-function computePsthSeries(rawRows, baselineSec = 0) {
-  const rows = applyBaseline(rawRows, baselineSec);
-  const channels = CHANNEL_ORDER.filter((c) => rows.some((r) => r.channel === c));
-  const allMean = [];
-  for (const ch of channels) {
-    const md = buildMeanData(rows.filter((r) => r.channel === ch));
-    for (const d of md) allMean.push({ ...d, channel: ch });
-  }
   return { allMean, channels };
 }
 
@@ -508,7 +557,7 @@ function psthYDomain(seriesList) {
   return [lo, hi];
 }
 
-function buildPsthPlot({ allMean, channels }, yDomain, width = 320) {
+function buildPsthPlot({ allMean, channels }, yDomain, width = 320, baselineSec = 0) {
   return sharedPsthPlot(allMean, {
     pre: PSTH_PRE,
     post: PSTH_POST,
@@ -525,6 +574,7 @@ function buildPsthPlot({ allMean, channels }, yDomain, width = 320) {
     colorRange: channels.map((c) => CHANNEL_COLORS[c] ?? '#888'),
     strokeWidth: 2,
     fillOpacity: 0.15,
+    baselineSec,
   });
 }
 
@@ -535,7 +585,7 @@ function buildPsthPlot({ allMean, channels }, yDomain, width = 320) {
  * border matches the implant colour in the 3D view.  The plot uses the shared
  * `yDomain` so all fibers are on an identical scale.
  */
-function buildPsthCard(series, meta, borderColor, area, yDomain, width) {
+function buildPsthCard(series, meta, borderColor, area, yDomain, width, baselineSec = 0) {
   const card = document.createElement('div');
   card.className = 'fib-psth-card';
   card.style.borderColor = borderColor;
@@ -562,7 +612,7 @@ function buildPsthCard(series, meta, borderColor, area, yDomain, width) {
   header.appendChild(measEl);
   card.appendChild(header);
 
-  card.appendChild(buildPsthPlot(series, yDomain, width));
+  card.appendChild(buildPsthPlot(series, yDomain, width, baselineSec));
   return card;
 }
 
@@ -634,7 +684,7 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
           <div class="fib-3d-inset"><p class="fib-loading">Loading\u2026</p></div>
         </div>
         <div class="fib-psth-col">
-          <h4 class="fib-section-heading">PSTH</h4>
+          <h4 class="fib-section-heading">PSTH<span class="fib-psth-preproc">Preprocessing: dff-bright_mc-iso-IRLS</span></h4>
           <div class="fib-psth-grid"><p class="fib-loading">Loading\u2026</p></div>
         </div>
       </div>
@@ -792,7 +842,7 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
       for (const c of computed) {
         const color = fiberColor(fiberInfoMap, c.f, c.order);
         psthEl.appendChild(
-          buildPsthCard(c.series, fiberMeta.get(c.f), color, areaFor(c.f), yDomain, width),
+          buildPsthCard(c.series, fiberMeta.get(c.f), color, areaFor(c.f), yDomain, width, baselineSec),
         );
       }
     }

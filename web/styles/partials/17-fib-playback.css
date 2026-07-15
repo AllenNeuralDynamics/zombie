@@ -23,6 +23,16 @@
   margin-top: 1.25rem;
 }
 
+.fib-psth-preproc {
+  margin-left: 0.6rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+}
+
 /* ---- Shared control bar (event align + baseline) ---- */
 .fib-controls {
   display: flex;

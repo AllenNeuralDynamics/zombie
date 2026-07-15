@@ -73,10 +73,16 @@ export function buildPsthPlot(series, opts = {}) {
     fillOpacity = 0.15,
     strokeWidth = 1.6,
     showEventRule = true,
+    baselineSec = 0,
   } = opts;
-
   const banded = showArea ? series.filter((d) => d.lo != null && d.hi != null) : [];
   const marks = [];
+  if (baselineSec > 0 && yDomain) {
+    marks.push(Plot.rect([{}], {
+      x1: -baselineSec, x2: 0, y1: yDomain[0], y2: yDomain[1],
+      fill: '#888', fillOpacity: 0.18,
+    }));
+  }
   if (banded.length) {
     marks.push(Plot.areaY(banded, {
       x: 't', y1: 'lo', y2: 'hi',
