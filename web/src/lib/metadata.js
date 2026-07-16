@@ -6,7 +6,7 @@
  * coordinator are grouped at the bottom under "# DB Operations".
  */
 
-import { S3_REGION, DATA_CACHE_PREFIX } from '../constants.js';
+import { S3_REGION, S3_BUCKET, DATA_CACHE_PREFIX } from '../constants.js';
 
 // ---------------------------------------------------------------------------
 // # Schema validation helpers
@@ -247,11 +247,10 @@ function compareSemver(a, b) {
 }
 
 /**
- * Fetch the versions index, pick the latest version, and return the
- * cache_registry.json URL for that version.
+ * Fetch the versions index, pick the latest version, and return its base URL.
  *
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
- * @returns {Promise<{registryUrl: string, baseUrl: string}>}
+ * @returns {Promise<{baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
   const resp = await fetch(versionsUrl, { cache: 'no-cache' });
@@ -269,9 +268,7 @@ async function resolveLatestVersion(versionsUrl) {
   });
   parsed.sort((a, b) => compareSemver(a.bare, b.bare));
   const latest = parsed[parsed.length - 1];
-  const _baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
-  const _registryUrl = `${_baseUrl}/cache_registry.json`;
-  return { registryUrl: _registryUrl, baseUrl: _baseUrl };
+  return { baseUrl: `${DATA_CACHE_PREFIX}/${latest.raw}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,23 +299,58 @@ async function resolveLatestVersion(versionsUrl) {
 export async function fetchMetadata(versionsUrl, { onProgress } = {}) {
   // 1. Resolve the latest version from the versions index.
   onProgress?.({ phase: 'versions' });
-  const { registryUrl, baseUrl } = await resolveLatestVersion(versionsUrl);
+  const { baseUrl } = await resolveLatestVersion(versionsUrl);
   _resolvedBaseUrl = baseUrl;
 
-  // 2. Fetch the metadata JSON over plain HTTPS (not DuckDB — it's tiny).
-  // cache: 'no-cache' forces a conditional revalidation request so that a
-  // stale browser-cached copy of cache_registry.json is never used after the
-  // file on S3 is updated (e.g. after removing an acorn entry).
+  // 2. Load the distributed registry: each acorn entry lives at
+  // `<version>/cache_registry/<table>.json` (there is no single registry file).
   onProgress?.({ phase: 'registry' });
-  const resp = await fetch(registryUrl, { cache: 'no-cache' });
-  if (!resp.ok) {
-    throw new Error(`Failed to fetch metadata: ${resp.status} ${resp.statusText}`);
-  }
-  const json = await resp.json();
-  const metadata = parseCacheRegistryJson(json);
+  const metadata = await fetchDistributedRegistry(baseUrl);
   metadata.baseUrl = baseUrl;
   return metadata;
 }
+
+/**
+ * Load the distributed registry: each acorn entry lives at
+ * `<version>/cache_registry/<table>.json`. We list the folder over the
+ * anonymous S3 REST API, then fetch every entry in parallel.
+ *
+ * @param {string} baseUrl - Resolved version base URL (…/data-asset-cache/<version>).
+ * @returns {Promise<{ acorns: object[] }>}
+ */
+async function fetchDistributedRegistry(baseUrl) {
+  const version = baseUrl.split('/').pop();
+  const prefix = `data-asset-cache/${version}/cache_registry/`;
+  const listUrl =
+    `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
+    `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
+  const listResp = await fetch(listUrl, { cache: 'no-cache' });
+  if (!listResp.ok) {
+    throw new Error(
+      `Failed to list registry at ${listUrl}: ${listResp.status} ${listResp.statusText}`,
+    );
+  }
+  const xml = await listResp.text();
+  const keys = [];
+  const re = /<Key>([^<]+\.json)<\/Key>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) keys.push(m[1]);
+  if (keys.length === 0) {
+    throw new Error(`Registry folder ${prefix} is empty`);
+  }
+  const tables = await Promise.all(
+    keys.map(async (key) => {
+      const url = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+      const r = await fetch(url, { cache: 'no-cache' });
+      if (!r.ok) {
+        throw new Error(`Failed to fetch registry entry ${url}: ${r.status} ${r.statusText}`);
+      }
+      return r.json();
+    }),
+  );
+  return parseCacheRegistryJson({ tables });
+}
+
 
 /**
  * Register the eagerly-needed `"metadata"`-type acorns as DuckDB tables.
