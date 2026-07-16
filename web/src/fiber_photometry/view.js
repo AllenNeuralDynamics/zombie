@@ -508,11 +508,22 @@ export function createFiberPhotometryView(coord) {
   const t0 = performance.now();
   console.log('[FibPhot] start');
 
-  ensureTable(coord, 'platform_fib')
-    .then(() => {
-      console.log(`[FibPhot] platform_fib registered      +${(performance.now()-t0).toFixed(0)}ms`);
-      console.log(`[FibPhot] starting JOIN query (platform_fib × asset_basics)  +${(performance.now()-t0).toFixed(0)}ms`);
-      return queryRows(coord,
+  const BATCH_SIZE = 500;
+  const sqlStr = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+
+  (async () => {
+    await ensureTable(coord, 'platform_fib');
+    console.log(`[FibPhot] platform_fib registered      +${(performance.now()-t0).toFixed(0)}ms`);
+
+    const nameRows = await queryRows(coord, 'SELECT DISTINCT asset_name FROM platform_fib');
+    const assetNames = nameRows.map((r) => r.asset_name).filter((n) => n != null);
+    console.log(`[FibPhot] ${assetNames.length} distinct assets           +${(performance.now()-t0).toFixed(0)}ms`);
+
+    const longRows = [];
+    for (let i = 0; i < assetNames.length; i += BATCH_SIZE) {
+      const batch = assetNames.slice(i, i + BATCH_SIZE);
+      const inList = batch.map(sqlStr).join(', ');
+      const rows = await queryRows(coord,
         `SELECT f.asset_name, f.fiber, f.channel, f.targeted_structure, f.intended_measurement,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities_str AS modalities, b.genotype, b.location,
@@ -527,27 +538,30 @@ export function createFiberPhotometryView(coord) {
                   array_to_string(investigators_normalized, ', ') AS investigators_str,
                   array_to_string(experimenters_normalized, ', ') AS experimenters_str
            FROM asset_basics
-         ) b ON b.name = f.asset_name`,
+           WHERE name IN (${inList})
+           QUALIFY row_number() OVER (PARTITION BY name ORDER BY _last_modified DESC) = 1
+         ) b ON b.name = f.asset_name
+         WHERE f.asset_name IN (${inList})`,
       );
-    })
-    .then((longRows) => {
-      console.log(`[FibPhot] JOIN query returned           +${(performance.now()-t0).toFixed(0)}ms`);
-      console.log(`[FibPhot] result → array (${longRows.length} long rows)  +${(performance.now()-t0).toFixed(0)}ms`);
-      const wideRows = pivotLongFormRows(longRows);
-      wideRows.sort((a, b) => {
-        const av = a.acquisition_start_time ?? '';
-        const bv = b.acquisition_start_time ?? '';
-        return String(bv).localeCompare(String(av)) || String(a.asset_name ?? '').localeCompare(String(b.asset_name ?? ''));
-      });
-      console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
-      loadingEl.remove();
-      buildPage(wideRows);
-      console.log(`[FibPhot] page built                   +${(performance.now()-t0).toFixed(0)}ms`);
-    })
-    .catch((err) => {
-      loadingEl.className = 'loading-message error';
-      loadingEl.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
+      for (const r of rows) longRows.push(r);
+      console.log(`[FibPhot] batch ${i / BATCH_SIZE + 1} (${longRows.length} rows)  +${(performance.now()-t0).toFixed(0)}ms`);
+    }
+
+    console.log(`[FibPhot] JOIN queries done             +${(performance.now()-t0).toFixed(0)}ms`);
+    const wideRows = pivotLongFormRows(longRows);
+    wideRows.sort((a, b) => {
+      const av = a.acquisition_start_time ?? '';
+      const bv = b.acquisition_start_time ?? '';
+      return String(bv).localeCompare(String(av)) || String(a.asset_name ?? '').localeCompare(String(b.asset_name ?? ''));
     });
+    console.log(`[FibPhot] pivot → wide (${wideRows.length} assets)       +${(performance.now()-t0).toFixed(0)}ms`);
+    loadingEl.remove();
+    buildPage(wideRows);
+    console.log(`[FibPhot] page built                   +${(performance.now()-t0).toFixed(0)}ms`);
+  })().catch((err) => {
+    loadingEl.className = 'loading-message error';
+    loadingEl.textContent = `Failed to load Fiber Photometry data: ${err?.message ?? err}`;
+  });
 
   function buildPage(allRows) {
     const channelCols = detectChannelColumns(allRows);
