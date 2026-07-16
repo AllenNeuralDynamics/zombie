@@ -393,14 +393,6 @@ export function generateMatrixCanvas(rows) {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-async function hashPassword(password) {
-  const encoded = new TextEncoder().encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
 function extractPayloadMeta(data) {
   const newSections = [];
   const secByTitle = new Map();
@@ -1080,8 +1072,7 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
 // ── ProjectWidget ──────────────────────────────────────────────────────────
 
 function ProjectWidget({
-  projectName, onProjectNameChange, projectLocked, onLockedChange,
-  projectPassword, onPasswordChange, serverLocked, endpointStatus,
+  projectName, onProjectNameChange, endpointStatus,
   canLoad, canSave, onLoad, onSave,
 }) {
   return html`
@@ -1093,22 +1084,6 @@ function ProjectWidget({
                onInput=${(e) => onProjectNameChange(e.target.value)}
                onKeyDown=${(e) => e.key === 'Enter' && canLoad && onLoad()} />
       </div>
-      <div class="cv-pw-lock-row">
-        <label class="cv-pw-lock-label">
-          <input type="checkbox" checked=${projectLocked} disabled=${serverLocked}
-                 onChange=${(e) => onLockedChange(e.target.checked)} />
-          <span>Lock project</span>
-        </label>
-      </div>
-      ${(projectLocked || serverLocked) && html`
-        <div class="cv-pw-password-row">
-          <label for="cv-project-password">Password</label>
-          <input id="cv-project-password" type="password"
-                 placeholder=${serverLocked ? 'Password required to save' : 'Set a password'}
-                 value=${projectPassword}
-                 onInput=${(e) => onPasswordChange(e.target.value)} />
-        </div>
-      `}
       <div class="cv-pw-btn-row">
         <button id="cv-get-btn" class="btn-secondary" disabled=${!canLoad} onClick=${onLoad}>Load</button>
         <button id="cv-post-btn" class="btn-primary"  disabled=${!canSave} onClick=${onSave}>Save</button>
@@ -1124,7 +1099,7 @@ function ProjectWidget({
 
 // ── AuthorRow ──────────────────────────────────────────────────────────────
 
-function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, tokenResult, onGenerateLink, showTokenLinks, allowLead, allowLevels }) {
+function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, allowLead, allowLevels }) {
   const levels = allowLevels
     ? (allowLead ? CONTRIBUTION_LEVELS : CONTRIBUTION_LEVELS.filter((l) => l !== 'Lead'))
     : ['None', 'Equal'];
@@ -1135,20 +1110,6 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
         <button class="cv-x-btn" aria-label=${'Remove ' + row.name}
                 onClick=${() => onRemove(rowIdx)}>×</button>
       </td>
-      ${showTokenLinks && html`
-        <td class="cv-token-cell">
-          ${tokenResult?.link
-            ? html`<button class="cv-link-btn cv-link-btn--done" title="Copied! Click to copy again"
-                           onClick=${() => navigator.clipboard.writeText(tokenResult.link)}>✓</button>`
-            : html`<button class="cv-link-btn" title="Generate add link"
-                           disabled=${tokenResult?.busy}
-                           onClick=${() => onGenerateLink(row.name)}>
-                ${tokenResult?.busy ? '…' : '🔗'}
-              </button>`
-          }
-          ${tokenResult?.error && html`<span class="cv-token-error" title=${tokenResult.error}>⚠</span>`}
-        </td>
-      `}
       <td>
         <input type="text" value=${row.name} class="cv-author-name-input"
                onBlur=${(e) => onRename(rowIdx, e.target.value)} />
@@ -1225,7 +1186,7 @@ function InviteAdmin({ inviteLink, inviteBusy, members, onGenerate, onDisable, o
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialPassword, initialDraft, docdbOptions, actionsRef, showTokenLinks }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, showTokenLinks }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1241,9 +1202,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   const [loadedAssets, setLoadedAssets]       = useState(initialDraft?.loadedAssetNames || []);
   const [doi, setDoi]                         = useState(initialDraft?.doi || '');
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
-  const [projectLocked, setProjectLocked]     = useState(initialDraft?.projectLocked || false);
-  const [projectPassword, setProjectPassword] = useState(initialPassword || '');
-  const [serverLocked, setServerLocked]       = useState(initialDraft?.serverLocked || false);
   const [assetsOpen, setAssetsOpen]           = useState(true);
   const [sharedOpen, setSharedOpen]           = useState(false);
   const [settingsOpen, setSettingsOpen]       = useState(false);
@@ -1270,7 +1228,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
     affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
-    projectLocked, projectPassword, serverLocked,
     showSections, showLevels, showTimeline, allowLead, allowLevels };
 
   // ── Draft persistence ────────────────────────────────────────────────────
@@ -1281,13 +1238,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
         affiliations, sections, creditDescriptions: creditDescs,
         authorStartDates, authorEndDates, authorSectionLevels,
-        loadedAssetNames: loadedAssets, doi, projectLocked, serverLocked,
+        loadedAssetNames: loadedAssets, doi,
         showSections, showLevels, showTimeline, allowLead, allowLevels,
         existsOnServer,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
-    creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName, projectLocked, projectPassword, serverLocked,
+    creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName,
     showSections, showLevels, showTimeline, allowLead, allowLevels, existsOnServer]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
@@ -1341,12 +1298,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     if (!project) { setEndpointStatus({ text: 'Enter a project name first.', cls: 'status-error' }); return; }
     setEndpointStatus({ text: `Fetching \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
-      const pw = sr.current.projectPassword;
-      let loadUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
-      if (pw) {
-        const hashed = await hashPassword(pw);
-        loadUrl += `&password=${encodeURIComponent(hashed)}`;
-      }
+      const loadUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
       const res = await fetch(loadUrl);
       if (res.status === 404) throw new Error(`Project \u201c${project}\u201d not found on server.`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -1370,9 +1322,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         text: `\u2713 Loaded \u201c${project}\u201d \u2014 ${loadedRows.length} contributor(s).`,
         cls: 'status-success',
       });
-      const isLocked = data.locked === true;
-      setServerLocked(isLocked);
-      if (isLocked) setProjectLocked(true);
       setShowSections(data.show_sections ?? false);
       setShowLevels(data.show_levels ?? true);
       setShowTimeline(data.show_timeline ?? false);
@@ -1391,7 +1340,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
     const { projectName: project, rows: r, authorOrcids: orc, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
-      loadedAssets: assets, doi: d, projectPassword: pw,
+      loadedAssets: assets, doi: d,
       showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv } = sr.current;
     if (!project || !r.length) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
@@ -1407,17 +1356,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
       payload.show_timeline = st;
       payload.allow_lead = al;
       payload.allow_levels = alv;
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
-      if (pw) {
-        const hashed = await hashPassword(pw);
-        url += `&password=${encodeURIComponent(hashed)}`;
-      }
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        // Send the ORCID session cookie so members/admins can save without a
-        // password. Falls back to the password/token in `url` when present.
+        // Members/admins save via their ORCID session cookie.
         credentials: 'include',
       });
       if (!res.ok) {
@@ -1631,7 +1575,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
   // ── Derived ────────────────────────────────────────────────────────────────
   const hasProject = projectName.trim().length > 0;
   const canLoad    = hasProject;
-  const canSave    = hasProject && rows.length > 0 && !(serverLocked && !projectPassword.trim());
+  const canSave    = hasProject && rows.length > 0;
   const selectedRow = rows.find((r) => r.name === selectedAuthor) || null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1647,11 +1591,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
         <${ProjectWidget}
           projectName=${projectName}
           onProjectNameChange=${setProjectName}
-          projectLocked=${projectLocked}
-          onLockedChange=${setProjectLocked}
-          projectPassword=${projectPassword}
-          onPasswordChange=${setProjectPassword}
-          serverLocked=${serverLocked}
           endpointStatus=${endpointStatus}
           canLoad=${canLoad}
           canSave=${canSave}
@@ -1772,7 +1711,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
                     onRemove=${removeRow}
                     onRename=${renameRow}
                     onCategoryChange=${updateCategory}
-                    showTokenLinks=${false}
                     allowLead=${allowLead}
                     allowLevels=${allowLevels}
                   />
@@ -1848,7 +1786,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialPasswor
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', password = '', docdbOptions = {}, showTokenLinks = false } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, showTokenLinks = false } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -1881,7 +1819,6 @@ export function createContributionsView(options = {}) {
     html`<${ContributionsApp}
       initialProjectName=${projectName}
       initialAssetName=${assetName}
-      initialPassword=${password}
       initialDraft=${initialDraft}
       docdbOptions=${docdbOptions}
       actionsRef=${actionsRef}

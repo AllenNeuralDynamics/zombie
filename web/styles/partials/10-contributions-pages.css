@@ -168,6 +168,32 @@
   min-height: 400px;
 }
 
+/* "Edit" button in the view topbar — pushed to the right of the title. */
+.cv-view-edit-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Warning shown when a visitor is submitting without logging in. */
+.cv-anon-warning {
+  border: 1px solid var(--color-warning, #b7791f);
+  background: color-mix(in srgb, var(--color-warning, #b7791f) 12%, transparent);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+/* Opt-out helper text on the add-page login gate. */
+.cv-anon-optout {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-border);
+  font-size: 0.85rem;
+}
+
 /* ===========================================================================
    Contributions — Edit Page Modal
    =========================================================================== */

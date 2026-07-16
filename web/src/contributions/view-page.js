@@ -8,6 +8,7 @@
 import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
+import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import { createPreview } from './preview.js';
 import { fromEndpointPayload, rowsToWidgetAuthors, CREDIT_ROLE_ENUM } from './view.js';
 
@@ -150,6 +151,19 @@ function ViewApp({ doi }) {
     loadData(commit);
   }
 
+  // Edit: send the user to the add/review page for their own record. They must
+  // log in with ORCID first; the add page then matches them to their existing
+  // row by ORCID and opens the full editor. No invite token is needed.
+  async function onEdit() {
+    const addUrl = `${window.location.origin}/contributions/add?project=${encodeURIComponent(doi)}`;
+    const me = await getCurrentUser();
+    if (me) {
+      window.location.assign(addUrl);
+    } else {
+      loginWithOrcid(addUrl);
+    }
+  }
+
   if (!doi) {
     return html`<div class="contributions-view-page">
       <p class="cv-placeholder">No DOI or project name provided. <a href="/contributions">Go back</a>.</p>
@@ -160,6 +174,7 @@ function ViewApp({ doi }) {
     <div class="contributions-view-page">
       <div class="cv-view-topbar">
         <h2 class="cv-view-title">${projectTitle}</h2>
+        <button class="btn-secondary cv-view-edit-btn" onClick=${onEdit}>Edit</button>
         ${commits.length > 1 && html`
           <div class="cv-view-version-select">
             <label for="cv-version-select">Version:</label>
