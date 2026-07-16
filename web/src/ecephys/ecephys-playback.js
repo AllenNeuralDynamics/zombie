@@ -2,10 +2,10 @@ import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
 import { escHtml } from '../lib/utils.js';
 import { ensureTable } from '../lib/registry.js';
+import { getResolvedVersion } from '../lib/metadata.js';
 import { createBaselineControls, baselineSeries, buildPsthPlot } from '../lib/psth.js';
 import * as Plot from '@observablehq/plot';
 
-const EPHYS_VERSION = 'bdc-v0.37';
 const TIME_BINS = 250;
 const DEPTH_BINS = 120;
 const HI_QUANTILE = 0.999;
@@ -41,7 +41,7 @@ function sessionDate(rawAssetName) {
 }
 
 function dfTrialsUrl(subjectId) {
-  return `${DATA_CACHE_PREFIX}/${EPHYS_VERSION}/platform_dynamic_foraging_trials`
+  return `${DATA_CACHE_PREFIX}/${getResolvedVersion()}/platform_dynamic_foraging_trials`
     + `/subject_id=${esc(subjectId)}/data.pqt`;
 }
 
@@ -52,7 +52,7 @@ async function resolveSpikeFile(rawAssetName) {
   if (_spikeFileCache.has(key)) return _spikeFileCache.get(key);
   const p = (async () => {
     const prefix =
-      `data-asset-cache/${EPHYS_VERSION}/platform_ecephys_spikes/asset_name=${key}`;
+      `data-asset-cache/${getResolvedVersion()}/platform_ecephys_spikes/asset_name=${key}`;
     const listUrl =
       `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
       `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;

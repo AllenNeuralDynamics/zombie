@@ -5,12 +5,7 @@ import { ensureTable } from '../lib/registry.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import * as Plot from '@observablehq/plot';
 
-const STORAGE_LENS_URL = () => {
-  const base = getResolvedBaseUrl();
-  return base
-    ? `${base}/storage_lens.pqt`
-    : 'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/bdc-v0.37/storage_lens.pqt';
-};
+const STORAGE_LENS_URL = () => `${getResolvedBaseUrl()}/storage_lens.pqt`;
 
 function formatBytes(bytes) {
   if (bytes == null) return '—';

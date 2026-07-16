@@ -220,6 +220,16 @@ export function getResolvedBaseUrl() {
 }
 
 /**
+ * Return the resolved data-cache version folder name (e.g. `bdc-v0.37`).
+ * Available only after `fetchAndRegisterMetadata` has completed successfully.
+ *
+ * @returns {string|null}
+ */
+export function getResolvedVersion() {
+  return _resolvedBaseUrl ? _resolvedBaseUrl.split('/').pop() : null;
+}
+
+/**
  * Compare two semver strings (e.g. "0.28.1" > "0.27.3").
  * @param {string} a
  * @param {string} b
@@ -244,12 +254,6 @@ function compareSemver(a, b) {
  * @returns {Promise<{registryUrl: string, baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
-  // TEMPORARY: pinned to bdc-v0.37 — remove this block to restore dynamic resolution
-  const PINNED_VERSION = 'bdc-v0.37';
-  const baseUrl = `${DATA_CACHE_PREFIX}/${PINNED_VERSION}`;
-  const registryUrl = `${baseUrl}/cache_registry.json`;
-  return { registryUrl, baseUrl };
-
   const resp = await fetch(versionsUrl, { cache: 'no-cache' });
   if (!resp.ok) {
     throw new Error(`Failed to fetch versions index: ${resp.status} ${resp.statusText}`);
