@@ -212,3 +212,18 @@
 .cv-settings-label input[type="checkbox"]:disabled + span {
   opacity: 0.45;
 }
+
+.cv-admins-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--surface-border, rgba(0,0,0,0.1));
+}
+
+.cv-admins-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+}

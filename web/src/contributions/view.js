@@ -626,7 +626,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 function AuthorDetailSection({
   row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
   creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
-  allowLead, allowLevels, allowAdmin,
+  allowLead, allowLevels,
 }) {
   if (!selectedAuthor || !row) {
     return html`
@@ -696,17 +696,6 @@ function AuthorDetailSection({
             ariaLabel="${selectedAuthor} affiliations"
           />
         </div>
-        ${allowAdmin && html`
-          <div class="cv-detail-meta-item">
-            <label class="cv-detail-label" for="cv-detail-is-admin">Project admin</label>
-            <label class="cv-settings-label cv-detail-admin-toggle">
-              <input id="cv-detail-is-admin" type="checkbox"
-                     checked=${!!row.is_admin}
-                     onChange=${(e) => onChange('isAdmin', e.target.checked)} />
-              <span>Can edit the whole project &amp; grant admin</span>
-            </label>
-          </div>
-        `}
       </div>
 
       <h4 class="cv-subsection-heading">Contribution Details</h4>
@@ -780,6 +769,8 @@ function ProjectSettingsSection({
   showTimeline, onShowTimelineChange,
   allowLead, onAllowLeadChange,
   allowLevels, onAllowLevelsChange,
+  isAdmin, editLocked, onEditLockedChange,
+  rows, onToggleRowAdmin,
 }) {
   function handleAllowLevels(val) {
     onAllowLevelsChange(val);
@@ -827,6 +818,28 @@ function ProjectSettingsSection({
                 <span>Allow Lead designation in add workflow and editor</span>
               </label>
             </div>
+            ${isAdmin && html`
+              <div class="cv-settings-group">
+                <h4 class="cv-subsection-heading">Access (admin)</h4>
+                <label class="cv-settings-label">
+                  <input type="checkbox" checked=${editLocked}
+                         onChange=${(e) => onEditLockedChange(e.target.checked)} />
+                  <span>Lock project — prevent all edits until an admin unlocks</span>
+                </label>
+                <div class="cv-admins-list">
+                  <span class="cv-admins-label">Project admins</span>
+                  ${rows.length === 0
+                    ? html`<p class="cv-placeholder cv-detail-hint">Add authors first, then grant admin here.</p>`
+                    : rows.map((r) => html`
+                        <label key=${r.name} class="cv-settings-label">
+                          <input type="checkbox" checked=${!!r.is_admin}
+                                 onChange=${(e) => onToggleRowAdmin(r.name, e.target.checked)} />
+                          <span>${r.name || '(unnamed)'}</span>
+                        </label>
+                      `)}
+                </div>
+              </div>
+            `}
           </div>
         </div>
       `}
@@ -1154,6 +1167,29 @@ const DEFAULT_AFFILIATIONS = [
   { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
 ];
 
+/**
+ * CopyContributorLink — blue button that copies the public self-add link
+ * (`/contributions/add?project=…`). Any ORCID-authenticated contributor who
+ * opens it can add/edit their own author row; no invite token is needed.
+ */
+function CopyContributorLink({ project }) {
+  const [copied, setCopied] = useState(false);
+  const link = `${window.location.origin}/contributions/add?project=${encodeURIComponent(project)}`;
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (_) { /* clipboard unavailable */ }
+  }
+  return html`
+    <button type="button" class="btn-primary cv-add-row-btn cv-copy-contributor-link"
+            title=${link} onClick=${copy}>
+      ${copied ? '✓ Link copied' : 'Copy link for contributors to add themselves'}
+    </button>
+  `;
+}
+
 function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
@@ -1186,6 +1222,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const [showTimeline, setShowTimeline]       = useState(initialDraft?.showTimeline ?? false);
   const [allowLead, setAllowLead]             = useState(initialDraft?.allowLead ?? true);
   const [allowLevels, setAllowLevels]         = useState(initialDraft?.allowLevels ?? true);
+  const [editLocked, setEditLocked]           = useState(initialDraft?.editLocked ?? false);
   const [existsOnServer, setExistsOnServer]   = useState(initialDraft?.existsOnServer ?? false);
 
   // Ref to latest state values — safe to read in async handlers
@@ -1193,7 +1230,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
     affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
-    showSections, showLevels, showTimeline, allowLead, allowLevels };
+    showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked };
 
   // ── Draft persistence ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1204,13 +1241,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         affiliations, sections, creditDescriptions: creditDescs,
         authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi,
-        showSections, showLevels, showTimeline, allowLead, allowLevels,
+        showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked,
         existsOnServer,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
     creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName,
-    showSections, showLevels, showTimeline, allowLead, allowLevels, existsOnServer]);
+    showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked, existsOnServer]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1292,6 +1329,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setShowTimeline(data.show_timeline ?? false);
       setAllowLead(data.allow_lead ?? true);
       setAllowLevels(data.allow_levels ?? true);
+      setEditLocked(data.edit_locked ?? false);
       setExistsOnServer(true);
       setAssetsOpen(false);
       fetchHistory(project);
@@ -1306,7 +1344,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d,
-      showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv } = sr.current;
+      showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv,
+      editLocked: el } = sr.current;
     if (!project || !r.length) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
@@ -1319,6 +1358,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       payload.show_sections = ss;
       payload.show_levels = sl;
       payload.show_timeline = st;
+      payload.edit_locked = el;
       payload.allow_lead = al;
       payload.allow_levels = alv;
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
@@ -1429,8 +1469,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'authorLevel') {
       setRows((prev) => prev.map((r) => r.name === author ? { ...r, author_level: payload } : r));
-    } else if (kind === 'isAdmin') {
-      setRows((prev) => prev.map((r) => r.name === author ? { ...r, is_admin: payload } : r));
     } else if (kind === 'affiliations') {
       setAuthorAffIds((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'startDate') {
@@ -1567,6 +1605,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           setAllowLevels(val);
           if (!val) setShowLevels(false);
         }}
+        isAdmin=${isAdmin}
+        editLocked=${editLocked} onEditLockedChange=${setEditLocked}
+        rows=${rows}
+        onToggleRowAdmin=${(name, val) =>
+          setRows((prev) => prev.map((r) => r.name === name ? { ...r, is_admin: val } : r))}
       />
 
       <section class="cv-section cv-contributors-section">
@@ -1617,6 +1660,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
               setRows((prev) => [...prev, newRow]);
             }}>+ Add author</button>
+            ${isAdmin && projectName && html`<${CopyContributorLink} project=${projectName} />`}
           </div>
         </div>
       </section>
@@ -1635,7 +1679,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         onChange=${handleDetailChange}
         allowLead=${allowLead}
         allowLevels=${allowLevels}
-        allowAdmin=${isAdmin}
       />
 
       <${OutputSection}
