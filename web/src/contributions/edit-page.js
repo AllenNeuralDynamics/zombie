@@ -16,6 +16,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid, logout } from '../lib/auth.js';
 import { createContributionsView } from './view.js';
+import { fetchContributions } from './fetch.js';
 
 // ---------------------------------------------------------------------------
 // Login / access gates
@@ -86,7 +87,7 @@ function EditApp({ doi }) {
 
       // Logged in: does this user have edit access?
       try {
-        const res = await fetch(
+        const res = await fetchContributions(
           `${CONTRIBUTIONS_API_BASE}/contributions/access?project=${encodeURIComponent(doi)}`,
           { credentials: 'include' },
         );
@@ -103,7 +104,7 @@ function EditApp({ doi }) {
         //     the add wizard for their own row instead).
         //   * Project doesn't exist yet → this is the creator: let them build it.
         //     They become admin automatically on the first save (backend).
-        const getRes = await fetch(
+        const getRes = await fetchContributions(
           `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
         );
         if (cancelled) return;

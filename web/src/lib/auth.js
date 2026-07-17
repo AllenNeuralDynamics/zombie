@@ -9,6 +9,7 @@
  */
 
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
+import { fetchContributions } from '../contributions/fetch.js';
 
 /**
  * Return the current logged-in user, or null if not authenticated.
@@ -16,7 +17,7 @@ import { CONTRIBUTIONS_API_BASE } from '../constants.js';
  */
 export async function getCurrentUser() {
   try {
-    const res = await fetch(`${CONTRIBUTIONS_API_BASE}/auth/me`, {
+    const res = await fetchContributions(`${CONTRIBUTIONS_API_BASE}/auth/me`, {
       credentials: 'include',
     });
     if (!res.ok) return null;

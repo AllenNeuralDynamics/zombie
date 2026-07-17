@@ -11,6 +11,7 @@ import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import { createPreview } from './preview.js';
 import { fromEndpointPayload, rowsToWidgetAuthors, CREDIT_ROLE_ENUM } from './view.js';
+import { fetchContributions } from './fetch.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -104,7 +105,7 @@ function ViewApp({ doi }) {
     try {
       let url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`;
       if (commit) url += `&commit=${encodeURIComponent(commit)}`;
-      const res = await fetch(url);
+      const res = await fetchContributions(url);
       if (res.status === 404) throw new Error(`Project "${doi}" not found.`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
@@ -121,7 +122,7 @@ function ViewApp({ doi }) {
 
   async function fetchHistory() {
     try {
-      const res = await fetch(
+      const res = await fetchContributions(
         `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}&history=true`,
       );
       if (!res.ok) return;
