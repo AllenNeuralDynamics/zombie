@@ -139,6 +139,18 @@ function ViewApp({ doi }) {
     if (doi) { loadData(); fetchHistory(); }
   }, [doi]);
 
+  // After an ORCID login kicked off by "Edit", the backend returns the user
+  // here with `do=edit`. Re-run the edit routing now that we know who they are
+  // (and, crucially, whether they're an admin), then strip the marker.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('do') !== 'edit') return;
+    params.delete('do');
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    onEdit();
+  }, []);
+
   useEffect(() => {
     if (previewRef.current && authors.length > 0) {
       createPreview(previewRef.current, authors);
@@ -151,17 +163,26 @@ function ViewApp({ doi }) {
     loadData(commit);
   }
 
-  // Edit: send the user to the add/review page for their own record. They must
-  // log in with ORCID first; the add page then matches them to their existing
-  // row by ORCID and opens the full editor. No invite token is needed.
+  // Edit: admins get the full editor (/edit); everyone else gets the
+  // self-service add/review wizard (/add), which matches them to their own row
+  // by ORCID. All routes require an ORCID login first.
+  //
+  // Admin status is only known after login, so when the user isn't logged in we
+  // send them back to this view page with `do=edit`; the effect above re-runs
+  // this handler once they return authenticated and then routes correctly.
   async function onEdit() {
-    const addUrl = `${window.location.origin}/contributions/add?project=${encodeURIComponent(doi)}`;
     const me = await getCurrentUser();
-    if (me) {
-      window.location.assign(addUrl);
-    } else {
-      loginWithOrcid(addUrl);
+    if (!me) {
+      const back = `${window.location.origin}${window.location.pathname}`
+        + `?doi=${encodeURIComponent(doi)}&do=edit`;
+      loginWithOrcid(back);
+      return;
     }
+    // The edit page reads `?doi=`; the add wizard reads `?project=`.
+    const url = me.is_admin
+      ? `/contributions/edit?doi=${encodeURIComponent(doi)}`
+      : `/contributions/add?project=${encodeURIComponent(doi)}`;
+    window.location.assign(`${window.location.origin}${url}`);
   }
 
   if (!doi) {
