@@ -92,10 +92,27 @@ function EditApp({ doi }) {
         );
         const access = res.ok ? await res.json() : {};
         if (cancelled) return;
-        setIsAdmin(!!access.is_admin);
-        // The full editor is admin-only. Non-admins edit their own row via the
-        // add wizard (/contributions/add), so they land on "no access" here.
-        setGate(access.is_admin ? 'editor' : 'no-access');
+        if (access.is_admin) {
+          setIsAdmin(true);
+          setGate('editor');
+          return;
+        }
+
+        // Not an admin. Two cases:
+        //   * Project exists  → full editor is admin-only → no access (they use
+        //     the add wizard for their own row instead).
+        //   * Project doesn't exist yet → this is the creator: let them build it.
+        //     They become admin automatically on the first save (backend).
+        const getRes = await fetch(
+          `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
+        );
+        if (cancelled) return;
+        if (getRes.status === 404) {
+          setIsAdmin(true);
+          setGate('editor');
+        } else {
+          setGate('no-access');
+        }
       } catch (_) {
         if (!cancelled) setGate('no-access');
       }
