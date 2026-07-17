@@ -224,6 +224,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
       author_level: row.author_level ?? null,
       ...(startDate ? { start_date: startDate } : {}),
       ...(endDate ? { end_date: endDate } : {}),
+      ...(row.is_admin ? { is_admin: true } : {}),
       credit_levels,
       ...(sectionLevels.length ? { section_levels: sectionLevels } : {}),
     };
@@ -245,6 +246,7 @@ export function fromEndpointPayload(data) {
       name: contributor.author?.name ?? '',
       isFirst: false,
       author_level: contributor.author_level ?? null,
+      is_admin: contributor.is_admin ?? false,
     };
     for (const cat of CREDIT_CATEGORIES) row[cat] = 'None';
     for (const cl of contributor.credit_levels || []) {
@@ -624,7 +626,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 function AuthorDetailSection({
   row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
   creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
-  allowLead, allowLevels,
+  allowLead, allowLevels, allowAdmin,
 }) {
   if (!selectedAuthor || !row) {
     return html`
@@ -694,6 +696,17 @@ function AuthorDetailSection({
             ariaLabel="${selectedAuthor} affiliations"
           />
         </div>
+        ${allowAdmin && html`
+          <div class="cv-detail-meta-item">
+            <label class="cv-detail-label" for="cv-detail-is-admin">Project admin</label>
+            <label class="cv-settings-label cv-detail-admin-toggle">
+              <input id="cv-detail-is-admin" type="checkbox"
+                     checked=${!!row.is_admin}
+                     onChange=${(e) => onChange('isAdmin', e.target.checked)} />
+              <span>Can edit the whole project &amp; grant admin</span>
+            </label>
+          </div>
+        `}
       </div>
 
       <h4 class="cv-subsection-heading">Contribution Details</h4>
@@ -1141,52 +1154,7 @@ const DEFAULT_AFFILIATIONS = [
   { id: 'aind', name: 'Allen Institute for Neural Dynamics, Seattle, WA' },
 ];
 
-/**
- * InviteAdmin — admin-only panel for the single permanent invite link and the
- * list of ORCID members who can edit the project.
- */
-function InviteAdmin({ inviteLink, inviteBusy, members, onGenerate, onDisable, onCopy }) {
-  const hasLink = inviteLink && !inviteLink.startsWith('Error');
-  const isError = inviteLink && inviteLink.startsWith('Error');
-  return html`
-    <div class="cv-invite-admin">
-      <h4 class="cv-invite-heading">Invite link</h4>
-      <p class="cv-invite-desc">
-        Share this permanent link so collaborators can log in with ORCID and add
-        themselves. Disable it any time to stop new people from joining;
-        existing members keep their access.
-      </p>
-      ${!hasLink && html`
-        <button class="btn-primary cv-invite-btn" onClick=${onGenerate} disabled=${inviteBusy}>
-          ${inviteBusy ? 'Working…' : 'Show invite link'}
-        </button>
-      `}
-      ${hasLink && html`
-        <div class="cv-token-link-result">
-          <input type="text" readonly value=${inviteLink} class="cv-token-link-input" />
-          <button class="btn-secondary" onClick=${() => onCopy(inviteLink)}>Copy</button>
-          <button class="btn-secondary cv-invite-disable" onClick=${onDisable} disabled=${inviteBusy}>
-            Disable
-          </button>
-        </div>
-      `}
-      ${isError && html`<span class="cv-token-error">${inviteLink}</span>`}
-      <div class="cv-members">
-        <h4 class="cv-invite-heading">Members (${members.length})</h4>
-        ${members.length === 0
-          ? html`<p class="cv-invite-desc">No one has joined yet.</p>`
-          : html`<ul class="cv-members-list">
-              ${members.map((m) => html`<li key=${m.orcid}>
-                ${m.name || m.orcid}
-                <span class="cv-member-orcid">${m.orcid}</span>
-              </li>`)}
-            </ul>`}
-      </div>
-    </div>
-  `;
-}
-
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, showTokenLinks }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1213,9 +1181,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const [endpointStatus, setEndpointStatus]   = useState({ text: '', cls: '' });
   const [historyCommits, setHistoryCommits]   = useState([]);
   const [selectedCommit, setSelectedCommit]   = useState(null);
-  const [inviteLink, setInviteLink]           = useState('');
-  const [inviteBusy, setInviteBusy]           = useState(false);
-  const [members, setMembers]                 = useState([]);
   const [showSections, setShowSections]       = useState(initialDraft?.showSections ?? false);
   const [showLevels, setShowLevels]           = useState(initialDraft?.showLevels ?? true);
   const [showTimeline, setShowTimeline]       = useState(initialDraft?.showTimeline ?? false);
@@ -1431,80 +1396,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
-  // ── Invite link + membership (ORCID flow, admin only) ─────────────────────
-  // The single permanent invite link lets any ORCID-authenticated user add
-  // themselves to the project. It is created on demand and only revoked when
-  // the admin clicks "Disable".
-  function buildInviteLink(token) {
-    const project = sr.current.projectName;
-    return `${window.location.origin}/contributions/add?project=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`;
-  }
-
-  async function loadInviteLink() {
-    const project = sr.current.projectName;
-    setInviteBusy(true);
-    try {
-      const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/invite?project=${encodeURIComponent(project)}`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed (${res.status})`);
-      }
-      const data = await res.json();
-      setInviteLink(buildInviteLink(data.token));
-    } catch (err) {
-      setInviteLink(`Error: ${err.message}`);
-    } finally {
-      setInviteBusy(false);
-    }
-  }
-
-  async function disableInviteLink() {
-    const project = sr.current.projectName;
-    setInviteBusy(true);
-    try {
-      const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/invite?project=${encodeURIComponent(project)}`,
-        { method: 'DELETE', credentials: 'include' },
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed (${res.status})`);
-      }
-      setInviteLink('');
-    } catch (err) {
-      setInviteLink(`Error: ${err.message}`);
-    } finally {
-      setInviteBusy(false);
-    }
-  }
-
-  async function loadMembers() {
-    const project = sr.current.projectName;
-    try {
-      const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/members?project=${encodeURIComponent(project)}`,
-        { credentials: 'include' },
-      );
-      if (!res.ok) { setMembers([]); return; }
-      const data = await res.json();
-      setMembers(Array.isArray(data.members) ? data.members : []);
-    } catch (_) {
-      setMembers([]);
-    }
-  }
-
-  function copyToClipboard(text) {
-    navigator.clipboard.writeText(text);
-  }
-
-  // Load the current member list once when the admin editor mounts.
-  useEffect(() => {
-    if (showTokenLinks && sr.current.projectName) loadMembers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showTokenLinks, projectName]);
 
   // ── Row mutations ──────────────────────────────────────────────────────────
   function removeRow(idx) {
@@ -1538,6 +1429,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'authorLevel') {
       setRows((prev) => prev.map((r) => r.name === author ? { ...r, author_level: payload } : r));
+    } else if (kind === 'isAdmin') {
+      setRows((prev) => prev.map((r) => r.name === author ? { ...r, is_admin: payload } : r));
     } else if (kind === 'affiliations') {
       setAuthorAffIds((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'startDate') {
@@ -1725,14 +1618,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               setRows((prev) => [...prev, newRow]);
             }}>+ Add author</button>
           </div>
-          ${showTokenLinks && html`<${InviteAdmin}
-            inviteLink=${inviteLink}
-            inviteBusy=${inviteBusy}
-            members=${members}
-            onGenerate=${loadInviteLink}
-            onDisable=${disableInviteLink}
-            onCopy=${copyToClipboard}
-          />`}
         </div>
       </section>
 
@@ -1750,6 +1635,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         onChange=${handleDetailChange}
         allowLead=${allowLead}
         allowLevels=${allowLevels}
+        allowAdmin=${isAdmin}
       />
 
       <${OutputSection}
@@ -1786,7 +1672,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, showTokenLinks = false } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -1822,7 +1708,7 @@ export function createContributionsView(options = {}) {
       initialDraft=${initialDraft}
       docdbOptions=${docdbOptions}
       actionsRef=${actionsRef}
-      showTokenLinks=${showTokenLinks}
+      isAdmin=${isAdmin}
     />`,
     container,
   );

@@ -355,47 +355,6 @@
   flex-wrap: wrap;
 }
 .cv-add-row-actions .cv-add-row-btn { margin-top: 0; }
-.cv-invite-btn { font-size: 0.82rem; padding: 4px 12px; }
-
-/* Invite link + membership admin panel */
-.cv-invite-admin {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius);
-  background: var(--surface-bg);
-}
-.cv-invite-heading {
-  margin: 0 0 4px;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-.cv-invite-desc {
-  margin: 0 0 10px;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #6b7280);
-}
-.cv-invite-disable { color: var(--color-danger, #e53e3e); }
-.cv-members { margin-top: 16px; }
-.cv-members-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cv-members-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 0.85rem;
-}
-.cv-member-orcid {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #6b7280);
-}
 
 /* ===========================================================================
    Contributions — Add Page / Wizard

@@ -49,24 +49,3 @@ export async function logout(onDone) {
   }
   if (onDone) onDone();
 }
-
-/**
- * Join a project using an invite token (grants permanent edit membership).
- * @returns {Promise<{ok:boolean, error?:string}>}
- */
-export async function joinProject(project, token) {
-  try {
-    const res = await fetch(
-      `${CONTRIBUTIONS_API_BASE}/contributions/join`
-        + `?project=${encodeURIComponent(project)}&token=${encodeURIComponent(token)}`,
-      { method: 'POST', credentials: 'include' },
-    );
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, error: body.error || `Join failed (${res.status})` };
-    }
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message };
-  }
-}

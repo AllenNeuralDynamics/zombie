@@ -1,11 +1,11 @@
 /**
  * add-page.js — Self-service wizard for adding/editing author contributions.
  *
- * Reached two ways:
- *   - the permanent invite link  (?project=…&token=…) — a collaborator adds
- *     themselves; logging in joins the project so they can edit later;
- *   - the /view "Edit" button    (?project=…, no token) — an existing member
- *     edits their own record, matched to their row by ORCID.
+ * Reached from the /view "Edit" button (?project=…) by any non-admin. The
+ * visitor logs in with ORCID and is matched to their own contributor row by
+ * ORCID (adding a new row if they have none). Edit access is derived purely
+ * from the contributor metadata on the backend — there is no invite token or
+ * separate membership; a logged-in user may only add/edit their own row.
  *
  * Flow for new visitors (no per-project cookie):
  *   Step 1: Personal info (name, ORCID, affiliations)
@@ -14,15 +14,15 @@
  *   Step 4: Full editor view (same as admin, scoped to this author)
  *
  * Returning visitors (cookie set) and existing authors skip to the full editor.
- * Members/admins save via their ORCID session cookie. A visitor may also opt to
- * continue without logging in: their entry is saved, but they get no editable
- * link back and must ask an admin to make later changes.
+ * Saves go through the ORCID session cookie. A visitor may also opt to continue
+ * without logging in: their entry is saved, but they get no editable link back
+ * and must ask an admin to make later changes.
  */
 
 import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
-import { getCurrentUser, loginWithOrcid, joinProject } from '../lib/auth.js';
+import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -41,43 +41,42 @@ import { RoleTip } from './role-tooltip.js';
 
 const COOKIE_PREFIX = 'contributions_visited_';
 
-function cookieKey(doi, token) {
-  // Key is per-token so different authors' links don't share state.
-  return `${COOKIE_PREFIX}${doi}_${encodeURIComponent(token).slice(0, 40)}`;
+function cookieKey(doi) {
+  return `${COOKIE_PREFIX}${doi}`;
 }
 
-function hasVisitedCookie(doi, token) {
-  return document.cookie.split(';').some((c) => c.trim().startsWith(`${cookieKey(doi, token)}=`));
+function hasVisitedCookie(doi) {
+  return document.cookie.split(';').some((c) => c.trim().startsWith(`${cookieKey(doi)}=`));
 }
 
-function setVisitedCookie(doi, token) {
+function setVisitedCookie(doi) {
   const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
-  document.cookie = `${cookieKey(doi, token)}=1; expires=${expires}; path=/; SameSite=Lax`;
+  document.cookie = `${cookieKey(doi)}=1; expires=${expires}; path=/; SameSite=Lax`;
 }
 
 // ---------------------------------------------------------------------------
-// Draft persistence (localStorage, keyed by token)
+// Draft persistence (localStorage, keyed by project)
 // ---------------------------------------------------------------------------
 
 const DRAFT_PREFIX = 'add_draft_';
 
-function draftKey(token) {
-  return DRAFT_PREFIX + encodeURIComponent(token).slice(0, 60);
+function draftKey(id) {
+  return DRAFT_PREFIX + encodeURIComponent(id).slice(0, 60);
 }
 
-function loadDraft(token) {
+function loadDraft(id) {
   try {
-    const raw = localStorage.getItem(draftKey(token));
+    const raw = localStorage.getItem(draftKey(id));
     return raw ? JSON.parse(raw) : null;
   } catch (_) { return null; }
 }
 
-function saveDraft(token, state) {
-  try { localStorage.setItem(draftKey(token), JSON.stringify(state)); } catch (_) {}
+function saveDraft(id, state) {
+  try { localStorage.setItem(draftKey(id), JSON.stringify(state)); } catch (_) {}
 }
 
-function clearDraft(token) {
-  try { localStorage.removeItem(draftKey(token)); } catch (_) {}
+function clearDraft(id) {
+  try { localStorage.removeItem(draftKey(id)); } catch (_) {}
 }
 
 function translateSaveError(msg) {
@@ -837,11 +836,11 @@ function StepFullEditor({
 // Main Add App
 // ---------------------------------------------------------------------------
 
-function AddApp({ project, doi, token, existingAuthor }) {
-  // Invite links pass `project` (+ a `token`). The /view "Edit" button links
-  // here with just `project` (no token) for an already-joined member.
+function AddApp({ project, doi, existingAuthor }) {
+  // The /view "Edit" button links here with just `project`. The logged-in user
+  // is recognised by their session and matched to their own row on load.
   const effProject = project || doi;
-  const draftId = `${effProject}|${token}`;
+  const draftId = effProject;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -880,9 +879,9 @@ function AddApp({ project, doi, token, existingAuthor }) {
     saveDraft(draftId, { step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
   }, [step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
-  // Require ORCID login (with an opt-out), then join via the invite token when
-  // one is present. The /view "Edit" button omits the token: an existing member
-  // is recognised by their session and matched to their own row on load.
+  // Require ORCID login (with an opt-out). The logged-in user is recognised by
+  // their session and matched to their own row on load; edit access is derived
+  // from the contributor metadata on the backend (no invite token).
   useEffect(() => {
     if (!effProject) { setAuthGate('ready'); return; }
     let cancelled = false;
@@ -891,21 +890,10 @@ function AddApp({ project, doi, token, existingAuthor }) {
       if (cancelled) return;
       setUser(me);
       if (!me) { setAuthGate('login'); return; }
-      if (token) {
-        setAuthGate('joining');
-        const result = await joinProject(effProject, token);
-        if (cancelled) return;
-        if (!result.ok) {
-          setError(result.error || 'This invite link is invalid or has been disabled.');
-          setLoading(false);
-          setAuthGate('login');
-          return;
-        }
-      }
       setAuthGate('ready');
     })();
     return () => { cancelled = true; };
-  }, [effProject, token]);
+  }, [effProject]);
 
   useEffect(() => {
     if (authGate !== 'ready') return;
@@ -992,7 +980,7 @@ function AddApp({ project, doi, token, existingAuthor }) {
 
         if (_draft?.step) {
           setStep(_draft.step);
-        } else if (ownContributor || hasVisitedCookie(effProject, token)) {
+        } else if (ownContributor || hasVisitedCookie(effProject)) {
           setStep(5);
         } else {
           setStep(1);
@@ -1004,11 +992,11 @@ function AddApp({ project, doi, token, existingAuthor }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [authGate, effProject, token]);
+  }, [authGate, effProject]);
 
   function goToStep(n) {
     setStep(n);
-    if (n === 5) setVisitedCookie(effProject, token);
+    if (n === 5) setVisitedCookie(effProject);
   }
 
   function goNextFromRoleDetails() {
@@ -1055,7 +1043,7 @@ function AddApp({ project, doi, token, existingAuthor }) {
     </div>`;
   }
 
-  if (authGate === 'checking' || authGate === 'joining' || loading) {
+  if (authGate === 'checking' || loading) {
     return html`<div class="contributions-add-page"><p class="cv-placeholder">Loading…</p></div>`;
   }
 
@@ -1142,10 +1130,10 @@ function AddApp({ project, doi, token, existingAuthor }) {
 // Entry
 // ---------------------------------------------------------------------------
 
-export function createContributionsAddPage({ project = '', doi, token, author = '' }) {
+export function createContributionsAddPage({ project = '', doi, author = '' }) {
   const container = document.createElement('div');
   render(
-    html`<${AddApp} project=${project} doi=${doi} token=${token} existingAuthor=${author} />`,
+    html`<${AddApp} project=${project} doi=${doi} existingAuthor=${author} />`,
     container,
   );
   return container;

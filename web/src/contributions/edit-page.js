@@ -1,13 +1,14 @@
 /**
- * edit-page.js — Admin/member edit page for contributions.
+ * edit-page.js — Admin-only full editor for contributions.
  *
- * Access is gated entirely by ORCID login (via the aind-metadata-viz backend):
- *   - Not logged in       → "Log in with ORCID" prompt.
- *   - Logged in, may edit  → the contributions editor (session-based save).
- *   - Logged in, no access → "no access" prompt with the reason.
+ * Access is gated by ORCID login (via the aind-metadata-viz backend):
+ *   - Not logged in   → "Log in with ORCID" prompt.
+ *   - Admin           → the full contributions editor (session-based save).
+ *   - Logged in, not admin → "no access" prompt pointing at the add page.
  *
- * There is no password login: admins and members authenticate with ORCID and
- * save via their session cookie.
+ * "Admin" means a global admin (ADMIN_ORCIDS) or a contributor whose ORCID is
+ * flagged is_admin on this project. Non-admins edit their own author row via
+ * the add wizard. There is no password login and no separate membership.
  */
 
 import { html, render } from 'htm/preact';
@@ -44,8 +45,10 @@ function NoAccessGate({ doi, user }) {
         <h2 class="cv-modal-title">No access</h2>
         <p class="cv-modal-desc">
           You are logged in as <strong>${user?.name || user?.orcid}</strong> but
-          do not have edit access to <strong>${doi}</strong>. Ask the project
-          admin for the invite link, then open it to add yourself.
+          are not an admin of <strong>${doi}</strong>, so you can't open the full
+          editor. To add or update your own author entry, use the
+          <a href=${`/contributions/add?project=${encodeURIComponent(doi)}`}>add page</a>.
+          A project admin can grant you admin access from the editor.
         </p>
         <button class="btn-secondary cv-modal-btn"
                 onClick=${() => logout(() => window.location.reload())}>
@@ -90,7 +93,9 @@ function EditApp({ doi }) {
         const access = res.ok ? await res.json() : {};
         if (cancelled) return;
         setIsAdmin(!!access.is_admin);
-        setGate(access.can_edit ? 'editor' : 'no-access');
+        // The full editor is admin-only. Non-admins edit their own row via the
+        // add wizard (/contributions/add), so they land on "no access" here.
+        setGate(access.is_admin ? 'editor' : 'no-access');
       } catch (_) {
         if (!cancelled) setGate('no-access');
       }
@@ -103,7 +108,7 @@ function EditApp({ doi }) {
     if (gate !== 'editor' || editorMounted || !editorRef.current || !doi) return;
     const el = createContributionsView({
       projectName: doi,
-      showTokenLinks: isAdmin,
+      isAdmin,
     });
     editorRef.current.appendChild(el);
     setEditorMounted(true);
