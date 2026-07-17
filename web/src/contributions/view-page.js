@@ -195,7 +195,6 @@ function ViewApp({ doi }) {
     <div class="contributions-view-page">
       <div class="cv-view-topbar">
         <h2 class="cv-view-title">${projectTitle}</h2>
-        <button class="btn-secondary cv-view-edit-btn" onClick=${onEdit}>Edit</button>
         ${commits.length > 1 && html`
           <div class="cv-view-version-select">
             <label for="cv-version-select">Version:</label>
@@ -212,6 +211,7 @@ function ViewApp({ doi }) {
             </select>
           </div>
         `}
+        <button class="btn-secondary cv-view-edit-btn" onClick=${onEdit}>Edit</button>
       </div>
       ${loading && html`<p class="cv-placeholder">Loading…</p>`}
       ${error && html`<p class="cv-placeholder" style="color:var(--color-danger)">${error}</p>`}
