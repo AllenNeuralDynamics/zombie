@@ -31,6 +31,7 @@ import {
   CREDIT_ROLE_ENUM_REVERSE,
   fromEndpointPayload,
   toEndpointPayload,
+  authorNameExists,
 } from './view.js';
 import { CREDIT_ROLES } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
@@ -564,6 +565,15 @@ function StepFullEditor({
     return [...allRows, myRow];
   }, [allRows, myRow, editName, authorName]);
 
+  // An anonymous visitor has no identity to own a row, so a name that matches
+  // an existing contributor would be an attempt to overwrite that person's
+  // record — which the backend won't apply. Catch it here: block the save and
+  // tell them to use a different name or contact an admin.
+  const nameCollision = useMemo(
+    () => anonymous && authorNameExists(allRows, editName.trim() || authorName),
+    [anonymous, allRows, editName, authorName],
+  );
+
   async function save() {
     setSaving(true);
     setSaveStatus({ text: 'Saving…', cls: 'status-loading' });
@@ -685,6 +695,14 @@ function StepFullEditor({
           <label class="cv-detail-label" for="cwe-name">Full Name *</label>
           <input id="cwe-name" type="text" class="cv-wizard-input"
                  value=${editName} onInput=${(e) => setEditName(e.target.value)} />
+          ${nameCollision && html`
+            <div class="cv-anon-warning" role="alert">
+              <strong>“${editName.trim() || authorName}” already exists on this
+              project.</strong> Without logging in you can only add a new author,
+              not change an existing one. Use a different name, or contact a
+              project admin to update that entry.
+            </div>
+          `}
         </div>
 
         <div class="cv-wizard-field">
@@ -824,7 +842,7 @@ function StepFullEditor({
 
       <div class="cv-wizard-nav">
         <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${save} disabled=${saving || !editName.trim()}>
+        <button class="btn-primary" onClick=${save} disabled=${saving || !editName.trim() || nameCollision}>
           ${saving ? 'Saving…' : 'Save Contributions'}
         </button>
       </div>

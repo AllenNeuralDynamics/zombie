@@ -264,6 +264,18 @@ export function fromEndpointPayload(data) {
   });
 }
 
+/**
+ * Whether *name* matches an existing contributor row (case-insensitive,
+ * trimmed). Used to block an anonymous add wizard from overwriting an
+ * existing author's record — they have no identity to own that row, so a
+ * name collision would be a silent overwrite the backend won't apply.
+ */
+export function authorNameExists(rows, name) {
+  const key = String(name || '').trim().toLowerCase();
+  if (!key) return false;
+  return (rows || []).some((r) => String(r?.name || '').trim().toLowerCase() === key);
+}
+
 export function formatAuthorInitials(name) {
   return name.trim().split(/\s+/).map((p) => (p[0] || '').toUpperCase() + '.').join('');
 }

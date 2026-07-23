@@ -28,9 +28,36 @@ import {
   generateLatex,
   toEndpointPayload,
   fromEndpointPayload,
+  authorNameExists,
   rowsToWidgetAuthors,
   createContributionsView,
 } from '../contributions/view.js';
+
+// ---------------------------------------------------------------------------
+// authorNameExists (anonymous add-wizard name-collision guard)
+// ---------------------------------------------------------------------------
+
+describe('authorNameExists', () => {
+  const rows = [{ name: 'Alice Nguyen' }, { name: 'Bob Rivera' }];
+
+  it('detects an exact match', () => {
+    expect(authorNameExists(rows, 'Bob Rivera')).toBe(true);
+  });
+
+  it('is case-insensitive and trims whitespace', () => {
+    expect(authorNameExists(rows, '  bob rivera ')).toBe(true);
+  });
+
+  it('returns false for a new name', () => {
+    expect(authorNameExists(rows, 'Test')).toBe(false);
+  });
+
+  it('returns false for empty/falsy names or rows', () => {
+    expect(authorNameExists(rows, '')).toBe(false);
+    expect(authorNameExists(rows, '   ')).toBe(false);
+    expect(authorNameExists(null, 'Alice Nguyen')).toBe(false);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // parseAssetNames
