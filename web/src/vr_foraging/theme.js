@@ -17,6 +17,14 @@ export const LICK_COLOR     = '#2ca02c';
 export const VELOCITY_COLOR = '#222222';
 export const VELOCITY_TRACE_COLOR = '#e11d48';
 
+/** True when the page is in dark mode (explicit data-theme, else OS preference). */
+export function isDarkMode() {
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t === 'dark') return true;
+  if (t === 'light') return false;
+  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
 /** Stable colour for a patch by its (instance) index. */
 export function patchColor(index) {
   const n = PATCH_COLORMAP.length;

@@ -5,7 +5,7 @@
  * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
-import { patchColor } from './theme.js';
+import { patchColor, isDarkMode } from './theme.js';
 
 export const CW = 480;
 export const CH = 120;
@@ -18,16 +18,36 @@ const MOUSE_LEN_PX = 84;
 
 const MOUSE_Y = CORR_CY;
 
-const C = {
+const C_LIGHT = {
   bg:                 '#ffffff',
   void:               '#f3f3f3',
   patch:              '#fafafa',
+  patchFill:          '#efefef',
   corridorEdge:       '#dcdcdc',
+  triangle:           '#cccccc',
   rewardSiteRing:     '#222222',
   rewardBlue:         '#2980b9',
   rewardRed:          '#c0392b',
   siteFillUnknown:    '#ffffff',
 };
+
+const C_DARK = {
+  bg:                 '#1e1e1e',
+  void:               '#262626',
+  patch:              '#202020',
+  patchFill:          '#2a2a2a',
+  corridorEdge:       '#3a3a3a',
+  triangle:           '#555555',
+  rewardSiteRing:     '#dddddd',
+  rewardBlue:         '#3498db',
+  rewardRed:          '#e74c3c',
+  siteFillUnknown:    '#1e1e1e',
+};
+
+/** Current corridor palette — re-read on each render so theme toggles apply. */
+function corridorColors() {
+  return isDarkMode() ? C_DARK : C_LIGHT;
+}
 
 const ORANGE = '#e67e22';
 const GREEN  = '#27ae60';
@@ -307,6 +327,7 @@ export class VrfAnimation {
     const state      = this._mouseState(this.t);
 
     const W = this._logicalW;
+    const C = corridorColors();
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, CH);
 
@@ -332,6 +353,7 @@ export class VrfAnimation {
 
   _drawCorridor(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
+    const C = corridorColors();
     const startIdx = Math.max(0, firstSiteReaching(this.sites, west) - 1);
 
     for (let i = startIdx; i < this.sites.length; i++) {
@@ -347,12 +369,12 @@ export class VrfAnimation {
       if (s.site_label === 'InterPatch') {
         ctx.fillStyle = C.void;
       } else {
-        ctx.fillStyle = '#efefef';
+        ctx.fillStyle = C.patchFill;
       }
       ctx.fillRect(xLeft, CORR_Y, segW, CORR_H);
     }
 
-    ctx.fillStyle = '#cccccc';
+    ctx.fillStyle = C.triangle;
     for (const tri of this._bgTriangles) {
       if (tri.cm < west - 6 || tri.cm > east + 6) continue;
       const tx = this._cmToX(tri.cm, mousePosCm);
@@ -377,6 +399,7 @@ export class VrfAnimation {
 
   _drawSites(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
+    const C = corridorColors();
     const startIdx = Math.max(0, firstSiteReaching(this.sites, west) - 1);
     const nowT = this.t;
 

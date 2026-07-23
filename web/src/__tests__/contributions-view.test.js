@@ -256,8 +256,22 @@ describe('generateLatex', () => {
   it('includes each CReDIT category in the column list', () => {
     const tex = generateLatex(baseRows);
     for (const cat of CREDIT_CATEGORIES) {
-      expect(tex).toContain(cat);
+      // `&` is escaped to `\&` for LaTeX output.
+      expect(tex).toContain(cat.replace(/&/g, '\\&'));
     }
+  });
+
+  it('escapes & as \\& in category labels', () => {
+    const tex = generateLatex(baseRows);
+    expect(tex).toContain('Writing – review \\& editing');
+    // No bare, unescaped ampersand should remain.
+    expect(tex).not.toMatch(/[^\\]& editing/);
+  });
+
+  it('uses \\mid for Equal contributions', () => {
+    const rows = initMatrix(['Alice Smith']);
+    rows[0]['Conceptualization'] = 'Equal';
+    expect(generateLatex(rows)).toContain('\\mid');
   });
 
   it('uses 0 for None contributions in heatmap', () => {

@@ -192,7 +192,9 @@ function _buildProjectChart(allRows) {
     height: Math.round(window.innerHeight * 0.15) + marginBottom,
     marginLeft: 80,
     marginBottom,
-    style: { background: 'transparent', fontFamily: 'inherit' },
+    // `color` drives Plot's currentColor-based axis/tick/label text, so a CSS
+    // var keeps it readable and flips live with the theme.
+    style: { background: 'transparent', fontFamily: 'inherit', color: 'var(--text-primary, #111111)' },
     x: {
       label: null,
       tickRotate: -45,

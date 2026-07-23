@@ -567,7 +567,8 @@ export function createPreview(container, authors, options = {}) {
 
   // State
   const hasPubOrder = (authors || []).some(a => a.publication_order != null);
-  let sortKey = hasPubOrder ? 'publication-order' : 'alpha';
+  // Default to alphabetical (last name) — the order CRediT uses by default.
+  let sortKey = 'alpha';
   let expanded = true;
   let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;

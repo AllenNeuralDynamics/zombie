@@ -78,43 +78,72 @@ export async function createV2View({ coordinator }) {
       return { ...row, x_pos: new Date(new Date(row.acq_date).getTime() + offset) };
     });
 
-    const plotEl = Plot.plot({
-      width: Math.max(800, (document.documentElement.clientWidth || 1200) - 56),
-      height: Math.max(300, projectOrder.length * 22 + 80),
-      marginLeft: 220,
-      marginBottom: 40,
-      style: { background: 'transparent', fontFamily: 'inherit' },
-      x: {
-        label: 'Acquisition date',
-        domain: [(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })(), new Date()],
-        tickFormat: (d) => {
-          const dt = d instanceof Date ? d : new Date(d);
-          return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const buildPlot = () => {
+      // Plot bakes the resolved text colour into inline SVG attributes, so we
+      // read the themed value at (re)build time rather than relying on CSS.
+      const rootStyle = getComputedStyle(document.documentElement);
+      const textColor = rootStyle.getPropertyValue('--text-primary').trim() || '#111111';
+      // Tooltips read `--plot-background` (defaults to white); theme it so the
+      // tip background flips and stays legible in dark mode.
+      const bgColor = rootStyle.getPropertyValue('--surface-bg').trim() || '#ffffff';
+      const plotEl = Plot.plot({
+        width: Math.max(800, (document.documentElement.clientWidth || 1200) - 56),
+        height: Math.max(300, projectOrder.length * 22 + 80),
+        marginLeft: 240,
+        marginBottom: 40,
+        style: { background: 'transparent', fontFamily: 'inherit', color: textColor },
+        x: {
+          label: 'Acquisition date',
+          // Inset the data area so the earliest dots clear the project labels
+          // on the left (and don't clip on the right).
+          insetLeft: 24,
+          insetRight: 18,
+          domain: [(() => { const d = new Date(); d.setDate(d.getDate() - 30); return d; })(), new Date()],
+          tickFormat: (d) => {
+            const dt = d instanceof Date ? d : new Date(d);
+            return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          },
         },
-      },
-      y: {
-        label: null,
-        domain: projectOrder,
-      },
-      color: {
-        legend: true,
-        domain: ['v2 only', 'v1 + v2'],
-        range: ['#22c55e', '#ef4444'],
-      },
-      marks: [
-        Plot.dot(jitteredRows, {
-          x: 'x_pos',
-          y: 'project_name',
-          fill: 'db_status',
-          r: 4,
-          opacity: 0.8,
-          tip: true,
-          title: (d) => `${d.name}\n${d.db_status}`,
-        }),
-      ],
-    });
+        y: {
+          label: null,
+          domain: projectOrder,
+          // Project names can be far longer than the left margin; truncate the
+          // tick label so it fits (full name is in the dot tooltip).
+          tickFormat: (name) => (name.length > 34 ? name.slice(0, 33) + '…' : name),
+        },
+        color: {
+          legend: true,
+          domain: ['v2 only', 'v1 + v2'],
+          range: ['#22c55e', '#ef4444'],
+        },
+        marks: [
+          Plot.dot(jitteredRows, {
+            x: 'x_pos',
+            y: 'project_name',
+            fill: 'db_status',
+            r: 4,
+            opacity: 0.8,
+            tip: true,
+            title: (d) => `${d.project_name}\n${d.name}\n${d.db_status}`,
+          }),
+        ],
+      });
+      // Custom properties can't go through Plot's `style` object (it uses
+      // Object.assign, which ignores `--*`), so set it directly. This themes
+      // the tooltip background, which reads `var(--plot-background)`.
+      plotEl.style.setProperty('--plot-background', bgColor);
+      return plotEl;
+    };
 
-    container.appendChild(plotEl);
+    const renderPlot = () => {
+      container.textContent = '';
+      container.appendChild(buildPlot());
+    };
+    renderPlot();
+
+    // Rebuild when the theme changes so baked-in text colours stay readable.
+    const themeObserver = new MutationObserver(renderPlot);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   } catch (err) {
     container.textContent = '';
     container.appendChild(Object.assign(document.createElement('p'), {

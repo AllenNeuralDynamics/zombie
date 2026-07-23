@@ -31,7 +31,7 @@ const OVERVIEW_HEIGHT  = 34;    // compact context-chart strip
 const COLOR_L          = '#2563eb';     // blue (left) spout
 const COLOR_R          = '#dc2626';     // red (right) spout
 const COLOR_IGNORED    = '#9333ea';     // purple — ignored trials
-const COLOR_EVENT      = '#111';        // black — reward deliveries
+const COLOR_EVENT      = 'var(--text-primary, #111111)'; // black in light / white in dark — reward deliveries
 const COLOR_CHOICE     = '#8a8a8a';     // grey — choice blocks
 
 const MARGIN           = { left: 88, right: 14, top: 18, bottom: 34 };
@@ -147,7 +147,7 @@ export function createProbPlot(data) {
     position: 'absolute',
     top: '0', bottom: '0',
     width: '1.5px',
-    background: '#555',
+    background: 'var(--text-primary, #555)',
     pointerEvents: 'none',
     transform: 'translateX(-0.75px)',
     left: '0',
@@ -210,7 +210,7 @@ export function createProbPlot(data) {
     top:    `${MARGIN.top - 6}px`,
     bottom: `${MARGIN.bottom - 4}px`,
     width: '1.5px',
-    background: '#222',
+    background: 'var(--text-primary, #222)',
     pointerEvents: 'none',
     transform: 'translateX(-0.75px)',
     left: '0',
@@ -343,7 +343,7 @@ export function createProbPlot(data) {
       marginRight:  MARGIN.right,
       marginTop:    MARGIN.top,
       marginBottom: MARGIN.bottom,
-      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-primary, #111111)' },
       clip: true,
       x: {
         label: xMode === 'time' ? 'time (s) →' : 'trial →',
@@ -358,7 +358,7 @@ export function createProbPlot(data) {
       marks: [
         // Trial span bands (alternating very-light grey)
         Plot.rect(trialSpans, { x1: 'x1', x2: 'x2', y1: 0, y2: Y_DOMAIN_MAX,
-          fill: (d) => d.even ? '#fafafa' : '#f2f2f2', stroke: 'none' }),
+          fill: (d) => d.even ? 'var(--df-band-even, #fafafa)' : 'var(--df-band-odd, #f2f2f2)', stroke: 'none' }),
 
         // Centre reference line shared by p(L) / p(R)
         Plot.ruleY([Y_CENTER], { stroke: '#999', strokeOpacity: 0.6 }),

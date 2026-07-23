@@ -295,13 +295,13 @@
 }
 
 .badge-yes {
-  background: #d1fae5;
-  color: #065f46;
+  background: var(--green-badge-bg, #d1fae5);
+  color: var(--green-badge-fg, #065f46);
 }
 
 .badge-no {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--red-muted, #fee2e2);
+  color: var(--red-fg, #991b1b);
 }
 
 .ch-links {
@@ -524,7 +524,7 @@
   padding: 4px 8px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--surface-bg, #fff);
   font-size: 0.875rem;
   color: var(--text-primary);
   cursor: pointer;
@@ -593,7 +593,7 @@
   flex-direction: column;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--surface-bg, #fff);
   min-width: 180px;
   max-width: 340px;
   font-size: 0.875rem;
@@ -754,7 +754,7 @@
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
   font-size: 0.82rem;
-  background: #fff;
+  background: var(--surface-bg, #fff);
   color: var(--text-primary);
 }
 
@@ -782,7 +782,7 @@
   border-radius: var(--radius);
   font-size: 0.82rem;
   padding: 2px;
-  background: #fff;
+  background: var(--surface-bg, #fff);
   color: var(--text-primary);
 }
 

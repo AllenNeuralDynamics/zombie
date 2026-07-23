@@ -33,6 +33,20 @@ export const MODALITY_COLOR = {
   'behavior-videos': '#bab0ac',
 };
 
+/**
+ * Resolve the colour for a modality.
+ *
+ * `behavior` is black in light mode, which is invisible on a dark background,
+ * so it resolves to the `--modality-behavior` CSS variable (black in light,
+ * white in dark). Returning the `var(...)` string — rather than a resolved
+ * hex — lets the colour flip live with the theme without re-rendering the
+ * chart, since SVG `fill` / inline `background` both honour CSS variables.
+ */
+export function modalityColor(m) {
+  if (m === 'behavior') return 'var(--modality-behavior, #000000)';
+  return MODALITY_COLOR[m] ?? '#aaaaaa';
+}
+
 function _isoDate(d) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
@@ -142,7 +156,7 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
     .filter((m) => !hiddenModalities.has(m))
     .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
   const colorDomain = presentModalities;
-  const colorRange = presentModalities.map((m) => MODALITY_COLOR[m] ?? '#aaaaaa');
+  const colorRange = presentModalities.map((m) => modalityColor(m));
 
   return Plot.plot({
     width: chartWidth,
@@ -206,8 +220,8 @@ export function buildInteractiveModalityHistogram(assets, containerWidth = 700, 
 
     const swatch = document.createElement('span');
     swatch.className = 'modality-legend-swatch';
-    swatch.style.background = MODALITY_COLOR[m] ?? '#aaaaaa';
-    swatch.style.borderColor = MODALITY_COLOR[m] ?? '#aaaaaa';
+    swatch.style.background = modalityColor(m);
+    swatch.style.borderColor = modalityColor(m);
 
     const label = document.createTextNode(m);
     item.appendChild(swatch);
@@ -217,7 +231,7 @@ export function buildInteractiveModalityHistogram(assets, containerWidth = 700, 
       if (hidden.has(m)) {
         hidden.delete(m);
         item.classList.remove('faded');
-        swatch.style.background = MODALITY_COLOR[m] ?? '#aaaaaa';
+        swatch.style.background = modalityColor(m);
       } else {
         hidden.add(m);
         item.classList.add('faded');

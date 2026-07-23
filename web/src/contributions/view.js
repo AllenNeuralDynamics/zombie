@@ -53,7 +53,12 @@ export const CREDIT_ROLE_ENUM_REVERSE = Object.fromEntries(
   Object.entries(CREDIT_ROLE_ENUM).map(([k, v]) => [v, k]),
 );
 
-const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\med', Lead: '\\hi' };
+const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\mid', Lead: '\\hi' };
+
+// Escape characters that are special in LaTeX (currently just `&`).
+function escapeLatex(str) {
+  return String(str).replace(/&/g, '\\&');
+}
 
 const DRAFT_KEY = 'contributions:draft';
 
@@ -132,14 +137,14 @@ export function formatAuthorForLatex(name, isFirst) {
   const parts = name.trim().split(/\s+/);
   const formatted =
     parts.length >= 2 ? `${parts[0][0]}. ${parts.slice(1).join(' ')}` : name;
-  return isFirst ? `${formatted}*` : formatted;
+  return escapeLatex(isFirst ? `${formatted}*` : formatted);
 }
 
 export function generateLatex(rows) {
   const colLines = [
     '    % column labels',
     '    \\foreach \\a [count=\\n] in {',
-    ...CREDIT_CATEGORIES.map((c) => `        ${c},`),
+    ...CREDIT_CATEGORIES.map((c) => `        ${escapeLatex(c)},`),
     '    } {',
     '        \\node[col header] at (\\n,0) {\\a};',
     '    }',

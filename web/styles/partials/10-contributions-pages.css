@@ -598,17 +598,22 @@
 }
 .cv-role-tip-examples li:last-child { margin-bottom: 0; }
 
-/* Roles grid (step 2) */
+/* Roles grid (step 2) — two columns, filled column-major:
+   down the first column, then down the second. */
 .cv-wizard-roles-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
+  columns: 2;
+  column-gap: 10px;
+}
+@media (max-width: 640px) {
+  .cv-wizard-roles-grid { columns: 1; }
 }
 
 .cv-wizard-role-card {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
   padding: 10px 12px;
+  margin-bottom: 10px;
+  break-inside: avoid;
   display: flex;
   align-items: center;
   justify-content: space-between;

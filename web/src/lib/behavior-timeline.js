@@ -8,7 +8,7 @@
  * representing acquisitions coloured by modality or curriculum stage.
  */
 
-import { MODALITY_COLOR } from './charts.js';
+import { MODALITY_COLOR, modalityColor } from './charts.js';
 
 // ---------------------------------------------------------------------------
 // Constants (exported so callers can compute cell widths)
@@ -293,7 +293,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
       c.setAttribute('cx', 0);
       c.setAttribute('cy', 0);
       c.setAttribute('r', TIMELINE_DOT_R);
-      c.setAttribute('fill', MODALITY_COLOR[modalities[0]] ?? '#888888');
+      c.setAttribute('fill', modalityColor(modalities[0]));
       sym.appendChild(c);
     } else {
       const n = modalities.length;
@@ -309,7 +309,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
         const large = step > Math.PI ? 1 : 0;
         const path = document.createElementNS(NS, 'path');
         path.setAttribute('d', `M 0 0 L ${x0} ${y0} A ${TIMELINE_DOT_R} ${TIMELINE_DOT_R} 0 ${large} 1 ${x1} ${y1} Z`);
-        path.setAttribute('fill', MODALITY_COLOR[modalities[i]] ?? '#888888');
+        path.setAttribute('fill', modalityColor(modalities[i]));
         sym.appendChild(path);
       }
     }
