@@ -530,8 +530,6 @@ describe('createContributionsView — projectName auto-load', () => {
       rows: draftRows,
       projectName: 'my-project',
       assetNames: '',
-      projectLocked: false,
-      projectPassword: '',
       authorSources: {},
       authorOrcids: {},
       authorAffIds: {},

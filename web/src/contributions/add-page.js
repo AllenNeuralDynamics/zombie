@@ -79,16 +79,22 @@ function clearDraft(id) {
   try { localStorage.removeItem(draftKey(id)); } catch (_) {}
 }
 
-function translateSaveError(msg) {
+function translateSaveError(msg, anonymous) {
   const s = String(msg || '');
-  if (/allows adding exactly one new author/i.test(s)) {
-    return 'An author with this name already exists on the project. Pick a different name, or ask the lead author for a personal edit link.';
+  // The backend rejects a scope violation with "only add/edit your own author
+  // entry". For an anonymous submitter there is no identity to own a row, so
+  // the only thing they can do is append one new entry — never edit or remove.
+  if (/only (add|edit) your own author entry/i.test(s)) {
+    if (anonymous) {
+      return 'Without logging in you can only add one new author entry — you can’t edit or remove existing entries. Log in with ORCID to make other changes.';
+    }
+    return 'You can only add or edit your own author entry. Ask a project admin to make other changes.';
   }
-  if (/cannot modify existing author/i.test(s)) {
-    return 'Your one-time invite token can only add a new author — it cannot modify an existing one. Ask the lead author for a personal edit link to update an existing entry.';
+  if (/admin can lock or unlock/i.test(s) || /admin can grant or change admin access/i.test(s)) {
+    return 'Only a project admin can change lock or admin settings.';
   }
-  if (/cannot remove existing authors/i.test(s)) {
-    return 'Your token does not have permission to remove existing authors.';
+  if (/project is locked/i.test(s)) {
+    return 'This project is locked; ask an admin to unlock it before editing.';
   }
   return s;
 }
@@ -641,7 +647,7 @@ function StepFullEditor({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const raw = body.error || `Server error ${res.status}`;
-        const friendly = translateSaveError(raw);
+        const friendly = translateSaveError(raw, anonymous);
         throw new Error(friendly);
       }
       const result = await res.json();
