@@ -18,7 +18,8 @@
 
 import * as Plot from '@observablehq/plot';
 import {
-  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, VELOCITY_TRACE_COLOR, siteColor,
+  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, VELOCITY_TRACE_COLOR,
+  buildOdorPalette, odorBandColor,
 } from './theme.js';
 
 // ---------------------------------------------------------------------------
@@ -90,12 +91,13 @@ export function computeVelocity(posT, posCm, binS = 0.25) {
 
 /** Build patch-colour bands (one per site) for the background. */
 export function buildBands(sites) {
+  const palette = buildOdorPalette(sites);
   const out = [];
   for (const s of sites) {
     const x1 = s.start_time_s;
     const x2 = s.stop_time_s;
     if (!Number.isFinite(x1) || !Number.isFinite(x2) || x2 <= x1) continue;
-    out.push({ x1, x2, color: siteColor(s.site_label, s.patch_index) });
+    out.push({ x1, x2, color: odorBandColor(s, palette) });
   }
   return out;
 }

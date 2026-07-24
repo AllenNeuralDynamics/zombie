@@ -5,7 +5,11 @@
  * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
-import { patchColor, isDarkMode } from './theme.js';
+import { patchColor, isDarkMode, buildOdorPalette } from './theme.js';
+
+// Re-exported for existing importers (buildOdorPalette now lives in theme.js so
+// the corridor, plots and legend all share one odor→colour source of truth).
+export { buildOdorPalette };
 
 export const CW = 480;
 export const CH = 120;
@@ -49,53 +53,6 @@ const C_DARK = {
 /** Current corridor palette — re-read on each render so theme toggles apply. */
 function corridorColors() {
   return isDarkMode() ? C_DARK : C_LIGHT;
-}
-
-const ORANGE = '#e67e22';
-const GREEN  = '#27ae60';
-const PURPLE = '#8e44ad';
-const BLUE   = '#2980b9';
-const RED    = '#c0392b';
-
-const ODOR_PALETTES = {
-  1: [ORANGE],
-  2: [ORANGE, PURPLE],
-  3: [ORANGE, GREEN, PURPLE],
-  4: [ORANGE, GREEN, BLUE, PURPLE],
-  5: [ORANGE, GREEN, BLUE, RED, PURPLE],
-};
-const ODOR_FALLBACK = [ORANGE, GREEN, BLUE, RED, PURPLE, '#16a085', '#d35400'];
-
-function parseOdorProb(label) {
-  if (label == null) return null;
-  const m = String(label).match(/(\d+(?:\.\d+)?)/);
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * Map<patch_label, color>. Highest odor probability gets orange, lowest gets
- * purple; middle ranks fill in with green, blue, red.
- */
-export function buildOdorPalette(sites) {
-  const labels = new Set();
-  for (const s of sites) {
-    if (s.site_label === 'InterPatch') continue;
-    if (s.patch_label != null) labels.add(s.patch_label);
-  }
-  const sorted = [...labels].sort((a, b) => {
-    const pa = parseOdorProb(a);
-    const pb = parseOdorProb(b);
-    if (pa == null && pb == null) return String(a).localeCompare(String(b));
-    if (pa == null) return 1;
-    if (pb == null) return -1;
-    return pb - pa;
-  });
-  const colors = ODOR_PALETTES[sorted.length] ?? ODOR_FALLBACK;
-  const map = new Map();
-  sorted.forEach((label, i) => {
-    map.set(label, colors[i] ?? ODOR_FALLBACK[i % ODOR_FALLBACK.length]);
-  });
-  return map;
 }
 
 function findOutTime(s) {
@@ -421,7 +378,7 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      const odorColor   = patchColor(s.patch_index);
+      const odorColor   = this.odorPalette.get(s.patch_label) ?? patchColor(s.patch_index);
       const outcomeColor = s.has_reward ? C.rewardBlue : C.rewardRed;
       const foT  = this._findOut[i];
       const known = foT != null && nowT >= foT;

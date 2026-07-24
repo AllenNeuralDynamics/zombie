@@ -9,7 +9,7 @@
 
 import * as Plot from '@observablehq/plot';
 import { computeVelocity } from './trace-plot.js';
-import { patchColor, VELOCITY_TRACE_COLOR } from './theme.js';
+import { patchColor, VELOCITY_TRACE_COLOR, buildOdorPalette } from './theme.js';
 
 const WINDOW = [-2.0, 2.0];
 const BIN_WIDTH = 0.05;
@@ -141,9 +141,9 @@ export function createAlignedPlot({ sites, traces }) {
   const eventSel  = controls.querySelector('.al-event');
   const groupChk  = controls.querySelector('.al-group');
 
-  // Assign a stable colour index to each patch label (alphabetical).
-  const labelOrder = [...new Set(sites.map((s) => String(s.patch_label ?? '')))].sort();
-  const labelColor = new Map(labelOrder.map((l, i) => [l, patchColor(i)]));
+  // Colour each patch label by odor identity (same odor name → same colour),
+  // matching the corridor, legend and trace bands.
+  const labelColor = buildOdorPalette(sites);
 
   function render() {
     const streamKey = streamSel.value;

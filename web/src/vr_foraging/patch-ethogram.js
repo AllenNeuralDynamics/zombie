@@ -16,7 +16,8 @@
 import * as Plot from '@observablehq/plot';
 import { computeVelocity } from './trace-plot.js';
 import {
-  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, siteColor,
+  CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR,
+  buildOdorPalette, odorBandColor,
 } from './theme.js';
 
 const ROW_HEIGHT = 0.8;          // fraction of 1.0 each row occupies
@@ -64,6 +65,7 @@ export function createPatchEthogram({ sites, traces }) {
   wrapper.className = 'vrf-altview vrf-patch-ethogram';
 
   const patches = groupPatches(sites);
+  const odorPalette = buildOdorPalette(sites);
   const vel = computeVelocity(traces.pos_t, traces.pos_cm, 0.1);
   const licks = (traces.lick_t ?? []).filter(Number.isFinite);
   const forceRewards = (traces.force_reward_t ?? []).filter(Number.isFinite);
@@ -138,7 +140,7 @@ export function createPatchEthogram({ sites, traces }) {
         const x0 = s.start_time_s - anchor;
         const x1b = s.stop_time_s - anchor;
         if (!(x1b > x0)) continue;
-        bands.push({ x1: x0, x2: x1b, y1: y0, y2: y1, color: siteColor(s.site_label, s.patch_index) });
+        bands.push({ x1: x0, x2: x1b, y1: y0, y2: y1, color: odorBandColor(s, odorPalette) });
       }
 
       // Velocity overlay, normalised to the row height.

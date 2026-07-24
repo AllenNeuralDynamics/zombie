@@ -433,7 +433,7 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
         _renderVrfStats(statsLine, anim, sites, site, odorPalette, totalPatches);
         if (site.site_index !== lastSiteIdx) {
           lastSiteIdx = site.site_index;
-          updateDepletion(depEl, patchIndex, site);
+          updateDepletion(depEl, patchIndex, site, odorPalette.get(site.patch_label));
         }
       };
 
@@ -617,7 +617,7 @@ function _renderVrfStats(el, anim, sites, site, odorPalette, totalPatches) {
   }
 
   const swatch = site.site_label === 'RewardSite'
-    ? `<span class="vrf-odor-dot" style="background:${patchColor(site.patch_index)}"></span>`
+    ? `<span class="vrf-odor-dot" style="background:${odorPalette.get(site.patch_label) ?? patchColor(site.patch_index)}"></span>`
     : '';
   el.innerHTML =
     `<b>Patch ${site.patch_index + 1}/${totalPatches}</b> · ${swatch}${site.patch_label} · ` +
@@ -848,7 +848,7 @@ function wireAnimation(root, sites, sprites, traces, _unused) {
 
     if (site.site_index !== lastSiteIdx) {
       lastSiteIdx = site.site_index;
-      updateDepletion(depEl, patchIndex, site);
+      updateDepletion(depEl, patchIndex, site, odorPalette.get(site.patch_label));
     }
   };
 
