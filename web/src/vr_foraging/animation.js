@@ -9,11 +9,13 @@ import { patchColor, isDarkMode } from './theme.js';
 
 export const CW = 480;
 export const CH = 120;
-const MOUSE_X      = 140;
+// Exported so the spike-raster lane strip can scroll on the identical spatial
+// (cm) axis as the corridor: mouse/playhead fixed at MOUSE_X, PX_PER_CM zoom.
+export const MOUSE_X      = 140;
+export const PX_PER_CM    = 1.4;
 const CORR_CY      = CH / 2;
 const CORR_H       = 56;
 const CORR_Y       = CORR_CY - CORR_H / 2;
-const PX_PER_CM    = 1.4;
 const MOUSE_LEN_PX = 84;
 
 const MOUSE_Y = CORR_CY;
@@ -184,7 +186,7 @@ export class VrfAnimation {
 
     this.t       = 0;
     this.playing = false;
-    this.speed   = 10;
+    this.speed   = 1;
 
     this.onFrame = null;
 
@@ -243,6 +245,12 @@ export class VrfAnimation {
 
   cumRewardsAt(siteIndex) { return this._cumRewards[Math.min(siteIndex, this._cumRewards.length - 1)]; }
   get totalRewards()      { return this._cumRewards[this.sites.length - 1]; }
+
+  /** Current logical (CSS) draw width — matches the corridor's visible width. */
+  get logicalW() { return this._logicalW; }
+
+  /** Mouse position (cm) at the current transport time. */
+  mousePosCm() { return this.posAt(this.t); }
 
   posAt(t) {
     const { pos_t, pos_cm } = this.traces;

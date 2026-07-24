@@ -22,6 +22,7 @@ import {
   isForagingAcquisition,
   extractForagingSessionInfo,
 } from './dynamic-foraging.js';
+import { createSonifierBridge } from './sonifier-bridge.js';
 
 const DR_PROJECT_NAME = 'Dynamic Routing';
 const VRF_ACQUISITION_TYPE = 'AindVrForaging';
@@ -163,10 +164,16 @@ export function createSessionPlayback(event, context = {}) {
     for (const m of modalityMounts) m.hidden = !visible;
   };
 
+  // Bridge between the ecephys panel's Spike-Jukebox button and the corridor
+  // player's transport/DOM. Only the VRF corridor player registers itself, so
+  // the button only surfaces when a corridor is present.
+  const sonifierBridge = createSonifierBridge();
+
   let hasPlayer = false;
   if (platform) {
     const playerEl = buildPlatformPlayer(platform, event, context, coord, {
       onModalitiesVisible: setModalitiesVisible,
+      sonifierBridge,
     });
     if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
   }
@@ -178,7 +185,7 @@ export function createSessionPlayback(event, context = {}) {
     modalityMounts.push(ephysMount);
     import('../../ecephys/ecephys-playback.js')
       .then(({ createEcephysPlayback }) => {
-        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName);
+        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName, sonifierBridge);
         if (hasPlayer) {
           const hr = document.createElement('hr');
           hr.className = 'session-playback-sep';

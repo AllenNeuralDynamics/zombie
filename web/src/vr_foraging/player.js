@@ -92,8 +92,8 @@ const VRF_BODY_HTML = `
             </div>
           </div>
           <div class="vrf-speed-row">
-            <label>Speed <span id="vrf-speed-label">10×</span></label>
-            <input type="range" id="vrf-speed" min="0" max="3" step="1" value="2" />
+            <label>Speed <span id="vrf-speed-label">1×</span></label>
+            <input type="range" id="vrf-speed" min="0" max="3" step="1" value="0" />
           </div>
         </div>
       </div>
@@ -454,6 +454,26 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
         },
       });
 
+      // Spike Jukebox bridge: expose the corridor transport clock + a DOM slot
+      // (between the behavior plot and the videos) so the ecephys panel can
+      // insert a unit-lane strip that scrolls in lockstep with the corridor.
+      const bridge = opts.sonifierBridge;
+      if (bridge) {
+        const pbBody = root.querySelector('.pb-body');
+        const pbVideos = root.querySelector('.pb-videos');
+        bridge.registerCorridor({
+          anim,
+          insertView: (el) => { if (pbBody) pbBody.insertBefore(el, pbVideos); },
+        });
+        const baseOnFrame = anim.onFrame;
+        let prevT = anim.t;
+        anim.onFrame = (t, site) => {
+          baseOnFrame?.(t, site);
+          bridge.emitTick(t, prevT, { playing: anim.playing, speed: anim.speed });
+          prevT = t;
+        };
+      }
+
       // Enable the Patch-ethogram / Aligned tabs now that data is available.
       viewMgr.ready({ sites, traces, anim });
     } catch (err) {
@@ -469,7 +489,7 @@ export function createVrfSessionPlayback(coord, rawName, opts = {}) {
 // Speed presets for the shared harness (select-based). Keeps the original VRF
 // default of 10×.
 const VRF_SPEED_STEPS = [1, 5, 10, 20];
-const VRF_DEFAULT_SPEED_IDX = 2;
+const VRF_DEFAULT_SPEED_IDX = 0;
 
 // ---------------------------------------------------------------------------
 // View switcher (Playback | Patch ethogram | Aligned)
