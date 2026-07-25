@@ -403,7 +403,8 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
 
     if (tooltipEl) {
       const showTip = (e) => {
-        tooltipEl.innerHTML = dayAssets.map((a) => {
+        tooltipEl.replaceChildren();
+        for (const a of dayAssets) {
           const cur = curriculumMap?.get(a.name);
           const metaLines = [
             a.acquisition_type ? `type: ${a.acquisition_type}` : '',
@@ -411,9 +412,24 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
             cur?.curriculum_name ? `curriculum: ${cur.curriculum_name}` : '',
             cur?.stage_name ? `stage: ${cur.stage_name}` : '',
           ].filter(Boolean);
-          const metaHtml = metaLines.map((l) => `<div>${l}</div>`).join('');
-          return `<div class="pt-tip-row"><div class="pt-tip-name">${a.name ?? ''}</div>${metaHtml ? `<div class="pt-tip-meta">${metaHtml}</div>` : ''}</div>`;
-        }).join('');
+          const row = document.createElement('div');
+          row.className = 'pt-tip-row';
+          const name = document.createElement('div');
+          name.className = 'pt-tip-name';
+          name.textContent = a.name ?? '';
+          row.appendChild(name);
+          if (metaLines.length) {
+            const meta = document.createElement('div');
+            meta.className = 'pt-tip-meta';
+            for (const line of metaLines) {
+              const item = document.createElement('div');
+              item.textContent = line;
+              meta.appendChild(item);
+            }
+            row.appendChild(meta);
+          }
+          tooltipEl.appendChild(row);
+        }
         tooltipEl.style.display = '';
         tooltipEl.style.left = `${e.clientX + 14}px`;
         tooltipEl.style.top  = `${e.clientY + 14}px`;

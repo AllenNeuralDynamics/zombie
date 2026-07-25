@@ -13,6 +13,7 @@ import { buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js
 import { buildModalityHistogram } from '../lib/charts.js';
 import { createForagingSessionDetail } from '../lib/behaviors/dynamic-foraging.js';
 import { ensureTable } from '../lib/registry.js';
+import { escHtml } from '../lib/utils.js';
 import {
   utcDay, addDays, isoDate,
   buildTimelineSvg, buildCurriculumLegend,
@@ -324,7 +325,7 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     const infoTextEl = document.createElement('div');
     infoTextEl.className = 'project-info-text';
     infoTextEl.innerHTML = `
-      <h3>${projectName}</h3>
+      <h3>${escHtml(projectName)}</h3>
       <dl>
         <dt>Total assets</dt><dd>${allAssets.length}</dd>
         <dt>Subjects</dt><dd>${subjectCount}</dd>

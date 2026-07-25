@@ -44,9 +44,34 @@ function renderCustomMetric(val) {
   return wrap;
 }
 
-function parseMarkdownLinks(text) {
-  if (!text) return '';
-  return String(text).replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+function renderMarkdownLinks(text) {
+  const fragment = document.createDocumentFragment();
+  const value = String(text ?? '');
+  const pattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let offset = 0;
+  for (const match of value.matchAll(pattern)) {
+    fragment.appendChild(document.createTextNode(value.slice(offset, match.index)));
+    let url = null;
+    try {
+      const parsed = new URL(match[2]);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') url = parsed.href;
+    } catch {
+      // Invalid and relative URLs remain visible as plain text.
+    }
+    if (url) {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener noreferrer';
+      anchor.textContent = match[1];
+      fragment.appendChild(anchor);
+    } else {
+      fragment.appendChild(document.createTextNode(match[0]));
+    }
+    offset = match.index + match[0].length;
+  }
+  fragment.appendChild(document.createTextNode(value.slice(offset)));
+  return fragment;
 }
 
 function statusDotClass(status) {
@@ -186,7 +211,7 @@ function buildMetricCard(metric) {
   if (metric.description) {
     const desc = document.createElement('div');
     desc.className = 'metric-desc';
-    desc.innerHTML = parseMarkdownLinks(metric.description);
+    desc.appendChild(renderMarkdownLinks(metric.description));
     card.appendChild(desc);
   }
 

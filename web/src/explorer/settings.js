@@ -10,8 +10,8 @@
  */
 
 import { Param } from '@uwdata/vgplot';
-import { getAssetAcorns, registerAcornTable, dropAcornTable, fetchSubjectIdsForQuery } from '../lib/metadata.js';
-import { ensureTable } from '../lib/registry.js';
+import { getAssetAcorns, fetchSubjectIdsForQuery } from '../lib/metadata.js';
+import { ensureTable, releaseTable } from '../lib/registry.js';
 import { URL_PARAM_PROJECTS, URL_PARAM_DATA_TYPES, URL_PARAM_EXTRA_FILTERS } from '../constants.js';
 
 // ---------------------------------------------------------------------------
@@ -561,8 +561,8 @@ export function initSettings(coord, metadata) {
     for (const cb of tableLoadingCallbacks) cb(name);
   }
 
-  function fireTableRegistered(name) {
-    for (const cb of tableRegisteredCallbacks) cb(name);
+  async function fireTableRegistered(name, physicalName) {
+    await Promise.all(tableRegisteredCallbacks.map((cb) => cb(name, physicalName)));
   }
 
   function fireTableFailed(name) {
@@ -578,8 +578,9 @@ export function initSettings(coord, metadata) {
     for (const [, state] of enabledEntries) {
       fireTableLoading(state.acorn.name);
       try {
-        await registerAcornTable(coord, state.acorn, { subjectIds });
-        fireTableRegistered(state.acorn.name);
+        state.subjectIds = subjectIds;
+        state.physicalName = await ensureTable(coord, state.acorn.name, { subjectIds });
+        await fireTableRegistered(state.acorn.name, state.physicalName);
       } catch (err) {
         console.error(`[DataExplorer] Failed to re-register "${state.acorn.name}":`, err);
         fireTableFailed(state.acorn.name);
@@ -634,15 +635,17 @@ export function initSettings(coord, metadata) {
     const initialChecked = initialEnabledSet.has(acorn.name);
     const { wrapperEl, checkbox } = buildDataTypeCheckbox(acorn.name, initialChecked);
 
-    dataTypeState.set(acorn.name, { acorn, enabled: initialChecked, checkbox });
+    dataTypeState.set(acorn.name, { acorn, enabled: initialChecked, checkbox, subjectIds: null, physicalName: null });
     dataTypeContainer.appendChild(wrapperEl);
 
     if (initialChecked) {
       fireTableLoading(acorn.name);
       fetchSubjectIdsForQuery(coord, $queryFilter.value)
-        .then((subjectIds) => registerAcornTable(coord, acorn, { subjectIds }))
-        .then(() => {
-          fireTableRegistered(acorn.name);
+        .then(async (subjectIds) => {
+          const state = dataTypeState.get(acorn.name);
+          state.subjectIds = subjectIds;
+          state.physicalName = await ensureTable(coord, acorn.name, { subjectIds });
+          await fireTableRegistered(acorn.name, state.physicalName);
         })
         .catch((err) => {
           console.error(`[DataExplorer] Failed to register table "${acorn.name}":`, err);
@@ -659,9 +662,10 @@ export function initSettings(coord, metadata) {
         fireTableLoading(acorn.name);
         try {
           const subjectIds = await fetchSubjectIdsForQuery(coord, $queryFilter.value);
-          await registerAcornTable(coord, acorn, { subjectIds });
+          state.subjectIds = subjectIds;
+          state.physicalName = await ensureTable(coord, acorn.name, { subjectIds });
           state.enabled = true;
-          fireTableRegistered(acorn.name);
+          await fireTableRegistered(acorn.name, state.physicalName);
         } catch (err) {
           console.error(`[DataExplorer] Failed to register table "${acorn.name}":`, err);
           checkbox.checked = false;
@@ -671,7 +675,9 @@ export function initSettings(coord, metadata) {
           checkbox.disabled = false;
         }
       } else {
-        await dropAcornTable(coord, acorn.name);
+        await releaseTable(coord, acorn.name, { subjectIds: state.subjectIds });
+        state.subjectIds = null;
+        state.physicalName = null;
         state.enabled = false;
       }
       const qf = $queryFilter.value;

@@ -272,7 +272,7 @@ async function fetchDistinctValues(tableName, colName, colType = null) {
  * @param {{ acorns: object[] }}                    metadata       - Parsed cache_registry.json.
  * @returns {{
  *   el: HTMLDivElement,
- *   notifyTableRegistered: (name: string) => void,
+ *   notifyTableRegistered: (name: string, physicalName: string) => Promise<void>,
  * }}
  */
 export function createDataView(id, $timeSelection, metadata) {
@@ -342,7 +342,11 @@ export function createDataView(id, $timeSelection, metadata) {
   // We must not build a vgplot mark (or send DESCRIBE) before the DuckDB table
   // is registered. settings.js fires notifyTableRegistered() once the table is
   // ready; until then rebuildPlot() renders a placeholder instead.
-  const registeredTables = new Set();
+  const registeredTables = new Map();
+
+  function currentTableName() {
+    return currentAcorn ? registeredTables.get(currentAcorn.name) : null;
+  }
 
   // ── Combined filter Selection ──────────────────────────────────────────────
   // Single Selection that both time-brush AND column-filter predicates are
@@ -631,7 +635,7 @@ export function createDataView(id, $timeSelection, metadata) {
     }
 
     const colType = liveColumnTypes.get(col) ?? null;
-    const values = await fetchDistinctValues(currentAcorn.name, col, colType);
+    const values = await fetchDistinctValues(currentTableName(), col, colType);
     valSelectEl.innerHTML = '';
 
     const none = document.createElement('option');
@@ -873,7 +877,7 @@ export function createDataView(id, $timeSelection, metadata) {
         .filter(([, v]) => v)
         .map(([col, val]) => `"${col}"::VARCHAR = '${val.replace(/'/g, "''")}'`);
       const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-      const result = await coordinator().query(`SELECT * FROM "${currentAcorn.name}" ${whereClause} LIMIT ${debugRowLimit}`);
+      const result = await coordinator().query(`SELECT * FROM "${currentTableName()}" ${whereClause} LIMIT ${debugRowLimit}`);
       debugTableContainer.innerHTML = '';
       const fields = result.schema.fields;
       const numRows = result.numRows;
@@ -1027,7 +1031,7 @@ export function createDataView(id, $timeSelection, metadata) {
     const effectiveYLabel = plotConfig.yLabelText || yColValue;
 
     const plotParts = [
-      dot(from(currentAcorn.name, { filterBy: $viewFilter }), markOpts),
+      dot(from(currentTableName(), { filterBy: $viewFilter }), markOpts),
       width(plotConfig.plotWidth),
       height(plotConfig.plotHeight),
       xLabel(effectiveXLabel),
@@ -1201,7 +1205,7 @@ export function createDataView(id, $timeSelection, metadata) {
     // Only upgrade to real schema via DESCRIBE if the table is already registered.
     // If not registered yet, notifyTableRegistered() will do this when it fires.
     if (registeredTables.has(acorn.name)) {
-      const schema = await fetchTableColumns(acorn.name);
+      const schema = await fetchTableColumns(registeredTables.get(acorn.name));
       if (schema?.length) {
         liveColumnTypes = new Map(schema.map((c) => [c.name, c.type]));
         liveColumns = schema.map((c) => c.name);
@@ -1238,10 +1242,10 @@ export function createDataView(id, $timeSelection, metadata) {
     );
   }
 
-  async function notifyTableRegistered(name) {
+  async function notifyTableRegistered(name, physicalName) {
     // Mark this table as available regardless of which acorn is currently shown;
     // if the user later switches to it the guard in rebuildPlot() will pass.
-    registeredTables.add(name);
+    registeredTables.set(name, physicalName);
     refreshDataTypeDropdown();
 
     // If no data type is currently selected, auto-select this newly registered one.
@@ -1265,7 +1269,7 @@ export function createDataView(id, $timeSelection, metadata) {
     if (currentAcorn?.name !== name) return;
 
     // Upgrade dropdowns to the real DuckDB schema (names + types).
-    const schema = await fetchTableColumns(name);
+    const schema = await fetchTableColumns(physicalName);
     if (schema?.length) {
       liveColumnTypes = new Map(schema.map((c) => [c.name, c.type]));
       liveColumns = schema.map((c) => c.name);

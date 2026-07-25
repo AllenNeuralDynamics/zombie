@@ -8,7 +8,6 @@ version = "0.1.0"
 description = "ZOMBIE — AIND Data Explorer"
 requires-python = ">=3.11,<=3.13"
 dependencies = [
-    "duckdb-server>=0.21.1",
     "aind-data-access-api[docdb]",
     "pymysql",
     "numcodecs>=0.16.5",

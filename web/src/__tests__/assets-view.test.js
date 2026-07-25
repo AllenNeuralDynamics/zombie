@@ -205,6 +205,19 @@ describe('renderAssetRow', () => {
   it('handles missing optional fields without throwing', () => {
     expect(() => renderAssetRow({}, visibleColumns)).not.toThrow();
   });
+
+  it('escapes metadata values and generated href attributes', () => {
+    const payload = '\"><img src=x onerror="globalThis.__xss = true">';
+    const html = renderAssetRow({
+      ...row,
+      _id: payload,
+      modalities: payload,
+      data_level: payload,
+      genotype: payload,
+    }, ['_id', 'modalities', 'data_level', 'genotype', 'links']);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
 });
 
 

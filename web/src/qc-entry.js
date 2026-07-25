@@ -18,7 +18,7 @@ async function init() {
   try {
     const records = await queryDocDb({ name: assetName }, { limit: 1 });
     if (!records.length) {
-      app.innerHTML = `<p class="qc-error">Asset "${assetName}" not found in DocDB.</p>`;
+      renderMessage(app, 'qc-error', `Asset "${assetName}" not found in DocDB.`);
       return;
     }
 
@@ -47,8 +47,15 @@ async function init() {
     app.innerHTML = '';
     app.appendChild(createQCView(records[0], rawS3Loc));
   } catch (err) {
-    app.innerHTML = `<p class="qc-error">Failed to load: ${err.message}</p>`;
+    renderMessage(app, 'qc-error', `Failed to load: ${err?.message ?? err}`);
   }
+}
+
+function renderMessage(container, className, message) {
+  const paragraph = document.createElement('p');
+  paragraph.className = className;
+  paragraph.textContent = message;
+  container.replaceChildren(paragraph);
 }
 
 init();

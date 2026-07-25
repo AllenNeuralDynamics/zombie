@@ -44,6 +44,17 @@ describe('generateInfoHtml', () => {
     // Should still render without throwing
     expect(html).toContain('Unknown');
   });
+
+  it('escapes subject metadata and project labels', () => {
+    const payload = '<img src=x onerror="globalThis.__xss = true">';
+    const html = generateInfoHtml({
+      subject_id: payload,
+      subject_details: { genotype: payload },
+    }, [payload]);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+    expect(html).toContain(`project=${encodeURIComponent(payload)}`);
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -27,6 +27,9 @@ export const VERSIONS_URL = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/
 /** Base prefix for data-asset-cache (used by modules that build versioned URLs). */
 export const DATA_CACHE_PREFIX = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/data-asset-cache`;
 
+/** Where users should report persistent data-loading failures. */
+export const ISSUE_TRACKER_URL = 'https://github.com/AllenNeuralDynamics/aind-scientific-computing/issues';
+
 // ---------------------------------------------------------------------------
 // AIND brand colours (ported from src/zombie/layout.py)
 // ---------------------------------------------------------------------------
@@ -87,34 +90,6 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
  * from an `*.allenneuraldynamics.org` host.
  */
 export const QC_PORTAL_BASE = 'https://qc.allenneuraldynamics.org';
-
-// ---------------------------------------------------------------------------
-// DuckDB server connector
-// ---------------------------------------------------------------------------
-
-/**
- * WebSocket URL for the duckdb-server.
- *
- * Development (Vite dev server):
- *   Connects directly to the local duckdb-server at ws://localhost:3000/.
- *   Start the server with `npm run server` (or `.venv/bin/duckdb-server`).
- *
- * Production (Docker / Vite build):
- *   nginx proxies /ws → duckdb-server on :3000 inside the container.
- *   The URL is derived from the page's own origin so it works at any hostname,
- *   and automatically uses wss:// when the page is served over HTTPS.
- */
-export const SERVER_WS_URL = import.meta.env.PROD
-  ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
-  : 'ws://localhost:3000/';
-
-/**
- * HTTP REST URL for the local duckdb-server (debug / alternative connector).
- * Only meaningful in development; in production the WebSocket path is used.
- */
-export const SERVER_HTTP_URL = import.meta.env.PROD
-  ? `${window.location.protocol}//${window.location.host}/ws`
-  : 'http://localhost:3000/';
 
 // ---------------------------------------------------------------------------
 // Layout / plot defaults

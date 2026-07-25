@@ -59,6 +59,15 @@
   color: var(--text-primary);
 }
 
+[data-theme="dark"] .table-load-error-diagnostics pre {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .table-load-warning {
+  background: #2a2205;
+}
+
 [data-theme="dark"] .dv-filter-chip {
   background: #555555;
 }

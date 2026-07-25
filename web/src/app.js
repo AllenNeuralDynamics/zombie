@@ -9,11 +9,12 @@
  */
 
 import { coordinator, wasmConnector } from '@uwdata/vgplot';
-import { fetchAndRegisterMetadata } from './lib/metadata.js';
+import { fetchAndRegisterMetadata, RequiredTablesError, getResolvedVersion } from './lib/metadata.js';
 import { setMetadata } from './lib/registry.js';
 import { initSettings } from './explorer/settings.js';
 import { createTimeView } from './explorer/time-view.js';
 import { createDataView } from './explorer/data-view.js';
+import { buildTableLoadErrorBox } from './lib/table-load-error.js';
 import { VERSIONS_URL } from './constants.js';
 
 // ---------------------------------------------------------------------------
@@ -24,7 +25,7 @@ async function init() {
   const loadingEl = document.getElementById('loading-message');
 
   try {
-    // 1. Connect the Mosaic coordinator to the local duckdb-server.
+    // 1. Connect the Mosaic coordinator to DuckDB-WASM in the browser.
     coordinator().databaseConnector(wasmConnector());
 
     // 2. Fetch cache_registry.json and register metadata tables in DuckDB.
@@ -44,7 +45,11 @@ async function init() {
 
   } catch (err) {
     console.error('[DataExplorer] Initialisation failed:', err);
-    renderError(err);
+    if (err instanceof RequiredTablesError) {
+      renderTableLoadError(err);
+    } else {
+      renderError(err);
+    }
   }
 }
 
@@ -134,6 +139,18 @@ function buildExplorer(metadata) {
 // Error renderer
 // ---------------------------------------------------------------------------
 
+function renderTableLoadError(err) {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const errorBox = buildTableLoadErrorBox({
+    failures: err.requiredFailures,
+    version: getResolvedVersion(),
+    context: 'Explorer',
+    onRetry: () => window.location.reload(),
+  });
+  app.replaceChildren(errorBox);
+}
+
 function renderError(err) {
   const app = document.getElementById('app');
   if (!app) return;
@@ -147,14 +164,14 @@ function renderError(err) {
     err?.constructor?.name === 'CloseEvent';
 
   const title = isConnErr ? 'Cannot initialise DuckDB-WASM' : 'Initialisation error';
-  const body = `<pre>${String(err?.stack ?? err?.message ?? err)}</pre>`;
-
-  app.innerHTML = `
-    <div class="card error">
-      <h2>${title}</h2>
-      ${body}
-    </div>
-  `;
+  const card = document.createElement('div');
+  card.className = 'card error';
+  const heading = document.createElement('h2');
+  heading.textContent = title;
+  const body = document.createElement('pre');
+  body.textContent = String(err?.stack ?? err?.message ?? err);
+  card.append(heading, body);
+  app.replaceChildren(card);
 }
 
 // ---------------------------------------------------------------------------

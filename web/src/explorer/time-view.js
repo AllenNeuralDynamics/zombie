@@ -7,7 +7,7 @@
  *
  * Pure helper functions (buildRectMarkOptions, buildProjectClause, constants)
  * are exported so they can be unit-tested without a live coordinator.
- * createTimeView() requires a running duckdb-server + real DOM.
+ * createTimeView() requires an initialized DuckDB-WASM coordinator + real DOM.
  */
 
 import {
