@@ -20,6 +20,7 @@
  */
 
 import * as Plot from '@observablehq/plot';
+import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,155 +79,14 @@ export function createEventPlot(data) {
   const rewardEvents = _arrayToRows(rewards?.t);
 
   // ===========================================================================
-  // Outer wrapper
+  // Plot builders (marks only — the shared brush component owns the scaffold,
+  // zoom/pan brush, playheads and scrubbing).
   // ===========================================================================
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'dr-evt-plot-wrap';
-
-  // -- Overview ----------------------------------------------------------
-  const overviewWrap = document.createElement('div');
-  overviewWrap.className = 'dr-evt-overview-wrap';
-  wrapper.appendChild(overviewWrap);
-
-  const overviewHolder = document.createElement('div');
-  overviewHolder.className = 'dr-evt-overview-holder';
-  overviewWrap.appendChild(overviewHolder);
-
-  const dimLeft  = document.createElement('div');
-  const dimRight = document.createElement('div');
-  dimLeft.className  = 'dr-brush-dim';
-  dimRight.className = 'dr-brush-dim';
-  overviewWrap.appendChild(dimLeft);
-  overviewWrap.appendChild(dimRight);
-
-  const overviewInteract = document.createElement('div');
-  overviewInteract.className = 'dr-brush-interact';
-  overviewInteract.title = 'Drag to zoom · double-click to reset';
-  overviewWrap.appendChild(overviewInteract);
-
-  const overviewPlayhead = document.createElement('div');
-  Object.assign(overviewPlayhead.style, {
-    position: 'absolute',
-    top: '0', bottom: '0',
-    width: '1.5px',
-    background: '#555',
-    pointerEvents: 'none',
-    transform: 'translateX(-0.75px)',
-    left: '0',
-    display: 'none',
-  });
-  overviewWrap.appendChild(overviewPlayhead);
-
-  // -- Main plot ---------------------------------------------------------
-  const mainWrap = document.createElement('div');
-  mainWrap.style.position = 'relative';
-  wrapper.appendChild(mainWrap);
-
-  const plotHolder = document.createElement('div');
-  plotHolder.className = 'dr-evt-plot-holder';
-  mainWrap.appendChild(plotHolder);
-
-  // Gutter labels
   const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
   const yToPx = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
-  mainWrap.appendChild(_makeRowLabel('Rewards',  COLOR_REWARD, MARGIN.left - 6, yToPx(Y_LABEL_REW)));
-  mainWrap.appendChild(_makeRowLabel('Response', COLOR_RESP,   MARGIN.left - 6, yToPx(Y_LABEL_RESP)));
-  mainWrap.appendChild(_makeRowLabel('Stim',     '#444',       MARGIN.left - 6, yToPx(Y_LABEL_STIM)));
 
-  // Playhead
-  const playhead = document.createElement('div');
-  playhead.className = 'dr-playhead';
-  Object.assign(playhead.style, {
-    position: 'absolute',
-    top:    `${MARGIN.top - 6}px`,
-    bottom: `${MARGIN.bottom - 4}px`,
-    width: '1.5px',
-    background: '#222',
-    pointerEvents: 'none',
-    transform: 'translateX(-0.75px)',
-    left: '0',
-    display: 'none',
-  });
-  mainWrap.appendChild(playhead);
-
-  // Click-to-scrub overlay
-  const scrubOverlay = document.createElement('div');
-  scrubOverlay.className = 'dr-evt-scrub-overlay';
-  Object.assign(scrubOverlay.style, {
-    position: 'absolute',
-    top:    `${MARGIN.top - 6}px`,
-    bottom: `${MARGIN.bottom - 4}px`,
-    left: '0', right: '0',
-    cursor: 'crosshair',
-  });
-  mainWrap.appendChild(scrubOverlay);
-
-  // ===========================================================================
-  // State
-  // ===========================================================================
-
-  let innerLeft = MARGIN.left;
-  let innerWidth = 0;
-  let overviewInnerWidth = 0;
-  let scrubCb = null;
-  let lastT = 0;
-  let lastW = 0;
-  let brushT0 = 0;
-  let brushT1 = sessionEndS;
-  let dragState = null;
-  let pendingRebuild = false;
-
-  // ===========================================================================
-  // Helpers
-  // ===========================================================================
-
-  function _pxToTime(px) {
-    return Math.max(0, Math.min(sessionEndS, (px / overviewInnerWidth) * sessionEndS));
-  }
-
-  function _brushEdgePx() {
-    return {
-      left:  (brushT0 / sessionEndS) * overviewInnerWidth,
-      right: (brushT1 / sessionEndS) * overviewInnerWidth,
-    };
-  }
-
-  function _updateBrushVisual() {
-    if (overviewInnerWidth <= 0) return;
-    const x0 = (brushT0 / sessionEndS) * overviewInnerWidth;
-    const x1 = (brushT1 / sessionEndS) * overviewInnerWidth;
-    Object.assign(dimLeft.style,  { left: `${MARGIN.left}px`, width: `${Math.max(0, x0)}px` });
-    Object.assign(dimRight.style, {
-      left:  `${MARGIN.left + x1}px`,
-      width: `${Math.max(0, overviewInnerWidth - x1)}px`,
-    });
-  }
-
-  function _placeOverviewPlayhead() {
-    if (sessionEndS <= 0 || overviewInnerWidth <= 0) return;
-    const frac = Math.max(0, Math.min(1, lastT / sessionEndS));
-    overviewPlayhead.style.left = `${MARGIN.left + frac * overviewInnerWidth}px`;
-    overviewPlayhead.style.display = '';
-  }
-
-  function _placePlayhead() {
-    const range = brushT1 - brushT0;
-    if (range <= 0 || innerWidth <= 0) return;
-    const frac = (lastT - brushT0) / range;
-    if (frac < 0 || frac > 1) { playhead.style.display = 'none'; return; }
-    playhead.style.left = `${innerLeft + frac * innerWidth}px`;
-    playhead.style.display = '';
-  }
-
-  // ===========================================================================
-  // Overview rebuild
-  // ===========================================================================
-
-  function _rebuildOverview(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
-    overviewInnerWidth = w - MARGIN.left - MARGIN.right;
-
+  const renderOverview = (holder, w) => {
     const plot = Plot.plot({
       width: w,
       height: OVERVIEW_HEIGHT,
@@ -246,24 +106,10 @@ export function createEventPlot(data) {
         }),
       ],
     });
-    overviewHolder.replaceChildren(plot);
+    holder.replaceChildren(plot);
+  };
 
-    Object.assign(overviewInteract.style, {
-      position: 'absolute', top: '0', bottom: '0',
-      left:  `${MARGIN.left}px`,
-      width: `${overviewInnerWidth}px`,
-    });
-
-    _updateBrushVisual();
-    _placeOverviewPlayhead();
-  }
-
-  // ===========================================================================
-  // Main plot rebuild
-  // ===========================================================================
-
-  function _rebuild(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
+  const renderMain = (holder, w, [t0, t1]) => {
     const plot = Plot.plot({
       width: w,
       height: PLOT_HEIGHT,
@@ -275,7 +121,7 @@ export function createEventPlot(data) {
       clip: true,
       x: {
         label: 'time (s) →',
-        domain: [brushT0, brushT1],
+        domain: [t0, t1],
         grid: false,
       },
       y: {
@@ -335,122 +181,30 @@ export function createEventPlot(data) {
         }),
       ],
     });
-    plotHolder.replaceChildren(plot);
-    innerLeft  = MARGIN.left;
-    innerWidth = w - MARGIN.left - MARGIN.right;
-    _placePlayhead();
-  }
+    holder.replaceChildren(plot);
+  };
 
-  // ===========================================================================
-  // Scrub
-  // ===========================================================================
-
-  scrubOverlay.addEventListener('click', (ev) => {
-    if (!scrubCb || innerWidth <= 0) return;
-    const rect = scrubOverlay.getBoundingClientRect();
-    const x = ev.clientX - rect.left - innerLeft;
-    const frac = Math.max(0, Math.min(1, x / innerWidth));
-    scrubCb(brushT0 + frac * (brushT1 - brushT0));
+  const bz = createBrushOverview({
+    sessionEndS,
+    margin: { left: MARGIN.left, right: MARGIN.right },
+    overviewHeight: OVERVIEW_HEIGHT,
+    minPlotW: MIN_PLOT_W,
+    scrubInset: { top: MARGIN.top - 6, bottom: MARGIN.bottom - 4 },
+    wrapperClass: 'dr-evt-plot-wrap',
+    renderOverview,
+    renderMain,
   });
 
-  // ===========================================================================
-  // Brush interactions
-  // ===========================================================================
-
-  overviewInteract.addEventListener('pointermove', (ev) => {
-    const rect = overviewInteract.getBoundingClientRect();
-    const px = ev.clientX - rect.left;
-    const t = _pxToTime(px);
-
-    if (dragState) {
-      if (dragState.type === 'new') {
-        brushT0 = Math.min(t, dragState.startT);
-        brushT1 = Math.max(t, dragState.startT);
-      } else if (dragState.type === 'left' || dragState.type === 'right') {
-        brushT0 = Math.min(t, dragState.anchor);
-        brushT1 = Math.max(t, dragState.anchor);
-      } else if (dragState.type === 'move') {
-        const span = dragState.origT1 - dragState.origT0;
-        const delta = t - dragState.anchorT;
-        brushT0 = Math.max(0, Math.min(sessionEndS - span, dragState.origT0 + delta));
-        brushT1 = brushT0 + span;
-      }
-      _updateBrushVisual();
-      if (!pendingRebuild) {
-        pendingRebuild = true;
-        requestAnimationFrame(() => { pendingRebuild = false; _rebuild(lastW); });
-      }
-    } else {
-      const { left: bL, right: bR } = _brushEdgePx();
-      if (Math.abs(px - bL) <= BRUSH_HANDLE_PX || Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-        overviewInteract.style.cursor = 'ew-resize';
-      } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-        overviewInteract.style.cursor = 'grab';
-      } else {
-        overviewInteract.style.cursor = 'crosshair';
-      }
-    }
-  });
-
-  overviewInteract.addEventListener('pointerdown', (ev) => {
-    overviewInteract.setPointerCapture(ev.pointerId);
-    const rect = overviewInteract.getBoundingClientRect();
-    const px = ev.clientX - rect.left;
-    const t = _pxToTime(px);
-    const { left: bL, right: bR } = _brushEdgePx();
-
-    if (Math.abs(px - bL) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'left',  anchor: brushT1 };
-    } else if (Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'right', anchor: brushT0 };
-    } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-      dragState = { type: 'move', anchorT: t, origT0: brushT0, origT1: brushT1 };
-      overviewInteract.style.cursor = 'grabbing';
-    } else {
-      dragState = { type: 'new', startT: t };
-      brushT0 = t; brushT1 = t;
-      _updateBrushVisual();
-    }
-    ev.preventDefault();
-  });
-
-  overviewInteract.addEventListener('pointerup', () => {
-    if (!dragState) return;
-    dragState = null;
-    if (brushT1 - brushT0 < 2) { brushT0 = 0; brushT1 = sessionEndS; }
-    overviewInteract.style.cursor = 'crosshair';
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  overviewInteract.addEventListener('dblclick', () => {
-    brushT0 = 0; brushT1 = sessionEndS;
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  // ===========================================================================
-  // Sizing
-  // ===========================================================================
-
-  const ro = new ResizeObserver((entries) => {
-    for (const e of entries) {
-      const w = Math.max(MIN_PLOT_W, Math.floor(e.contentRect.width));
-      if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-    }
-  });
-  ro.observe(wrapper);
-
-  queueMicrotask(() => {
-    const w = Math.max(MIN_PLOT_W, wrapper.clientWidth || 600);
-    if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-  });
+  // Gutter row labels (absolutely positioned in the main panel).
+  bz.mainWrap.appendChild(_makeRowLabel('Rewards',  COLOR_REWARD, MARGIN.left - 6, yToPx(Y_LABEL_REW)));
+  bz.mainWrap.appendChild(_makeRowLabel('Response', COLOR_RESP,   MARGIN.left - 6, yToPx(Y_LABEL_RESP)));
+  bz.mainWrap.appendChild(_makeRowLabel('Stim',     '#444',       MARGIN.left - 6, yToPx(Y_LABEL_STIM)));
 
   return {
-    element: wrapper,
-    updatePlayhead(t) { lastT = t; _placePlayhead(); _placeOverviewPlayhead(); },
-    setOnScrub(cb) { scrubCb = cb; },
-    dispose() { ro.disconnect(); },
+    element: bz.element,
+    updatePlayhead: bz.updatePlayhead,
+    setOnScrub: bz.setOnScrub,
+    dispose: bz.dispose,
   };
 }
 

@@ -21,6 +21,7 @@
  */
 
 import * as Plot from '@observablehq/plot';
+import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -104,202 +105,16 @@ export function createProbPlot(data) {
     }));
 
   // ===========================================================================
-  // Outer wrapper
+  // Plot builders (marks only — the shared brush component owns the scaffold,
+  // zoom/pan brush, playheads and scrubbing).
   // ===========================================================================
 
-  const wrapper = document.createElement('div');
-  wrapper.className = 'df-prob-plot-wrap';
+  const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
+  const yToPx  = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
 
-  // ===========================================================================
-  // Overview strip (context chart + brush)
-  // ===========================================================================
+  let xMode = 'time';
 
-  const overviewWrap = document.createElement('div');
-  overviewWrap.className = 'df-prob-overview-wrap';
-  wrapper.appendChild(overviewWrap);
-
-  const overviewHolder = document.createElement('div');
-  overviewHolder.className = 'df-prob-overview-holder';
-  overviewWrap.appendChild(overviewHolder);
-
-  // Dim overlays for the unselected (left/right of brush) regions.
-  const dimLeft  = document.createElement('div');
-  const dimRight = document.createElement('div');
-  dimLeft.className  = 'df-brush-dim';
-  dimRight.className = 'df-brush-dim';
-  overviewWrap.appendChild(dimLeft);
-  overviewWrap.appendChild(dimRight);
-
-  // Pointer-events layer — sits on top of everything in the overview.
-  const overviewInteract = document.createElement('div');
-  overviewInteract.className = 'df-brush-interact';
-  overviewInteract.title = 'Drag to zoom · double-click to reset';
-  overviewWrap.appendChild(overviewInteract);
-
-  const overviewHint = document.createElement('div');
-  overviewHint.className = 'df-brush-hint';
-  overviewHint.innerHTML = 'Click + drag<br>to zoom';
-  overviewWrap.appendChild(overviewHint);
-
-  // Playhead inside the overview (shows absolute position in the session).
-  const overviewPlayhead = document.createElement('div');
-  Object.assign(overviewPlayhead.style, {
-    position: 'absolute',
-    top: '0', bottom: '0',
-    width: '1.5px',
-    background: 'var(--text-primary, #555)',
-    pointerEvents: 'none',
-    transform: 'translateX(-0.75px)',
-    left: '0',
-    display: 'none',
-  });
-  overviewWrap.appendChild(overviewPlayhead);
-
-  // ===========================================================================
-  // Main plot container  (separate so absolute overlays stay relative to it)
-  // ===========================================================================
-
-  const mainWrap = document.createElement('div');
-  mainWrap.style.position = 'relative';
-  wrapper.appendChild(mainWrap);
-
-  // X-axis mode toggle — returned so the caller can place it wherever it likes.
-  const xToggle = document.createElement('div');
-  xToggle.className = 'df-x-toggle';
-  const _xBtns = {};
-  for (const mode of ['time', 'trials']) {
-    const btn = document.createElement('button');
-    btn.className = 'df-x-toggle-btn' + (mode === 'time' ? ' df-x-toggle-btn--active' : '');
-    btn.textContent = mode === 'time' ? 'Time' : 'Trials';
-    btn.addEventListener('click', () => {
-      if (xMode === mode) return;
-      xMode = mode;
-      _xBtns.time.classList.toggle('df-x-toggle-btn--active', mode === 'time');
-      _xBtns.trials.classList.toggle('df-x-toggle-btn--active', mode === 'trials');
-      _rebuild(lastW);
-    });
-    _xBtns[mode] = btn;
-    xToggle.appendChild(btn);
-  }
-
-  const plotHolder = document.createElement('div');
-  plotHolder.className = 'df-prob-plot-holder';
-  mainWrap.appendChild(plotHolder);
-
-  // Row-label overlays positioned in the gutter.
-  const innerH      = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const yToPx       = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
-  const ROW_LABELS  = [
-    ['Ignored',  COLOR_IGNORED, Y_LABEL_IGN],
-    ['R Reward', COLOR_R,       Y_LABEL_RREW],
-    ['R Choice', COLOR_R,       Y_LABEL_RCHO],
-    ['p(R)',     COLOR_R,       Y_LABEL_PR],
-    ['p(L)',     COLOR_L,       Y_LABEL_PL],
-    ['L Choice', COLOR_L,       Y_LABEL_LCHO],
-    ['L Reward', COLOR_L,       Y_LABEL_LREW],
-  ];
-  for (const [text, color, yData] of ROW_LABELS) {
-    mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, yToPx(yData)));
-  }
-
-  // Playhead — vertical bar across the main plot area.
-  const playhead = document.createElement('div');
-  playhead.className = 'df-playhead';
-  Object.assign(playhead.style, {
-    position: 'absolute',
-    top:    `${MARGIN.top - 6}px`,
-    bottom: `${MARGIN.bottom - 4}px`,
-    width: '1.5px',
-    background: 'var(--text-primary, #222)',
-    pointerEvents: 'none',
-    transform: 'translateX(-0.75px)',
-    left: '0',
-    display: 'none',
-  });
-  mainWrap.appendChild(playhead);
-
-  // Click-to-scrub overlay (covers the inner plot area).
-  const scrubOverlay = document.createElement('div');
-  scrubOverlay.className = 'df-prob-scrub-overlay';
-  Object.assign(scrubOverlay.style, {
-    position: 'absolute',
-    top:    `${MARGIN.top - 6}px`,
-    bottom: `${MARGIN.bottom - 4}px`,
-    left: '0', right: '0',
-    cursor: 'crosshair',
-  });
-  mainWrap.appendChild(scrubOverlay);
-
-  // ===========================================================================
-  // State
-  // ===========================================================================
-
-  let innerLeft          = MARGIN.left;
-  let innerWidth         = 0;
-  let overviewInnerWidth = 0;
-  let scrubCb            = null;
-  let lastT              = 0;
-  let lastW              = 0;
-  let brushT0            = 0;
-  let brushT1            = sessionEndS;
-  let dragState          = null;
-  let pendingRebuild     = false;
-  let xMode              = 'time';
-
-  // ===========================================================================
-  // Overview helpers
-  // ===========================================================================
-
-  function _pxToTime(px) {
-    return Math.max(0, Math.min(sessionEndS, (px / overviewInnerWidth) * sessionEndS));
-  }
-
-  function _brushEdgePx() {
-    return {
-      left:  (brushT0 / sessionEndS) * overviewInnerWidth,
-      right: (brushT1 / sessionEndS) * overviewInnerWidth,
-    };
-  }
-
-  function _updateBrushVisual() {
-    if (overviewInnerWidth <= 0) return;
-    const x0 = (brushT0 / sessionEndS) * overviewInnerWidth;
-    const x1 = (brushT1 / sessionEndS) * overviewInnerWidth;
-    Object.assign(dimLeft.style,  { left: `${MARGIN.left}px`, width: `${Math.max(0, x0)}px` });
-    Object.assign(dimRight.style, {
-      left:  `${MARGIN.left + x1}px`,
-      width: `${Math.max(0, overviewInnerWidth - x1)}px`,
-    });
-  }
-
-  function _placeOverviewPlayhead() {
-    if (sessionEndS <= 0 || overviewInnerWidth <= 0) return;
-    const frac = Math.max(0, Math.min(1, lastT / sessionEndS));
-    overviewPlayhead.style.left    = `${MARGIN.left + frac * overviewInnerWidth}px`;
-    overviewPlayhead.style.display = '';
-  }
-
-  // ===========================================================================
-  // Main-plot playhead
-  // ===========================================================================
-
-  function _placePlayhead() {
-    const range = brushT1 - brushT0;
-    if (range <= 0 || innerWidth <= 0) return;
-    const frac = (lastT - brushT0) / range;
-    if (frac < 0 || frac > 1) { playhead.style.display = 'none'; return; }
-    playhead.style.left    = `${innerLeft + frac * innerWidth}px`;
-    playhead.style.display = '';
-  }
-
-  // ===========================================================================
-  // Overview rebuild
-  // ===========================================================================
-
-  function _rebuildOverview(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
-    overviewInnerWidth = w - MARGIN.left - MARGIN.right;
-
+  const renderOverview = (holder, w) => {
     const plot = Plot.plot({
       width: w,
       height: OVERVIEW_HEIGHT,
@@ -317,25 +132,10 @@ export function createProbPlot(data) {
           strokeWidth: 1.5, curve: 'step-after' }),
       ],
     });
-    overviewHolder.replaceChildren(plot);
+    holder.replaceChildren(plot);
+  };
 
-    // Position the interact overlay over the inner area.
-    Object.assign(overviewInteract.style, {
-      position: 'absolute', top: '0', bottom: '0',
-      left:  `${MARGIN.left}px`,
-      width: `${overviewInnerWidth}px`,
-    });
-
-    _updateBrushVisual();
-    _placeOverviewPlayhead();
-  }
-
-  // ===========================================================================
-  // Main plot rebuild  (uses current brush range as x domain)
-  // ===========================================================================
-
-  function _rebuild(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
+  const renderMain = (holder, w, [t0, t1]) => {
     const plot = Plot.plot({
       width: w,
       height: PLOT_HEIGHT,
@@ -347,7 +147,7 @@ export function createProbPlot(data) {
       clip: true,
       x: {
         label: xMode === 'time' ? 'time (s) →' : 'trial →',
-        domain: [brushT0, brushT1],
+        domain: [t0, t1],
         grid: false,
         ...(xMode === 'trials' && trialTimes.length ? { tickFormat: (t) => String(_trialAtTime(t)) } : {}),
       },
@@ -392,135 +192,65 @@ export function createProbPlot(data) {
           stroke: COLOR_IGNORED, strokeWidth: 1.2 }),
       ],
     });
-    plotHolder.replaceChildren(plot);
-    innerLeft  = MARGIN.left;
-    innerWidth = w - MARGIN.left - MARGIN.right;
-    _placePlayhead();
+    holder.replaceChildren(plot);
+  };
+
+  const bz = createBrushOverview({
+    sessionEndS,
+    margin: { left: MARGIN.left, right: MARGIN.right },
+    overviewHeight: OVERVIEW_HEIGHT,
+    minPlotW: MIN_PLOT_W,
+    scrubInset: { top: MARGIN.top - 6, bottom: MARGIN.bottom - 4 },
+    wrapperClass: 'df-prob-plot-wrap',
+    renderOverview,
+    renderMain,
+  });
+
+  // Overview hint overlay (kept from the original DF look).
+  const overviewHint = document.createElement('div');
+  overviewHint.className = 'df-brush-hint';
+  overviewHint.innerHTML = 'Click + drag<br>to zoom';
+  bz.overviewWrap.appendChild(overviewHint);
+
+  // Row-label overlays positioned in the gutter.
+  const ROW_LABELS = [
+    ['Ignored',  COLOR_IGNORED, Y_LABEL_IGN],
+    ['R Reward', COLOR_R,       Y_LABEL_RREW],
+    ['R Choice', COLOR_R,       Y_LABEL_RCHO],
+    ['p(R)',     COLOR_R,       Y_LABEL_PR],
+    ['p(L)',     COLOR_L,       Y_LABEL_PL],
+    ['L Choice', COLOR_L,       Y_LABEL_LCHO],
+    ['L Reward', COLOR_L,       Y_LABEL_LREW],
+  ];
+  for (const [text, color, yData] of ROW_LABELS) {
+    bz.mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, yToPx(yData)));
   }
 
-  // ===========================================================================
-  // Scrub in main plot (maps click to time within the zoomed range)
-  // ===========================================================================
-
-  scrubOverlay.addEventListener('click', (ev) => {
-    if (!scrubCb || innerWidth <= 0) return;
-    const rect = scrubOverlay.getBoundingClientRect();
-    const x    = ev.clientX - rect.left - innerLeft;
-    const frac = Math.max(0, Math.min(1, x / innerWidth));
-    scrubCb(brushT0 + frac * (brushT1 - brushT0));
-  });
-
-  // ===========================================================================
-  // Brush interaction on the overview strip
-  // ===========================================================================
-
-  overviewInteract.addEventListener('pointermove', (ev) => {
-    const rect = overviewInteract.getBoundingClientRect();
-    const px   = ev.clientX - rect.left;
-    const t    = _pxToTime(px);
-
-    if (dragState) {
-      // --- Dragging ---
-      if (dragState.type === 'new') {
-        brushT0 = Math.min(t, dragState.startT);
-        brushT1 = Math.max(t, dragState.startT);
-      } else if (dragState.type === 'left') {
-        brushT0 = Math.min(t, dragState.anchor);
-        brushT1 = Math.max(t, dragState.anchor);
-      } else if (dragState.type === 'right') {
-        brushT0 = Math.min(t, dragState.anchor);
-        brushT1 = Math.max(t, dragState.anchor);
-      } else if (dragState.type === 'move') {
-        const span  = dragState.origT1 - dragState.origT0;
-        const delta = t - dragState.anchorT;
-        brushT0 = Math.max(0, Math.min(sessionEndS - span, dragState.origT0 + delta));
-        brushT1 = brushT0 + span;
-      }
-      _updateBrushVisual();
-      if (!pendingRebuild) {
-        pendingRebuild = true;
-        requestAnimationFrame(() => { pendingRebuild = false; _rebuild(lastW); });
-      }
-    } else {
-      // --- Hover: update cursor ---
-      const { left: bL, right: bR } = _brushEdgePx();
-      if (Math.abs(px - bL) <= BRUSH_HANDLE_PX || Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-        overviewInteract.style.cursor = 'ew-resize';
-      } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-        overviewInteract.style.cursor = 'grab';
-      } else {
-        overviewInteract.style.cursor = 'crosshair';
-      }
-    }
-  });
-
-  overviewInteract.addEventListener('pointerdown', (ev) => {
-    overviewInteract.setPointerCapture(ev.pointerId);
-    const rect = overviewInteract.getBoundingClientRect();
-    const px   = ev.clientX - rect.left;
-    const t    = _pxToTime(px);
-    const { left: bL, right: bR } = _brushEdgePx();
-
-    if (Math.abs(px - bL) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'left',  anchor: brushT1 };
-      overviewInteract.style.cursor = 'ew-resize';
-    } else if (Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'right', anchor: brushT0 };
-      overviewInteract.style.cursor = 'ew-resize';
-    } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-      dragState = { type: 'move', anchorT: t, origT0: brushT0, origT1: brushT1 };
-      overviewInteract.style.cursor = 'grabbing';
-    } else {
-      dragState = { type: 'new', startT: t };
-      brushT0   = t;
-      brushT1   = t;
-      _updateBrushVisual();
-      overviewInteract.style.cursor = 'crosshair';
-    }
-    ev.preventDefault();
-  });
-
-  overviewInteract.addEventListener('pointerup', () => {
-    if (!dragState) return;
-    dragState = null;
-    // Selection too small → snap back to full range.
-    if (brushT1 - brushT0 < 2) { brushT0 = 0; brushT1 = sessionEndS; }
-    overviewInteract.style.cursor = 'crosshair';
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  // Double-click → reset to full range.
-  overviewInteract.addEventListener('dblclick', () => {
-    brushT0 = 0;
-    brushT1 = sessionEndS;
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  // ===========================================================================
-  // ResizeObserver
-  // ===========================================================================
-
-  const ro = new ResizeObserver((entries) => {
-    for (const e of entries) {
-      const w = Math.max(MIN_PLOT_W, Math.floor(e.contentRect.width));
-      if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-    }
-  });
-  ro.observe(wrapper);
-
-  queueMicrotask(() => {
-    const w = Math.max(MIN_PLOT_W, wrapper.clientWidth || 600);
-    if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-  });
+  // X-axis mode toggle — returned so the caller can place it wherever it likes.
+  const xToggle = document.createElement('div');
+  xToggle.className = 'df-x-toggle';
+  const _xBtns = {};
+  for (const mode of ['time', 'trials']) {
+    const btn = document.createElement('button');
+    btn.className = 'df-x-toggle-btn' + (mode === 'time' ? ' df-x-toggle-btn--active' : '');
+    btn.textContent = mode === 'time' ? 'Time' : 'Trials';
+    btn.addEventListener('click', () => {
+      if (xMode === mode) return;
+      xMode = mode;
+      _xBtns.time.classList.toggle('df-x-toggle-btn--active', mode === 'time');
+      _xBtns.trials.classList.toggle('df-x-toggle-btn--active', mode === 'trials');
+      bz.redrawMain();
+    });
+    _xBtns[mode] = btn;
+    xToggle.appendChild(btn);
+  }
 
   return {
-    element: wrapper,
+    element: bz.element,
     toggleEl: xToggle,
-    updatePlayhead(t) { lastT = t; _placePlayhead(); _placeOverviewPlayhead(); },
-    setOnScrub(cb)    { scrubCb = cb; },
-    dispose()         { ro.disconnect(); },
+    updatePlayhead: bz.updatePlayhead,
+    setOnScrub: bz.setOnScrub,
+    dispose: bz.dispose,
   };
 }
 

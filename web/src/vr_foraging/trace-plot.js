@@ -17,6 +17,7 @@
  */
 
 import * as Plot from '@observablehq/plot';
+import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
 import {
   CHOICE_COLOR, REWARD_COLOR, LICK_COLOR, VELOCITY_COLOR, VELOCITY_TRACE_COLOR,
   buildOdorPalette, odorBandColor,
@@ -139,11 +140,10 @@ export function createVrfTracePlot(data) {
   velMax = Math.ceil(velMax / 10) * 10;
 
   // =========================================================================
-  // DOM scaffold
+  // DOM scaffold — the shared brush component (lib/behaviors/brush-overview.js)
+  // owns the overview strip, brush (create/resize/pan), playheads and scrub.
+  // This module only supplies the legend + the marks for each panel.
   // =========================================================================
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'vrf-trace-wrap df-prob-plot-wrap';
 
   // ---- Legend -------------------------------------------------------------
   const legend = document.createElement('div');
@@ -154,132 +154,9 @@ export function createVrfTracePlot(data) {
     <span class="vrf-trace-legend-item"><span class="vrf-lg-dot" style="background:${REWARD_COLOR}"></span>Rewards</span>
     <span class="vrf-trace-legend-item"><span class="vrf-lg-tick" style="background:${LICK_COLOR}"></span>Licks</span>
   `;
-  wrapper.appendChild(legend);
 
-  // ---- Overview (brushable zoom strip: bands only) ------------------------
-  const overviewWrap = document.createElement('div');
-  overviewWrap.className = 'df-prob-overview-wrap';
-  wrapper.appendChild(overviewWrap);
-
-  const overviewHolder = document.createElement('div');
-  overviewHolder.className = 'df-prob-overview-holder';
-  overviewWrap.appendChild(overviewHolder);
-
-  const dimLeft  = document.createElement('div');
-  const dimRight = document.createElement('div');
-  dimLeft.className  = 'df-brush-dim';
-  dimRight.className = 'df-brush-dim';
-  overviewWrap.appendChild(dimLeft);
-  overviewWrap.appendChild(dimRight);
-
-  const overviewInteract = document.createElement('div');
-  overviewInteract.className = 'df-brush-interact';
-  overviewInteract.title = 'Drag to zoom · double-click to reset';
-  overviewWrap.appendChild(overviewInteract);
-
-  const overviewPlayhead = document.createElement('div');
-  Object.assign(overviewPlayhead.style, {
-    position: 'absolute', top: '0', bottom: '0', width: '1.5px',
-    background: '#555', pointerEvents: 'none',
-    transform: 'translateX(-0.75px)', left: '0', display: 'none',
-  });
-  overviewWrap.appendChild(overviewPlayhead);
-
-  // ---- Main (marker + velocity panels + playhead) -------------------------
-  const mainWrap = document.createElement('div');
-  mainWrap.style.position = 'relative';
-  wrapper.appendChild(mainWrap);
-
-  const markerHolder = document.createElement('div');
-  markerHolder.className = 'vrf-trace-marker-holder';
-  mainWrap.appendChild(markerHolder);
-
-  const velHolder = document.createElement('div');
-  velHolder.className = 'vrf-trace-vel-holder';
-  mainWrap.appendChild(velHolder);
-
-  // Marker row labels (gutter overlay, aligned to the marker panel).
-  const ROW_LABELS = [
-    ['Choices', CHOICE_COLOR, Y_CHOICE],
-    ['Rewards', REWARD_COLOR, Y_REWARD],
-    ['Licks',   LICK_COLOR,   Y_LICK],
-  ];
-  const markerInnerH = MARKER_HEIGHT - MARKER_MARGIN_TOP - MARKER_MARGIN_BOTTOM;
-  for (const [text, color, yData] of ROW_LABELS) {
-    const topPx = MARKER_MARGIN_TOP + (1 - yData / 3) * markerInnerH;
-    mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, topPx));
-  }
-
-  // Playhead spanning marker + velocity panels.
-  const playhead = document.createElement('div');
-  Object.assign(playhead.style, {
-    position: 'absolute', top: '0px',
-    bottom: `${VEL_MARGIN_BOTTOM - 2}px`, width: '1.5px',
-    background: VELOCITY_COLOR, pointerEvents: 'none',
-    transform: 'translateX(-0.75px)', left: '0', display: 'none',
-    boxShadow: '0 0 0 0.5px rgba(255,255,255,0.6)',
-  });
-  mainWrap.appendChild(playhead);
-
-  const scrubOverlay = document.createElement('div');
-  Object.assign(scrubOverlay.style, {
-    position: 'absolute', top: '0px',
-    bottom: `${VEL_MARGIN_BOTTOM - 2}px`,
-    left: `${MARGIN.left}px`, right: `${MARGIN.right}px`,
-    cursor: 'crosshair',
-  });
-  mainWrap.appendChild(scrubOverlay);
-
-  // =========================================================================
-  // State
-  // =========================================================================
-
-  let innerWidth = 0;
-  let overviewInnerWidth = 0;
-  let scrubCb = null;
-  let lastT = 0;
-  let lastW = 0;
-  let brushT0 = 0;
-  let brushT1 = sessionEndS;
-  let dragState = null;
-  let pendingRebuild = false;
-
-  // =========================================================================
-  // Overview
-  // =========================================================================
-
-  function _pxToTime(px) {
-    return Math.max(0, Math.min(sessionEndS, (px / overviewInnerWidth) * sessionEndS));
-  }
-
-  function _brushEdgePx() {
-    return {
-      left:  (brushT0 / sessionEndS) * overviewInnerWidth,
-      right: (brushT1 / sessionEndS) * overviewInnerWidth,
-    };
-  }
-
-  function _updateBrushVisual() {
-    if (overviewInnerWidth <= 0) return;
-    const x0 = (brushT0 / sessionEndS) * overviewInnerWidth;
-    const x1 = (brushT1 / sessionEndS) * overviewInnerWidth;
-    Object.assign(dimLeft.style,  { left: `${MARGIN.left}px`, width: `${Math.max(0, x0)}px` });
-    Object.assign(dimRight.style, {
-      left:  `${MARGIN.left + x1}px`,
-      width: `${Math.max(0, overviewInnerWidth - x1)}px`,
-    });
-  }
-
-  function _placeOverviewPlayhead() {
-    if (sessionEndS <= 0 || overviewInnerWidth <= 0) return;
-    const frac = Math.max(0, Math.min(1, lastT / sessionEndS));
-    overviewPlayhead.style.left    = `${MARGIN.left + frac * overviewInnerWidth}px`;
-    overviewPlayhead.style.display = '';
-  }
-
-  function _rebuildOverview(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
-    overviewInnerWidth = w - MARGIN.left - MARGIN.right;
+  // ---- Overview marks (patch-colour bands) --------------------------------
+  const renderOverview = (holder, w) => {
     const p = Plot.plot({
       width: w, height: OVERVIEW_HEIGHT,
       marginLeft: MARGIN.left, marginRight: MARGIN.right,
@@ -292,39 +169,18 @@ export function createVrfTracePlot(data) {
           fill: 'color', stroke: 'none' }),
       ],
     });
-    overviewHolder.replaceChildren(p);
-    Object.assign(overviewInteract.style, {
-      position: 'absolute', top: '0', bottom: '0',
-      left: `${MARGIN.left}px`, width: `${overviewInnerWidth}px`,
-    });
-    _updateBrushVisual();
-    _placeOverviewPlayhead();
-  }
+    holder.replaceChildren(p);
+  };
 
-  // =========================================================================
-  // Marker + velocity panels
-  // =========================================================================
-
-  function _placePlayhead() {
-    const range = brushT1 - brushT0;
-    if (range <= 0 || innerWidth <= 0) { playhead.style.display = 'none'; return; }
-    const frac = (lastT - brushT0) / range;
-    if (frac < 0 || frac > 1) { playhead.style.display = 'none'; return; }
-    playhead.style.left    = `${MARGIN.left + frac * innerWidth}px`;
-    playhead.style.display = '';
-  }
-
-  function _rebuild(width) {
-    const w = Math.max(MIN_PLOT_W, Math.floor(width));
-    innerWidth = w - MARGIN.left - MARGIN.right;
-
+  // ---- Main marks (marker panel + velocity panel, stacked) ----------------
+  const renderMain = (holder, w, [t0, t1]) => {
     const markerPlot = Plot.plot({
       width: w, height: MARKER_HEIGHT,
       marginLeft: MARGIN.left, marginRight: MARGIN.right,
       marginTop: MARKER_MARGIN_TOP, marginBottom: MARKER_MARGIN_BOTTOM,
       style: { background: 'transparent', fontFamily: 'inherit' },
       clip: true,
-      x: { axis: null, domain: [brushT0, brushT1] },
+      x: { axis: null, domain: [t0, t1] },
       y: { axis: null, domain: [0, 3] },
       marks: [
         Plot.ruleX(licks, { x: 't', y1: Y_LICK - 0.32, y2: Y_LICK + 0.32,
@@ -335,7 +191,6 @@ export function createVrfTracePlot(data) {
           symbol: 'square', r: 3 }),
       ],
     });
-    markerHolder.replaceChildren(markerPlot);
 
     const velPlot = Plot.plot({
       width: w, height: VEL_HEIGHT,
@@ -345,7 +200,7 @@ export function createVrfTracePlot(data) {
       clip: true,
       x: {
         label: 'Time (hh:mm:ss)',
-        domain: [brushT0, brushT1],
+        domain: [t0, t1],
         grid: false,
         tickFormat: (t) => fmtHMS(t),
       },
@@ -361,120 +216,40 @@ export function createVrfTracePlot(data) {
           strokeWidth: 1 }),
       ],
     });
-    velHolder.replaceChildren(velPlot);
 
-    _placePlayhead();
+    holder.replaceChildren(markerPlot, velPlot);
+  };
+
+  const bz = createBrushOverview({
+    sessionEndS,
+    margin: { left: MARGIN.left, right: MARGIN.right },
+    overviewHeight: OVERVIEW_HEIGHT,
+    minPlotW: MIN_PLOT_W,
+    scrubInset: { top: 0, bottom: VEL_MARGIN_BOTTOM - 2 },
+    playheadColor: VELOCITY_COLOR,
+    wrapperClass: 'vrf-trace-wrap df-prob-plot-wrap',
+    headerEl: legend,
+    renderOverview,
+    renderMain,
+  });
+
+  // Marker row labels (gutter overlay, aligned to the marker panel).
+  const ROW_LABELS = [
+    ['Choices', CHOICE_COLOR, Y_CHOICE],
+    ['Rewards', REWARD_COLOR, Y_REWARD],
+    ['Licks',   LICK_COLOR,   Y_LICK],
+  ];
+  const markerInnerH = MARKER_HEIGHT - MARKER_MARGIN_TOP - MARKER_MARGIN_BOTTOM;
+  for (const [text, color, yData] of ROW_LABELS) {
+    const topPx = MARKER_MARGIN_TOP + (1 - yData / 3) * markerInnerH;
+    bz.mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, topPx));
   }
 
-  // =========================================================================
-  // Scrub (click in main panels → seek within zoomed range)
-  // =========================================================================
-
-  scrubOverlay.addEventListener('click', (ev) => {
-    if (!scrubCb || innerWidth <= 0) return;
-    const rect = scrubOverlay.getBoundingClientRect();
-    const frac = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
-    scrubCb(brushT0 + frac * (brushT1 - brushT0));
-  });
-
-  // =========================================================================
-  // Brush interaction on the overview strip
-  // =========================================================================
-
-  overviewInteract.addEventListener('pointermove', (ev) => {
-    const rect = overviewInteract.getBoundingClientRect();
-    const px   = ev.clientX - rect.left;
-    const t    = _pxToTime(px);
-
-    if (dragState) {
-      if (dragState.type === 'new') {
-        brushT0 = Math.min(t, dragState.startT);
-        brushT1 = Math.max(t, dragState.startT);
-      } else if (dragState.type === 'left' || dragState.type === 'right') {
-        brushT0 = Math.min(t, dragState.anchor);
-        brushT1 = Math.max(t, dragState.anchor);
-      } else if (dragState.type === 'move') {
-        const span  = dragState.origT1 - dragState.origT0;
-        const delta = t - dragState.anchorT;
-        brushT0 = Math.max(0, Math.min(sessionEndS - span, dragState.origT0 + delta));
-        brushT1 = brushT0 + span;
-      }
-      _updateBrushVisual();
-      if (!pendingRebuild) {
-        pendingRebuild = true;
-        requestAnimationFrame(() => { pendingRebuild = false; _rebuild(lastW); });
-      }
-    } else {
-      const { left: bL, right: bR } = _brushEdgePx();
-      if (Math.abs(px - bL) <= BRUSH_HANDLE_PX || Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-        overviewInteract.style.cursor = 'ew-resize';
-      } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-        overviewInteract.style.cursor = 'grab';
-      } else {
-        overviewInteract.style.cursor = 'crosshair';
-      }
-    }
-  });
-
-  overviewInteract.addEventListener('pointerdown', (ev) => {
-    overviewInteract.setPointerCapture(ev.pointerId);
-    const rect = overviewInteract.getBoundingClientRect();
-    const px   = ev.clientX - rect.left;
-    const t    = _pxToTime(px);
-    const { left: bL, right: bR } = _brushEdgePx();
-
-    if (Math.abs(px - bL) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'left',  anchor: brushT1 };
-    } else if (Math.abs(px - bR) <= BRUSH_HANDLE_PX) {
-      dragState = { type: 'right', anchor: brushT0 };
-    } else if (px >= bL && px <= bR && (brushT0 > 0 || brushT1 < sessionEndS - 0.5)) {
-      dragState = { type: 'move', anchorT: t, origT0: brushT0, origT1: brushT1 };
-      overviewInteract.style.cursor = 'grabbing';
-    } else {
-      dragState = { type: 'new', startT: t };
-      brushT0 = t; brushT1 = t;
-      _updateBrushVisual();
-    }
-    ev.preventDefault();
-  });
-
-  overviewInteract.addEventListener('pointerup', () => {
-    if (!dragState) return;
-    dragState = null;
-    if (brushT1 - brushT0 < 2) { brushT0 = 0; brushT1 = sessionEndS; }
-    overviewInteract.style.cursor = 'crosshair';
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  overviewInteract.addEventListener('dblclick', () => {
-    brushT0 = 0; brushT1 = sessionEndS;
-    _updateBrushVisual();
-    _rebuild(lastW);
-  });
-
-  // =========================================================================
-  // Resize
-  // =========================================================================
-
-  const ro = new ResizeObserver((entries) => {
-    for (const e of entries) {
-      const w = Math.max(MIN_PLOT_W, Math.floor(e.contentRect.width));
-      if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-    }
-  });
-  ro.observe(wrapper);
-
-  queueMicrotask(() => {
-    const w = Math.max(MIN_PLOT_W, wrapper.clientWidth || 600);
-    if (w !== lastW) { lastW = w; _rebuildOverview(w); _rebuild(w); }
-  });
-
   return {
-    element: wrapper,
-    updatePlayhead(t) { lastT = t; _placePlayhead(); _placeOverviewPlayhead(); },
-    setOnScrub(cb)    { scrubCb = cb; },
-    dispose()         { ro.disconnect(); },
+    element: bz.element,
+    updatePlayhead: bz.updatePlayhead,
+    setOnScrub: bz.setOnScrub,
+    dispose: bz.dispose,
   };
 }
 

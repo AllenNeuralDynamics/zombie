@@ -134,7 +134,8 @@
   gap: 12px;
 }
 .pb-player--df .pb-main,
-.pb-player--dr .pb-main {
+.pb-player--dr .pb-main,
+.pb-player--mfish .pb-main {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -157,7 +158,8 @@
 .pb-plot { width: 100%; }
 .pb-plot[hidden] { display: none; }
 .pb-player--df .pb-plot,
-.pb-player--dr .pb-plot {
+.pb-player--dr .pb-plot,
+.pb-player--mfish .pb-plot {
   flex: 1 1 440px;
   min-width: 0;
 }
@@ -230,12 +232,46 @@
   image-rendering: auto;
 }
 
-/* Fixed-size square-arena tasks (DF / DR). */
+/* Fixed-size square-arena tasks (DF / DR / mFISH). */
 .pb-player--df .pb-canvas,
-.pb-player--dr .pb-canvas {
+.pb-player--dr .pb-canvas,
+.pb-player--mfish .pb-canvas {
   width: 320px;
   height: 360px;
 }
+
+/* mFISH event plot fills its column so the ResizeObserver can size it. */
+.mfish-evt-plot-wrap { width: 100%; min-width: 0; }
+
+/* Shared zoomable overview + brush (lib/behaviors/brush-overview.js) --------- */
+.pbz-wrap { width: 100%; min-width: 0; }
+.pbz-overview-wrap {
+  position: relative;
+  width: 100%;
+  margin-bottom: 4px;
+  border: 1px solid var(--border, #e4e4e4);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--input-bg, #fff);
+}
+.pbz-overview-holder { display: block; }
+.pbz-overview-holder svg { display: block; overflow: hidden; }
+.pbz-brush-dim {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.pbz-brush-interact {
+  position: absolute;
+  top: 0; bottom: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+.pbz-main-wrap { position: relative; }
+.pbz-main-wrap svg { display: block; }
+/* VRF's velocity panel has axis labels that extend past the SVG frame. */
+.vrf-trace-wrap .pbz-main-wrap svg { overflow: visible; }
 
 /* Corridor task (VRF) fills the available width; height is fixed by CH. */
 .pb-player--vrf .pb-stage-canvas-wrap {
