@@ -7,62 +7,18 @@
  * calls renderHeader() at build (and dev) time to inject the markup, varying
  * only the brand subtitle and which link/dropdown is marked active.
  *
- * names.html is intentionally NOT listed here — it uses a reduced custom nav.
+ * Nav structure and per-page header config both come from the route manifest
+ * (`./routes.js`) — this module only contains rendering logic.
+ *
+ * names.html is intentionally NOT in `PAGES` — it uses a reduced custom nav
+ * (see its `customHeader` entry in routes.js).
  *
  * @module
  */
 
-const TOP_LINKS = [
-  ['/search', 'Search'],
-  ['/view', 'View'],
-];
+import { PAGES, TOP_LINKS, PLATFORMS, DASHBOARDS } from './routes.js';
 
-const PLATFORMS = [
-  ['/smartspim', 'SmartSPIM'],
-  ['/exaspim', 'ExaSPIM'],
-  ['/fiber_photometry', 'Fiber Photometry'],
-  ['/vr_foraging', 'VR Foraging'],
-  ['/dynamic_foraging', 'Dynamic Foraging'],
-  ['/dynamic_routing', 'Dynamic Routing'],
-  ['/slap2', 'SLAP2'],
-];
-
-const DASHBOARDS = [
-  ['/sessions', 'Behavior sessions'],
-  ['/quality_control', 'Quality Control'],
-  ['/contributions', 'Contributions'],
-  ['/analysis-framework', 'Analysis Framework'],
-  ['/size', 'Storage Sizes'],
-];
-
-/**
- * Per-page header config, keyed by HTML filename.
- * `active` is the nav href for the current page (null for utility pages that
- * are not linked in the nav, e.g. migrate / upgrade / record).
- */
-export const PAGES = {
-  'search.html':           { sub: 'search',                    active: '/search' },
-  'view.html':             { sub: 'asset viewer',              active: '/view' },
-  'smartspim.html':        { sub: 'smartspim platform',        active: '/smartspim' },
-  'exaspim.html':          { sub: 'exaspim platform',          active: '/exaspim' },
-  'fiber_photometry.html': { sub: 'fiber photometry platform', active: '/fiber_photometry' },
-  'vr_foraging.html':      { sub: 'vr foraging platform',      active: '/vr_foraging' },
-  'dynamic_foraging.html': { sub: 'dynamic foraging platform', active: '/dynamic_foraging' },
-  'dynamic_routing.html':  { sub: 'dynamic routing platform',  active: '/dynamic_routing' },
-  'slap2.html':            { sub: 'slap2 platform',            active: '/slap2' },
-  'sessions.html':         { sub: 'behavior sessions',         active: '/sessions' },
-  'quality_control.html':  { sub: 'quality control',           active: '/quality_control' },
-  'contributions.html':    { sub: 'contributions',             active: '/contributions' },
-  'analysis-framework.html': { sub: 'analysis framework',       active: '/analysis-framework' },
-  'migrate.html':          { sub: 'metadata migration',        active: null },
-  'migrate/submit.html':   { sub: 'submit metadata migration', active: null },
-  'migrate/review.html':   { sub: 'review pending migrations', active: null },
-  'upgrade.html':          { sub: 'metadata upgrade',          active: null },
-  'record.html':           { sub: 'metadata record',           active: null },
-  'star.html':             { sub: 'STAR methods',               active: null },
-  'v2.html':               { sub: 'v2 acquisition heatmap',     active: null },
-  'size.html':             { sub: 'storage sizes',               active: '/size' },
-};
+export { PAGES };
 
 function navLink(href, label, active, indent) {
   const cur = href === active ? ' aria-current="page"' : '';
@@ -86,11 +42,11 @@ function dropdown(label, items, active) {
 /**
  * Render the full <header> block for a page.
  *
- * @param {{ sub: string, active: string|null }} page
+ * @param {{ sub: string, active?: string|null }} page
  * @returns {string} HTML for the header (no leading indent on the first line;
  *   the `<!--APP_HEADER-->` placeholder supplies it).
  */
-export function renderHeader({ sub, active }) {
+export function renderHeader({ sub, active = null }) {
   return [
     '<header class="app-header">',
     '      <a href="/search" class="app-header-brand">',
@@ -108,4 +64,16 @@ export function renderHeader({ sub, active }) {
     '      </nav>',
     '    </header>',
   ].join('\n');
+}
+
+/**
+ * Tiny synchronous initializer that applies a saved theme before first paint
+ * (avoids a flash of the wrong theme). Injected via the `<!--THEME_INIT-->`
+ * placeholder so its one implementation lives here instead of being
+ * hand-copied into every page's <head>. The actual toggle-button wiring lives
+ * in `web/src/lib/theme.js`, loaded as a module script by each page that has
+ * a `#theme-toggle` button.
+ */
+export function renderThemeInit() {
+  return "<script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>";
 }

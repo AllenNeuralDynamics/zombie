@@ -1,24 +1,31 @@
 import { defineConfig } from 'vite';
 import { resolve, basename } from 'path';
 import react from '@vitejs/plugin-react';
-import { PAGES, renderHeader } from './build/header-template.js';
+import { PAGES, renderHeader, renderThemeInit } from './build/header-template.js';
+import { ROUTES } from './build/routes.js';
 
 /**
- * Inject the shared app header into pages that contain an `<!--APP_HEADER-->`
- * placeholder, so the nav markup lives in one source file instead of being
- * hand-copied into every HTML page. Runs in both dev and build.
+ * Inject shared page-shell fragments — the app header and the pre-paint
+ * theme initializer — into pages that contain the corresponding placeholder,
+ * so this markup lives in one source file instead of being hand-copied into
+ * every HTML page. Runs in both dev and build.
  */
 function sharedHeaderPlugin() {
   return {
     name: 'shared-header',
     transformIndexHtml(html, ctx) {
-      if (!html.includes('<!--APP_HEADER-->')) return html;
-      // Try the relative path first (e.g. 'migrate/submit.html'), fall back
-      // to basename to keep existing top-level pages working.
-      const rel = ctx.path.replace(/^\/+/, '');
-      const page = PAGES[rel] ?? PAGES[basename(ctx.path)];
-      if (!page) return html;
-      return html.replace('<!--APP_HEADER-->', renderHeader(page));
+      let out = html;
+      if (out.includes('<!--THEME_INIT-->')) {
+        out = out.replace('<!--THEME_INIT-->', renderThemeInit());
+      }
+      if (out.includes('<!--APP_HEADER-->')) {
+        // Try the relative path first (e.g. 'migrate/submit.html'), fall back
+        // to basename to keep existing top-level pages working.
+        const rel = ctx.path.replace(/^\/+/, '');
+        const page = PAGES[rel] ?? PAGES[basename(ctx.path)];
+        if (page) out = out.replace('<!--APP_HEADER-->', renderHeader(page));
+      }
+      return out;
     },
   };
 }
@@ -82,38 +89,12 @@ export default defineConfig({
     outDir: '../dist',
     emptyOutDir: true,
     rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        explore: resolve(__dirname, 'explore.html'),
-        search: resolve(__dirname, 'search.html'),
-        view: resolve(__dirname, 'view.html'),
-        contributions: resolve(__dirname, 'contributions.html'),
-        analysis_framework: resolve(__dirname, 'analysis-framework.html'),
-        contributions_view: resolve(__dirname, 'contributions/view.html'),
-        contributions_edit: resolve(__dirname, 'contributions/edit.html'),
-        contributions_add: resolve(__dirname, 'contributions/add.html'),
-        contributions_demo: resolve(__dirname, 'contributions/demo.html'),
-        smartspim: resolve(__dirname, 'smartspim.html'),
-        exaspim: resolve(__dirname, 'exaspim.html'),
-        coordinate_system_builder: resolve(__dirname, 'coordinate_system_builder.html'),
-        sessions: resolve(__dirname, 'sessions.html'),
-        quality_control: resolve(__dirname, 'quality_control.html'),
-        fiber_photometry: resolve(__dirname, 'fiber_photometry.html'),
-        vr_foraging: resolve(__dirname, 'vr_foraging.html'),
-        dynamic_foraging: resolve(__dirname, 'dynamic_foraging.html'),
-        dynamic_routing: resolve(__dirname, 'dynamic_routing.html'),
-        slap2: resolve(__dirname, 'slap2.html'),
-        tables: resolve(__dirname, 'tables.html'),
-        names: resolve(__dirname, 'names.html'),
-        record: resolve(__dirname, 'record.html'),
-        star: resolve(__dirname, 'star.html'),
-        upgrade: resolve(__dirname, 'upgrade.html'),
-        migrate: resolve(__dirname, 'migrate.html'),
-        migrate_submit: resolve(__dirname, 'migrate/submit.html'),
-        migrate_review: resolve(__dirname, 'migrate/review.html'),
-        v2: resolve(__dirname, 'v2.html'),
-        size: resolve(__dirname, 'size.html'),
-      },
+      // Build targets are derived from the route manifest (build/routes.js)
+      // instead of being hand-maintained here, so adding a page only means
+      // adding one manifest entry.
+      input: Object.fromEntries(
+        ROUTES.map((r) => [r.inputKey, resolve(__dirname, r.html)]),
+      ),
     },
   },
 
