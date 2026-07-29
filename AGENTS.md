@@ -99,6 +99,7 @@ for proxy routes, legacy redirects (`/subject`, `/project` → `/view`), and `/`
 | `web/src/lib/docdb.js` | Direct-from-browser DocDB queries |
 | `web/src/lib/utils.js` | `formatDate/Datetime`, `escHtml`, `sortRows`, `downloadCsv` |
 | `web/src/subject/view.js` | Reference full page (selector → query → DOM) |
+| `web/src/swdb/` | SWDB curated-set dashboard — isolated, see below |
 | `web/docdb_proxy.py` | Server-side proxy (:3001): DocDB, S3 listing, log server |
 | `deploy/nginx.conf`, `deploy/supervisord.conf` | Container serving / process mgmt |
 | `web/styles/app.css` | `@import`s numbered partials in `styles/partials/` |
@@ -121,6 +122,36 @@ const rows = arrowTableToRows(result); // from lib/arrow.js
 
 **Abort on re-render:** Use `AbortController`; check `signal?.aborted` after
 every `await`. See `subject/view.js`.
+
+## SWDB Dashboard (`/swdb`, `/swdb/set`)
+
+A deliberately **isolated** dashboard for small curated sets of *merged NWB*
+assets (behavior + DLC eye tracking + RF mapping + optotagging + units in one
+file). All of its code lives under `web/src/swdb/` — keep it there; only reuse
+flows *inward*, nothing else imports from `swdb/`.
+
+Two things make it different from every other page:
+
+- **Its source assets are true HDF5** `.nwb` (~3.7 GB each), not `.nwb.zarr`, so
+  they are unreadable in-browser. The `swdb` job in **biodata-cache** flattens
+  them into six `platform_swdb_*` parquet tables. `swdb/data.js` is the only
+  place that knows those URLs.
+- **It does not use eager tables.** Both entries call
+  `bootstrap(view, { requiredTables: [] })` — bootstrap is used purely to bring up
+  DuckDB and resolve the cache version. Every read targets one explicit
+  partition URL (`…/platform_swdb_trials/asset_name=<asset>/data.pqt`), which
+  sidesteps DuckDB-WASM's inability to glob virtual-hosted HTTPS URLs and lets
+  parquet column pruning keep the wide tables cheap.
+
+The behavior viewer is **not** a fork: `swdb/dr-session.js` adapts the cached
+tables into the exact data shape `dynamic_routing/`'s `DrAnimation` and
+`createEventPlot` already consume, so the animation, event plot and
+`playback-harness` transport are reused as-is. The one upgrade is that these
+NWBs carry a real lick stream, so `responses` holds actual licks rather than the
+one-per-responding-trial proxy the DR parquet cache is limited to.
+
+Times in the cache are in the NWB session clock (t=0 = `session_start_time`);
+the adapter shifts to "first trial at zero" on read.
 
 ## Plotting
 

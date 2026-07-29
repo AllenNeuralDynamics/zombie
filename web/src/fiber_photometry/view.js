@@ -598,6 +598,7 @@ export function createFiberPhotometryView(coord) {
       assetNameCol: 'asset_name',
       assetFilter: { type: 'modality', value: 'fib' },
       platformKey: 'fib',
+      operationsTableName: 'platform_fib_operations',
     }));
     container.appendChild(layout);
 

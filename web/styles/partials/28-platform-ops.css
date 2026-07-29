@@ -1,0 +1,140 @@
+/* ============================================================
+ * Processing operations table inside platform overview
+ * (platform-overview/processing-status.js)
+ * ============================================================ */
+
+.platform-ops-section {
+  padding: 0.5rem 0;
+  overflow-x: auto;
+}
+
+.ops-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ops-range {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.platform-ops-table {
+  font-size: 0.8rem;
+  border-collapse: collapse;
+  width: auto;
+}
+
+.platform-ops-table th,
+.platform-ops-table td {
+  padding-right: 24px;
+  white-space: nowrap;
+}
+
+.platform-ops-table td {
+  vertical-align: top;
+}
+
+.platform-ops-table td:last-child,
+.platform-ops-table th:last-child {
+  width: 100%;
+  padding-right: 0;
+}
+
+.platform-ops-table .ops-asset {
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+}
+
+.ops-steps {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ops-step {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 9px;
+  border: 1px solid var(--surface-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.ops-step:hover {
+  background: var(--surface-hover, var(--surface-card));
+}
+
+.ops-step.is-selected {
+  box-shadow: 0 0 0 2px var(--accent, #4a90d9) inset;
+}
+
+.ops-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 5px;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  background: var(--surface-border);
+  color: var(--text-muted);
+}
+
+.ops-step-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ops-step-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ops-step-done { border-left-color: var(--color-green); }
+.ops-step-done .ops-step-name { color: var(--color-green); }
+.ops-step-error { border-left-color: var(--color-red); }
+.ops-step-error .ops-step-name { color: var(--color-red); }
+.ops-step-running { border-left-color: var(--color-yellow); }
+.ops-step-running .ops-step-name { color: var(--color-yellow); }
+
+.ops-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  max-width: 720px;
+}
+
+.ops-detail-head {
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.ops-detail-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.ops-detail-error {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  background: var(--surface-bg, transparent);
+  border-radius: var(--radius);
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

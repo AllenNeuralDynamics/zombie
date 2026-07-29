@@ -94,6 +94,17 @@ export const ROUTES = [
     route: '/size', html: 'size.html', inputKey: 'size',
     header: { sub: 'storage sizes' }, nav: { group: 'dashboards', label: 'Storage Sizes' },
   }),
+  page({
+    route: '/swdb', html: 'swdb.html', inputKey: 'swdb',
+    header: { sub: 'SWDB data sets' }, nav: { group: 'dashboards', label: 'SWDB' },
+  }),
+
+  // ---- SWDB sub-page (linked from the cards, not the nav; highlight the
+  // Dashboards ▸ SWDB entry via active: '/swdb') ----
+  page({
+    route: '/swdb/set', html: 'swdb/set.html', inputKey: 'swdb_set',
+    header: { sub: 'SWDB set', active: '/swdb' },
+  }),
 
   // ---- Contributions sub-pages (not directly nav-linked; highlight the
   // Dashboards ▸ Contributions entry via active: '/contributions') ----
