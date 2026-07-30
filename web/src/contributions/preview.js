@@ -25,6 +25,8 @@ import {
   getLastName,
   getFirstName,
   normalizeRole,
+  LEVEL_LABELS,
+  enabledLevels,
 } from './credit-helpers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -44,6 +46,9 @@ const ROLE_ICONS = {
 let _allAuthors = [];
 
 const LEVEL_RANK = { lead: 3, equal: 2, supporting: 1 };
+
+/** Cell-shading wording used in the matrix help tooltip. */
+const LEVEL_SHADE = { lead: 'dark', equal: 'medium', supporting: 'light' };
 
 // ─── CSS injection ──────────────────────────────────────────────────────────
 
@@ -540,6 +545,13 @@ export function createPreview(container, authors, options = {}) {
   const showSections = options.showSections ?? false;
   const showLevels = options.showLevels ?? true;
   const showTimeline = options.showTimeline ?? false;
+  // Which level tiers this project offers, and how they're labelled — the
+  // legends and tooltips must never advertise a tier authors can't be given.
+  const levelTiers = enabledLevels({
+    allowLevels: options.allowLevels ?? true,
+    allowLead: options.allowLead ?? true,
+  });
+  const levelLabel = (level) => LEVEL_LABELS[String(level).toLowerCase()] || level;
 
   // Remove previous widget if any
   const prev = container.querySelector('.ae-widget');
@@ -667,7 +679,7 @@ export function createPreview(container, authors, options = {}) {
           const cellLevel = showLevels ? level.toLowerCase() : 'equal';
           td.appendChild(el('div', {
             className: `ae-cell-sq ae-cell-sq-${cellLevel}`,
-            title: showLevels ? `${author.name}: ${level}` : author.name,
+            title: showLevels ? `${author.name}: ${levelLabel(level)}` : author.name,
           }));
         }
         row.appendChild(td);
@@ -679,14 +691,14 @@ export function createPreview(container, authors, options = {}) {
     wrap.appendChild(table);
 
     // Legend
-    if (showLevels) {
+    if (showLevels && levelTiers.length) {
       const legend = el('div', {
         className: 'ae-matrix-legend',
         style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', padding: '0 0 0 20px', flexShrink: '0' },
       });
-      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-lead' }, 'Lead'));
-      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-equal' }, 'Equal'));
-      legend.appendChild(el('span', { className: 'ae-legend-word ae-legend-word-supporting' }, 'Supporting'));
+      for (const tier of levelTiers) {
+        legend.appendChild(el('span', { className: `ae-legend-word ae-legend-word-${tier}` }, levelLabel(tier)));
+      }
       outer.appendChild(legend);
     }
 
@@ -783,7 +795,10 @@ export function createPreview(container, authors, options = {}) {
     let sortDesc = 'Alphabetical by last name';
     if (sortKey === 'publication-order') sortDesc = 'As listed in the publication';
     else if (sortKey === 'most-roles') sortDesc = 'By number of CRediT roles';
-    else if (isCreditSort) sortDesc = `By "${sortKey.slice(7)}" — lead → equal → supporting → none`;
+    else if (isCreditSort) {
+      const chain = (showLevels && levelTiers.length ? levelTiers.map(levelLabel) : []).concat('none');
+      sortDesc = `By "${sortKey.slice(7)}" — ${chain.join(' → ')}`;
+    }
     sortBar.appendChild(el('p', { className: 'ae-sort-desc' }, `Sorted: ${sortDesc}`));
     wrap.appendChild(sortBar);
 
@@ -918,14 +933,12 @@ export function createPreview(container, authors, options = {}) {
       byline.appendChild(affDiv);
     }
 
-    if (isCreditSort) {
+    if (isCreditSort && showLevels && levelTiers.length) {
       const legend = el('span', { className: 'ae-legend' });
-      legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-lead' }));
-      legend.appendChild(document.createTextNode('Lead '));
-      legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-equal' }));
-      legend.appendChild(document.createTextNode('Equal '));
-      legend.appendChild(el('span', { className: 'ae-legend-dot ae-dot-supporting' }));
-      legend.appendChild(document.createTextNode('Supporting'));
+      levelTiers.forEach((tier, i) => {
+        legend.appendChild(el('span', { className: `ae-legend-dot ae-dot-${tier}` }));
+        legend.appendChild(document.createTextNode(levelLabel(tier) + (i < levelTiers.length - 1 ? ' ' : '')));
+      });
       byline.appendChild(legend);
     }
 
@@ -1148,11 +1161,18 @@ export function createPreview(container, authors, options = {}) {
     const TAB_HELP = {
       matrix: {
         title: 'CRediT Matrix',
-        body: 'CRediT (Contributor Roles Taxonomy) matrix. Each row is an author; each column is one of the 14 standardised roles. Cell shading indicates contribution level: dark = Lead, medium = Equal, light = Supporting. Hover any author name for a full profile.',
+        body: 'CRediT (Contributor Roles Taxonomy) matrix. Each row is an author; each column is one of the 14 standardised roles.'
+          + (showLevels && levelTiers.length
+            ? ' Cell shading indicates contribution level: '
+              + levelTiers.map((t) => `${LEVEL_SHADE[t]} = ${levelLabel(t)}`).join(', ')
+              + '.'
+            : '')
+          + ' Hover any author name for a full profile.',
       },
       authors: {
         title: 'Sorted List',
-        body: 'Use the sort chips to reorder alphabetically, by a specific CRediT role, or by who has the most roles. Authors with a Lead contribution to the selected role float to the top. Turn on the Author Levels toggle to split the author list by first, middle, and senior author designation.',
+        body: 'Use the sort chips to reorder alphabetically, by a specific CRediT role, or by who has the most roles. Authors with '
+          + `a ${levelTiers.length ? levelLabel(levelTiers[0]) : 'top-level'} contribution to the selected role float to the top. Turn on the Author Levels toggle to split the author list by first, middle, and senior author designation.`,
       },
       profiles: {
         title: 'Profiles',

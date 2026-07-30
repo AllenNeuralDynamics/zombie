@@ -23,6 +23,27 @@ export const CREDIT_ROLES = [
   'Writing – review & editing',
 ];
 
+/**
+ * Display labels for the three contribution levels, keyed by lowercase
+ * backend level name. These are the labels users see everywhere — matrix
+ * legends, dropdowns, tooltips — so "Equal"/"Supporting" never surface raw.
+ */
+export const LEVEL_LABELS = { none: 'None', lead: 'Lead', equal: '++', supporting: '+' };
+
+/**
+ * The levels a project actually offers, most-significant first, given its
+ * settings. `allow_levels: false` means contributions are a plain yes/no
+ * (stored as `equal`), so there is nothing to label; `allow_lead: false`
+ * drops the Lead tier.
+ *
+ * @param {{allowLevels?: boolean, allowLead?: boolean}} [settings]
+ * @returns {Array<'lead'|'equal'|'supporting'>}
+ */
+export function enabledLevels({ allowLevels = true, allowLead = true } = {}) {
+  if (!allowLevels) return [];
+  return allowLead ? ['lead', 'equal', 'supporting'] : ['equal', 'supporting'];
+}
+
 /** Full definitions and examples for each CRediT role, sourced from credit.niso.org (CC-BY 4.0). */
 export const CREDIT_ROLE_DESCRIPTIONS = {
   'Conceptualization': {

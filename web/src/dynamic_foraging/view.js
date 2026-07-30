@@ -54,6 +54,7 @@ export function createDynamicForagingView(coord) {
     createPlatformOverview(coord, {
       platformKey: 'dynamic_foraging',
       assetFilter: { type: 'acquisition_type_regex', value: '(Uncoupled|Coupled)( Without)? Baiting' },
+      operationsTableName: 'platform_df_operations',
     }),
   );
 

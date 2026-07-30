@@ -15,7 +15,7 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
-import { CREDIT_ROLES } from './credit-helpers.js';
+import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
@@ -28,8 +28,10 @@ export const CREDIT_CATEGORIES = CREDIT_ROLES;
 /** Contribution levels in display order (Lead first). */
 export const CONTRIBUTION_LEVELS = ['None', 'Lead', 'Equal', 'Supporting'];
 
-/** Maps internal backend level names to display labels. */
-export const LEVEL_DISPLAY = { None: 'None', Lead: 'Lead', Equal: '++', Supporting: '+' };
+/** Maps internal backend level names to the shared display labels. */
+export const LEVEL_DISPLAY = Object.fromEntries(
+  CONTRIBUTION_LEVELS.map((l) => [l, LEVEL_LABELS[l.toLowerCase()]]),
+);
 
 
 export const CREDIT_ROLE_ENUM = {
@@ -322,7 +324,7 @@ export function rowsToWidgetAuthors(rows) {
 // generateMatrixCanvas
 // ---------------------------------------------------------------------------
 
-export function generateMatrixCanvas(rows) {
+export function generateMatrixCanvas(rows, settings = {}) {
   const CELL        = 30;
   const NAME_W      = 170;
   const HEADER_H    = 155;
@@ -392,9 +394,10 @@ export function generateMatrixCanvas(rows) {
     }
   }
 
-  const LEGEND_COLORS = { Lead: '#4338ca', Equal: '#818cf8', Supporting: '#9ca3af' };
+  const LEGEND_COLORS = { lead: '#4338ca', equal: '#818cf8', supporting: '#9ca3af' };
   const legendX       = PAD + NAME_W + gridW + LEGEND_GAP;
-  const legendItems   = ['Lead', 'Equal', 'Supporting'];
+  // Only the tiers this project offers, labelled the way the project labels them.
+  const legendItems   = enabledLevels(settings);
   const legendTotalH  = legendItems.length * LEGEND_STEP;
   const legendStartY  = HEADER_H + gridH / 2 - legendTotalH / 2 + LEGEND_STEP / 2;
   ctx.font         = FONT_LEGEND;
@@ -402,7 +405,7 @@ export function generateMatrixCanvas(rows) {
   ctx.textBaseline = 'middle';
   for (let i = 0; i < legendItems.length; i++) {
     ctx.fillStyle = LEGEND_COLORS[legendItems[i]];
-    ctx.fillText(legendItems[i], legendX, legendStartY + i * LEGEND_STEP);
+    ctx.fillText(LEVEL_LABELS[legendItems[i]], legendX, legendStartY + i * LEGEND_STEP);
   }
 
   return canvas;
@@ -755,9 +758,11 @@ function AuthorDetailSection({
                         description,
                       })}>
                 <option value="None">\u2014 none \u2014</option>
-                ${allowLead && html`<option value="lead">Lead</option>`}
-                <option value="equal">++</option>
-                <option value="supporting">+</option>
+                ${allowLevels
+                  ? enabledLevels({ allowLevels, allowLead }).map((lvl) => html`
+                      <option key=${lvl} value=${lvl}>${LEVEL_LABELS[lvl]}</option>
+                    `)
+                  : html`<option value="equal">contributed</option>`}
               </select>
               ${level !== 'None' && html`
                 <input type="text" class="cv-section-contrib-desc"
@@ -959,7 +964,7 @@ function SharedDetailsSection({
 
 // ── PreviewPanel ─────────────────────────────────────────────────────────────
 
-function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels, showSections, showLevels, showTimeline }) {
+function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels, showSections, showLevels, showTimeline, allowLead, allowLevels }) {
   const containerRef = useRef(null);
 
   const authors = useMemo(() =>
@@ -979,8 +984,11 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
   [rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels]);
 
   useEffect(() => {
-    if (containerRef.current) createPreview(containerRef.current, authors, { showSections, showLevels, showTimeline });
-  }, [authors, showSections, showLevels, showTimeline]);
+    if (containerRef.current) {
+      createPreview(containerRef.current, authors,
+        { showSections, showLevels, showTimeline, allowLead, allowLevels });
+    }
+  }, [authors, showSections, showLevels, showTimeline, allowLead, allowLevels]);
 
   return html`<div ref=${containerRef} id="cv-preview-container"></div>`;
 }
@@ -990,7 +998,7 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
 function OutputSection({
   activeTab, onTabChange, rows, authorOrcids, authorAffIds, affiliations,
   sections, authorSectionLevels, creditDescriptions, projectName,
-  showSections, showLevels, showTimeline,
+  showSections, showLevels, showTimeline, allowLead, allowLevels,
 }) {
   function LaTeXPanel() {
     return html`<pre class="contributions-latex-output">${generateLatex(rows)}</pre>`;
@@ -1013,13 +1021,13 @@ function OutputSection({
     useEffect(() => {
       if (canvasRef.current && rows.length > 0) {
         canvasRef.current.innerHTML = '';
-        canvasRef.current.appendChild(generateMatrixCanvas(rows));
+        canvasRef.current.appendChild(generateMatrixCanvas(rows, { allowLead, allowLevels }));
       }
     }, []);
 
     function download() {
       if (!rows.length) return;
-      generateMatrixCanvas(rows).toBlob((blob) => {
+      generateMatrixCanvas(rows, { allowLead, allowLevels }).toBlob((blob) => {
         if (!blob) return;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1066,7 +1074,8 @@ function OutputSection({
               rows=${rows} authorOrcids=${authorOrcids} authorAffIds=${authorAffIds}
               affiliations=${affiliations} sections=${sections}
               authorSectionLevels=${authorSectionLevels}
-              showSections=${showSections} showLevels=${showLevels} showTimeline=${showTimeline} />`}
+              showSections=${showSections} showLevels=${showLevels} showTimeline=${showTimeline}
+              allowLead=${allowLead} allowLevels=${allowLevels} />`}
             ${activeTab === 'latex'      && html`<${LaTeXPanel} />`}
             ${activeTab === 'statement'  && html`<${StatementPanel} />`}
             ${activeTab === 'matrix-png' && html`<${MatrixPngPanel} />`}
@@ -1712,6 +1721,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         showSections=${showSections}
         showLevels=${showLevels}
         showTimeline=${showTimeline}
+        allowLead=${allowLead}
+        allowLevels=${allowLevels}
       />
 
     </div>

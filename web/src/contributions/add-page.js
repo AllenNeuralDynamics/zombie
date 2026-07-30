@@ -33,7 +33,7 @@ import {
   toEndpointPayload,
   authorNameExists,
 } from './view.js';
-import { CREDIT_ROLES } from './credit-helpers.js';
+import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
@@ -264,7 +264,8 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
 
 const ALLEN_AUTHORSHIP_URL = 'https://alleninstitute.sharepoint.com/sites/AC-Science-Innovation/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents%2Fauthorship%5Fguidelines%2Epdf&parent=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents';
 
-function LevelDefinitionsSidebar() {
+function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
+  if (!allowLevels) return null;
   return html`
     <aside class="cv-level-sidebar">
       <h3 class="cv-level-sidebar-heading">Level definitions</h3>
@@ -274,7 +275,7 @@ function LevelDefinitionsSidebar() {
       <ul class="cv-level-sidebar-list">
         <li><strong>++</strong> indicates a major contribution to a specific CRediT role</li>
         <li><strong>+</strong> indicates a supporting contribution, which may not warrant authorship</li>
-        <li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>
+        ${allowLead && html`<li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>`}
       </ul>
       <p class="cv-level-sidebar-guidelines">
         Please also see the Allen Institute guidelines and appendix for further details:${' '}
@@ -349,7 +350,7 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext, allowLead, allowLeve
           <button class="btn-primary" disabled=${!hasAnyRole} onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }
@@ -374,7 +375,7 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext,
           <div key=${cat} class="cv-credit-card">
             <div class="cv-credit-card-header">
               <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${roles[cat]}</span>`}
+              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${LEVEL_DISPLAY[roles[cat]] || roles[cat]}</span>`}
             </div>
             <label class="cv-detail-label">Description</label>
             <textarea class="cv-credit-desc-textarea" rows="2"
@@ -426,11 +427,8 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
     else setLevel(title, 'equal');
   }
 
-  const levelOptions = [
-    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
-    { value: 'equal', label: '++' },
-    { value: 'supporting', label: '+' },
-  ];
+  const levelOptions = enabledLevels({ allowLevels, allowLead })
+    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
 
   return html`
     <div class="cv-wizard-layout">
@@ -474,7 +472,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
           <button class="btn-primary" onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }
@@ -544,11 +542,8 @@ function StepFullEditor({
 
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => editRoles[cat] && editRoles[cat] !== 'None');
 
-  const sectionLevelOptions = [
-    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
-    { value: 'equal', label: '++' },
-    { value: 'supporting', label: '+' },
-  ];
+  const sectionLevelOptions = enabledLevels({ allowLevels, allowLead })
+    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
 
   const myRow = useMemo(() => {
     const row = { name: editName.trim() || authorName, isFirst: false, author_level: null };
@@ -852,7 +847,7 @@ function StepFullEditor({
         </div>
       `}
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }

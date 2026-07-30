@@ -97,6 +97,12 @@ function ViewApp({ doi }) {
   const [selectedCommit, setSelectedCommit] = useState('');
   const [authors, setAuthors] = useState([]);
   const [projectTitle, setProjectTitle] = useState(doi);
+  // Display/level settings the project owner chose — the preview legend and
+  // tabs must match them, not the widget defaults.
+  const [settings, setSettings] = useState({
+    showSections: false, showLevels: true, showTimeline: false,
+    allowLead: true, allowLevels: true,
+  });
   const previewRef = useRef(null);
 
   async function loadData(commit) {
@@ -112,6 +118,13 @@ function ViewApp({ doi }) {
       setProjectTitle(data.project_name || doi);
       const rows = fromEndpointPayload(data);
       const meta = extractViewMeta(data);
+      setSettings({
+        showSections: data.show_sections ?? false,
+        showLevels: data.show_levels ?? true,
+        showTimeline: data.show_timeline ?? false,
+        allowLead: data.allow_lead ?? true,
+        allowLevels: data.allow_levels ?? true,
+      });
       setAuthors(buildPreviewAuthors(rows, meta));
     } catch (e) {
       setError(e.message);
@@ -154,9 +167,9 @@ function ViewApp({ doi }) {
 
   useEffect(() => {
     if (previewRef.current && authors.length > 0) {
-      createPreview(previewRef.current, authors);
+      createPreview(previewRef.current, authors, settings);
     }
-  }, [authors]);
+  }, [authors, settings]);
 
   function onVersionChange(e) {
     const commit = e.target.value;
