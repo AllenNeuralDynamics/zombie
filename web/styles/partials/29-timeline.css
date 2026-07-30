@@ -1,0 +1,249 @@
+/* ---------------------------------------------------------------------------
+ * Asset timeline dashboard (/timeline)
+ *
+ * The four pipeline stages are an ORDINAL encoding — one hue (blue), stepped
+ * light → dark to read as earliest → latest. Both modes are selected, not
+ * flipped: each column is stepped for its own surface and validated against it
+ * (lightness monotone, adjacent ΔL ≥ 0.06, light-end step ≥ 2:1 vs surface).
+ * ------------------------------------------------------------------------ */
+
+:root {
+  --stage-acquisition: #86b6ef;
+  --stage-upload:      #5598e7;
+  --stage-processing:  #2a78d6;
+  --stage-release:     #184f95;
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --stage-acquisition: #b7d3f6;
+    --stage-upload:      #86b6ef;
+    --stage-processing:  #3987e5;
+    --stage-release:     #184f95;
+  }
+}
+
+/* Explicit toggle — must win over the media query in both directions */
+[data-theme="dark"] {
+  --stage-acquisition: #b7d3f6;
+  --stage-upload:      #86b6ef;
+  --stage-processing:  #3987e5;
+  --stage-release:     #184f95;
+}
+
+.timeline-intro {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0 0 12px;
+  max-width: 70ch;
+}
+
+/* ── Controls: one row above the charts ──────────────────────────────────── */
+
+.timeline-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.timeline-nav {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.timeline-range {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 12ch;
+  text-align: center;
+}
+
+.timeline-select {
+  background: var(--surface-input);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  padding: 4px 6px;
+}
+
+.timeline-csv {
+  margin-left: auto;
+}
+
+.timeline-notice {
+  background: var(--yellow-muted);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--yellow-fg);
+  font-size: 0.8rem;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+}
+
+/* ── Stat tiles ──────────────────────────────────────────────────────────── */
+
+/* The swatch carries stage identity; the numbers stay in text ink. */
+.timeline-swatch {
+  border-radius: 2px;
+  display: inline-block;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: baseline;
+  width: 10px;
+}
+
+/* ── Stage histograms ────────────────────────────────────────────────────── */
+
+.timeline-histograms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.timeline-histogram-panel {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+/* The SVG's viewBox (set by Plot) keeps the chart's proportions while this
+ * stretches it to fill however wide its panel actually is. */
+.timeline-histogram-panel svg {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.timeline-histogram-title {
+  align-items: center;
+  color: var(--text-primary);
+  display: flex;
+  font-size: 0.8rem;
+  font-weight: 600;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+/* The "N now" badge is the live status count for this stage — the only place
+ * that count appears, right beside the historical duration it's paired with. */
+.timeline-histogram-badge {
+  background: var(--surface-hover);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.timeline-histogram-stats {
+  color: var(--text-primary);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.timeline-terminal-card {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.timeline-terminal-value {
+  color: var(--text-primary);
+  font-size: 2.1rem;
+  font-weight: 600;
+  line-height: 1.1;
+  margin: 16px 0;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.timeline-table {
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.timeline-table td,
+.timeline-table th {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timeline-row {
+  cursor: pointer;
+}
+
+.timeline-row:hover {
+  background: var(--surface-hover);
+}
+
+.timeline-row.is-open {
+  background: var(--surface-hover);
+}
+
+.timeline-badge {
+  border-radius: 10px;
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Status is state, not series — reserved status colours, always with a label. */
+.timeline-badge.timeline-status-visible {
+  background: var(--green-muted);
+  color: var(--green-fg);
+}
+
+.timeline-badge.timeline-status-pending-release,
+.timeline-badge.timeline-status-processing {
+  background: var(--yellow-muted);
+  color: var(--yellow-fg);
+}
+
+.timeline-badge.timeline-status-uploading {
+  background: var(--red-muted);
+  color: var(--red-fg);
+}
+
+.timeline-detail-row > td {
+  background: var(--surface-card);
+  padding: 10px 12px;
+}
+
+.timeline-detail-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.timeline-detail-stages li {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.timeline-detail-meta {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  margin-bottom: 8px;
+}
+
+.timeline-detail-ops {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}

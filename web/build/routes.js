@@ -98,6 +98,10 @@ export const ROUTES = [
     route: '/swdb', html: 'swdb.html', inputKey: 'swdb',
     header: { sub: 'SWDB data sets' }, nav: { group: 'dashboards', label: 'SWDB' },
   }),
+  page({
+    route: '/timeline', html: 'timeline.html', inputKey: 'timeline',
+    header: { sub: 'asset timeline' }, nav: { group: 'dashboards', label: 'Time to portal' },
+  }),
 
   // ---- SWDB sub-page (linked from the cards, not the nav; highlight the
   // Dashboards ▸ SWDB entry via active: '/swdb') ----

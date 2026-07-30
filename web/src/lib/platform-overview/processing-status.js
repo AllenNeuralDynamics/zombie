@@ -92,12 +92,25 @@ function buildOperationsSection(coord, { operationsTableName }, containerEl) {
   nextBtn.className = 'settings-metric-btn';
   nextBtn.textContent = 'Next week ›';
 
-  controls.append(prevBtn, rangeLabel, nextBtn);
+  const failureLabel = document.createElement('label');
+  failureLabel.className = 'ops-filter';
+  const failureToggle = document.createElement('input');
+  failureToggle.type = 'checkbox';
+  failureLabel.append(failureToggle, document.createTextNode(' Only errors'));
+
+  controls.append(prevBtn, rangeLabel, nextBtn, failureLabel);
 
   const body = document.createElement('div');
   body.className = 'ops-body';
 
   containerEl.append(controls, body);
+
+  const filterState = { onlyErrors: false };
+
+  failureToggle.addEventListener('change', () => {
+    filterState.onlyErrors = failureToggle.checked;
+    body.__applyFilter?.();
+  });
 
   let reqId = 0;
 
@@ -105,7 +118,7 @@ function buildOperationsSection(coord, { operationsTableName }, containerEl) {
     rangeLabel.textContent = `${formatDate(start.toISOString())} – ${formatDate(end.toISOString())}`;
     nextBtn.disabled = end.getTime() >= maxEnd.getTime();
     const myReq = ++reqId;
-    loadOperations(coord, { operationsTableName, start, end }, body, () => myReq === reqId);
+    loadOperations(coord, { operationsTableName, start, end, filterState }, body, () => myReq === reqId);
   }
 
   prevBtn.addEventListener('click', () => {
@@ -123,8 +136,9 @@ function buildOperationsSection(coord, { operationsTableName }, containerEl) {
   reload();
 }
 
-async function loadOperations(coord, { operationsTableName, start, end }, containerEl, isCurrent) {
+async function loadOperations(coord, { operationsTableName, start, end, filterState }, containerEl, isCurrent) {
   containerEl.innerHTML = '';
+  containerEl.__applyFilter = null;
   const stillCurrent = () => (isCurrent ? isCurrent() : true);
 
   const loadingEl = document.createElement('p');
@@ -236,6 +250,9 @@ async function loadOperations(coord, { operationsTableName, start, end }, contai
     for (const [name, info] of ordered) {
       const tr = document.createElement('tr');
 
+      const hasFailure = info.steps.some((s) => s.last_event === 'stage_error');
+      if (hasFailure) tr.dataset.hasFailure = 'true';
+
       const nameTd = document.createElement('td');
       nameTd.className = 'ops-asset';
       nameTd.textContent = name;
@@ -287,6 +304,15 @@ async function loadOperations(coord, { operationsTableName, start, end }, contai
     }
 
     containerEl.appendChild(table);
+
+    const applyFilter = () => {
+      const onlyErrors = filterState?.onlyErrors;
+      for (const tr of tbody.querySelectorAll('tr')) {
+        tr.hidden = onlyErrors && tr.dataset.hasFailure !== 'true';
+      }
+    };
+    containerEl.__applyFilter = applyFilter;
+    applyFilter();
   } catch (err) {
     if (!stillCurrent()) return;
     loadingEl.textContent = `Failed to load: ${err?.message ?? err}`;

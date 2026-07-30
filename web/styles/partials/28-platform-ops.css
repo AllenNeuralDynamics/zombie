@@ -20,6 +20,16 @@
   color: var(--text-secondary);
 }
 
+.ops-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
 .platform-ops-table {
   font-size: 0.8rem;
   border-collapse: collapse;
