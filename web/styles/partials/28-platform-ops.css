@@ -57,12 +57,25 @@
   white-space: nowrap;
 }
 
+/* One cell per pipeline: its steps stay on a single left-to-right line so the
+ * run order is read the same way in every column (the section scrolls
+ * horizontally rather than wrapping a pipeline's steps onto a second line). */
 .ops-steps {
   display: flex;
   flex-direction: row;
-  flex-wrap: wrap;
   gap: 8px;
   align-items: stretch;
+}
+
+/* Pipeline column heading — the pipeline name itself, not a generic label. */
+.platform-ops-table thead th {
+  font-size: 0.76rem;
+  text-align: left;
+}
+
+/* This asset never ran anything in this pipeline. */
+.ops-cell-empty {
+  color: var(--text-muted);
 }
 
 .ops-step {
@@ -120,6 +133,13 @@
 .ops-step-running { border-left-color: var(--color-yellow); }
 .ops-step-running .ops-step-name { color: var(--color-yellow); }
 
+/* Full-width row beneath the asset's own row — see the detail row in
+ * processing-status.js. */
+.ops-detail-row > td {
+  padding-right: 0;
+  white-space: normal;
+}
+
 .ops-detail {
   margin-top: 8px;
   padding: 8px 10px;
@@ -137,6 +157,14 @@
 .ops-detail-meta {
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+/* Jump-off to the full run log in CloudWatch; only shown for failed steps. */
+.ops-detail-log {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent, #4a90d9);
+  font-size: 0.72rem;
 }
 
 .ops-detail-error {
