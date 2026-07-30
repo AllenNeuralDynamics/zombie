@@ -1,35 +1,30 @@
 /* ---------------------------------------------------------------------------
  * Asset timeline dashboard (/timeline)
  *
- * The four pipeline stages are an ORDINAL encoding — one hue (blue), stepped
- * light → dark to read as earliest → latest. Both modes are selected, not
- * flipped: each column is stepped for its own surface and validated against it
- * (lightness monotone, adjacent ΔL ≥ 0.06, light-end step ≥ 2:1 vs surface).
+ * The charts encode exactly one distinction — did the asset get through this
+ * stage or is it still in it. "Done" is the page's own text ink (black on the
+ * light surface, near-white on the dark one, so the bar reads as the neutral
+ * baseline rather than as a colour with meaning); "still here" is a light red
+ * chosen per surface to sit clearly apart from that ink at bar size.
  * ------------------------------------------------------------------------ */
 
 :root {
-  --stage-acquisition: #86b6ef;
-  --stage-upload:      #5598e7;
-  --stage-processing:  #2a78d6;
-  --stage-release:     #184f95;
+  --timeline-done:    #111111;
+  --timeline-pending: #ea9490;
 }
 
 /* System dark mode (no explicit override) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --stage-acquisition: #b7d3f6;
-    --stage-upload:      #86b6ef;
-    --stage-processing:  #3987e5;
-    --stage-release:     #184f95;
+    --timeline-done:    #eeeeee;
+    --timeline-pending: #d9756f;
   }
 }
 
 /* Explicit toggle — must win over the media query in both directions */
 [data-theme="dark"] {
-  --stage-acquisition: #b7d3f6;
-  --stage-upload:      #86b6ef;
-  --stage-processing:  #3987e5;
-  --stage-release:     #184f95;
+  --timeline-done:    #eeeeee;
+  --timeline-pending: #d9756f;
 }
 
 .timeline-intro {
@@ -146,6 +141,17 @@
   white-space: nowrap;
 }
 
+/* Two-series key, sitting between the chart and its stats line. */
+.timeline-histogram-legend {
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.68rem;
+  gap: 10px;
+  justify-content: center;
+  margin: 2px 0 3px;
+}
+
 .timeline-histogram-stats {
   color: var(--text-primary);
   font-size: 0.7rem;
@@ -235,6 +241,12 @@
 .timeline-detail-stages li {
   color: var(--text-secondary);
   font-size: 0.78rem;
+}
+
+/* Marks a stage duration as elapsed-so-far rather than final. */
+.timeline-detail-pending {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
 }
 
 .timeline-detail-meta {

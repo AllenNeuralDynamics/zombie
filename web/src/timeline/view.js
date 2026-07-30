@@ -26,7 +26,6 @@ import { escHtml, formatDatetime, downloadCsv } from '../lib/utils.js';
 import { S3_BUCKET, S3_REGION } from '../constants.js';
 import {
   PIPELINE_STAGES,
-  STAGE_KEYS,
   STATUS_LABELS,
   buildAssetTimeline,
   countByStatus,
@@ -41,14 +40,6 @@ const WINDOW_OPTIONS = [
   { days: 14, label: '14 days' },
   { days: 30, label: '30 days' },
 ];
-
-/** Stages whose histogram bars are traffic-lighted by duration (see {@link binColor}). */
-const THRESHOLDED_STAGES = new Set(['upload', 'processing']);
-
-/** Bar turns yellow past this many hours, red past {@link RED_THRESHOLD_HOURS}. */
-const YELLOW_THRESHOLD_HOURS = 1;
-/** Bar turns red past this many hours. */
-const RED_THRESHOLD_HOURS = 4;
 
 const HIST_BIN_COUNT = 16;
 
@@ -93,8 +84,13 @@ function formatOffset(originMs, ms) {
 
 /**
  * Resolve this render's actual colour values from CSS custom properties, so
- * light/dark mode each get their own already-chosen step instead of a JS-side
+ * light/dark mode each get their own already-chosen ink instead of a JS-side
  * duplicate of the palette.
+ *
+ * The histogram encodes one thing only: did the asset finish this stage or is
+ * it still in it. "Done" is text ink (black on light surfaces, near-white on
+ * dark ones — a bar in the page's own ink reads as the neutral baseline), and
+ * "not done" is a light red that stands out against it without shouting.
  *
  * @param {HTMLElement} rootEl - Element to read computed custom properties from.
  */
@@ -102,28 +98,9 @@ function resolveColors(rootEl) {
   const styles = getComputedStyle(rootEl);
   const get = (name, fallback) => styles.getPropertyValue(name).trim() || fallback;
   return {
-    stage: Object.fromEntries(STAGE_KEYS.map((key) => [key, get(`--stage-${key}`, '#2a78d6')])),
-    green: get('--color-green', '#1D8649'),
-    yellow: get('--color-yellow', '#d97706'),
-    red: get('--color-red', '#c0392b'),
+    done: get('--timeline-done', '#111111'),
+    pending: get('--timeline-pending', '#f0a3a0'),
   };
-}
-
-/**
- * Traffic-light fill for one histogram bin. Upload and processing are the two
- * stages with a hard SLA-style expectation, so their bars recolor by how long
- * the bin's midpoint took; every other stage keeps its fixed ordinal stage hue.
- *
- * @param {string} stageKey
- * @param {number} midHours - Bin midpoint, in hours.
- * @param {{stage: Record<string,string>, green: string, yellow: string, red: string}} colors
- * @returns {string}
- */
-function binColor(stageKey, midHours, colors) {
-  if (!THRESHOLDED_STAGES.has(stageKey)) return colors.stage[stageKey];
-  if (midHours > RED_THRESHOLD_HOURS) return colors.red;
-  if (midHours > YELLOW_THRESHOLD_HOURS) return colors.yellow;
-  return colors.green;
 }
 
 // ---------------------------------------------------------------------------
@@ -477,18 +454,26 @@ function buildStageHistograms(rootEl, timelines) {
   const liveCountByStage = { acquisition: null, upload: statusCounts.uploading,
     processing: statusCounts.processing, release: statusCounts['pending-release'] };
 
+  // Two series per stage: assets that finished it (final duration) and assets
+  // still in it (elapsed so far). Showing only one of the two is what made the
+  // panels misleading — a stage can look fast simply because everything slow is
+  // still stuck in it and therefore has no completed duration to plot.
+  const finite = (h) => h != null && Number.isFinite(h);
   const hoursByStage = PIPELINE_STAGES.map((stage) => ({
     stage,
-    hours: timelines
+    done: timelines
       .map((t) => t.segments.find((s) => s.stage === stage.key)?.hours)
-      .filter((h) => h != null && Number.isFinite(h)),
+      .filter(finite),
+    pending: timelines
+      .map((t) => (t.pending?.stage === stage.key ? t.pending.hours : null))
+      .filter(finite),
   }));
 
   const binWidth = HIST_MAX_HOURS / HIST_BIN_COUNT;
 
-  for (const { stage, hours } of hoursByStage) {
+  for (const { stage, done, pending } of hoursByStage) {
     wrap.appendChild(buildStageHistogram(
-      stage, hours, colors, { binWidth, liveCount: liveCountByStage[stage.key] },
+      stage, { done, pending }, colors, { binWidth, liveCount: liveCountByStage[stage.key] },
     ));
   }
   wrap.appendChild(buildTerminalCard(statusCounts.visible, timelines.length));
@@ -506,8 +491,14 @@ function buildTerminalCard(visibleCount, total) {
   return panel;
 }
 
-/** One stage's histogram panel: label, live count, chart, and a median/p90/n summary. */
-function buildStageHistogram(stage, hours, colors, { binWidth, liveCount }) {
+/**
+ * One stage's histogram panel: label, live count, chart, and a median/p90/n
+ * summary. Each bin holds two staggered (side-by-side, never stacked) bars —
+ * completed assets in ink, still-in-this-stage assets in light red — so the
+ * two counts can be read off independently instead of one hiding inside the
+ * other's total.
+ */
+function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveCount }) {
   const panel = document.createElement('div');
   panel.className = 'timeline-histogram-panel';
 
@@ -517,7 +508,7 @@ function buildStageHistogram(stage, hours, colors, { binWidth, liveCount }) {
     + (liveCount != null ? `<span class="timeline-histogram-badge">${liveCount} now</span>` : '');
   panel.appendChild(title);
 
-  if (!hours.length) {
+  if (!done.length && !pending.length) {
     const empty = document.createElement('p');
     empty.className = 'settings-loading-note';
     empty.textContent = 'No data in this window.';
@@ -528,17 +519,38 @@ function buildStageHistogram(stage, hours, colors, { binWidth, liveCount }) {
   // Anything at or past the fixed range folds into the last bin rather than
   // being dropped — a stage with a long tail still accounts for every asset,
   // it just can't be resolved past HIST_MAX_HOURS on this shared scale.
-  const counts = new Array(HIST_BIN_COUNT).fill(0);
-  for (const h of hours) {
-    const i = Math.min(HIST_BIN_COUNT - 1, Math.floor(h / binWidth));
-    counts[i] += 1;
-  }
-  const bins = counts.map((count, i) => {
-    const x1 = i * binWidth;
-    const x2 = (i + 1) * binWidth;
-    const isOverflowBin = i === HIST_BIN_COUNT - 1 && hours.some((h) => h >= HIST_MAX_HOURS);
-    return { x1, x2, count, isOverflowBin, fill: binColor(stage.key, (x1 + x2) / 2, colors) };
-  });
+  // Each bin is split in half: the completed series occupies the left half and
+  // the still-pending series the right half, so the two are adjacent rather
+  // than summed. Empty bars are dropped so hover only hits real bins.
+  const seriesBins = (hours, side, fill, seriesLabel) => {
+    const counts = new Array(HIST_BIN_COUNT).fill(0);
+    for (const h of hours) {
+      const i = Math.min(HIST_BIN_COUNT - 1, Math.floor(h / binWidth));
+      counts[i] += 1;
+    }
+    const overflows = hours.some((h) => h >= HIST_MAX_HOURS);
+    return counts.flatMap((count, i) => {
+      if (!count) return [];
+      const lo = i * binWidth;
+      const hi = (i + 1) * binWidth;
+      const mid = lo + binWidth / 2;
+      return [{
+        x1: side === 'left' ? lo : mid,
+        x2: side === 'left' ? mid : hi,
+        binLo: lo,
+        binHi: hi,
+        count,
+        seriesLabel,
+        fill,
+        isOverflowBin: i === HIST_BIN_COUNT - 1 && overflows,
+      }];
+    });
+  };
+
+  const bins = [
+    ...seriesBins(done, 'left', colors.done, 'made it through'),
+    ...seriesBins(pending, 'right', colors.pending, 'still in this stage'),
+  ];
 
   const plot = Plot.plot({
     // A fixed base size for Plot's own scale math; the SVG is then stretched
@@ -564,8 +576,8 @@ function buildStageHistogram(stage, hours, colors, { binWidth, liveCount }) {
         fill: 'fill',
         // Hover shows both halves of a bin together: how long ("time in bin")
         // and how many ("# in bin") — the histogram bar is the third piece.
-        title: (d) => `${d.isOverflowBin ? `${formatDuration(d.x1)}+` : `${formatDuration(d.x1)}–${formatDuration(d.x2)}`}: `
-          + `${d.count} asset${d.count === 1 ? '' : 's'}`,
+        title: (d) => `${d.isOverflowBin ? `${formatDuration(d.binLo)}+` : `${formatDuration(d.binLo)}–${formatDuration(d.binHi)}`}: `
+          + `${d.count} asset${d.count === 1 ? '' : 's'} ${d.seriesLabel}`,
       }),
       Plot.ruleY([0]),
     ],
@@ -574,13 +586,23 @@ function buildStageHistogram(stage, hours, colors, { binWidth, liveCount }) {
   plot.style.height = 'auto';
   panel.appendChild(plot);
 
-  // The bracketed range is the central 90% of durations (5th–95th percentile),
-  // not a min/max — a couple of outliers shouldn't blow the range out wide.
+  const legend = document.createElement('div');
+  legend.className = 'timeline-histogram-legend';
+  legend.innerHTML =
+    `<span><span class="timeline-swatch" style="background:${colors.done}" aria-hidden="true"></span>`
+    + `through (${done.length})</span>`
+    + `<span><span class="timeline-swatch" style="background:${colors.pending}" aria-hidden="true"></span>`
+    + `still here (${pending.length})</span>`;
+  panel.appendChild(legend);
+
+  // Stats describe the completed durations only — a median over elapsed-so-far
+  // times would drift upward every minute the page stays open.
   const stats = document.createElement('div');
   stats.className = 'timeline-histogram-stats';
-  stats.textContent =
-    `median ${formatDuration(median(hours))} `
-    + `[${formatDuration(percentile(hours, 0.05))}, ${formatDuration(percentile(hours, 0.95))}] · n=${hours.length}`;
+  stats.textContent = done.length
+    ? `median ${formatDuration(median(done))} `
+      + `[${formatDuration(percentile(done, 0.05))}, ${formatDuration(percentile(done, 0.95))}] · n=${done.length}`
+    : 'no completed durations yet in this window';
   panel.appendChild(stats);
 
   return panel;
@@ -645,11 +667,17 @@ function buildTable(coord, timelines) {
  * partitioned per asset, so only this asset's partition is read.
  */
 async function renderRowDetail(coord, timeline, cell) {
+  // Swatches carry the same two-state encoding as the histograms: ink for a
+  // stage this asset finished, light red for the one it is still sitting in.
   const stageList = PIPELINE_STAGES.map((stage) => {
     const seg = timeline.segments.find((s) => s.stage === stage.key);
-    return `<li><span class="timeline-swatch" style="background:var(--stage-${stage.key})"`
+    const isPending = timeline.pending?.stage === stage.key;
+    const swatchVar = isPending ? '--timeline-pending' : '--timeline-done';
+    return `<li><span class="timeline-swatch" style="background:var(${swatchVar})"`
       + ` aria-hidden="true"></span>${escHtml(stage.label)}: `
-      + `<strong>${escHtml(formatDuration(seg?.hours))}</strong></li>`;
+      + `<strong>${escHtml(formatDuration(seg?.hours ?? (isPending ? timeline.pending.hours : null)))}</strong>`
+      + (isPending ? ' <span class="timeline-detail-pending">so far</span>' : '')
+      + '</li>';
   }).join('');
 
   cell.innerHTML =

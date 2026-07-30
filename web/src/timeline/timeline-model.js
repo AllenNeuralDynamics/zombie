@@ -22,9 +22,9 @@
 
 /**
  * The four pipeline stages, in the order they occur. `from`/`to` name the
- * milestones each stage spans. Fill colours are ordinal (one hue, light →
- * dark = earliest → latest) and are supplied by CSS custom properties so light
- * and dark mode get separately-chosen steps.
+ * milestones each stage spans. Stages carry no colour of their own — the charts
+ * colour by whether an asset finished a stage or is still in it, not by which
+ * stage it is (see 29-timeline.css).
  */
 export const PIPELINE_STAGES = [
   { key: 'acquisition', label: 'Acquisition', from: 'acqStart', to: 'acqEnd' },
@@ -171,6 +171,10 @@ export const STATUS_LABELS = {
  * segments are dropped rather than clamped — the milestone timestamps in the
  * table still show what happened.
  *
+ * The stage the asset is currently *in* (opened but not yet closed, including a
+ * release moment still in the future) is reported separately as `pending`, with
+ * `hours` measuring elapsed time so far.
+ *
  * @param {object} row - One row from the page query (epoch-ms fields).
  * @param {object} [opts]
  * @param {number} [opts.nowMs] - Current time; injectable for tests.
@@ -188,10 +192,27 @@ export function buildAssetTimeline(row, { nowMs = Date.now() } = {}) {
   const milestones = { acqStart, acqEnd, uploaded, processed, visible };
 
   const segments = [];
+  // The stage the asset is *currently* sitting in: the first one whose opening
+  // milestone happened but whose closing milestone hasn't. Its "duration" is
+  // elapsed-so-far rather than final, so it is kept out of `segments` (which
+  // every summary treats as completed durations) and reported separately.
+  let pending = null;
   for (const stage of PIPELINE_STAGES) {
     const start = milestones[stage.from];
     const end = milestones[stage.to];
-    if (start == null || end == null || end < start) continue;
+    if (start == null) continue;
+    if (end == null || end > nowMs) {
+      if (!pending) {
+        pending = {
+          stage: stage.key,
+          label: stage.label,
+          start,
+          hours: Math.max(0, (nowMs - start) / HOUR_MS),
+        };
+      }
+      continue;
+    }
+    if (end < start) continue;
     segments.push({
       stage: stage.key,
       label: stage.label,
@@ -214,6 +235,7 @@ export function buildAssetTimeline(row, { nowMs = Date.now() } = {}) {
     derivedName: row.derived_name ?? null,
     milestones,
     segments,
+    pending,
     totalHours,
     status: assetStatus(milestones, nowMs),
   };
