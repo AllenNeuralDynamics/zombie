@@ -159,21 +159,6 @@
   text-align: center;
 }
 
-.timeline-terminal-card {
-  align-items: center;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.timeline-terminal-value {
-  color: var(--text-primary);
-  font-size: 2.1rem;
-  font-weight: 600;
-  line-height: 1.1;
-  margin: 16px 0;
-}
-
 /* ── Table ───────────────────────────────────────────────────────────────── */
 
 .timeline-table {
@@ -213,15 +198,15 @@
   color: var(--green-fg);
 }
 
+/* Every not-yet-visible status carries the charts' own "still here" red, so a
+ * badge in the table and a bar in a histogram mean the same thing. The ink is a
+ * fixed dark red rather than a per-mode pair: the badge's fill is the chart
+ * colour in both modes, and dark text is what stays legible on it. */
 .timeline-badge.timeline-status-pending-release,
-.timeline-badge.timeline-status-processing {
-  background: var(--yellow-muted);
-  color: var(--yellow-fg);
-}
-
+.timeline-badge.timeline-status-processing,
 .timeline-badge.timeline-status-uploading {
-  background: var(--red-muted);
-  color: var(--red-fg);
+  background: var(--timeline-pending);
+  color: #4a1210;
 }
 
 .timeline-detail-row > td {

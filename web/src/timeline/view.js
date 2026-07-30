@@ -125,7 +125,8 @@ export function createTimelineView(coord) {
   const intro = document.createElement('p');
   intro.className = 'timeline-intro';
   intro.textContent =
-    'Time from acquisition to visibility in the data portal, per raw acquisition. '
+    'Time from the end of acquisition to visibility in the data portal, per raw '
+    + 'acquisition — the session’s own length is not counted. '
     + 'Assets become visible at the next 06:00 Pacific time after processing completes.';
   container.appendChild(intro);
 
@@ -427,17 +428,17 @@ function render(coord, state, body) {
 
 /**
  * One histogram per pipeline stage, laid out left-to-right in pipeline order,
- * plus a fifth terminal card for "visible in portal" (a count, not a duration —
- * once visible there is nothing left to wait for). This is the *only* place
- * status counts appear: each stage panel carries how many acquisitions are
- * currently sitting in that stage right now, directly beside the histogram of
- * how long that stage has historically taken — one card tells both halves of
- * the story instead of a disconnected numbers strip above an unlabeled chart.
+ * plus a fifth terminal panel holding the end-to-end total (see
+ * {@link buildTerminalCard}). This is the *only* place status counts appear:
+ * each stage panel carries how many acquisitions are currently sitting in that
+ * stage right now, directly beside the histogram of how long that stage has
+ * historically taken — one card tells both halves of the story instead of a
+ * disconnected numbers strip above an unlabeled chart.
  *
- * All five cards share the row's full width and, for the four histograms, one
- * x-axis scale (same domain, same bin width) so bar widths and positions are
- * directly comparable across stages — a panel with a tighter spread is not
- * just zoomed in.
+ * All five cards share the row's full width and one x-axis scale (same domain,
+ * same bin width), so bar widths and positions are directly comparable across
+ * panels — a panel with a tighter spread is not just zoomed in, and the total
+ * is read against the stages that make it up.
  *
  * This is a distribution of durations, not a per-asset timeline, so it stays a
  * fixed, compact height regardless of how many acquisitions are in view (the
@@ -476,19 +477,39 @@ function buildStageHistograms(rootEl, timelines) {
       stage, { done, pending }, colors, { binWidth, liveCount: liveCountByStage[stage.key] },
     ));
   }
-  wrap.appendChild(buildTerminalCard(statusCounts.visible, timelines.length));
+  wrap.appendChild(buildTerminalCard(timelines, colors, { binWidth }));
   return wrap;
 }
 
-/** The pipeline's terminal state: a plain count, no histogram — nothing left to wait for. */
-function buildTerminalCard(visibleCount, total) {
-  const panel = document.createElement('div');
-  panel.className = 'timeline-histogram-panel timeline-terminal-card';
-  panel.innerHTML =
-    '<div class="timeline-histogram-title">Visible in portal</div>'
-    + `<div class="timeline-terminal-value">${visibleCount}</div>`
-    + `<div class="timeline-histogram-stats">of ${total} acquisitions</div>`;
-  return panel;
+/**
+ * The pipeline's terminal panel: the distribution of *total* time from
+ * acquisition end to portal visibility, on the same x-axis as the four stage
+ * panels so it is read on their scale — this is the sum the stages add up to,
+ * and it routinely lands in the overflow bin, which is itself the point.
+ *
+ * Only assets that are actually visible are counted, so there is one series and
+ * one colour: an asset still mid-pipeline has no total yet, and projecting one
+ * from a release moment that hasn't happened would put a guess in the same bars
+ * as measurements.
+ */
+function buildTerminalCard(timelines, colors, { binWidth }) {
+  const totals = timelines
+    .filter((t) => t.status === 'visible')
+    .map((t) => t.totalHours)
+    .filter((h) => h != null && Number.isFinite(h));
+
+  return buildStageHistogram(
+    { key: 'total', label: 'Total time until visible in portal' },
+    { done: totals, pending: [] },
+    colors,
+    {
+      binWidth,
+      liveCount: null,
+      showLegend: false,
+      emptyText: 'Nothing visible yet in this window.',
+      doneLabel: 'visible in portal',
+    },
+  );
 }
 
 /**
@@ -498,7 +519,15 @@ function buildTerminalCard(visibleCount, total) {
  * two counts can be read off independently instead of one hiding inside the
  * other's total.
  */
-function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveCount }) {
+function buildStageHistogram(
+  stage,
+  { done, pending },
+  colors,
+  {
+    binWidth, liveCount, showLegend = true,
+    emptyText = 'No data in this window.', doneLabel = 'made it through',
+  },
+) {
   const panel = document.createElement('div');
   panel.className = 'timeline-histogram-panel';
 
@@ -511,7 +540,7 @@ function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveC
   if (!done.length && !pending.length) {
     const empty = document.createElement('p');
     empty.className = 'settings-loading-note';
-    empty.textContent = 'No data in this window.';
+    empty.textContent = emptyText;
     panel.appendChild(empty);
     return panel;
   }
@@ -522,6 +551,11 @@ function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveC
   // Each bin is split in half: the completed series occupies the left half and
   // the still-pending series the right half, so the two are adjacent rather
   // than summed. Empty bars are dropped so hover only hits real bins.
+  // With only one of the two series present there is nothing to stagger
+  // against, so its bars take the whole bin rather than sitting as half-width
+  // slivers with a permanent gap beside them.
+  const stagger = done.length > 0 && pending.length > 0;
+
   const seriesBins = (hours, side, fill, seriesLabel) => {
     const counts = new Array(HIST_BIN_COUNT).fill(0);
     for (const h of hours) {
@@ -535,8 +569,8 @@ function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveC
       const hi = (i + 1) * binWidth;
       const mid = lo + binWidth / 2;
       return [{
-        x1: side === 'left' ? lo : mid,
-        x2: side === 'left' ? mid : hi,
+        x1: !stagger || side === 'left' ? lo : mid,
+        x2: !stagger || side === 'right' ? hi : mid,
         binLo: lo,
         binHi: hi,
         count,
@@ -548,7 +582,7 @@ function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveC
   };
 
   const bins = [
-    ...seriesBins(done, 'left', colors.done, 'made it through'),
+    ...seriesBins(done, 'left', colors.done, doneLabel),
     ...seriesBins(pending, 'right', colors.pending, 'still in this stage'),
   ];
 
@@ -586,14 +620,16 @@ function buildStageHistogram(stage, { done, pending }, colors, { binWidth, liveC
   plot.style.height = 'auto';
   panel.appendChild(plot);
 
-  const legend = document.createElement('div');
-  legend.className = 'timeline-histogram-legend';
-  legend.innerHTML =
-    `<span><span class="timeline-swatch" style="background:${colors.done}" aria-hidden="true"></span>`
-    + `through (${done.length})</span>`
-    + `<span><span class="timeline-swatch" style="background:${colors.pending}" aria-hidden="true"></span>`
-    + `still here (${pending.length})</span>`;
-  panel.appendChild(legend);
+  if (showLegend) {
+    const legend = document.createElement('div');
+    legend.className = 'timeline-histogram-legend';
+    legend.innerHTML =
+      `<span><span class="timeline-swatch" style="background:${colors.done}" aria-hidden="true"></span>`
+      + 'through</span>'
+      + `<span><span class="timeline-swatch" style="background:${colors.pending}" aria-hidden="true"></span>`
+      + 'still here</span>';
+    panel.appendChild(legend);
+  }
 
   // Stats describe the completed durations only — a median over elapsed-so-far
   // times would drift upward every minute the page stays open.
@@ -615,7 +651,8 @@ function buildTable(coord, timelines) {
   table.innerHTML =
     '<thead><tr>'
     + '<th>Asset name</th><th>Subject</th><th>Acquired</th><th>Upload Δ</th>'
-    + '<th>Processing Δ</th><th>Release Δ</th><th>Total</th><th>Status</th>'
+    + '<th>Processing Δ</th><th>Release Δ</th>'
+    + '<th title="Acquisition end → visible in portal">Total</th><th>Status</th>'
     + '</tr></thead>';
   const tbody = document.createElement('tbody');
   table.appendChild(tbody);

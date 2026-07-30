@@ -28,9 +28,9 @@
  */
 export const PIPELINE_STAGES = [
   { key: 'acquisition', label: 'Acquisition', from: 'acqStart', to: 'acqEnd' },
-  { key: 'upload', label: 'Awaiting upload', from: 'acqEnd', to: 'uploaded' },
-  { key: 'processing', label: 'Processing', from: 'uploaded', to: 'processed' },
-  { key: 'release', label: 'Awaiting release', from: 'processed', to: 'visible' },
+  { key: 'upload', label: 'Upload time', from: 'acqEnd', to: 'uploaded' },
+  { key: 'processing', label: 'Processing time', from: 'uploaded', to: 'processed' },
+  { key: 'release', label: 'Release time', from: 'processed', to: 'visible' },
 ];
 
 /** Stage keys in pipeline order — the fixed fill order for the chart. */
@@ -222,9 +222,13 @@ export function buildAssetTimeline(row, { nowMs = Date.now() } = {}) {
     });
   }
 
+  // Measured from acquisition *end*, not start: the acquisition itself is a
+  // session length chosen by the experiment, not pipeline latency, so counting
+  // it would inflate every total by however long the rig happened to run and
+  // make a long recording look like a slow pipeline.
   const totalHours =
-    acqStart != null && visible != null && visible >= acqStart
-      ? (visible - acqStart) / HOUR_MS
+    acqEnd != null && visible != null && visible >= acqEnd
+      ? (visible - acqEnd) / HOUR_MS
       : null;
 
   return {

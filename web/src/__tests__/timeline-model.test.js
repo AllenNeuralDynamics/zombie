@@ -115,9 +115,15 @@ describe('buildAssetTimeline', () => {
     expect(hours.release).toBeCloseTo(10, 5);
   });
 
-  it('spans acquisition start to portal visibility in totalHours', () => {
+  // From acquisition END, so the session's own length never counts as latency.
+  it('spans acquisition end to portal visibility in totalHours', () => {
     const t = buildAssetTimeline(row, { nowMs: utc(2026, 7, 20) });
-    expect(t.totalHours).toBeCloseTo(27, 5);
+    expect(t.totalHours).toBeCloseTo(26, 5);
+  });
+
+  it('has no totalHours when the acquisition end time is missing', () => {
+    const t = buildAssetTimeline({ ...row, acq_end_ms: null }, { nowMs: utc(2026, 7, 20) });
+    expect(t.totalHours).toBeNull();
   });
 
   it('drops segments whose bounding milestone is missing', () => {
