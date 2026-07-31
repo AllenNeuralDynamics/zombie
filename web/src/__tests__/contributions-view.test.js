@@ -612,3 +612,124 @@ describe('createContributionsView — projectName auto-load', () => {
     expect(sessionStorage.getItem('contributions:draft')).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// createContributionsView — new project (isNew) auto-create
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — isNew auto-create', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  function mockFetch() {
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      if ((opts.method || 'GET') === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ commit: 'abc1234567' }),
+        });
+      }
+      // history GET etc.
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+    });
+  }
+
+  async function flush() {
+    // Allow queued microtasks + the async save chain to settle.
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  }
+
+  it('POSTs to create the project instead of GETting (which 404s)', async () => {
+    mockFetch();
+    createContributionsView({ projectName: 'dan-test2', isNew: true });
+    await flush();
+
+    const postCalls = global.fetch.mock.calls.filter(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    expect(postCalls.length).toBeGreaterThan(0);
+    expect(postCalls[0][0]).toContain('contributions/post?project=dan-test2');
+
+    // Must NOT attempt a full project load (that path throws "not found").
+    const loadCalls = global.fetch.mock.calls.filter(
+      ([url]) => url.includes('contributions/get?project=dan-test2')
+        && !url.includes('history=true'),
+    );
+    expect(loadCalls).toHaveLength(0);
+  });
+
+  it('sends credentials so the backend registers the creator as admin', async () => {
+    mockFetch();
+    createContributionsView({ projectName: 'dan-test2', isNew: true });
+    await flush();
+
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    expect(postCall).toBeDefined();
+    expect(postCall[1].credentials).toBe('include');
+  });
+
+  it('adds the logged-in user as an admin contributor in the POST payload', async () => {
+    mockFetch();
+    createContributionsView({
+      projectName: 'dan-test2',
+      isNew: true,
+      currentUser: { name: 'Dan Birman', orcid: '0000-0002-1234-5678', is_admin: true },
+    });
+    await flush();
+
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    expect(postCall).toBeDefined();
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.project_name).toBe('dan-test2');
+    expect(payload.contributors).toHaveLength(1);
+    const admin = payload.contributors[0];
+    expect(admin.author.name).toBe('Dan Birman');
+    expect(admin.author.registry_identifier).toBe('0000-0002-1234-5678');
+    expect(admin.is_admin).toBe(true);
+  });
+
+  it('falls back to the ORCID as the admin name when no name is present', async () => {
+    mockFetch();
+    createContributionsView({
+      projectName: 'dan-test2',
+      isNew: true,
+      currentUser: { name: null, orcid: '0000-0002-1234-5678', is_admin: true },
+    });
+    await flush();
+
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.contributors[0].author.name).toBe('0000-0002-1234-5678');
+    expect(payload.contributors[0].is_admin).toBe(true);
+  });
+
+  it('surfaces a save failure as an error status (and does not throw)', async () => {
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      if ((opts.method || 'GET') === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          json: async () => ({ error: 'boom' }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+    });
+    const root = createContributionsView({ projectName: 'dan-test2', isNew: true });
+    await flush();
+    const status = root.querySelector('.status-error');
+    expect(status).not.toBeNull();
+    expect(status.textContent).toContain('boom');
+  });
+});

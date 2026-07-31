@@ -138,6 +138,7 @@ function EditApp({ doi }) {
       projectName: doi,
       isAdmin,
       isNew,
+      currentUser: user,
     });
     editorRef.current.appendChild(el);
     setEditorMounted(true);

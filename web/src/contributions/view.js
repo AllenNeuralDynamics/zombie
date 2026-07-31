@@ -1216,7 +1216,7 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1360,6 +1360,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setAssetsOpen(false);
       fetchHistory(project);
     } catch (err) {
+      console.error('[contributions] load failed:', err);
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     }
   }
@@ -1408,6 +1409,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setExistsOnServer(true);
       fetchHistory(project);
     } catch (err) {
+      console.error('[contributions] save failed:', err);
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     }
   }
@@ -1524,10 +1526,26 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
-  // Create a brand-new project: no server record exists yet, so registering the
-  // creator as admin happens on the first (empty) save rather than a load.
+  // Create a brand-new project: seed the logged-in user as the project's admin
+  // contributor, then save so that admin membership is persisted explicitly
+  // (not relying on any backend side effect).
   async function createNewProject() {
     setEndpointStatus({ text: 'Creating new project\u2026', cls: 'status-loading' });
+    const me = currentUser;
+    const adminName = (me?.name || me?.orcid || '').trim();
+    if (adminName) {
+      const adminRow = { name: adminName, isFirst: false, author_level: null, is_admin: true };
+      for (const cat of CREDIT_CATEGORIES) adminRow[cat] = 'None';
+      const seededRows = [adminRow];
+      const seededOrcids = me?.orcid ? { [adminName]: me.orcid } : {};
+      // Reflect in the UI…
+      setRows(seededRows);
+      setAuthorOrcids(seededOrcids);
+      setSelectedAuthor(adminName);
+      // …and in the ref the imminent save reads from (state updates are async).
+      sr.current.rows = seededRows;
+      sr.current.authorOrcids = seededOrcids;
+    }
     await saveToServer({ allowEmpty: true });
   }
 
@@ -1751,7 +1769,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -1789,6 +1807,7 @@ export function createContributionsView(options = {}) {
       actionsRef=${actionsRef}
       isAdmin=${isAdmin}
       isNew=${isNew}
+      currentUser=${currentUser}
     />`,
     container,
   );
