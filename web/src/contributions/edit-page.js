@@ -94,8 +94,20 @@ function EditApp({ doi }) {
         );
         const access = res.ok ? await res.json() : {};
         if (cancelled) return;
+
+        // Determine whether the project already exists on the server. This is
+        // independent of admin status — an admin (or global admin) opening a
+        // brand-new project must still be treated as a new project so the view
+        // creates it instead of trying (and failing) to load it.
+        const getRes = await fetchContributions(
+          `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
+        );
+        if (cancelled) return;
+        const projectExists = getRes.status !== 404;
+
         if (access.is_admin) {
           setIsAdmin(true);
+          setIsNew(!projectExists);
           setGate('editor');
           return;
         }
@@ -105,11 +117,7 @@ function EditApp({ doi }) {
         //     the add wizard for their own row instead).
         //   * Project doesn't exist yet → this is the creator: let them build it.
         //     They become admin automatically on the first save (backend).
-        const getRes = await fetchContributions(
-          `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
-        );
-        if (cancelled) return;
-        if (getRes.status === 404) {
+        if (!projectExists) {
           setIsAdmin(true);
           setIsNew(true);
           setGate('editor');
