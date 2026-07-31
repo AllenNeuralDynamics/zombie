@@ -69,6 +69,7 @@ function EditApp({ doi }) {
   const [gate, setGate] = useState('loading');
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isNew, setIsNew] = useState(false);
   const editorRef = useRef(null);
   const [editorMounted, setEditorMounted] = useState(false);
 
@@ -110,6 +111,7 @@ function EditApp({ doi }) {
         if (cancelled) return;
         if (getRes.status === 404) {
           setIsAdmin(true);
+          setIsNew(true);
           setGate('editor');
         } else {
           setGate('no-access');
@@ -127,10 +129,11 @@ function EditApp({ doi }) {
     const el = createContributionsView({
       projectName: doi,
       isAdmin,
+      isNew,
     });
     editorRef.current.appendChild(el);
     setEditorMounted(true);
-  }, [gate, doi, isAdmin, editorMounted]);
+  }, [gate, doi, isAdmin, isNew, editorMounted]);
 
   if (!doi) {
     return html`<div class="contributions-edit-page">

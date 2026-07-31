@@ -1216,7 +1216,7 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1365,14 +1365,14 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   }
 
   // ── Project save ──────────────────────────────────────────────────────────
-  async function saveToServer() {
+  async function saveToServer({ allowEmpty = false } = {}) {
     const { projectName: project, rows: r, authorOrcids: orc, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d,
       showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv,
       editLocked: el } = sr.current;
-    if (!project || !r.length) return;
+    if (!project || (!r.length && !allowEmpty)) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
       const payload = toEndpointPayload(r, project, {
@@ -1524,9 +1524,17 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
+  // Create a brand-new project: no server record exists yet, so registering the
+  // creator as admin happens on the first (empty) save rather than a load.
+  async function createNewProject() {
+    setEndpointStatus({ text: 'Creating new project\u2026', cls: 'status-loading' });
+    await saveToServer({ allowEmpty: true });
+  }
+
   // Expose imperative handles for auto-load scheduling in createContributionsView
   actionsRef.loadRecords    = loadRecords;
   actionsRef.loadFromServer = loadFromServer;
+  actionsRef.createNewProject = createNewProject;
   actionsRef.fetchHistory   = fetchHistory;
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -1743,7 +1751,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -1780,6 +1788,7 @@ export function createContributionsView(options = {}) {
       docdbOptions=${docdbOptions}
       actionsRef=${actionsRef}
       isAdmin=${isAdmin}
+      isNew=${isNew}
     />`,
     container,
   );
@@ -1788,7 +1797,11 @@ export function createContributionsView(options = {}) {
   if (assetName && !draftRestored) {
     Promise.resolve().then(() => actionsRef.loadRecords?.());
   }
-  if (projectName && !draftRestored) {
+  if (isNew && !draftRestored) {
+    // New project: don't try to load (it 404s) — create it so the creator is
+    // registered as admin on the backend.
+    Promise.resolve().then(() => actionsRef.createNewProject?.());
+  } else if (projectName && !draftRestored) {
     Promise.resolve().then(() => actionsRef.loadFromServer?.());
   } else if (draftRestored && initialDraft?.projectName) {
     Promise.resolve().then(() => actionsRef.fetchHistory?.(initialDraft.projectName));
