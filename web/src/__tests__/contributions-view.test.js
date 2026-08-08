@@ -31,6 +31,10 @@ import {
   authorNameExists,
   rowsToWidgetAuthors,
   createContributionsView,
+  hasPublicationOrder,
+  orderRowsForPublication,
+  generateContributionStatement,
+  generateMatrixCanvas,
 } from '../contributions/view.js';
 
 // ---------------------------------------------------------------------------
@@ -403,6 +407,339 @@ describe('toEndpointPayload', () => {
     const rows = initMatrix(['Bob Jones']);
     const payload = toEndpointPayload(rows, 'proj');
     expect(payload.contributors[0].author.name).toBe('Bob Jones');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Publication order
+// ---------------------------------------------------------------------------
+
+describe('publication order', () => {
+  const unordered = [
+    { name: 'Zoe', publication_order: null },
+    { name: 'Amy', publication_order: null },
+  ];
+  const ordered = [
+    { name: 'Zoe', publication_order: 2 },
+    { name: 'Amy', publication_order: 1 },
+  ];
+
+  it('treats an empty order as unset', () => {
+    expect(hasPublicationOrder(unordered)).toBe(false);
+    expect(hasPublicationOrder([])).toBe(false);
+    expect(hasPublicationOrder(ordered)).toBe(true);
+  });
+
+  it('leaves row order untouched when unset', () => {
+    expect(orderRowsForPublication(unordered).map((r) => r.name))
+      .toEqual(['Zoe', 'Amy']);
+  });
+
+  it('sorts by publication_order when set', () => {
+    expect(orderRowsForPublication(ordered).map((r) => r.name))
+      .toEqual(['Amy', 'Zoe']);
+  });
+
+  it('puts rows without an order last, keeping their relative order', () => {
+    const mixed = [
+      { name: 'NoneA' },
+      { name: 'Second', publication_order: 2 },
+      { name: 'NoneB' },
+      { name: 'First', publication_order: 1 },
+    ];
+    expect(orderRowsForPublication(mixed).map((r) => r.name))
+      .toEqual(['First', 'Second', 'NoneA', 'NoneB']);
+  });
+
+  it('does not mutate the input', () => {
+    const input = [...ordered];
+    orderRowsForPublication(input);
+    expect(input.map((r) => r.name)).toEqual(['Zoe', 'Amy']);
+  });
+
+  it('round-trips publication_order through the endpoint payload', () => {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[0].publication_order = 2;
+    rows[1].publication_order = 1;
+    const payload = toEndpointPayload(rows, 'proj');
+    expect(payload.contributors.map((c) => c.publication_order)).toEqual([2, 1]);
+    expect(fromEndpointPayload(payload).map((r) => r.publication_order))
+      .toEqual([2, 1]);
+  });
+
+  it('omits publication_order from the payload when unset', () => {
+    const payload = toEndpointPayload(initMatrix(['Alice Smith']), 'proj');
+    expect(payload.contributors[0]).not.toHaveProperty('publication_order');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round-tripping fields the editor does not model
+// ---------------------------------------------------------------------------
+
+describe('endpoint payload passthrough', () => {
+  const stored = {
+    project_name: 'proj',
+    contributors: [{
+      author: {
+        name: 'Alice Smith',
+        registry_identifier: '0000-0001',
+        registry: 'Open Researcher and Contributor ID (ORCID)',
+        email: 'alice@example.org',
+        other_names: ['A. Smith'],
+      },
+      from_asset: true,
+      credit_levels: [{
+        role: 'software',
+        level: 'lead',
+        description: 'wrote the solver',
+        linked_assets: ['asset-1', 'asset-2'],
+        linked_sections: ['Methods'],
+        start_date: '2024-01-01',
+        end_date: '2024-06-01',
+      }],
+    }],
+  };
+
+  function resave(payload) {
+    // What a save does: load the grid, change nothing, write it back.
+    const rows = fromEndpointPayload(payload);
+    const descs = { 'Alice Smith': { software: 'wrote the solver' } };
+    return toEndpointPayload(rows, 'proj', {
+      authorOrcids: { 'Alice Smith': '0000-0001' },
+      creditDescriptions: descs,
+    });
+  }
+
+  it('preserves author fields the grid cannot edit', () => {
+    const author = resave(stored).contributors[0].author;
+    expect(author.email).toBe('alice@example.org');
+    expect(author.other_names).toEqual(['A. Smith']);
+    expect(author.registry).toBe('Open Researcher and Contributor ID (ORCID)');
+    expect(author.registry_identifier).toBe('0000-0001');
+  });
+
+  it('preserves linked assets, sections and per-role dates', () => {
+    const cl = resave(stored).contributors[0].credit_levels[0];
+    expect(cl.linked_assets).toEqual(['asset-1', 'asset-2']);
+    expect(cl.linked_sections).toEqual(['Methods']);
+    expect(cl.start_date).toBe('2024-01-01');
+    expect(cl.end_date).toBe('2024-06-01');
+    expect(cl.description).toBe('wrote the solver');
+  });
+
+  it('is stable across repeated saves', () => {
+    expect(resave(resave(stored))).toEqual(resave(stored));
+  });
+
+  it('drops passthrough for a role the author no longer holds', () => {
+    const rows = fromEndpointPayload(stored);
+    rows[0]['Software'] = 'None';
+    rows[0]['Methodology'] = 'Equal';
+    const cls = toEndpointPayload(rows, 'proj').contributors[0].credit_levels;
+    expect(cls).toHaveLength(1);
+    expect(cls[0].role).toBe('methodology');
+    expect(cls[0]).not.toHaveProperty('linked_assets');
+  });
+
+  it('adds no passthrough key for a contributor with nothing extra', () => {
+    const rows = fromEndpointPayload({
+      contributors: [{ author: { name: 'Bob Jones' }, credit_levels: [] }],
+    });
+    expect(rows[0]).not.toHaveProperty('_passthrough');
+  });
+
+  it('carries publication_order through to widget authors', () => {
+    const rows = initMatrix(['Alice Smith']);
+    rows[0].publication_order = 3;
+    expect(rowsToWidgetAuthors(rows)[0].publication_order).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DOI list
+// ---------------------------------------------------------------------------
+
+describe('DOI is a list', () => {
+  it('sends a list of DOIs', () => {
+    const rows = initMatrix(['Alice Smith']);
+    const payload = toEndpointPayload(rows, 'proj', {
+      doi: ['10.1/preprint', '10.2/journal'],
+    });
+    expect(payload.doi).toEqual(['10.1/preprint', '10.2/journal']);
+  });
+
+  it('accepts a legacy scalar DOI from an old draft', () => {
+    const payload = toEndpointPayload(initMatrix(['A B']), 'proj', { doi: '10.1/x' });
+    expect(payload.doi).toEqual(['10.1/x']);
+  });
+
+  it('drops blank entries and omits the field when nothing is left', () => {
+    const rows = initMatrix(['A B']);
+    expect(toEndpointPayload(rows, 'proj', { doi: ['', '  '] }))
+      .not.toHaveProperty('doi');
+    expect(toEndpointPayload(rows, 'proj', { doi: [' 10.1/x ', ''] }).doi)
+      .toEqual(['10.1/x']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contribution statement ordering
+// ---------------------------------------------------------------------------
+
+describe('generateContributionStatement ordering', () => {
+  it('lists authors alphabetically by last name', () => {
+    const rows = initMatrix(['Yara Adams', 'Alice Zimmer', 'Bob Mackay']);
+    for (const r of rows) r['Software'] = 'Equal';
+    const { statement } = generateContributionStatement(rows);
+    expect(statement).toBe('Software, Y.A., B.M., A.Z.');
+  });
+
+  it('ignores contribution level when ordering', () => {
+    const rows = initMatrix(['Alice Zimmer', 'Bob Adams']);
+    rows[0]['Software'] = 'Lead';
+    rows[1]['Software'] = 'Supporting';
+    // Adams before Zimmer despite Zimmer being the Lead.
+    expect(generateContributionStatement(rows).statement)
+      .toBe('Software, B.A., A.Z.');
+  });
+
+  it('ignores publication order when ordering', () => {
+    const rows = initMatrix(['Alice Zimmer', 'Bob Adams']);
+    rows[0]['Software'] = 'Equal';
+    rows[1]['Software'] = 'Equal';
+    rows[0].publication_order = 1;
+    rows[1].publication_order = 2;
+    expect(generateContributionStatement(rows).statement)
+      .toBe('Software, B.A., A.Z.');
+  });
+
+  it('orders each role independently but consistently', () => {
+    const rows = initMatrix(['Yara Adams', 'Alice Zimmer']);
+    rows[0]['Software'] = 'Equal';
+    rows[0]['Methodology'] = 'Equal';
+    rows[1]['Software'] = 'Equal';
+    const { statement } = generateContributionStatement(rows);
+    expect(statement).toBe('Methodology, Y.A.; Software, Y.A., A.Z.');
+  });
+
+  it('breaks last-name ties on the full name', () => {
+    const rows = initMatrix(['Zoe Adams', 'Amy Adams']);
+    for (const r of rows) r['Software'] = 'Equal';
+    expect(generateContributionStatement(rows).statement)
+      .toBe('Software, A.A., Z.A.');
+  });
+
+  it('orders the description block by last name too', () => {
+    const rows = initMatrix(['Yara Zimmer', 'Alice Adams']);
+    rows[0]['Software'] = 'Equal';
+    rows[1]['Software'] = 'Equal';
+    const { descriptions } = generateContributionStatement(rows, {
+      'Yara Zimmer': { software: 'wrote the solver' },
+      'Alice Adams': { software: 'wrote the parser' },
+    });
+    expect(descriptions.split('\n').map((l) => l.split(':')[0]))
+      .toEqual(['A.A.', 'Y.Z.']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Display paths honour project settings
+// ---------------------------------------------------------------------------
+
+describe('display paths honour showLevels', () => {
+  function rowsWithLevels() {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[0]['Software'] = 'Lead';
+    rows[1]['Software'] = 'Supporting';
+    return rows;
+  }
+
+  it('LaTeX shades by level when levels are shown', () => {
+    const tex = generateLatex(rowsWithLevels(), { showLevels: true });
+    expect(tex).toContain('\\hi');
+    expect(tex).toContain('\\lo');
+  });
+
+  it('LaTeX flattens to a plain yes/no when levels are hidden', () => {
+    const tex = generateLatex(rowsWithLevels(), { showLevels: false });
+    expect(tex).not.toContain('\\hi');
+    expect(tex).not.toContain('\\lo');
+    expect(tex).toContain('\\mid');
+  });
+
+  it('LaTeX flattens when the project disallows levels entirely', () => {
+    const tex = generateLatex(rowsWithLevels(), { allowLevels: false });
+    expect(tex).not.toContain('\\hi');
+  });
+
+  it('LaTeX lists rows in publication order', () => {
+    const rows = rowsWithLevels();
+    rows[0].publication_order = 2;
+    rows[1].publication_order = 1;
+    const tex = generateLatex(rows);
+    expect(tex.indexOf('B. Jones')).toBeLessThan(tex.indexOf('A. Smith'));
+  });
+
+  // jsdom has no 2d context, so record the draw calls instead. This is what
+  // the PNG bug was about: the cells kept their level shading after the
+  // legend that explained it was switched off.
+  function drawPng(rows, settings) {
+    const calls = { fillRect: [], fillText: [] };
+    const ctx = {
+      save() {}, restore() {}, scale() {}, translate() {}, rotate() {},
+      fillStyle: '', font: '', textAlign: '', textBaseline: '',
+      fillRect(...a) { calls.fillRect.push({ fillStyle: this.fillStyle, args: a }); },
+      fillText(text) { calls.fillText.push({ fillStyle: this.fillStyle, text }); },
+    };
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+    try {
+      const canvas = generateMatrixCanvas(rows, settings);
+      // Drop the opening white background fill; the rest are matrix cells.
+      const cells = calls.fillRect.slice(1);
+      const legend = calls.fillText
+        .map((c) => c.text)
+        .filter((t) => ['Lead', '++', '+'].includes(t));
+      return { width: canvas.width, cells, legend, texts: calls.fillText.map((c) => c.text) };
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it('PNG shades cells by level and draws a legend when levels are shown', () => {
+    const { cells, legend } = drawPng(rowsWithLevels(), { showLevels: true });
+    expect(legend).toEqual(['Lead', '++', '+']);
+    expect(new Set(cells.map((c) => c.fillStyle)).size).toBe(2);
+  });
+
+  it('PNG uses one flat tone and no legend when levels are hidden', () => {
+    const { cells, legend } = drawPng(rowsWithLevels(), { showLevels: false });
+    expect(legend).toEqual([]);
+    expect(cells).toHaveLength(2);
+    expect(new Set(cells.map((c) => c.fillStyle)).size).toBe(1);
+  });
+
+  it('PNG flattens when the project disallows levels entirely', () => {
+    const { cells, legend } = drawPng(rowsWithLevels(), { allowLevels: false });
+    expect(legend).toEqual([]);
+    expect(new Set(cells.map((c) => c.fillStyle)).size).toBe(1);
+  });
+
+  it('PNG omits Lead from the legend when Lead is not allowed', () => {
+    expect(drawPng(rowsWithLevels(), { allowLead: false }).legend).toEqual(['++', '+']);
+  });
+
+  it('PNG reclaims the legend gutter when there is no legend', () => {
+    expect(drawPng(rowsWithLevels(), { showLevels: false }).width)
+      .toBeLessThan(drawPng(rowsWithLevels(), { showLevels: true }).width);
+  });
+
+  it('PNG lists rows in publication order', () => {
+    const rows = rowsWithLevels();
+    rows[0].publication_order = 2;
+    rows[1].publication_order = 1;
+    const { texts } = drawPng(rows, {});
+    expect(texts.indexOf('Bob Jones')).toBeLessThan(texts.indexOf('Alice Smith'));
   });
 });
 

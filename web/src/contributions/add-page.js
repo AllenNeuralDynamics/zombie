@@ -555,7 +555,19 @@ function StepFullEditor({
     const nameKey = editName.trim() || authorName;
     const existing = allRows.findIndex((r) => r.name === nameKey || r.name === authorName);
     if (existing >= 0) {
-      return allRows.map((r, i) => i === existing ? myRow : r);
+      // This wizard only models the author's own name and CRediT roles, so the
+      // replacement row must not carry its blank defaults over the display
+      // properties an admin set on this author (byline position, author level,
+      // admin rights). Keep those from the loaded row.
+      const prev = allRows[existing];
+      const preserved = {
+        ...myRow,
+        author_level: prev.author_level ?? null,
+        publication_order: prev.publication_order ?? null,
+        is_admin: prev.is_admin ?? false,
+        ...(prev._passthrough ? { _passthrough: prev._passthrough } : {}),
+      };
+      return allRows.map((r, i) => i === existing ? preserved : r);
     }
     return [...allRows, myRow];
   }, [allRows, myRow, editName, authorName]);
@@ -635,7 +647,7 @@ function StepFullEditor({
         authorEndDates,
         authorSectionLevels,
         assets: projectData?.assets || [],
-        doi: projectData?.doi || '',
+        doi: projectData?.doi || [],
       });
 
       // Members/admins save via their ORCID session cookie. Anonymous

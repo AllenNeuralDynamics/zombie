@@ -579,13 +579,22 @@ export function createPreview(container, authors, options = {}) {
 
   // State
   const hasPubOrder = (authors || []).some(a => a.publication_order != null);
-  // Default to alphabetical (last name) — the order CRediT uses by default.
-  let sortKey = 'alpha';
+  const hasAuthorLevels = (authors || []).some(a => a.author_level != null);
+  // A project that has set a publication order means it — use it. Otherwise
+  // fall back to alphabetical (last name), the order CRediT uses by default.
+  let sortKey = hasPubOrder ? 'publication-order' : 'alpha';
   let expanded = true;
   let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;
   let searchQuery = '';
-  let useAuthorLevels = container.dataset.cvUseAuthorLevels === 'true';
+  // Default the author-levels grouping on when the project has actually
+  // assigned levels — otherwise the toggle hides data the project set up.
+  // Once the user touches the toggle their choice is stored on the container
+  // and wins.
+  let useAuthorLevels = !hasAuthorLevels ? false
+    : container.dataset.cvUseAuthorLevels != null
+      ? container.dataset.cvUseAuthorLevels === 'true'
+      : hasAuthorLevels;
   // Cleanup function for the Explore tab's network view (cancelled on tab switch)
   let exploreCleanup  = null;
   // Persists zoom/pan across tab switches; reset to null only when authors change entirely
@@ -771,24 +780,28 @@ export function createPreview(container, authors, options = {}) {
       onClick: () => { sortKey = 'most-roles'; rerender(); },
     }, 'Most roles'));
 
-    // Author levels toggle switch
-    const levelsWrap = el('label', {
-      className: 'ae-author-levels-wrap',
-      title: 'Group authors into first / (none) / senior based on author_level field',
-    });
-    const levelsInput = el('input', { type: 'checkbox', style: { display: 'none' } });
-    if (useAuthorLevels) levelsInput.checked = true;
-    levelsInput.addEventListener('change', () => {
-      useAuthorLevels = levelsInput.checked;
-      container.dataset.cvUseAuthorLevels = String(useAuthorLevels);
-      rerender();
-    });
-    const track = el('span', { className: `ae-toggle-track${useAuthorLevels ? ' ae-toggle-on' : ''}` });
-    track.appendChild(el('span', { className: 'ae-toggle-thumb' }));
-    levelsWrap.appendChild(levelsInput);
-    levelsWrap.appendChild(track);
-    levelsWrap.appendChild(el('span', { className: 'ae-toggle-label' }, 'Author levels'));
-    chips.appendChild(levelsWrap);
+    // Author levels toggle switch — only meaningful when the project has
+    // actually assigned first/senior levels; with none set the toggle does
+    // nothing, so don't offer it (same rule as the publication-order chip).
+    if (hasAuthorLevels) {
+      const levelsWrap = el('label', {
+        className: 'ae-author-levels-wrap',
+        title: 'Group authors into first / (none) / senior based on author_level field',
+      });
+      const levelsInput = el('input', { type: 'checkbox', style: { display: 'none' } });
+      if (useAuthorLevels) levelsInput.checked = true;
+      levelsInput.addEventListener('change', () => {
+        useAuthorLevels = levelsInput.checked;
+        container.dataset.cvUseAuthorLevels = String(useAuthorLevels);
+        rerender();
+      });
+      const track = el('span', { className: `ae-toggle-track${useAuthorLevels ? ' ae-toggle-on' : ''}` });
+      track.appendChild(el('span', { className: 'ae-toggle-thumb' }));
+      levelsWrap.appendChild(levelsInput);
+      levelsWrap.appendChild(track);
+      levelsWrap.appendChild(el('span', { className: 'ae-toggle-label' }, 'Author levels'));
+      chips.appendChild(levelsWrap);
+    }
 
     sortBar.appendChild(chips);
 
