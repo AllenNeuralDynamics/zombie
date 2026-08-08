@@ -414,8 +414,8 @@
   gap: 4px;
   padding: 2px 7px;
   font-size: 0.75rem;
-  background: #333333;
-  color: #ffffff;
+  background: var(--text-primary);
+  color: var(--surface-bg);
   border-radius: 999px;
 }
 
@@ -561,7 +561,7 @@
   margin-top: 6px;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--surface-bg);
   padding: 6px;
 }
 
@@ -576,17 +576,17 @@
   color: var(--color-red);
   white-space: pre-wrap;
   word-break: break-all;
-  background: #fff5f5;
+  background: var(--red-muted);
   padding: 6px;
   border-radius: var(--radius);
 }
 
 .dv-plot-error {
   padding: 12px;
-  border: 1px solid var(--color-red, #e53e3e);
+  border: 1px solid var(--color-red);
   border-radius: var(--radius);
-  background: #fff5f5;
-  color: var(--color-red, #e53e3e);
+  background: var(--red-muted);
+  color: var(--color-red);
 }
 
 .dv-plot-error strong {

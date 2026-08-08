@@ -153,7 +153,7 @@
 .ecephys-units-table thead th {
   position: sticky;
   top: 0;
-  background: var(--surface-2, #f5f5f5);
+  background: var(--surface-2, var(--surface-card));
   padding: 0.35rem 0.5rem;
   text-align: left;
   cursor: pointer;

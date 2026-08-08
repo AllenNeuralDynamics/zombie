@@ -98,7 +98,7 @@
 }
 
 .ops-step.is-selected {
-  box-shadow: 0 0 0 2px var(--accent, #4a90d9) inset;
+  box-shadow: 0 0 0 2px var(--accent) inset;
 }
 
 .ops-step-num {
@@ -163,7 +163,7 @@
 .ops-detail-log {
   display: inline-block;
   margin-top: 8px;
-  color: var(--accent, #4a90d9);
+  color: var(--accent);
   font-size: 0.72rem;
 }
 
