@@ -212,10 +212,11 @@ export function generateLatex(rows, settings = {}) {
  *
  * `from_asset` is deliberately absent: the backend recomputes it from
  * `linked_assets`, so round-tripping those two is enough.
- * `registry_identifier` and `affiliation` are absent because the editor does
- * model them, via `authorOrcids` / `authorAffIds`.
+ * `registry_identifier`, `affiliation` and `email` are absent because the
+ * editor does model them, via `authorOrcids` / `authorAffIds` /
+ * `authorEmails`.
  */
-const AUTHOR_PASSTHROUGH_KEYS = ['email', 'other_names', 'registry'];
+const AUTHOR_PASSTHROUGH_KEYS = ['other_names', 'registry'];
 const ROLE_PASSTHROUGH_KEYS = ['linked_assets', 'linked_sections', 'start_date', 'end_date'];
 
 function isEmptyPassthrough(value) {
@@ -225,6 +226,7 @@ function isEmptyPassthrough(value) {
 export function toEndpointPayload(rows, projectName, meta = {}) {
   const {
     authorOrcids = {},
+    authorEmails = {},
     authorAffIds = {},
     affiliations = [],
     sections = [],
@@ -253,6 +255,8 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     const author = { name: row.name, ...(row._passthrough?.author || {}) };
     const orcid = authorOrcids[row.name];
     if (orcid) author.registry_identifier = orcid;
+    const email = String(authorEmails[row.name] || '').trim();
+    if (email) author.email = email;
     const affIds = authorAffIds[row.name] || [];
     const affNames = affIds.map((id) => affiliations.find((a) => a.id === id)?.name).filter(Boolean);
     if (affNames.length) author.affiliation = affNames;
@@ -547,6 +551,7 @@ function extractPayloadMeta(data) {
   }
 
   const newOrcids = {};
+  const newEmails = {};
   const newAffIds = {};
   const newAffiliations = [];
   const newCreditDescriptions = {};
@@ -560,6 +565,8 @@ function extractPayloadMeta(data) {
     if (!name) continue;
     const orcid = contributor.author?.registry_identifier;
     if (orcid) newOrcids[name] = orcid;
+    const email = contributor.author?.email;
+    if (email) newEmails[name] = email;
     const affRaw = contributor.author?.affiliation;
     const affArr = Array.isArray(affRaw)
       ? affRaw
@@ -588,6 +595,7 @@ function extractPayloadMeta(data) {
   }
   return {
     newOrcids,
+    newEmails,
     newAffIds,
     newAffiliations,
     newSections,
@@ -765,7 +773,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 // ── AuthorDetailSection ──────────────────────────────────────────────────────
 
 function AuthorDetailSection({
-  row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
+  row, selectedAuthor, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
   creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
   allowLead, allowLevels,
 }) {
@@ -803,6 +811,14 @@ function AuthorDetailSection({
             value=${authorOrcids[selectedAuthor] || ''}
             onChange=${(val) => onChange('orcid', val)}
           />
+        </div>
+        <div class="cv-detail-meta-item">
+          <label class="cv-detail-label" for="cv-detail-email">Email</label>
+          <input id="cv-detail-email" type="email"
+                 class="cv-wizard-input"
+                 placeholder="name@example.org"
+                 value=${authorEmails[selectedAuthor] || ''}
+                 onInput=${(e) => onChange('email', e.target.value)} />
         </div>
         <div class="cv-detail-meta-item">
           <label class="cv-detail-label" for="cv-detail-author-level">Author level</label>
@@ -1449,6 +1465,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
   const [authorSources, setAuthorSources]     = useState(initialDraft?.authorSources || {});
   const [authorOrcids, setAuthorOrcids]       = useState(initialDraft?.authorOrcids || {});
+  const [authorEmails, setAuthorEmails]       = useState(initialDraft?.authorEmails || {});
   const [authorAffIds, setAuthorAffIds]       = useState(initialDraft?.authorAffIds || {});
   const [affiliations, setAffiliations]       = useState(initialDraft?.affiliations?.length ? initialDraft.affiliations : DEFAULT_AFFILIATIONS);
   const [sections, setSections]               = useState(initialDraft?.sections || []);
@@ -1484,7 +1501,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
-  sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
+  sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds,
     affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
     showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked };
@@ -1494,7 +1511,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (rows.length === 0) { sessionStorage.removeItem(DRAFT_KEY); return; }
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
+        projectName, rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds,
         affiliations, sections, creditDescriptions: creditDescs,
         authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi,
@@ -1502,7 +1519,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         existsOnServer,
       }));
     } catch (_) {}
-  }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
+  }, [rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
     creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName,
     showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked, existsOnServer]);
 
@@ -1563,10 +1580,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
-      const { newOrcids, newAffIds, newAffiliations, newSections, newCreditDescriptions,
+      const { newOrcids, newEmails, newAffIds, newAffiliations, newSections, newCreditDescriptions,
         newStartDates, newEndDates, newSectionLevels, newDoi } = extractPayloadMeta(data);
       setAuthorSources({});
       setAuthorOrcids(newOrcids);
+      setAuthorEmails(newEmails);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
@@ -1598,7 +1616,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   // ── Project save ──────────────────────────────────────────────────────────
   async function saveToServer({ allowEmpty = false } = {}) {
-    const { projectName: project, rows: r, authorOrcids: orc, authorAffIds: affIds,
+    const { projectName: project, rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d,
@@ -1608,7 +1626,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
       const payload = toEndpointPayload(r, project, {
-        authorOrcids: orc, authorAffIds: affIds, affiliations: affs,
+        authorOrcids: orc, authorEmails: eml, authorAffIds: affIds, affiliations: affs,
         sections: secs, creditDescriptions: cds,
         authorStartDates: startDates, authorSectionLevels: secLevels,
         assets, doi: d,
@@ -1674,9 +1692,10 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
-      const { newOrcids, newAffIds, newAffiliations, newSections,
+      const { newOrcids, newEmails, newAffIds, newAffiliations, newSections,
         newCreditDescriptions, newStartDates, newEndDates, newSectionLevels } = extractPayloadMeta(data);
       setAuthorOrcids(newOrcids);
+      setAuthorEmails(newEmails);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
@@ -1704,12 +1723,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   }
 
   function renameRow(idx, newName) {
-    const { rows: r, authorOrcids: orc, authorAffIds: affIds,
+    const { rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       creditDescs: cds, authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
     const oldName = r[idx]?.name;
     if (!newName || !oldName || newName === oldName) return;
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, name: newName } : row));
     if (orc[oldName])  setAuthorOrcids((p)  => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (eml[oldName])  setAuthorEmails((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (affIds[oldName]) setAuthorAffIds((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (cds[oldName])  setCreditDescs((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (secLevs[oldName]) setAuthorSectionLevels((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
@@ -1726,6 +1746,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (!author) return;
     if (kind === 'orcid') {
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
+    } else if (kind === 'email') {
+      setAuthorEmails((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'authorLevel') {
       setRows((prev) => prev.map((r) => r.name === author ? { ...r, author_level: payload } : r));
     } else if (kind === 'affiliations') {
@@ -1959,6 +1981,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         row=${selectedRow}
         selectedAuthor=${selectedAuthor}
         authorOrcids=${authorOrcids}
+        authorEmails=${authorEmails}
         authorAffIds=${authorAffIds}
         affiliations=${affiliations}
         sections=${sections}

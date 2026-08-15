@@ -408,6 +408,23 @@ describe('toEndpointPayload', () => {
     const payload = toEndpointPayload(rows, 'proj');
     expect(payload.contributors[0].author.name).toBe('Bob Jones');
   });
+
+  it('writes author.email from authorEmails, trimmed', () => {
+    const rows = initMatrix(['Bob Jones']);
+    const payload = toEndpointPayload(rows, 'proj', {
+      authorEmails: { 'Bob Jones': '  bob@example.org  ' },
+    });
+    expect(payload.contributors[0].author.email).toBe('bob@example.org');
+  });
+
+  it('omits author.email when unset or blank', () => {
+    const rows = initMatrix(['Bob Jones', 'Amy Lee']);
+    const payload = toEndpointPayload(rows, 'proj', {
+      authorEmails: { 'Bob Jones': '   ' },
+    });
+    expect(payload.contributors[0].author).not.toHaveProperty('email');
+    expect(payload.contributors[1].author).not.toHaveProperty('email');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -507,16 +524,29 @@ describe('endpoint payload passthrough', () => {
     const descs = { 'Alice Smith': { software: 'wrote the solver' } };
     return toEndpointPayload(rows, 'proj', {
       authorOrcids: { 'Alice Smith': '0000-0001' },
+      authorEmails: { 'Alice Smith': 'alice@example.org' },
       creditDescriptions: descs,
     });
   }
 
   it('preserves author fields the grid cannot edit', () => {
     const author = resave(stored).contributors[0].author;
-    expect(author.email).toBe('alice@example.org');
     expect(author.other_names).toEqual(['A. Smith']);
     expect(author.registry).toBe('Open Researcher and Contributor ID (ORCID)');
     expect(author.registry_identifier).toBe('0000-0001');
+  });
+
+  it('round-trips an email through the editor rather than passthrough', () => {
+    const rows = fromEndpointPayload(stored);
+    // The editor models email explicitly, so it is not stashed as passthrough.
+    expect(rows[0]._passthrough?.author).not.toHaveProperty('email');
+    expect(resave(stored).contributors[0].author.email).toBe('alice@example.org');
+  });
+
+  it('drops the stored email when the editor clears it', () => {
+    const rows = fromEndpointPayload(stored);
+    const payload = toEndpointPayload(rows, 'proj', { authorEmails: { 'Alice Smith': '' } });
+    expect(payload.contributors[0].author).not.toHaveProperty('email');
   });
 
   it('preserves linked assets, sections and per-role dates', () => {
@@ -1068,5 +1098,78 @@ describe('createContributionsView — isNew auto-create', () => {
     const status = root.querySelector('.status-error');
     expect(status).not.toBeNull();
     expect(status.textContent).toContain('boom');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createContributionsView — author email editing
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — author email', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  const loaded = {
+    project_name: 'my-project',
+    contributors: [{
+      author: { name: 'Alice Smith', email: 'alice@example.org' },
+      credit_levels: [],
+    }],
+  };
+
+  function mockFetch() {
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      if ((opts.method || 'GET') === 'POST') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ commit: 'abc1234567' }) });
+      }
+      if (url.includes('history=true')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => loaded });
+    });
+  }
+
+  async function flush() {
+    for (let i = 0; i < 15; i += 1) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  /** Load the project and select the only author so the detail panel renders. */
+  async function mountAndSelect() {
+    mockFetch();
+    const root = createContributionsView({ projectName: 'my-project' });
+    document.body.appendChild(root);
+    await flush();
+    const selector = root.querySelector('#cv-author-selector');
+    selector.value = 'Alice Smith';
+    selector.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    return root;
+  }
+
+  it('shows the stored email in the author detail panel', async () => {
+    const root = await mountAndSelect();
+    expect(root.querySelector('#cv-detail-email').value).toBe('alice@example.org');
+  });
+
+  it('saves an edited email back to the endpoint payload', async () => {
+    const root = await mountAndSelect();
+    const input = root.querySelector('#cv-detail-email');
+    input.value = 'alice.smith@allen.org';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    root.querySelector('#cv-post-btn').click();
+    await flush();
+
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.contributors[0].author.email).toBe('alice.smith@allen.org');
   });
 });

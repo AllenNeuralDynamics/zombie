@@ -8,7 +8,7 @@
  * separate membership; a logged-in user may only add/edit their own row.
  *
  * Flow for new visitors (no per-project cookie):
- *   Step 1: Personal info (name, ORCID, affiliations)
+ *   Step 1: Personal info (name, ORCID, email, affiliations)
  *   Step 2: High-level CRediT role selection
  *   Step 3: Per-role details (descriptions + linked sections)
  *   Step 4: Full editor view (same as admin, scoped to this author)
@@ -126,7 +126,7 @@ function extractPayloadMeta(data) {
 // Step 1: Personal Info
 // ---------------------------------------------------------------------------
 
-function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
+function StepPersonalInfo({ name, setName, orcid, setOrcid, email, setEmail, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
   const [orcidResults, setOrcidResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [customAff, setCustomAff] = useState('');
@@ -204,6 +204,13 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
             `)}
           </div>
         `}
+      </div>
+
+      <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cw-email">Email</label>
+        <input id="cw-email" type="email" class="cv-wizard-input"
+               placeholder="name@example.org" value=${email}
+               onInput=${(e) => setEmail(e.target.value)} />
       </div>
 
       <div class="cv-wizard-field">
@@ -482,8 +489,8 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, draftId, anonymous, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
-  setAuthorName, setOrcid, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
+  doi, draftId, anonymous, authorName, orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
+  setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
@@ -491,6 +498,7 @@ function StepFullEditor({
 
   const [editName, setEditName]               = useState(authorName);
   const [editOrcid, setEditOrcid]             = useState(orcid);
+  const [editEmail, setEditEmail]             = useState(email || '');
   const [editAffNames, setEditAffNames]       = useState(selectedAffNames);
   const [editRoles, setEditRoles]             = useState(() => ({ ...roles }));
   const [editDescs, setEditDescs]             = useState(() => ({ ...descriptions }));
@@ -501,6 +509,7 @@ function StepFullEditor({
 
   useEffect(() => { setAuthorName?.(editName); }, [editName]);
   useEffect(() => { setOrcid?.(editOrcid); }, [editOrcid]);
+  useEffect(() => { setEmail?.(editEmail); }, [editEmail]);
   useEffect(() => { setSelectedAffNames?.(editAffNames); }, [editAffNames]);
   useEffect(() => { setRoles?.(editRoles); }, [editRoles]);
   useEffect(() => { setDescriptions?.(editDescs); }, [editDescs]);
@@ -587,6 +596,7 @@ function StepFullEditor({
     try {
       const myAffNames = editAffNames;
       const authorOrcids = {};
+      const authorEmails = {};
       const authorAffIds = {};
       const creditDescriptions = {};
       const authorStartDates = {};
@@ -595,6 +605,7 @@ function StepFullEditor({
 
       const finalName = editName.trim() || authorName;
       if (editOrcid) authorOrcids[finalName] = editOrcid;
+      if (editEmail.trim()) authorEmails[finalName] = editEmail.trim();
       if (myAffNames.length) {
         const myAffIds = myAffNames.map((n) => {
           const existing = affiliations.find((a) => a.name === n);
@@ -615,6 +626,8 @@ function StepFullEditor({
         if (!name || name === authorName) continue;
         const orc = contributor.author?.registry_identifier;
         if (orc) authorOrcids[name] = orc;
+        const eml = contributor.author?.email;
+        if (eml) authorEmails[name] = eml;
         const affRaw = contributor.author?.affiliation;
         if (Array.isArray(affRaw) && affRaw.length) {
           authorAffIds[name] = affRaw.map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
@@ -639,6 +652,7 @@ function StepFullEditor({
 
       const payload = toEndpointPayload(mergedRows, doi, {
         authorOrcids,
+        authorEmails,
         authorAffIds,
         affiliations: allAffs,
         sections,
@@ -717,6 +731,13 @@ function StepFullEditor({
           <input id="cwe-orcid" type="text" class="cv-wizard-input"
                  placeholder="0000-0000-0000-0000"
                  value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
+        </div>
+
+        <div class="cv-wizard-field">
+          <label class="cv-detail-label" for="cwe-email">Email</label>
+          <input id="cwe-email" type="email" class="cv-wizard-input"
+                 placeholder="name@example.org"
+                 value=${editEmail} onInput=${(e) => setEditEmail(e.target.value)} />
         </div>
 
       <div class="cv-wizard-field">
@@ -892,6 +913,7 @@ function AddApp({ project, doi, existingAuthor }) {
 
   const [name, setName] = useState(_draft?.name || (isExisting ? existingAuthor : ''));
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
+  const [email, setEmail] = useState(_draft?.email || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
   const [joinDate, setJoinDate] = useState(_draft?.joinDate || null);
   const [leaveDate, setLeaveDate] = useState(_draft?.leaveDate || null);
@@ -907,8 +929,8 @@ function AddApp({ project, doi, existingAuthor }) {
 
   useEffect(() => {
     if (loading) return;
-    saveDraft(draftId, { step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
-  }, [step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
+    saveDraft(draftId, { step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
+  }, [step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
   // Require ORCID login (with an opt-out). The logged-in user is recognised by
   // their session and matched to their own row on load; edit access is derived
@@ -976,6 +998,8 @@ function AddApp({ project, doi, existingAuthor }) {
           setName(ownContributor.author.name);
           const existingOrcid = ownContributor.author?.registry_identifier || '';
           if (existingOrcid) setOrcid(existingOrcid);
+          const existingEmail = ownContributor.author?.email || '';
+          if (existingEmail) setEmail(existingEmail);
 
           const affRaw = ownContributor.author?.affiliation;
           const affArr = Array.isArray(affRaw) ? affRaw
@@ -1101,6 +1125,7 @@ function AddApp({ project, doi, existingAuthor }) {
         <${StepPersonalInfo}
           name=${name} setName=${setName}
           orcid=${orcid} setOrcid=${setOrcid}
+          email=${email} setEmail=${setEmail}
           selectedAffNames=${selectedAffNames} setSelectedAffNames=${setSelectedAffNames}
           projectAffiliations=${affiliations}
           joinDate=${joinDate} setJoinDate=${setJoinDate}
@@ -1141,10 +1166,10 @@ function AddApp({ project, doi, existingAuthor }) {
       ${step === 5 && html`
         <${StepFullEditor}
           doi=${effProject} draftId=${draftId} anonymous=${anonymous}
-          authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
+          authorName=${name} orcid=${orcid} email=${email} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
           joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
-          setAuthorName=${setName} setOrcid=${setOrcid} setSelectedAffNames=${setSelectedAffNames}
+          setAuthorName=${setName} setOrcid=${setOrcid} setEmail=${setEmail} setSelectedAffNames=${setSelectedAffNames}
           setRoles=${setRoles} setDescriptions=${setDescriptions}
           setJoinDate=${setJoinDate} setLeaveDate=${setLeaveDate} setSectionLevels=${setSectionLevels}
           allRows=${allRows}
