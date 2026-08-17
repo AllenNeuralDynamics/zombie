@@ -45,7 +45,7 @@
 }
 
 .app-brand-top {
-  font-family: 'AllenInstitutePlusHeadline', Arial;
+  font-family: 'AllenInstituteHeadline', Arial;
   font-size: 0.80rem;
   font-weight: 500;
   color: rgb(170, 163, 159);
@@ -57,7 +57,7 @@
 }
 
 .app-brand-sub {
-  font-family: 'AllenInstitutePlusHeadline', Arial;
+  font-family: 'AllenInstituteHeadline', Arial;
   font-size: 0.80rem;
   font-weight: 700;
   color: var(--text-primary);

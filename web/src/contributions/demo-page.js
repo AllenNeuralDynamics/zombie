@@ -753,7 +753,7 @@ function injectDemoStyles() {
       gap: 16px;
     }
     .demo-page-header h1 {
-      font-family: 'AllenInstitutePlusHeadline', 'AllenInstitutePlusText', Arial, sans-serif;
+      font-family: 'AllenInstituteHeadline', 'AllenInstituteText', Arial, sans-serif;
       font-size: 24px;
       font-weight: 700;
       color: #000;
@@ -831,7 +831,7 @@ function injectDemoStyles() {
     }
 
     .demo-card-title {
-      font-family: 'AllenInstitutePlusHeadline', 'AllenInstitutePlusText', Arial, sans-serif;
+      font-family: 'AllenInstituteHeadline', 'AllenInstituteText', Arial, sans-serif;
       font-size: 16px;
       font-weight: 700;
       color: #000;
