@@ -193,7 +193,7 @@
   height: auto;
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
-  background: #fff;
+  background: var(--surface-bg);
 }
 .af-fig figcaption {
   font-size: 11px;
@@ -220,7 +220,7 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  background: #fff;
+  background: var(--surface-bg);
   border-radius: var(--radius);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
 }

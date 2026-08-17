@@ -15,7 +15,7 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
-import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
+import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels, getLastName } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
@@ -142,7 +142,16 @@ export function formatAuthorForLatex(name, isFirst) {
   return escapeLatex(isFirst ? `${formatted}*` : formatted);
 }
 
-export function generateLatex(rows) {
+/**
+ * TikZ source for the contribution matrix. Like every other display path this
+ * obeys the project settings: with `showLevels` off the heatmap is a flat
+ * yes/no rather than shaded by a level the reader is not being shown, and rows
+ * follow the publication order when the project has one.
+ */
+export function generateLatex(rows, settings = {}) {
+  const showLevels = (settings.showLevels ?? true) && (settings.allowLevels ?? true);
+  rows = orderRowsForPublication(rows);
+
   const colLines = [
     '    % column labels',
     '    \\foreach \\a [count=\\n] in {',
@@ -162,7 +171,11 @@ export function generateLatex(rows) {
   const heatmapLines = [
     '    \\foreach \\y [count=\\n] in {',
     ...rows.map((row) => {
-      const values = CREDIT_CATEGORIES.map((cat) => LATEX_LEVEL_VALUES[row[cat]] ?? 0);
+      const values = CREDIT_CATEGORIES.map((cat) => {
+        const level = row[cat];
+        if (!level || level === 'None') return 0;
+        return showLevels ? (LATEX_LEVEL_VALUES[level] ?? 0) : LATEX_LEVEL_VALUES.Equal;
+      });
       return `        {${values.join(',')}},`;
     }),
     '    } {',
@@ -189,9 +202,31 @@ export function generateLatex(rows) {
   ].join('\n');
 }
 
+/**
+ * Fields the editor does not model but must not destroy.
+ *
+ * The grid edits names, CRediT roles and a handful of display properties;
+ * everything else on a stored contributor is invisible to it. Anything
+ * invisible that is *not* listed here is silently dropped the first time
+ * anyone saves, so a new backend field belongs in one of these lists.
+ *
+ * `from_asset` is deliberately absent: the backend recomputes it from
+ * `linked_assets`, so round-tripping those two is enough.
+ * `registry_identifier`, `affiliation` and `email` are absent because the
+ * editor does model them, via `authorOrcids` / `authorAffIds` /
+ * `authorEmails`.
+ */
+const AUTHOR_PASSTHROUGH_KEYS = ['other_names', 'registry'];
+const ROLE_PASSTHROUGH_KEYS = ['linked_assets', 'linked_sections', 'start_date', 'end_date'];
+
+function isEmptyPassthrough(value) {
+  return value == null || (Array.isArray(value) && value.length === 0);
+}
+
 export function toEndpointPayload(rows, projectName, meta = {}) {
   const {
     authorOrcids = {},
+    authorEmails = {},
     authorAffIds = {},
     affiliations = [],
     sections = [],
@@ -200,7 +235,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     authorEndDates = {},
     authorSectionLevels = {},
     assets = [],
-    doi = '',
+    doi = [],
   } = meta;
   const contributors = rows.map((row) => {
     const credit_levels = [];
@@ -213,12 +248,15 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
           role: roleEnum,
           level: level.toLowerCase(),
           ...(desc ? { description: desc } : {}),
+          ...(row._passthrough?.roles?.[roleEnum] || {}),
         });
       }
     }
-    const author = { name: row.name };
+    const author = { name: row.name, ...(row._passthrough?.author || {}) };
     const orcid = authorOrcids[row.name];
     if (orcid) author.registry_identifier = orcid;
+    const email = String(authorEmails[row.name] || '').trim();
+    if (email) author.email = email;
     const affIds = authorAffIds[row.name] || [];
     const affNames = affIds.map((id) => affiliations.find((a) => a.id === id)?.name).filter(Boolean);
     if (affNames.length) author.affiliation = affNames;
@@ -229,6 +267,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
     return {
       author,
       author_level: row.author_level ?? null,
+      ...(row.publication_order != null ? { publication_order: row.publication_order } : {}),
       ...(startDate ? { start_date: startDate } : {}),
       ...(endDate ? { end_date: endDate } : {}),
       ...(row.is_admin ? { is_admin: true } : {}),
@@ -238,9 +277,14 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
   });
   const topSections = sections.map((s) => s.title).filter(Boolean);
   const topAssets = assets.filter(Boolean);
+  // A paper can be published in several venues, so doi is a list. Accept the
+  // legacy scalar form from an old draft in localStorage.
+  const topDois = (Array.isArray(doi) ? doi : [doi])
+    .map((d) => String(d || '').trim())
+    .filter(Boolean);
   return {
     project_name: projectName,
-    ...(doi ? { doi } : {}),
+    ...(topDois.length ? { doi: topDois } : {}),
     ...(topAssets.length ? { assets: topAssets } : {}),
     ...(topSections.length ? { sections: topSections } : {}),
     contributors,
@@ -253,14 +297,35 @@ export function fromEndpointPayload(data) {
       name: contributor.author?.name ?? '',
       isFirst: false,
       author_level: contributor.author_level ?? null,
+      publication_order: contributor.publication_order ?? null,
       is_admin: contributor.is_admin ?? false,
     };
     for (const cat of CREDIT_CATEGORIES) row[cat] = 'None';
+
+    // Stash the fields the editor cannot see so a save puts them back
+    // untouched. Keyed by role enum, since that is what toEndpointPayload
+    // rebuilds credit_levels from.
+    const authorExtras = {};
+    for (const key of AUTHOR_PASSTHROUGH_KEYS) {
+      const value = contributor.author?.[key];
+      if (!isEmptyPassthrough(value)) authorExtras[key] = value;
+    }
+    const roleExtras = {};
+
     for (const cl of contributor.credit_levels || []) {
       const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
       if (displayRole) {
         row[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
       }
+      const extras = {};
+      for (const key of ROLE_PASSTHROUGH_KEYS) {
+        if (!isEmptyPassthrough(cl[key])) extras[key] = cl[key];
+      }
+      if (Object.keys(extras).length) roleExtras[cl.role] = extras;
+    }
+
+    if (Object.keys(authorExtras).length || Object.keys(roleExtras).length) {
+      row._passthrough = { author: authorExtras, roles: roleExtras };
     }
     return row;
   });
@@ -282,20 +347,29 @@ export function formatAuthorInitials(name) {
   return name.trim().split(/\s+/).map((p) => (p[0] || '').toUpperCase() + '.').join('');
 }
 
+/**
+ * CRediT statement plus per-author descriptions.
+ *
+ * Authors are listed alphabetically by last name, within each role and in the
+ * description block — the CRediT convention, and independent of contribution
+ * level so the statement never implies a ranking. Ties on last name fall back
+ * to the full name so the output is stable.
+ */
 export function generateContributionStatement(rows, creditDescriptions = {}) {
+  const byLastName = [...(rows || [])].sort((a, b) =>
+    getLastName(a.name).localeCompare(getLastName(b.name))
+      || a.name.localeCompare(b.name));
+
   const parts = [];
   for (const cat of CREDIT_CATEGORIES) {
-    const initials = [];
-    for (const level of ['Lead', 'Equal', 'Supporting']) {
-      for (const row of rows) {
-        if (row[cat] === level) initials.push(formatAuthorInitials(row.name));
-      }
-    }
+    const initials = byLastName
+      .filter((row) => row[cat] && row[cat] !== 'None')
+      .map((row) => formatAuthorInitials(row.name));
     if (initials.length > 0) parts.push(`${cat}, ${initials.join(', ')}`);
   }
   const statement = parts.join('; ');
   const descLines = [];
-  for (const row of rows) {
+  for (const row of byLastName) {
     const perRole = creditDescriptions[row.name];
     if (!perRole) continue;
     const roleDescs = Object.entries(perRole)
@@ -307,6 +381,29 @@ export function generateContributionStatement(rows, creditDescriptions = {}) {
   return { statement, descriptions: descLines.join('\n') };
 }
 
+/**
+ * True when the project has a publication order — i.e. at least one row
+ * carries a `publication_order`. An empty order is ignored everywhere.
+ */
+export function hasPublicationOrder(rows) {
+  return (rows || []).some((r) => r?.publication_order != null);
+}
+
+/**
+ * Rows sorted by `publication_order`, with unordered rows keeping their
+ * existing relative position at the end. When no row has an order this is a
+ * stable no-op, so callers can apply it unconditionally.
+ */
+export function orderRowsForPublication(rows) {
+  return [...(rows || [])].sort((a, b) => {
+    const ao = a?.publication_order, bo = b?.publication_order;
+    if (ao == null && bo == null) return 0;
+    if (ao == null) return 1;
+    if (bo == null) return -1;
+    return ao - bo;
+  });
+}
+
 export function rowsToWidgetAuthors(rows) {
   return rows.map((row) => {
     const credit_levels = [];
@@ -316,7 +413,12 @@ export function rowsToWidgetAuthors(rows) {
         credit_levels.push({ role: displayRole, level: level.toLowerCase() });
       }
     }
-    return { name: row.name, author_level: row.author_level ?? null, credit_levels };
+    return {
+      name: row.name,
+      author_level: row.author_level ?? null,
+      publication_order: row.publication_order ?? null,
+      credit_levels,
+    };
   });
 }
 
@@ -324,7 +426,21 @@ export function rowsToWidgetAuthors(rows) {
 // generateMatrixCanvas
 // ---------------------------------------------------------------------------
 
+/**
+ * Render the CRediT matrix to a canvas for PNG export.
+ *
+ * This is a display path like any other, so it obeys the same project
+ * settings as the preview widget: `showLevels` controls whether the cells are
+ * shaded by contribution level at all (not just whether a legend is drawn),
+ * `allowLead`/`allowLevels` control which tiers may appear, and the rows are
+ * laid out in publication order when the project has one.
+ */
 export function generateMatrixCanvas(rows, settings = {}) {
+  const { allowLevels = true, allowLead = true } = settings;
+  // Levels can only be shown if the project allows them in the first place.
+  const showLevels = (settings.showLevels ?? true) && allowLevels;
+  rows = orderRowsForPublication(rows);
+
   const CELL        = 30;
   const NAME_W      = 170;
   const HEADER_H    = 155;
@@ -340,9 +456,16 @@ export function generateMatrixCanvas(rows, settings = {}) {
     rows.some((row) => row[cat] && row[cat] !== 'None'),
   );
 
+  // Only the tiers this project offers, labelled the way the project labels
+  // them — and nothing at all when levels aren't being shown.
+  const legendItems = showLevels ? enabledLevels({ allowLevels, allowLead }) : [];
+
   const gridW   = activeRoles.length * CELL;
   const gridH   = rows.length * CELL;
-  const canvasW = PAD + NAME_W + gridW + LEGEND_GAP + LEGEND_W + PAD;
+  // No legend means no legend gutter, otherwise the PNG has dead space where
+  // the legend used to be.
+  const legendGutter = legendItems.length ? LEGEND_GAP + LEGEND_W : 0;
+  const canvasW = PAD + NAME_W + gridW + legendGutter + PAD;
   const canvasH = HEADER_H + gridH + PAD;
 
   const canvas = document.createElement('canvas');
@@ -389,15 +512,16 @@ export function generateMatrixCanvas(rows, settings = {}) {
       const level = row[activeRoles[ci]];
       if (!level || level === 'None') continue;
       const cx = PAD + NAME_W + ci * CELL;
-      ctx.fillStyle = FILL[level] || FILL.Supporting;
+      // With levels hidden the matrix is a plain yes/no, so every filled cell
+      // gets the same tone — shading by a level the legend no longer explains
+      // would leak the hidden data. Matches the widget's `equal` fallback.
+      ctx.fillStyle = showLevels ? (FILL[level] || FILL.Supporting) : FILL.Equal;
       ctx.fillRect(cx + 1, ry + 1, CELL - 1, CELL - 1);
     }
   }
 
   const LEGEND_COLORS = { lead: '#4338ca', equal: '#818cf8', supporting: '#9ca3af' };
   const legendX       = PAD + NAME_W + gridW + LEGEND_GAP;
-  // Only the tiers this project offers, labelled the way the project labels them.
-  const legendItems   = enabledLevels(settings);
   const legendTotalH  = legendItems.length * LEGEND_STEP;
   const legendStartY  = HEADER_H + gridH / 2 - legendTotalH / 2 + LEGEND_STEP / 2;
   ctx.font         = FONT_LEGEND;
@@ -427,6 +551,7 @@ function extractPayloadMeta(data) {
   }
 
   const newOrcids = {};
+  const newEmails = {};
   const newAffIds = {};
   const newAffiliations = [];
   const newCreditDescriptions = {};
@@ -440,6 +565,8 @@ function extractPayloadMeta(data) {
     if (!name) continue;
     const orcid = contributor.author?.registry_identifier;
     if (orcid) newOrcids[name] = orcid;
+    const email = contributor.author?.email;
+    if (email) newEmails[name] = email;
     const affRaw = contributor.author?.affiliation;
     const affArr = Array.isArray(affRaw)
       ? affRaw
@@ -468,6 +595,7 @@ function extractPayloadMeta(data) {
   }
   return {
     newOrcids,
+    newEmails,
     newAffIds,
     newAffiliations,
     newSections,
@@ -475,7 +603,8 @@ function extractPayloadMeta(data) {
     newStartDates,
     newEndDates,
     newSectionLevels,
-    newDoi: data.doi || '',
+    // The server returns a list; tolerate the legacy scalar from old documents.
+    newDoi: Array.isArray(data.doi) ? data.doi : (data.doi ? [data.doi] : []),
   };
 }
 
@@ -644,7 +773,7 @@ function OrcidSearch({ authorName, value, onChange }) {
 // ── AuthorDetailSection ──────────────────────────────────────────────────────
 
 function AuthorDetailSection({
-  row, selectedAuthor, authorOrcids, authorAffIds, affiliations, sections,
+  row, selectedAuthor, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
   creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
   allowLead, allowLevels,
 }) {
@@ -682,6 +811,14 @@ function AuthorDetailSection({
             value=${authorOrcids[selectedAuthor] || ''}
             onChange=${(val) => onChange('orcid', val)}
           />
+        </div>
+        <div class="cv-detail-meta-item">
+          <label class="cv-detail-label" for="cv-detail-email">Email</label>
+          <input id="cv-detail-email" type="email"
+                 class="cv-wizard-input"
+                 placeholder="name@example.org"
+                 value=${authorEmails[selectedAuthor] || ''}
+                 onInput=${(e) => onChange('email', e.target.value)} />
         </div>
         <div class="cv-detail-meta-item">
           <label class="cv-detail-label" for="cv-detail-author-level">Author level</label>
@@ -782,6 +919,82 @@ function AuthorDetailSection({
   `;
 }
 
+// ── PublicationOrderEditor ────────────────────────────────────────────────
+
+/**
+ * Drag-and-drop editor for the publication byline order.
+ *
+ * The order is stored as a 1-based `publication_order` on each row. "Unset"
+ * means *no* row carries one — in that state every display path falls back to
+ * its own default ordering and the preview widget hides its publication-order
+ * chip entirely, so this editor must be able to return to it (Clear).
+ */
+function PublicationOrderEditor({ rows, onReorder, onClear }) {
+  // The index is held in a ref as well as state: state drives the drag
+  // styling, but the drop handler must read the value synchronously — a
+  // state read there can still be null if drop lands before the re-render.
+  const dragRef = useRef(null);
+  const [dragIdx, setDragIdx] = useState(null);
+  const [overIdx, setOverIdx] = useState(null);
+
+  const ordered = useMemo(() => orderRowsForPublication(rows), [rows]);
+  const isSet = rows.some((r) => r.publication_order != null);
+
+  function startDrag(idx) { dragRef.current = idx; setDragIdx(idx); }
+  function endDrag() { dragRef.current = null; setDragIdx(null); setOverIdx(null); }
+
+  function drop(toIdx) {
+    const from = dragRef.current;
+    endDrag();
+    if (from == null || from === toIdx) return;
+    const next = [...ordered];
+    const [moved] = next.splice(from, 1);
+    next.splice(toIdx, 0, moved);
+    onReorder(next.map((r) => r.name));
+  }
+
+  if (!rows.length) {
+    return html`<p class="cv-placeholder cv-detail-hint">Add authors first, then order them here.</p>`;
+  }
+
+  return html`
+    <div class="cv-pub-order">
+      <p class="cv-detail-hint">
+        ${isSet
+          ? 'Drag to reorder. This order is used wherever authors are listed.'
+          : 'No publication order set — displays fall back to their own default order. Drag an author to set one.'}
+      </p>
+      <ol class="cv-pub-order-list">
+        ${ordered.map((row, idx) => html`
+          <li key=${row.name}
+              class=${'cv-pub-order-item'
+                + (dragIdx === idx ? ' cv-pub-order-dragging' : '')
+                + (overIdx === idx && dragIdx !== idx ? ' cv-pub-order-over' : '')}
+              draggable="true"
+              onDragStart=${() => startDrag(idx)}
+              onDragEnd=${endDrag}
+              onDragOver=${(e) => { e.preventDefault(); setOverIdx(idx); }}
+              onDrop=${(e) => { e.preventDefault(); drop(idx); }}>
+            <span class="cv-pub-order-handle" aria-hidden="true">⠿</span>
+            <span class="cv-pub-order-num">${idx + 1}</span>
+            <span class="cv-pub-order-name">${row.name || '(unnamed)'}</span>
+          </li>
+        `)}
+      </ol>
+      <div class="cv-pub-order-actions">
+        ${isSet
+          ? html`<button class="btn-secondary cv-add-row-btn" onClick=${onClear}>
+                   Clear publication order
+                 </button>`
+          : html`<button class="btn-secondary cv-add-row-btn"
+                         onClick=${() => onReorder(ordered.map((r) => r.name))}>
+                   Set publication order
+                 </button>`}
+      </div>
+    </div>
+  `;
+}
+
 // ── ProjectSettingsSection ────────────────────────────────────────────────
 
 function ProjectSettingsSection({
@@ -792,7 +1005,7 @@ function ProjectSettingsSection({
   allowLead, onAllowLeadChange,
   allowLevels, onAllowLevelsChange,
   isAdmin, editLocked, onEditLockedChange,
-  rows, onToggleRowAdmin,
+  rows, onToggleRowAdmin, onReorderPublication, onClearPublicationOrder,
 }) {
   function handleAllowLevels(val) {
     onAllowLevelsChange(val);
@@ -840,6 +1053,12 @@ function ProjectSettingsSection({
                 <span>Allow Lead designation in add workflow and editor</span>
               </label>
             </div>
+            <div class="cv-settings-group cv-settings-group-wide">
+              <h4 class="cv-subsection-heading">Publication order</h4>
+              <${PublicationOrderEditor} rows=${rows}
+                onReorder=${onReorderPublication}
+                onClear=${onClearPublicationOrder} />
+            </div>
             ${isAdmin && html`
               <div class="cv-settings-group">
                 <h4 class="cv-subsection-heading">Access (admin)</h4>
@@ -875,6 +1094,14 @@ function SharedDetailsSection({
   open, onToggle, doi, onDoiChange,
   affiliations, onAffiliationsChange, sections, onSectionsChange,
 }) {
+  // `doi` is a list; tolerate a legacy scalar restored from an old draft.
+  const dois = Array.isArray(doi) ? doi : (doi ? [doi] : []);
+  function addDoi() { onDoiChange([...dois, '']); }
+  function removeDoi(idx) { onDoiChange(dois.filter((_, i) => i !== idx)); }
+  function updateDoi(idx, value) {
+    onDoiChange(dois.map((d, i) => (i === idx ? value : d)));
+  }
+
   function addAffiliation() {
     onAffiliationsChange([...affiliations, { id: `aff-${Date.now()}`, name: '' }]);
   }
@@ -903,11 +1130,24 @@ function SharedDetailsSection({
       </button>
       ${open && html`
         <div class="cv-section-body">
-          <div class="cv-doi-row">
-            <label class="cv-detail-label" for="cv-doi-input">DOI</label>
-            <input id="cv-doi-input" type="text" class="cv-doi-input"
-                   placeholder="e.g. 10.1234/example.2024" value=${doi}
-                   onInput=${(e) => onDoiChange(e.target.value)} />
+          <div class="cv-doi-block">
+            <label class="cv-detail-label" for="cv-doi-input-0">DOIs</label>
+            <p class="cv-detail-hint">
+              A project may be published in more than one venue — add a DOI for each.
+            </p>
+            ${dois.length === 0
+              ? html`<p class="cv-placeholder cv-detail-hint">No DOIs yet.</p>`
+              : dois.map((d, idx) => html`
+                  <div key=${idx} class="cv-doi-row">
+                    <button class="cv-x-btn" aria-label=${'Remove DOI ' + (d || idx + 1)}
+                            onClick=${() => removeDoi(idx)}>×</button>
+                    <input id=${'cv-doi-input-' + idx} type="text" class="cv-doi-input"
+                           placeholder="e.g. 10.1234/example.2024" value=${d}
+                           onInput=${(e) => updateDoi(idx, e.target.value)} />
+                  </div>
+                `)}
+            <button id="cv-add-doi-btn" class="btn-secondary cv-add-row-btn"
+                    onClick=${addDoi}>+ Add DOI</button>
           </div>
           <div class="cv-meta-columns">
             <div class="cv-affiliations-section">
@@ -1001,7 +1241,7 @@ function OutputSection({
   showSections, showLevels, showTimeline, allowLead, allowLevels,
 }) {
   function LaTeXPanel() {
-    return html`<pre class="contributions-latex-output">${generateLatex(rows)}</pre>`;
+    return html`<pre class="contributions-latex-output">${generateLatex(rows, { showLevels, allowLevels })}</pre>`;
   }
 
   function StatementPanel() {
@@ -1018,16 +1258,19 @@ function OutputSection({
 
   function MatrixPngPanel() {
     const canvasRef = useRef(null);
+    const pngSettings = { showLevels, allowLead, allowLevels };
     useEffect(() => {
       if (canvasRef.current && rows.length > 0) {
         canvasRef.current.innerHTML = '';
-        canvasRef.current.appendChild(generateMatrixCanvas(rows, { allowLead, allowLevels }));
+        canvasRef.current.appendChild(generateMatrixCanvas(rows, pngSettings));
       }
-    }, []);
+      // Re-draw when the data or any setting that affects it changes —
+      // an empty dep list left the preview showing a stale image.
+    }, [rows, showLevels, allowLead, allowLevels]);
 
     function download() {
       if (!rows.length) return;
-      generateMatrixCanvas(rows, { allowLead, allowLevels }).toBlob((blob) => {
+      generateMatrixCanvas(rows, pngSettings).toBlob((blob) => {
         if (!blob) return;
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -1216,12 +1459,13 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
   const [authorSources, setAuthorSources]     = useState(initialDraft?.authorSources || {});
   const [authorOrcids, setAuthorOrcids]       = useState(initialDraft?.authorOrcids || {});
+  const [authorEmails, setAuthorEmails]       = useState(initialDraft?.authorEmails || {});
   const [authorAffIds, setAuthorAffIds]       = useState(initialDraft?.authorAffIds || {});
   const [affiliations, setAffiliations]       = useState(initialDraft?.affiliations?.length ? initialDraft.affiliations : DEFAULT_AFFILIATIONS);
   const [sections, setSections]               = useState(initialDraft?.sections || []);
@@ -1230,7 +1474,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const [authorEndDates, setAuthorEndDates] = useState(initialDraft?.authorEndDates || {});
   const [authorSectionLevels, setAuthorSectionLevels] = useState(initialDraft?.authorSectionLevels || {});
   const [loadedAssets, setLoadedAssets]       = useState(initialDraft?.loadedAssetNames || []);
-  const [doi, setDoi]                         = useState(initialDraft?.doi || '');
+  // A list — a project may be published in several venues. Drafts saved before
+  // that change hold a single string, so normalise on restore.
+  const [doi, setDoi]                         = useState(
+    Array.isArray(initialDraft?.doi) ? initialDraft.doi
+      : (initialDraft?.doi ? [initialDraft.doi] : []));
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
   const [assetsOpen, setAssetsOpen]           = useState(true);
   const [sharedOpen, setSharedOpen]           = useState(false);
@@ -1253,7 +1501,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   // Ref to latest state values — safe to read in async handlers
   const sr = useRef({});
-  sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
+  sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds,
     affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
     showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked };
@@ -1263,7 +1511,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (rows.length === 0) { sessionStorage.removeItem(DRAFT_KEY); return; }
     try {
       sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-        projectName, rows, selectedAuthor, authorSources, authorOrcids, authorAffIds,
+        projectName, rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds,
         affiliations, sections, creditDescriptions: creditDescs,
         authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi,
@@ -1271,7 +1519,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         existsOnServer,
       }));
     } catch (_) {}
-  }, [rows, selectedAuthor, authorSources, authorOrcids, authorAffIds, affiliations, sections,
+  }, [rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
     creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName,
     showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked, existsOnServer]);
 
@@ -1332,10 +1580,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
-      const { newOrcids, newAffIds, newAffiliations, newSections, newCreditDescriptions,
+      const { newOrcids, newEmails, newAffIds, newAffiliations, newSections, newCreditDescriptions,
         newStartDates, newEndDates, newSectionLevels, newDoi } = extractPayloadMeta(data);
       setAuthorSources({});
       setAuthorOrcids(newOrcids);
+      setAuthorEmails(newEmails);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
@@ -1360,23 +1609,24 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setAssetsOpen(false);
       fetchHistory(project);
     } catch (err) {
+      console.error('[contributions] load failed:', err);
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     }
   }
 
   // ── Project save ──────────────────────────────────────────────────────────
-  async function saveToServer() {
-    const { projectName: project, rows: r, authorOrcids: orc, authorAffIds: affIds,
+  async function saveToServer({ allowEmpty = false } = {}) {
+    const { projectName: project, rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d,
       showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv,
       editLocked: el } = sr.current;
-    if (!project || !r.length) return;
+    if (!project || (!r.length && !allowEmpty)) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
       const payload = toEndpointPayload(r, project, {
-        authorOrcids: orc, authorAffIds: affIds, affiliations: affs,
+        authorOrcids: orc, authorEmails: eml, authorAffIds: affIds, affiliations: affs,
         sections: secs, creditDescriptions: cds,
         authorStartDates: startDates, authorSectionLevels: secLevels,
         assets, doi: d,
@@ -1408,6 +1658,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setExistsOnServer(true);
       fetchHistory(project);
     } catch (err) {
+      console.error('[contributions] save failed:', err);
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     }
   }
@@ -1441,9 +1692,10 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       const loadedRows = fromEndpointPayload(data);
-      const { newOrcids, newAffIds, newAffiliations, newSections,
+      const { newOrcids, newEmails, newAffIds, newAffiliations, newSections,
         newCreditDescriptions, newStartDates, newEndDates, newSectionLevels } = extractPayloadMeta(data);
       setAuthorOrcids(newOrcids);
+      setAuthorEmails(newEmails);
       setAuthorAffIds(newAffIds);
       if (newAffiliations.length) setAffiliations(newAffiliations);
       if (newSections.length) setSections(newSections);
@@ -1471,12 +1723,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   }
 
   function renameRow(idx, newName) {
-    const { rows: r, authorOrcids: orc, authorAffIds: affIds,
+    const { rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       creditDescs: cds, authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
     const oldName = r[idx]?.name;
     if (!newName || !oldName || newName === oldName) return;
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, name: newName } : row));
     if (orc[oldName])  setAuthorOrcids((p)  => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (eml[oldName])  setAuthorEmails((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (affIds[oldName]) setAuthorAffIds((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (cds[oldName])  setCreditDescs((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (secLevs[oldName]) setAuthorSectionLevels((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
@@ -1493,6 +1746,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (!author) return;
     if (kind === 'orcid') {
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
+    } else if (kind === 'email') {
+      setAuthorEmails((prev) => ({ ...prev, [author]: payload }));
     } else if (kind === 'authorLevel') {
       setRows((prev) => prev.map((r) => r.name === author ? { ...r, author_level: payload } : r));
     } else if (kind === 'affiliations') {
@@ -1524,9 +1779,33 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
+  // Create a brand-new project: seed the logged-in user as the project's admin
+  // contributor, then save so that admin membership is persisted explicitly
+  // (not relying on any backend side effect).
+  async function createNewProject() {
+    setEndpointStatus({ text: 'Creating new project\u2026', cls: 'status-loading' });
+    const me = currentUser;
+    const adminName = (me?.name || me?.orcid || '').trim();
+    if (adminName) {
+      const adminRow = { name: adminName, isFirst: false, author_level: null, is_admin: true };
+      for (const cat of CREDIT_CATEGORIES) adminRow[cat] = 'None';
+      const seededRows = [adminRow];
+      const seededOrcids = me?.orcid ? { [adminName]: me.orcid } : {};
+      // Reflect in the UI…
+      setRows(seededRows);
+      setAuthorOrcids(seededOrcids);
+      setSelectedAuthor(adminName);
+      // …and in the ref the imminent save reads from (state updates are async).
+      sr.current.rows = seededRows;
+      sr.current.authorOrcids = seededOrcids;
+    }
+    await saveToServer({ allowEmpty: true });
+  }
+
   // Expose imperative handles for auto-load scheduling in createContributionsView
   actionsRef.loadRecords    = loadRecords;
   actionsRef.loadFromServer = loadFromServer;
+  actionsRef.createNewProject = createNewProject;
   actionsRef.fetchHistory   = fetchHistory;
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -1636,6 +1915,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         rows=${rows}
         onToggleRowAdmin=${(name, val) =>
           setRows((prev) => prev.map((r) => r.name === name ? { ...r, is_admin: val } : r))}
+        onReorderPublication=${(names) => setRows((prev) => {
+          // `names` is the full byline, front to back — renumber from 1.
+          const rank = new Map(names.map((n, i) => [n, i + 1]));
+          return prev.map((r) => ({ ...r, publication_order: rank.get(r.name) ?? null }));
+        })}
+        onClearPublicationOrder=${() =>
+          setRows((prev) => prev.map((r) => ({ ...r, publication_order: null })))}
       />
 
       <section class="cv-section cv-contributors-section">
@@ -1695,6 +1981,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         row=${selectedRow}
         selectedAuthor=${selectedAuthor}
         authorOrcids=${authorOrcids}
+        authorEmails=${authorEmails}
         authorAffIds=${authorAffIds}
         affiliations=${affiliations}
         sections=${sections}
@@ -1743,7 +2030,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -1780,6 +2067,8 @@ export function createContributionsView(options = {}) {
       docdbOptions=${docdbOptions}
       actionsRef=${actionsRef}
       isAdmin=${isAdmin}
+      isNew=${isNew}
+      currentUser=${currentUser}
     />`,
     container,
   );
@@ -1788,7 +2077,11 @@ export function createContributionsView(options = {}) {
   if (assetName && !draftRestored) {
     Promise.resolve().then(() => actionsRef.loadRecords?.());
   }
-  if (projectName && !draftRestored) {
+  if (isNew && !draftRestored) {
+    // New project: don't try to load (it 404s) — create it so the creator is
+    // registered as admin on the backend.
+    Promise.resolve().then(() => actionsRef.createNewProject?.());
+  } else if (projectName && !draftRestored) {
     Promise.resolve().then(() => actionsRef.loadFromServer?.());
   } else if (draftRestored && initialDraft?.projectName) {
     Promise.resolve().then(() => actionsRef.fetchHistory?.(initialDraft.projectName));

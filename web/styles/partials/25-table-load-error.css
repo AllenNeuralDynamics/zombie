@@ -22,7 +22,7 @@
 }
 
 .table-load-error-retry {
-  background: var(--color-red, #c0392b);
+  background: var(--color-red);
   border: none;
   border-radius: var(--radius);
   color: #fff;
@@ -37,7 +37,7 @@
 
 .table-load-error-actions a,
 .table-load-warning-actions a {
-  color: var(--color-red, #c0392b);
+  color: var(--color-red);
   font-size: 0.9rem;
   text-decoration: underline;
 }
@@ -53,7 +53,7 @@
 }
 
 .table-load-error-diagnostics pre {
-  background: #f5f5f5;
+  background: var(--surface-card);
   border-radius: 4px;
   margin-top: 0.5rem;
   overflow-x: auto;
