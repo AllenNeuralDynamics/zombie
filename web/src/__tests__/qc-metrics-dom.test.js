@@ -74,6 +74,19 @@ describe('status tooltip', () => {
   });
 });
 
+describe('metric descriptions', () => {
+  it('renders safe Markdown links and rejects unsafe protocols', () => {
+    const card = cardFor(baseMetric({
+      description: '[docs](https://example.org/help) [bad](javascript:alert(1)) <img src=x>',
+    }));
+    const links = card.querySelectorAll('.metric-desc a');
+    expect(links.length).toBe(1);
+    expect(links[0].href).toBe('https://example.org/help');
+    expect(card.querySelector('.metric-desc img')).toBeNull();
+    expect(card.querySelector('.metric-desc').textContent).toContain('<img src=x>');
+  });
+});
+
 describe('media rendering', () => {
   it('renders an h5 reference as a message with a download link', () => {
     const el = renderMedia('data/volume.h5', 'aind-open-data', 'prefix', 'asset');

@@ -15,6 +15,7 @@
 import { buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { fetchAllSubjectIds } from '../lib/metadata.js';
+import { escHtml } from '../lib/utils.js';
 import { buildTimelineEvents } from './parsers.js';
 import { createSubjectTimeline } from './timeline.js';
 import { renderEventDetail } from './details.js';
@@ -32,17 +33,17 @@ import { renderEventDetail } from './details.js';
 export function generateInfoHtml(subject, projects = []) {
   if (!subject) return '<p class="detail-placeholder">No subject data.</p>';
 
-  const id = subject.subject_id ?? 'Unknown';
+  const id = escHtml(subject.subject_id ?? 'Unknown');
   const details = subject.subject_details ?? {};
 
-  const dob = details.date_of_birth ?? 'Unknown';
-  const sex = details.sex ?? 'Unknown';
-  const genotype = details.genotype ?? 'Unknown';
-  const species = details.species?.name ?? 'Unknown';
-  const strain = details.strain?.name ?? 'Unknown';
+  const dob = escHtml(details.date_of_birth ?? 'Unknown');
+  const sex = escHtml(details.sex ?? 'Unknown');
+  const genotype = escHtml(details.genotype ?? 'Unknown');
+  const species = escHtml(details.species?.name ?? 'Unknown');
+  const strain = escHtml(details.strain?.name ?? 'Unknown');
   const housing = details.housing ?? {};
-  const cageId = housing.cage_id ?? 'Unknown';
-  const roomId = housing.room_id ?? 'Unknown';
+  const cageId = escHtml(housing.cage_id ?? 'Unknown');
+  const roomId = escHtml(housing.room_id ?? 'Unknown');
 
   return `
     <div class="subject-info-card">
@@ -54,7 +55,7 @@ export function generateInfoHtml(subject, projects = []) {
         <dt>Strain</dt>     <dd>${strain}</dd>
         <dt>Genotype</dt>   <dd>${genotype}</dd>
         <dt>Housing</dt>    <dd>Cage ${cageId}, Room ${roomId}</dd>
-        ${projects.length ? `<dt>Projects</dt><dd>${projects.map((p) => `<a href="/view?project=${encodeURIComponent(p)}">${p}</a>`).join(', ')}</dd>` : ''}
+        ${projects.length ? `<dt>Projects</dt><dd>${projects.map((p) => `<a href="/view?project=${encodeURIComponent(p)}">${escHtml(p)}</a>`).join(', ')}</dd>` : ''}
       </dl>
     </div>`;
 }
@@ -422,7 +423,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         }
       }).catch((err) => {
         console.error('[SubjectView] Asset fetch failed:', err);
-        assetsSection.innerHTML = `<h3>Assets</h3><p class="error-banner">Failed to load assets: ${err.message}</p>`;
+        _renderAssetsError(assetsSection, err);
       });
     } else if (!hasProceduresFallback) {
       assetsSection.innerHTML = '<h3>Assets</h3><p class="detail-placeholder">No data connection available.</p>';
@@ -449,7 +450,7 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   try {
     ({ assets, sourceMap } = await fetchAssetsWithSources(coordinator, `subject_id = '${safeId}'`));
   } catch (err) {
-    assetsSection.innerHTML = `<h3>Assets</h3><p class="error-banner">Failed to load assets: ${err.message}</p>`;
+    _renderAssetsError(assetsSection, err);
     return null;
   }
 
@@ -461,6 +462,16 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   const tableEl = buildAssetsTable(assets, sourceMap);
   assetsSection.appendChild(tableEl);
   return { tableEl, assets };
+}
+
+function _renderAssetsError(container, err) {
+  container.replaceChildren();
+  const heading = document.createElement('h3');
+  heading.textContent = 'Assets';
+  const message = document.createElement('p');
+  message.className = 'error-banner';
+  message.textContent = `Failed to load assets: ${err?.message ?? err}`;
+  container.append(heading, message);
 }
 
 async function _fetchMetadataServiceFallback(path, signal) {

@@ -5,12 +5,7 @@ import { ensureTable } from '../lib/registry.js';
 import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import * as Plot from '@observablehq/plot';
 
-const STORAGE_LENS_URL = () => {
-  const base = getResolvedBaseUrl();
-  return base
-    ? `${base}/storage_lens.pqt`
-    : 'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/bdc-v0.37/storage_lens.pqt';
-};
+const STORAGE_LENS_URL = () => `${getResolvedBaseUrl()}/storage_lens.pqt`;
 
 function formatBytes(bytes) {
   if (bytes == null) return '—';
@@ -197,7 +192,9 @@ function _buildProjectChart(allRows) {
     height: Math.round(window.innerHeight * 0.15) + marginBottom,
     marginLeft: 80,
     marginBottom,
-    style: { background: 'transparent', fontFamily: 'inherit' },
+    // `color` drives Plot's currentColor-based axis/tick/label text, so a CSS
+    // var keeps it readable and flips live with the theme.
+    style: { background: 'transparent', fontFamily: 'inherit', color: 'var(--text-primary, #111111)' },
     x: {
       label: null,
       tickRotate: -45,
@@ -212,7 +209,8 @@ function _buildProjectChart(allRows) {
         x: 'project',
         y: 'bytes',
         sort: { x: 'y', reverse: true },
-        fill: 'var(--color-accent, #000000)',
+        fill: 'var(--size-bar-fill, #000000)',
+        tip: true,
         title: (d) => `${d.project}\n${formatBytes(d.bytes)}`,
       }),
       Plot.ruleY([0]),
@@ -298,7 +296,7 @@ function _buildReprocessingSection(getRows) {
   arrow.className = 'platform-qc-toggle-arrow';
   arrow.textContent = '▶';
   toggle.appendChild(arrow);
-  toggle.appendChild(document.createTextNode(' Reprocessed (superseded) derived assets'));
+  toggle.appendChild(document.createTextNode(' Reprocessed assets'));
   section.appendChild(toggle);
 
   const body = document.createElement('div');
@@ -395,7 +393,132 @@ function _buildReprocessingSection(getRows) {
     body.hidden = collapsed;
     arrow.textContent = collapsed ? '▶' : '▼';
     toggle.setAttribute('aria-expanded', String(!collapsed));
+    section.classList.toggle('is-open', !collapsed);
     if (!collapsed) build();
+  });
+
+  return section;
+}
+
+function _bucketFromLocation(loc) {
+  const m = /^s3:\/\/([^/]+)/.exec(loc ?? '');
+  return m ? m[1] : '(unknown bucket)';
+}
+
+function _projectLabel(row) {
+  const p = (row.project_name ?? '').toString().trim();
+  if (!p || isUnknownProject(row)) return '(unknown)';
+  return p;
+}
+
+function _buildProjectBucketPivot(rows) {
+  const byProject = new Map();
+  const bucketTotals = new Map();
+  const projectTotals = new Map();
+  let grandTotal = 0;
+
+  for (const row of rows) {
+    if (row.size_bytes == null) continue;
+    const bytes = Number(row.size_bytes);
+    if (!bytes) continue;
+    const project = _projectLabel(row);
+    const bucket = _bucketFromLocation(row.location);
+
+    if (!byProject.has(project)) byProject.set(project, new Map());
+    const buckets = byProject.get(project);
+    buckets.set(bucket, (buckets.get(bucket) ?? 0) + bytes);
+
+    bucketTotals.set(bucket, (bucketTotals.get(bucket) ?? 0) + bytes);
+    projectTotals.set(project, (projectTotals.get(project) ?? 0) + bytes);
+    grandTotal += bytes;
+  }
+
+  const buckets = [...bucketTotals.entries()].sort((a, b) => b[1] - a[1]).map(([b]) => b);
+  const projects = [...projectTotals.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p);
+
+  return { byProject, buckets, projects, bucketTotals, projectTotals, grandTotal };
+}
+
+function _buildProjectBucketSection(getRows) {
+  let collapsed = true;
+
+  const section = document.createElement('div');
+  section.className = 'platform-overview size-project-bucket';
+
+  const toggle = document.createElement('button');
+  toggle.className = 'platform-qc-toggle';
+  toggle.setAttribute('aria-expanded', 'false');
+
+  const arrow = document.createElement('span');
+  arrow.className = 'platform-qc-toggle-arrow';
+  arrow.textContent = '▶';
+  toggle.appendChild(arrow);
+  toggle.appendChild(document.createTextNode(' Data usage by project × bucket'));
+  section.appendChild(toggle);
+
+  const body = document.createElement('div');
+  body.className = 'platform-overview-body';
+  body.hidden = true;
+  section.appendChild(body);
+
+  function renderTable() {
+    body.innerHTML = '';
+    const { byProject, buckets, projects, bucketTotals, projectTotals, grandTotal } =
+      _buildProjectBucketPivot(getRows());
+
+    if (projects.length === 0) {
+      const empty = document.createElement('p');
+      empty.className = 'loading-message';
+      empty.textContent = 'No sized assets in the current view.';
+      body.appendChild(empty);
+      return;
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'size-pivot-wrap';
+
+    const table = document.createElement('table');
+    table.className = 'assets-table size-pivot-table';
+
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr>' +
+      '<th class="size-pivot-corner">Project</th>' +
+      buckets.map(b => `<th class="size-pivot-bucket" title="${escHtml(b)}">${escHtml(b)}</th>`).join('') +
+      '<th class="size-pivot-total">Total</th>' +
+      '</tr>';
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    tbody.innerHTML = projects.map(project => {
+      const bmap = byProject.get(project);
+      const cells = buckets.map(b => {
+        const v = bmap.get(b);
+        return `<td>${v ? `<span data-bytes="${v}">${escHtml(formatBytes(v))}</span>` : '<span class="no-link">—</span>'}</td>`;
+      }).join('');
+      const total = projectTotals.get(project);
+      return `<tr><th class="size-pivot-rowhead">${escHtml(project)}</th>${cells}` +
+        `<td class="size-pivot-total"><span data-bytes="${total}">${escHtml(formatBytes(total))}</span></td></tr>`;
+    }).join('');
+
+    const totalCells = buckets.map(b => {
+      const v = bucketTotals.get(b);
+      return `<td><span data-bytes="${v}">${escHtml(formatBytes(v))}</span></td>`;
+    }).join('');
+    tbody.innerHTML += `<tr class="size-pivot-totalrow"><th class="size-pivot-rowhead">TOTAL</th>${totalCells}` +
+      `<td class="size-pivot-total"><span data-bytes="${grandTotal}">${escHtml(formatBytes(grandTotal))}</span></td></tr>`;
+
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    body.appendChild(wrap);
+  }
+
+  toggle.addEventListener('click', () => {
+    collapsed = !collapsed;
+    body.hidden = collapsed;
+    arrow.textContent = collapsed ? '▶' : '▼';
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    section.classList.toggle('is-open', !collapsed);
+    if (!collapsed) renderTable();
   });
 
   return section;
@@ -475,7 +598,12 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
   if (savedCols) visibleColumns = [...savedCols, 'links'];
 
   const reprocessSection = _buildReprocessingSection(() => getFilteredRows());
-  container.appendChild(reprocessSection);
+  const projectBucketSection = _buildProjectBucketSection(() => getFilteredRows());
+  const sectionsRow = document.createElement('div');
+  sectionsRow.className = 'size-sections-row';
+  sectionsRow.appendChild(reprocessSection);
+  sectionsRow.appendChild(projectBucketSection);
+  container.appendChild(sectionsRow);
 
   const countEl = document.createElement('div');
   countEl.className = 'assets-count';

@@ -18,7 +18,7 @@
 .star-record-link,
 .record-star-link {
   font-size: 0.85rem;
-  color: var(--link, var(--accent, #0078d4));
+  color: var(--link, var(--accent));
   text-decoration: none;
   white-space: nowrap;
 }
@@ -70,7 +70,7 @@
 
 .star-resources a,
 .star-table a {
-  color: var(--link, var(--accent, #0078d4));
+  color: var(--link, var(--accent));
   text-decoration: none;
   word-break: break-word;
 }

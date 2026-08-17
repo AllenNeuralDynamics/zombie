@@ -1,6 +1,6 @@
 import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { s3PathToHttps } from './lib/metadata.js';
-import { VERSIONS_URL, DATA_CACHE_PREFIX, S3_REGION } from './constants.js';
+import { VERSIONS_URL, S3_BUCKET, S3_REGION } from './constants.js';
 import { escHtml, filterRows } from './lib/utils.js';
 
 const PAGE_SIZE = 100;
@@ -53,11 +53,30 @@ async function fetchVersions() {
 }
 
 async function fetchAcorns(version) {
-  const url = `${DATA_CACHE_PREFIX}/${version}/cache_registry.json`;
-  const resp = await fetch(url, { cache: 'no-cache' });
-  if (!resp.ok) throw new Error(`Failed to fetch cache_registry.json for ${version}: ${resp.status}`);
-  const json = await resp.json();
-  return json.tables;
+  // The registry is distributed across per-table JSON files in the
+  // cache_registry/ folder (no single cache_registry.json). List the folder
+  // via an anonymous S3 ListObjectsV2 request, then fetch each entry.
+  const prefix = `data-asset-cache/${version}/cache_registry/`;
+  const listUrl =
+    `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
+    `?list-type=2&prefix=${encodeURIComponent(prefix)}&delimiter=/&max-keys=1000`;
+  const resp = await fetch(listUrl, { cache: 'no-cache' });
+  if (!resp.ok) throw new Error(`Failed to list cache_registry/ for ${version}: ${resp.status}`);
+  const xml = await resp.text();
+  const re = /<Key>([^<]+\.json)<\/Key>/g;
+  const urls = [];
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    urls.push(`https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${m[1]}`);
+  }
+  const entries = await Promise.all(
+    urls.map(async (url) => {
+      const r = await fetch(url, { cache: 'no-cache' });
+      if (!r.ok) throw new Error(`Failed to fetch registry entry ${url}: ${r.status}`);
+      return r.json();
+    }),
+  );
+  return entries;
 }
 
 async function init() {

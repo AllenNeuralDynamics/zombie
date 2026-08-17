@@ -15,8 +15,11 @@
   align-self: flex-end;
   font-size: 1.1rem;
   font-weight: 700;
-  color: var(--text-muted, #888);
+  color: var(--text-muted);
   padding: 0 2px;
   letter-spacing: -2px;
   /* margin-bottom set inline to match chart's marginBottom exactly */
 }
+
+
+

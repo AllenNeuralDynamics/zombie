@@ -33,15 +33,15 @@
 }
 
 .card.error code {
-  background: #f5f5f5;
+  background: var(--surface-card);
   padding: 1px 4px;
   border-radius: 3px;
   font-size: 0.85em;
 }
 
 .card.error pre {
-  background: #fff5f5;
-  border: 1px solid #fed7d7;
+  background: var(--red-muted);
+  border: 1px solid var(--color-red);
   color: var(--color-red);
 }
 
@@ -59,7 +59,7 @@
 }
 
 .card pre {
-  background: #f5f5f5;
+  background: var(--surface-card);
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;

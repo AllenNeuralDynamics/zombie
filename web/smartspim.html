@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SmartSPIM</title>
     <link rel="icon" href="/images/logo.svg" type="image/svg+xml" />
-    <script>(function(){var t=localStorage.getItem('theme');if(t)document.documentElement.setAttribute('data-theme',t);}());</script>
+    <!--THEME_INIT-->
     <link rel="stylesheet" href="/styles/app.css" />
   </head>
   <body>
@@ -18,6 +18,6 @@
     </main>
 
     <script type="module" src="/src/smartspim-entry.js"></script>
-    <script>(function(){var btn=document.getElementById('theme-toggle');function isDark(){var t=document.documentElement.getAttribute('data-theme');return t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);}function update(){btn.textContent=isDark()?'☀':'☾';}btn.addEventListener('click',function(){var next=isDark()?'light':'dark';document.documentElement.setAttribute('data-theme',next);localStorage.setItem('theme',next);update();});update();window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',update);}());</script>
+    <script type="module" src="/src/lib/theme.js"></script>
   </body>
 </html>

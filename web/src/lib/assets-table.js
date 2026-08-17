@@ -5,7 +5,7 @@
  */
 
 import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
-import { formatDatetime, PAGE_SIZE } from './utils.js';
+import { escHtml, formatDatetime, PAGE_SIZE } from './utils.js';
 import { arrowTableToRows, queryRows } from './arrow.js';
 import { ensureTable } from './registry.js';
 
@@ -96,22 +96,22 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
       const coHref = buildCoLink(asset.code_ocean);
       const s3Href = buildS3ConsoleUrl(asset.location);
       const linkParts = [
-        s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
-        coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">CO</a>` : '',
-        metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Meta</a>` : '',
-        qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC</a>` : '',
+        s3Href ? `<a href="${escHtml(s3Href)}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
+        coHref ? `<a href="${escHtml(coHref)}" target="_blank" rel="noopener noreferrer">CO</a>` : '',
+        metaHref ? `<a href="${escHtml(metaHref)}" target="_blank" rel="noopener noreferrer">Meta</a>` : '',
+        qcHref ? `<a href="${escHtml(qcHref)}" target="_blank" rel="noopener noreferrer">QC</a>` : '',
       ].filter(Boolean).join(' ');
 
       const subjectCell = asset.subject_id
-        ? `<a href="/view?subject_id=${encodeURIComponent(asset.subject_id)}">${asset.subject_id}</a>`
+        ? `<a href="/view?subject_id=${encodeURIComponent(asset.subject_id)}">${escHtml(asset.subject_id)}</a>`
         : '';
 
       tr.innerHTML = `
-        <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${asset.name ?? ''}</td>
+        <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${escHtml(asset.name ?? '')}</td>
         <td>${subjectCell}</td>
-        <td>${formatDatetime(asset.acquisition_start_time)}</td>
-        <td>${Array.isArray(asset.modalities) ? asset.modalities.join(', ') : (asset.modalities ?? '')}</td>
-        <td>${asset.data_level ?? ''}</td>
+        <td>${escHtml(formatDatetime(asset.acquisition_start_time))}</td>
+        <td>${escHtml(Array.isArray(asset.modalities) ? asset.modalities.join(', ') : (asset.modalities ?? ''))}</td>
+        <td>${escHtml(asset.data_level ?? '')}</td>
         <td class="link-cell">${linkParts}</td>`;
 
       if (onRowClick) {

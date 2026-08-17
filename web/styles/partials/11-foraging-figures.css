@@ -93,7 +93,7 @@
 
 .df-figure-subject {
   font-weight: 600;
-  color: var(--color-red, #c0392b);
+  color: var(--color-red);
   text-decoration: none;
 }
 
@@ -170,7 +170,7 @@
 }
 
 .df-figure-card--highlighted {
-  outline: 3px solid var(--accent, #0078d4);
+  outline: 3px solid var(--accent);
   outline-offset: 2px;
 }
 

@@ -8,8 +8,10 @@
 import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
+import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import { createPreview } from './preview.js';
 import { fromEndpointPayload, rowsToWidgetAuthors, CREDIT_ROLE_ENUM } from './view.js';
+import { fetchContributions } from './fetch.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,6 +97,12 @@ function ViewApp({ doi }) {
   const [selectedCommit, setSelectedCommit] = useState('');
   const [authors, setAuthors] = useState([]);
   const [projectTitle, setProjectTitle] = useState(doi);
+  // Display/level settings the project owner chose — the preview legend and
+  // tabs must match them, not the widget defaults.
+  const [settings, setSettings] = useState({
+    showSections: false, showLevels: true, showTimeline: false,
+    allowLead: true, allowLevels: true,
+  });
   const previewRef = useRef(null);
 
   async function loadData(commit) {
@@ -103,13 +111,20 @@ function ViewApp({ doi }) {
     try {
       let url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`;
       if (commit) url += `&commit=${encodeURIComponent(commit)}`;
-      const res = await fetch(url);
+      const res = await fetchContributions(url);
       if (res.status === 404) throw new Error(`Project "${doi}" not found.`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       setProjectTitle(data.project_name || doi);
       const rows = fromEndpointPayload(data);
       const meta = extractViewMeta(data);
+      setSettings({
+        showSections: data.show_sections ?? false,
+        showLevels: data.show_levels ?? true,
+        showTimeline: data.show_timeline ?? false,
+        allowLead: data.allow_lead ?? true,
+        allowLevels: data.allow_levels ?? true,
+      });
       setAuthors(buildPreviewAuthors(rows, meta));
     } catch (e) {
       setError(e.message);
@@ -120,7 +135,7 @@ function ViewApp({ doi }) {
 
   async function fetchHistory() {
     try {
-      const res = await fetch(
+      const res = await fetchContributions(
         `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}&history=true`,
       );
       if (!res.ok) return;
@@ -138,16 +153,50 @@ function ViewApp({ doi }) {
     if (doi) { loadData(); fetchHistory(); }
   }, [doi]);
 
+  // After an ORCID login kicked off by "Edit", the backend returns the user
+  // here with `do=edit`. Re-run the edit routing now that we know who they are
+  // (and, crucially, whether they're an admin), then strip the marker.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('do') !== 'edit') return;
+    params.delete('do');
+    const qs = params.toString();
+    history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
+    onEdit();
+  }, []);
+
   useEffect(() => {
     if (previewRef.current && authors.length > 0) {
-      createPreview(previewRef.current, authors);
+      createPreview(previewRef.current, authors, settings);
     }
-  }, [authors]);
+  }, [authors, settings]);
 
   function onVersionChange(e) {
     const commit = e.target.value;
     setSelectedCommit(commit);
     loadData(commit);
+  }
+
+  // Edit: admins get the full editor (/edit); everyone else gets the
+  // self-service add/review wizard (/add), which matches them to their own row
+  // by ORCID. All routes require an ORCID login first.
+  //
+  // Admin status is only known after login, so when the user isn't logged in we
+  // send them back to this view page with `do=edit`; the effect above re-runs
+  // this handler once they return authenticated and then routes correctly.
+  async function onEdit() {
+    const me = await getCurrentUser();
+    if (!me) {
+      const back = `${window.location.origin}${window.location.pathname}`
+        + `?doi=${encodeURIComponent(doi)}&do=edit`;
+      loginWithOrcid(back);
+      return;
+    }
+    // The edit page reads `?doi=`; the add wizard reads `?project=`.
+    const url = me.is_admin
+      ? `/contributions/edit?doi=${encodeURIComponent(doi)}`
+      : `/contributions/add?project=${encodeURIComponent(doi)}`;
+    window.location.assign(`${window.location.origin}${url}`);
   }
 
   if (!doi) {
@@ -176,6 +225,7 @@ function ViewApp({ doi }) {
             </select>
           </div>
         `}
+        <button class="btn-secondary cv-view-edit-btn" onClick=${onEdit}>Edit</button>
       </div>
       ${loading && html`<p class="cv-placeholder">Loading…</p>`}
       ${error && html`<p class="cv-placeholder" style="color:var(--color-danger)">${error}</p>`}

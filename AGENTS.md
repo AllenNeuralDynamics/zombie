@@ -2,88 +2,176 @@
 
 ## What This Is
 
-A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. Browser SPA backed by a local DuckDB server that queries Parquet files from S3.
+A data explorer for AIND (Allen Institute for Neural Dynamics) data assets. A
+**multi-page app** — each page is its own Vite entry + HTML file, not a single
+SPA. Vite + plain ES modules, no TypeScript.
 
-**Stack:** Vite + plain ES modules. DuckDB via WebSocket (`@uwdata/vgplot` / `mosaic-core`). Data from S3 Parquet read server-side. No TypeScript.
+**Data engine:** DuckDB-WASM runs **in the browser** (via `@uwdata/vgplot` /
+`mosaic-core`, `wasmConnector`) and reads public S3 Parquet directly over HTTPS
+— no server-side database. A small Python proxy (`web/docdb_proxy.py`, port
+3001) handles the few services that must run server-side (DocDB, S3 listing,
+MySQL log server). In production nginx serves the static bundle and forwards
+proxy routes, all on port 8000.
 
 **UI framework policy:**
-- **Most pages** (assets, subjects, projects, dashboards): vanilla JS + direct DOM manipulation is fine. These pages are simple: one selector → one query → render a table. No framework needed.
-- **Complex stateful pages** (contributions): use **Preact + htm + `@preact/signals`**. The `htm` tagged-template syntax works in plain `.js` files with no build changes — just `import { html } from 'htm/preact'`. Preact is 3 KB and Vite handles it without extra config.
+- **Simple pages** (one selector → one query → render): vanilla JS + DOM.
+- **Complex stateful pages** (e.g. contributions): **Preact + htm +
+  `preact/hooks`** — `import { html } from 'htm/preact'` and `useState`/
+  `useEffect` from `preact/hooks`; no build changes.
+- **React** is used only for `@xyflow/react` graph views; the React Vite plugin
+  is scoped to `.jsx/.tsx` so it never touches the Preact `.js` code.
+- Also present: `three` (3D viz), `zarrita` (Zarr/OME), `papaparse`.
 
-**When to reach for Preact:** if a page has more than ~3 interdependent state variables, or re-renders in response to user input cause visible DOM flicker, switch to Preact. It gives you stable DOM + VDOM diffing for free.
+Reach for Preact when a page has more than ~3 interdependent state variables or
+re-renders cause visible DOM flicker.
 
 ## How Data Works
 
-1. At startup, `web/src/lib/metadata.js:fetchAndRegisterMetadata()` fetches `cache_versions.json` from S3 (`allen-data-views` bucket, `data-asset-cache/` prefix), picks the latest version, then loads the distributed registry by listing that version's `cache_registry/` folder (one `<table>.json` per dataset) and fetching each entry. This lists all available datasets ("acorns"/"tables") with their S3 locations and column definitions.
-2. Each acorn is registered as a DuckDB table via `CREATE OR REPLACE TABLE … AS SELECT … FROM read_parquet(…)`.
-3. Pages query those tables through `coordinator.query(sql)` which returns Apache Arrow results. Use `arrowTableToRows(result)` from `web/src/lib/assets-table.js` to convert to plain JS objects.
+`web/src/lib/bootstrap.js:bootstrap(createView, opts)` is the standard page
+entry. It:
+1. Fetches the metadata registry over HTTPS (no DuckDB needed), while the
+   DuckDB-WASM engine downloads in parallel.
+2. Wires up the Mosaic coordinator with `wasmConnector`.
+3. Registers the **eager tables** (default `['asset_basics']`) as DuckDB
+   tables, then mounts the view into `#app`.
 
-**The key table is `asset_basics`** (always loaded). Columns: `name`, `subject_id`, `project_name`, `modalities`, `data_level`, `acquisition_start_time`, `acquisition_end_time`, `acquisition_type`, `code_ocean`, `location`, `genotype`, `age`, `experimenters`, `instrument_id`, `process_date`. Source of truth is `cache_registry.json` on S3 — always check it before assuming a column doesn't exist.
+**Metadata resolution** (`lib/metadata.js`): fetch `cache_versions.json` from
+S3 (`allen-data-views` bucket, `data-asset-cache/` prefix), pick the latest
+version, then load the **distributed registry** — each table's definition lives
+at `<version>/cache_registry/<table>.json` (folder listed via S3
+ListObjectsV2). Entries ("acorns"/"tables") carry `name`, `location`, `type`
+(`metadata` | `asset`), and `columns`.
+
+Each acorn registers via `CREATE OR REPLACE TABLE … AS SELECT … FROM
+read_parquet(<https url>)`. Query through `coordinator.query(sql)` (returns
+Apache Arrow); convert to plain rows with `arrowTableToRows()` from
+`lib/arrow.js`.
+
+**Errors:** required tables that fail throw `RequiredTablesError` and block the
+page with an error box; optional tables fail into a dismissible warning.
+Failures are categorized and error text is sanitized (`sanitizeErrorMessage`)
+so raw URLs/tokens are never shown.
+
+**The key table is `asset_basics`** (always loaded). Source of truth for its
+columns is its registry JSON on S3 — check it before assuming a column exists.
+
+## Routing & Page Shell — One Source of Truth
+
+`web/build/routes.js` (the `ROUTES` manifest) is the single source of truth for
+every page. Each `page({...})` entry drives, with **no other files to edit**:
+- `vite.config.js` `rollupOptions.input` (build targets),
+- the shared nav (`build/header-template.js` reads `nav`/`header` fields),
+- nginx routing (generic resolution — see below).
+
+The shared header and pre-paint theme script are **injected at build/dev time**
+by the Vite plugin in `vite.config.js`, replacing `<!--APP_HEADER-->` and
+`<!--THEME_INIT-->` placeholders — the markup is not hand-copied into pages.
+
+nginx (`deploy/nginx.conf`) resolves ordinary routes generically: `/foo` →
+`foo.html`, else 404 (no SPA fallback). Explicit nginx blocks exist **only**
+for proxy routes, legacy redirects (`/subject`, `/project` → `/view`), and `/`.
+
+## Adding a New Page — Checklist
+
+1. `web/src/<page>/view.js` — export a view factory returning the root element.
+2. `web/<page>-entry.js` — call `bootstrap((coord, metadata) => create…View(coord))`.
+3. `web/<page>.html` — copy an existing page; keep `<!--THEME_INIT-->` in
+   `<head>` and the `<!--APP_HEADER-->` placeholder; point `<script>` at the entry.
+4. **Add one entry to `web/build/routes.js`** (`route`, `html`, `inputKey`,
+   optional `header`/`nav`). This is the only wiring step — build input, nav,
+   and nginx routing all derive from it. No nginx edit needed if the route
+   matches the HTML filename.
+5. Add styles as a new `web/styles/partials/NN-*.css` and `@import` it in
+   `web/styles/app.css`.
 
 ## File Map — Read These First
 
 | File | Why |
 |------|-----|
-| `web/src/constants.js` | `VERSIONS_URL`, `DATA_CACHE_PREFIX`, `S3_BUCKET`, colour tokens |
-| `web/src/lib/metadata.js` | `fetchAndRegisterMetadata`, `fetchAllSubjectIds`, `arrowTableToRows` pattern |
-| `web/src/lib/assets-table.js` | Shared: `buildAssetsTable`, `fetchAssetsWithSources`, `arrowTableToRows` |
-| `web/src/lib/utils.js` | `formatDate`, `formatDatetime`, `escHtml`, `sortRows` |
-| `web/src/assets/view.js` | Link builders: `buildS3ConsoleUrl`, `buildQcLink`, `buildMetadataLink`, `buildCoLink` |
-| `web/src/subject/view.js` | Reference implementation of a full page (selector → DuckDB query → DOM) |
-| `web/styles/app.css` | All CSS. CSS variables for theming. Append new sections at the end. |
-
-## Adding a New Page — Checklist
-
-1. Create `web/src/<page>/view.js` — export `create<Page>View({ coordinator })`.
-2. Create `web/src/<page>-entry.js` — init DuckDB with `fetchAndRegisterMetadata`, call `createPageView`, append to `#app`.
-3. Create `web/<page>.html` — copy any existing HTML file; update `<title>`, brand sub-text, `aria-current="page"` on the nav link, and the `<script>` src.
-4. Add `<a href="/<page>">` to **every** `*.html` nav in the correct position: Assets | Subjects | Projects | Contributions | Dashboards▾.
-5. Add the entry to `web/vite.config.js` `rollupOptions.input`.
-6. Add CSS at the end of `web/styles/app.css`.
-7. **⚠️ Add the route to `deploy/nginx.conf`** — add `location = /<page> { try_files /<page>.html =404; }` and update the routes comment at the top. This is required for Docker deployment.
-
-**Nav order (canonical):** Assets → Subjects → Projects → Contributions → Dashboards (dropdown: Behavior sessions, SmartSPIM, Quality Control)
+| `web/build/routes.js` | Route/nav manifest — source of truth for all pages |
+| `web/build/header-template.js` | `renderHeader`, `renderThemeInit` (shared shell) |
+| `web/src/constants.js` | `VERSIONS_URL`, `S3_BUCKET`, API bases, colours |
+| `web/src/lib/bootstrap.js` | Standard page entry (DuckDB + metadata + mount) |
+| `web/src/lib/metadata.js` | Registry fetch/register, table SQL, error handling |
+| `web/src/lib/registry.js` | Lazy table loading: `setMetadata`, `ensureTable`, `getAcorn` |
+| `web/src/lib/arrow.js` | `arrowTableToRows` (Arrow → plain JS rows) |
+| `web/src/lib/assets-table.js` | `buildAssetsTable` (grouped raw/derived assets) |
+| `web/src/lib/docdb.js` | Direct-from-browser DocDB queries |
+| `web/src/lib/utils.js` | `formatDate/Datetime`, `escHtml`, `sortRows`, `downloadCsv` |
+| `web/src/subject/view.js` | Reference full page (selector → query → DOM) |
+| `web/src/swdb/` | SWDB curated-set dashboard — isolated, see below |
+| `web/docdb_proxy.py` | Server-side proxy (:3001): DocDB, S3 listing, log server |
+| `deploy/nginx.conf`, `deploy/supervisord.conf` | Container serving / process mgmt |
+| `web/styles/app.css` | `@import`s numbered partials in `styles/partials/` |
 
 ## Patterns
+
+**Dev server:** `cd web && npm start` runs the docdb proxy + Vite together;
+`npm run dev` is Vite only (proxy features disabled).
 
 **URL param sync:**
 ```js
 const val = new URLSearchParams(window.location.search).get('key') ?? '';
-history.replaceState({}, '', new URL(window.location.href));
 ```
 
 **DuckDB query → rows:**
 ```js
 const result = await coordinator.query(`SELECT … FROM asset_basics WHERE …`);
-const rows = arrowTableToRows(result); // from lib/assets-table.js
+const rows = arrowTableToRows(result); // from lib/arrow.js
 ```
 
-**Abort on re-render:** Use `AbortController`; check `signal?.aborted` after every `await`. See `subject/view.js:_loadSubject`.
+**Abort on re-render:** Use `AbortController`; check `signal?.aborted` after
+every `await`. See `subject/view.js`.
 
-**Assets table (grouped raw/derived):** Use `buildAssetsTable(assets, sourceMap)` and `fetchAssetsWithSources(coordinator, whereClause)` from `lib/assets-table.js`.
+## SWDB Dashboard (`/swdb`, `/swdb/set`)
+
+A deliberately **isolated** dashboard for small curated sets of *merged NWB*
+assets (behavior + DLC eye tracking + RF mapping + optotagging + units in one
+file). All of its code lives under `web/src/swdb/` — keep it there; only reuse
+flows *inward*, nothing else imports from `swdb/`.
+
+Two things make it different from every other page:
+
+- **Its source assets are true HDF5** `.nwb` (~3.7 GB each), not `.nwb.zarr`, so
+  they are unreadable in-browser. The `swdb` job in **biodata-cache** flattens
+  them into six `platform_swdb_*` parquet tables. `swdb/data.js` is the only
+  place that knows those URLs.
+- **It does not use eager tables.** Both entries call
+  `bootstrap(view, { requiredTables: [] })` — bootstrap is used purely to bring up
+  DuckDB and resolve the cache version. Every read targets one explicit
+  partition URL (`…/platform_swdb_trials/asset_name=<asset>/data.pqt`), which
+  sidesteps DuckDB-WASM's inability to glob virtual-hosted HTTPS URLs and lets
+  parquet column pruning keep the wide tables cheap.
+
+The behavior viewer is **not** a fork: `swdb/dr-session.js` adapts the cached
+tables into the exact data shape `dynamic_routing/`'s `DrAnimation` and
+`createEventPlot` already consume, so the animation, event plot and
+`playback-harness` transport are reused as-is. The one upgrade is that these
+NWBs carry a real lick stream, so `responses` holds actual licks rather than the
+one-per-responding-trial proxy the DR parquet cache is limited to.
+
+Times in the cache are in the NWB session clock (t=0 = `session_start_time`);
+the adapter shifts to "first trial at zero" on read.
 
 ## Plotting
 
-**Never hand-roll SVG for charts.** Use the right tool based on the data source:
-
-- **Static/pre-aggregated data (plain JS array):** Use `@observablehq/plot` directly — vgplot's `barY`/`plot` wrappers break with array data (columnar format mismatch).
-- **Live DuckDB queries with cross-filtering:** Use `@uwdata/vgplot` + `from('table', { filterBy })` — see `web/src/explorer/time-view.js`.
+**Never hand-roll SVG for charts.** Pick the tool by data source:
+- **Static / pre-aggregated (plain JS array):** `@observablehq/plot` directly —
+  vgplot's array wrappers break on columnar mismatch.
+- **Live DuckDB with cross-filtering:** `@uwdata/vgplot` + `from(table, {
+  filterBy })` — see `web/src/explorer/time-view.js`.
 
 ```js
-// Static data → Observable Plot directly
 import * as Plot from '@observablehq/plot';
 const el = Plot.plot({
-  width: 700, height: 200,
   color: { scheme: 'tableau10', legend: true },
   style: { background: 'transparent', fontFamily: 'inherit' },
   marks: [Plot.barY(rows, { x: 'week', y: 'n', fill: 'modality' })],
 });
-
-// Live DuckDB → vgplot
-import { plot, barY, from, colorScheme, colorLegend, style } from '@uwdata/vgplot';
-const el = plot(barY(from('table', { filterBy: sel }), { x: 'col', y: count() }), ...);
 ```
 
 ## Tests
 
-`cd web && npm test` — Vitest, node environment. Pure-function unit tests only; DOM tests mock `coordinator.query`. Don't break them.
+`cd web && npm test` — Vitest. Default `node` environment (pure-function unit
+tests); DOM tests use `happy-dom` and mock `coordinator.query`. Don't break them.
+`npm run lint` runs ESLint over `src`.

@@ -126,6 +126,15 @@ export const ACORN_COLUMN_CASTS = {
   },
 };
 
+const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+export function quoteIdentifier(identifier) {
+  if (typeof identifier !== 'string' || !SQL_IDENTIFIER_PATTERN.test(identifier)) {
+    throw new Error(`Invalid SQL identifier: "${identifier}"`);
+  }
+  return `"${identifier}"`;
+}
+
 /**
  * Build the `CREATE OR REPLACE TABLE` SQL for registering an acorn.
  *
@@ -137,10 +146,12 @@ export const ACORN_COLUMN_CASTS = {
  *   Map of column name → DuckDB type string.  When non-empty, generates
  *   `SELECT * REPLACE(CAST(col AS type) AS col, ...)` to fix column types
  *   inline during table creation.
+ * @param {string} [targetName=acorn.name] - Validated physical table name.
  * @returns {string} The full CREATE TABLE … AS SELECT … SQL statement.
  */
-export function buildRegisterSql(acorn, columnCasts = {}, subjectIds = null) {
+export function buildRegisterSql(acorn, columnCasts = {}, subjectIds = null, targetName = acorn.name) {
   const arg = buildParquetArg(acorn);
+  const quotedTargetName = quoteIdentifier(targetName);
   const entries = Object.entries(columnCasts);
   let selectExpr = '*';
   if (entries.length > 0) {
@@ -154,21 +165,25 @@ export function buildRegisterSql(acorn, columnCasts = {}, subjectIds = null) {
   // Only applied to asset-type acorns that have subject_id as a partition key
   // or column; metadata acorns are always loaded in full.
   let whereClause = '';
-  if (acorn.type === 'asset' && subjectIds != null && subjectIds.length > 0) {
+  if (acorn.type === 'asset' && subjectIds != null) {
     const hasSubjectId =
       acorn.partition_key === 'subject_id' ||
       (Array.isArray(acorn.columns) && acorn.columns.some(
         (c) => (typeof c === 'string' ? c : c.name) === 'subject_id',
       ));
     if (hasSubjectId) {
-      const quotedIds = subjectIds
-        .map((id) => "'" + String(id).replace(/'/g, "''") + "'")
-        .join(', ');
-      whereClause = ' WHERE subject_id IN (' + quotedIds + ')';
+      if (subjectIds.length === 0) {
+        whereClause = ' WHERE FALSE';
+      } else {
+        const quotedIds = subjectIds
+          .map((id) => "'" + String(id).replace(/'/g, "''") + "'")
+          .join(', ');
+        whereClause = ' WHERE subject_id IN (' + quotedIds + ')';
+      }
     }
   }
 
-  return `CREATE OR REPLACE TABLE ${acorn.name} AS SELECT ${selectExpr} FROM read_parquet(${arg})${whereClause}`;
+  return `CREATE OR REPLACE TABLE ${quotedTargetName} AS SELECT ${selectExpr} FROM read_parquet(${arg})${whereClause}`;
 }
 
 /**
@@ -209,11 +224,8 @@ export function getAcornByName(acorns, name) {
 /** Module-level resolved base URL (set after first successful fetch). */
 let _resolvedBaseUrl = null;
 
-/** Module-level resolved version folder name (e.g. `bdc-v0.39`). */
-let _resolvedVersion = null;
-
 /**
- * Return the resolved data-cache base URL (e.g. `https://…/data-asset-cache/bdc-v0.39`).
+ * Return the resolved data-cache base URL (e.g. `https://…/data-asset-cache/zs-v0.28.1`).
  * Available only after `fetchAndRegisterMetadata` has completed successfully.
  *
  * @returns {string|null}
@@ -223,13 +235,13 @@ export function getResolvedBaseUrl() {
 }
 
 /**
- * Return the resolved version folder name (e.g. `bdc-v0.39`).
+ * Return the resolved data-cache version folder name (e.g. `bdc-v0.37`).
  * Available only after `fetchAndRegisterMetadata` has completed successfully.
  *
  * @returns {string|null}
  */
 export function getResolvedVersion() {
-  return _resolvedVersion;
+  return _resolvedBaseUrl ? _resolvedBaseUrl.split('/').pop() : null;
 }
 
 /**
@@ -250,13 +262,16 @@ function compareSemver(a, b) {
 }
 
 /**
- * Fetch the versions index and pick the latest version.
+ * Fetch the versions index, pick the latest version, and return its base URL.
  *
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
- * @returns {Promise<{version: string, baseUrl: string}>}
+ * @returns {Promise<{baseUrl: string}>}
  */
 async function resolveLatestVersion(versionsUrl) {
-  const resp = await fetch(versionsUrl, { cache: 'no-cache' });
+  // Normal (default) HTTP caching: S3 returns Last-Modified/ETag on this
+  // object, so the browser can heuristically cache it across page
+  // navigations instead of forcing a full round-trip on every load.
+  const resp = await fetch(versionsUrl);
   if (!resp.ok) {
     throw new Error(`Failed to fetch versions index: ${resp.status} ${resp.statusText}`);
   }
@@ -264,69 +279,14 @@ async function resolveLatestVersion(versionsUrl) {
   if (!Array.isArray(versions) || versions.length === 0) {
     throw new Error('cache_versions.json must be a non-empty array');
   }
-  // versions are folder names like "bdc-v0.39" or bare version strings "0.1.0"
+  // versions are folder names like "bc-v0.1.0" or bare version strings "0.1.0"
   const parsed = versions.map((v) => {
     const bare = String(v).replace(/^[a-z]+-v/, '');
     return { raw: v, bare };
   });
   parsed.sort((a, b) => compareSemver(a.bare, b.bare));
   const latest = parsed[parsed.length - 1];
-  const baseUrl = `${DATA_CACHE_PREFIX}/${latest.raw}`;
-  return { version: latest.raw, baseUrl };
-}
-
-/**
- * List the per-table registry entry keys under `<version>/cache_registry/`
- * via an anonymous S3 ListObjectsV2 request over HTTPS.
- *
- * The registry is distributed: each table has its own `<table>.json` file in
- * the `cache_registry/` folder (there is no single cache_registry.json).
- *
- * @param {string} version - Version folder name (e.g. `bdc-v0.39`).
- * @returns {Promise<string[]>} Absolute HTTPS URLs of each registry entry JSON.
- */
-async function listRegistryEntryUrls(version) {
-  const prefix = `data-asset-cache/${version}/cache_registry/`;
-  const listUrl =
-    `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
-    `?list-type=2&prefix=${encodeURIComponent(prefix)}&delimiter=/&max-keys=1000`;
-  const resp = await fetch(listUrl, { cache: 'no-cache' });
-  if (!resp.ok) {
-    throw new Error(`Failed to list registry entries: ${resp.status} ${resp.statusText}`);
-  }
-  const xml = await resp.text();
-  const re = /<Key>([^<]+\.json)<\/Key>/g;
-  const urls = [];
-  let m;
-  while ((m = re.exec(xml)) !== null) {
-    urls.push(`https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${m[1]}`);
-  }
-  return urls;
-}
-
-/**
- * Fetch and assemble the distributed cache registry into a single
- * `{ tables: [...] }` object by listing the `cache_registry/` folder and
- * fetching each table's registry entry JSON.
- *
- * @param {string} version - Version folder name (e.g. `bdc-v0.39`).
- * @returns {Promise<{ tables: object[] }>}
- */
-async function fetchDistributedRegistry(version) {
-  const urls = await listRegistryEntryUrls(version);
-  if (urls.length === 0) {
-    throw new Error(`No registry entries found under ${version}/cache_registry/`);
-  }
-  const entries = await Promise.all(
-    urls.map(async (url) => {
-      const resp = await fetch(url, { cache: 'no-cache' });
-      if (!resp.ok) {
-        throw new Error(`Failed to fetch registry entry ${url}: ${resp.status} ${resp.statusText}`);
-      }
-      return resp.json();
-    }),
-  );
-  return { tables: entries };
+  return { baseUrl: `${DATA_CACHE_PREFIX}/${latest.raw}` };
 }
 
 // ---------------------------------------------------------------------------
@@ -357,49 +317,219 @@ async function fetchDistributedRegistry(version) {
 export async function fetchMetadata(versionsUrl, { onProgress } = {}) {
   // 1. Resolve the latest version from the versions index.
   onProgress?.({ phase: 'versions' });
-  const { version, baseUrl } = await resolveLatestVersion(versionsUrl);
+  const { baseUrl } = await resolveLatestVersion(versionsUrl);
   _resolvedBaseUrl = baseUrl;
-  _resolvedVersion = version;
 
-  // 2. Fetch the distributed registry over plain HTTPS (not DuckDB — it's tiny).
-  // The registry is split across per-table JSON files in the cache_registry/
-  // folder; we list that folder and fetch each entry. cache: 'no-cache' forces
-  // conditional revalidation so stale browser-cached copies are never used.
+  // 2. Load the distributed registry: each acorn entry lives at
+  // `<version>/cache_registry/<table>.json` (there is no single registry file).
   onProgress?.({ phase: 'registry' });
-  const json = await fetchDistributedRegistry(version);
-  const metadata = parseCacheRegistryJson(json);
+  const metadata = await fetchDistributedRegistry(baseUrl);
   metadata.baseUrl = baseUrl;
   return metadata;
 }
 
 /**
+ * Load the distributed registry: each acorn entry lives at
+ * `<version>/cache_registry/<table>.json`. We list the folder over the
+ * anonymous S3 REST API, then fetch every entry in parallel.
+ *
+ * @param {string} baseUrl - Resolved version base URL (…/data-asset-cache/<version>).
+ * @returns {Promise<{ acorns: object[] }>}
+ */
+async function fetchDistributedRegistry(baseUrl) {
+  const version = baseUrl.split('/').pop();
+  const prefix = `data-asset-cache/${version}/cache_registry/`;
+  const listUrl =
+    `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
+    `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
+  // The ListObjectsV2 XML response carries no cache validators from S3, so
+  // it always hits the network regardless of cache mode — default is fine.
+  const listResp = await fetch(listUrl);
+  if (!listResp.ok) {
+    throw new Error(
+      `Failed to list registry at ${listUrl}: ${listResp.status} ${listResp.statusText}`,
+    );
+  }
+  const xml = await listResp.text();
+  const keys = [];
+  const re = /<Key>([^<]+\.json)<\/Key>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) keys.push(m[1]);
+  if (keys.length === 0) {
+    throw new Error(`Registry folder ${prefix} is empty`);
+  }
+  const tables = await Promise.all(
+    keys.map(async (key) => {
+      const url = `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
+      // Normal caching: these objects carry Last-Modified/ETag, so repeat
+      // page loads within the browser's heuristic freshness window are
+      // served from disk cache instead of re-fetching every entry.
+      const r = await fetch(url);
+      if (!r.ok) {
+        throw new Error(`Failed to fetch registry entry ${url}: ${r.status} ${r.statusText}`);
+      }
+      return r.json();
+    }),
+  );
+  return parseCacheRegistryJson({ tables });
+}
+
+
+/**
+ * Aggregate error thrown by {@link registerEagerTables} when one or more
+ * *required* tables fail to register. Carries the full structured failure
+ * report so callers can render every failed table, not just the first.
+ */
+export class RequiredTablesError extends Error {
+  /**
+   * @param {Array<object>} requiredFailures - Failures where `required` is true.
+   * @param {object} [opts]
+   * @param {Array<object>} [opts.failures=requiredFailures] - All failures (required + optional).
+   * @param {string[]} [opts.registered=[]] - Names of tables that registered successfully.
+   */
+  constructor(requiredFailures, { failures = requiredFailures, registered = [] } = {}) {
+    const names = requiredFailures.map((f) => f.table).join(', ');
+    super(`Required table(s) failed to load: ${names}`);
+    this.name = 'RequiredTablesError';
+    this.requiredFailures = requiredFailures;
+    this.failures = failures;
+    this.registered = registered;
+  }
+}
+
+/** Short, safe, user-facing categories for a table registration failure. */
+const TABLE_ERROR_CATEGORIES = {
+  network: 'Network or CORS failure while fetching the data file.',
+  registry: 'The table could not be found in the data registry.',
+  parquet: 'The underlying data file is unavailable.',
+  query: 'DuckDB failed to register the table.',
+  resource: 'The browser ran out of memory or hit another resource limit.',
+  unknown: 'An unknown error occurred.',
+};
+
+/**
+ * Map a raw error (or message) from a table registration failure to a short,
+ * safe category key. Used to avoid ever showing raw stack traces / URLs to
+ * end users by default.
+ *
+ * @param {unknown} err - Error object or message string.
+ * @returns {keyof typeof TABLE_ERROR_CATEGORIES}
+ */
+export function categorizeTableError(err) {
+  const msg = String(err?.message ?? err ?? '').toLowerCase();
+  if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('cors')) {
+    return 'network';
+  }
+  if (msg.includes('unknown acorn') || msg.includes('registry folder') || msg.includes('cache_registry')) {
+    return 'registry';
+  }
+  if (msg.includes('parquet') || msg.includes('404') || msg.includes('403') || msg.includes('no files found')) {
+    return 'parquet';
+  }
+  if (msg.includes('duckdb') || msg.includes('binder') || msg.includes('syntax') || msg.includes('sql')) {
+    return 'query';
+  }
+  if (msg.includes('memory') || msg.includes('oom') || msg.includes('resource')) {
+    return 'resource';
+  }
+  return 'unknown';
+}
+
+/**
+ * Return the safe, user-facing description for a table registration failure.
+ *
+ * @param {unknown} err - Error object or message string.
+ * @returns {string}
+ */
+export function describeTableError(err) {
+  return TABLE_ERROR_CATEGORIES[categorizeTableError(err)] ?? TABLE_ERROR_CATEGORIES.unknown;
+}
+
+/**
+ * Redact query strings and common credential/token parameters from an error
+ * message before it is ever displayed to the user (e.g. in a diagnostics
+ * panel). Never insert raw, unredacted error text into the DOM.
+ *
+ * @param {unknown} message
+ * @returns {string}
+ */
+export function sanitizeErrorMessage(message) {
+  if (!message) return '';
+  return String(message)
+    .replace(/(https?:\/\/[^\s'")]+?)\?[^\s'")]*/g, '$1?[redacted]')
+    .replace(/([?&](?:token|signature|key|secret|authorization|x-amz-[a-z0-9-]+)=)[^&\s'")]*/gi, '$1[redacted]');
+}
+
+/**
  * Register the eagerly-needed `"metadata"`-type acorns as DuckDB tables.
  *
- * Only the tables in `eagerTables` (default: asset_basics) are registered at
- * startup. All other acorns are stored in the registry and lazy-loaded via
- * ensureTable. Individual failures are skipped so one broken/empty parquet
- * file doesn't crash every page in the app.
+ * `requiredTables` (default: `['asset_basics']`) must all succeed — if any
+ * fail, every attempted registration still runs to completion, then a
+ * {@link RequiredTablesError} is thrown carrying the full structured report.
+ * `optionalTables` may fail without blocking startup; their failures are
+ * simply included in the returned report.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
  * @param {{ acorns: object[] }} metadata - Parsed registry from {@link fetchMetadata}.
  * @param {object} [opts]
  * @param {(p: object) => void} [opts.onProgress]
- * @param {string[]} [opts.eagerTables]
+ * @param {string[]} [opts.requiredTables=['asset_basics']]
+ * @param {string[]} [opts.optionalTables=[]]
+ * @returns {Promise<{ registered: string[], failures: object[] }>}
+ * @throws {RequiredTablesError} if any required table fails to register.
  */
-export async function registerEagerTables(coordinator, metadata, { onProgress, eagerTables = ['asset_basics'] } = {}) {
+export async function registerEagerTables(coordinator, metadata, {
+  onProgress,
+  requiredTables = ['asset_basics'],
+  optionalTables = [],
+} = {}) {
+  const overlap = requiredTables.filter((t) => optionalTables.includes(t));
+  if (overlap.length > 0) {
+    throw new Error(`Table(s) cannot be listed as both required and optional: ${overlap.join(', ')}`);
+  }
+
   // DuckDB-WASM has httpfs built in — no INSTALL/LOAD needed.
   // All parquet URLs are converted to HTTPS so no S3 credentials are required.
-  const eagerSet = new Set(eagerTables);
-  const toRegister = getMetadataAcorns(metadata.acorns).filter((a) => eagerSet.has(a.name));
-  for (let i = 0; i < toRegister.length; i++) {
-    const acorn = toRegister[i];
-    onProgress?.({ phase: 'table', step: i, total: toRegister.length, name: acorn.name });
-    try {
-      await registerAcornTable(coordinator, acorn);
-    } catch (err) {
-      console.warn(`[metadata] Failed to register acorn "${acorn.name}", skipping:`, err?.message ?? err);
+  const acornsByName = new Map(getMetadataAcorns(metadata.acorns).map((a) => [a.name, a]));
+  const requested = [
+    ...requiredTables.map((name) => ({ name, required: true })),
+    ...optionalTables.map((name) => ({ name, required: false })),
+  ];
+  for (const { name } of requested) {
+    if (!acornsByName.has(name)) {
+      throw new Error(`Unknown eager table "${name}" — no metadata acorn with that name in the registry`);
     }
   }
+
+  const registered = [];
+  const failures = [];
+  for (let i = 0; i < requested.length; i++) {
+    const { name, required } = requested[i];
+    onProgress?.({ phase: 'table', step: i, total: requested.length, name });
+    try {
+      await registerAcornTable(coordinator, acornsByName.get(name));
+      registered.push(name);
+    } catch (err) {
+      console.warn(
+        `[metadata] Failed to register acorn "${name}"${required ? ' (required)' : ', skipping'}:`,
+        err?.message ?? err,
+      );
+      failures.push({
+        table: name,
+        required,
+        phase: 'register',
+        message: err?.message ?? String(err),
+        cause: err,
+      });
+    }
+  }
+
+  const requiredFailures = failures.filter((f) => f.required);
+  if (requiredFailures.length > 0) {
+    throw new RequiredTablesError(requiredFailures, { failures, registered });
+  }
+
+  return { registered, failures };
 }
 
 /**
@@ -409,11 +539,16 @@ export async function registerEagerTables(coordinator, metadata, { onProgress, e
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
  * @param {string} versionsUrl - HTTPS URL of cache_versions.json.
+ * @param {object} [opts]
+ * @param {(p: object) => void} [opts.onProgress]
+ * @param {string[]} [opts.requiredTables=['asset_basics']]
+ * @param {string[]} [opts.optionalTables=[]]
  * @returns {Promise<{ acorns: object[], baseUrl: string }>} The parsed registry JSON + base URL.
+ * @throws {RequiredTablesError} if any required table fails to register.
  */
-export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onProgress, eagerTables = ['asset_basics'] } = {}) {
+export async function fetchAndRegisterMetadata(coordinator, versionsUrl, { onProgress, requiredTables = ['asset_basics'], optionalTables = [] } = {}) {
   const metadata = await fetchMetadata(versionsUrl, { onProgress });
-  await registerEagerTables(coordinator, metadata, { onProgress, eagerTables });
+  await registerEagerTables(coordinator, metadata, { onProgress, requiredTables, optionalTables });
   return metadata;
 }
 
@@ -530,12 +665,14 @@ export async function fetchSubjectIdsForProject(coordinator, projectName) {
  * @param {string[]|null} [options.subjectIds=null] - If provided, restricts the
  *   table to rows matching these subject_ids (used to filter asset tables to
  *   the currently selected project).
- * @returns {Promise<void>}
+ * @param {string}        [options.targetName=acorn.name] - Physical table name.
+ * @returns {Promise<string>}
  */
-export async function registerAcornTable(coordinator, acorn, { subjectIds = null } = {}) {
+export async function registerAcornTable(coordinator, acorn, { subjectIds = null, targetName = acorn.name } = {}) {
   const casts = ACORN_COLUMN_CASTS[acorn.name] ?? {};
-  const sql = buildRegisterSql(acorn, casts, subjectIds);
+  const sql = buildRegisterSql(acorn, casts, subjectIds, targetName);
   await coordinator.exec(sql);
+  return targetName;
 }
 
 /**
@@ -546,5 +683,5 @@ export async function registerAcornTable(coordinator, acorn, { subjectIds = null
  * @returns {Promise<void>}
  */
 export async function dropAcornTable(coordinator, acornName) {
-  await coordinator.exec(`DROP TABLE IF EXISTS ${acornName}`);
+  await coordinator.exec(`DROP TABLE IF EXISTS ${quoteIdentifier(acornName)}`);
 }

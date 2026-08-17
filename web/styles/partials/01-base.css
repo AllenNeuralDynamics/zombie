@@ -1,7 +1,8 @@
 /*
  * app.css — Data Explorer application styles.
  *
- * Clean black-and-white theme with red accent.
+ * Allen Institute palette: black-and-white base, Rose as the primary accent
+ * and Teal as the second. See ../STYLE.md before adding any colour.
  * Supports light/dark via system preference (prefers-color-scheme)
  * or explicit [data-theme="light"|"dark"] on <html>.
  */
@@ -38,38 +39,104 @@
 :root {
   color-scheme: light;
 
+  /* -------------------------------------------------------------------------
+   * Allen Institute core palette — raw brand values. Identical in both themes;
+   * never redefine these per-theme and never use them directly in partials.
+   * Use the semantic tokens below instead. See ../STYLE.md.
+   * ---------------------------------------------------------------------- */
+
+  /* base/ */
+  --ai-black:   #000000;
+  --ai-white:   #ffffff;
+  --ai-page-1:  #f3f0e8;
+  --ai-page-2:  #ded9d1;
+  --ai-gray-1:  #aaa39f;
+  --ai-gray-2:  #737373;
+
+  /* primary/ — backgrounds and large fills */
+  --ai-blue:    #6464ff;
+  --ai-violet:  #8246e1;
+  --ai-maroon:  #cd0f55;
+  --ai-teal:    #00a59b;
+
+  /* accent/ — highlights only */
+  --ai-rose:    #ff00ff;
+  --ai-green:   #cdeb05;
+  --ai-orange:  #ff6e00;
+  --ai-ochre:   #dc9600;
+  --ai-yellow:  #ffeb23;
+
+  /* -------------------------------------------------------------------------
+   * Semantic tokens — everything below is expressed in terms of the palette
+   * and flips per theme.
+   * ---------------------------------------------------------------------- */
+
   /* Accent */
-  --color-red:        #c0392b;
-  --color-red-hover:  #a93226;
+  --color-red:        var(--ai-maroon);
+  --color-red-hover:  #a80c46;
 
   /* Semantic colours kept for badge / chart compatibility */
-  --color-green:      #1D8649;
-  --color-yellow:     #d97706;
-  --color-grey:       #888888;
+  --color-green:      var(--ai-teal);
+  --color-yellow:     var(--ai-ochre);
+  --color-grey:       var(--ai-gray-1);
 
-  /* Neutral stand-ins for old brand blues (used by chart fill defaults) */
-  --color-dark-blue:  #111111;
-  --color-light-blue: #555555;
+  /* Chart marks — black-and-white first, colour only as a highlight. */
+  --chart-ink:        var(--ai-black);
+  --chart-accent:     var(--ai-rose);
+  --chart-accent-2:   var(--ai-teal);
+  --chart-axis:       var(--ai-gray-1);
+
+  /* Legacy chart fill defaults (formerly brand blues) */
+  --color-dark-blue:  var(--ai-black);
+  --color-light-blue: var(--ai-gray-2);
 
   /* Surfaces — light mode */
-  --surface-bg:       #ffffff;
-  --surface-card:     #f5f5f5;
-  --surface-border:   #e0e0e0;
+  --surface-bg:       var(--ai-white);
+  --surface-card:     var(--ai-page-1);
+  --surface-raised:   var(--ai-page-2);
+  --surface-border:   var(--ai-page-2);
+  --surface-input:    var(--ai-white);
+  --input-bg:         var(--ai-white);
 
   /* Aliases used by viewer components */
-  --surface:          #ffffff;
-  --surface-alt:      #f5f5f5;
-  --border:           #e0e0e0;
+  --surface:          var(--ai-white);
+  --surface-alt:      var(--ai-page-1);
+  --border:           var(--ai-page-2);
 
   /* Header */
-  --header-bg:        #ffffff;
-  --header-border:    #e0e0e0;
+  --header-bg:        var(--ai-white);
+  --header-border:    var(--ai-page-2);
 
   /* Text */
-  --text-primary:     #111111;
-  --text-secondary:   #555555;
-  --text-muted:       #888888;
-  --text-on-dark:     #111111;
+  --text-primary:     var(--ai-black);
+  --text-secondary:   var(--ai-gray-2);
+  --text-muted:       var(--ai-gray-1);
+  --text-on-dark:     var(--ai-black);
+  --color-muted:      var(--ai-gray-2);
+  --surface-hover:    var(--ai-page-1);
+
+  /* Semantic accents / badges */
+  --accent:           var(--ai-rose);
+  --accent-2:         var(--ai-teal);
+  --green-muted:      #d9f2ef;
+  --green-fg:         #00655f;
+  --yellow-muted:     #fbeed0;
+  --yellow-fg:        #8a5e00;
+  --red-muted:        #fbdde8;
+  --red-fg:           #8f0a3b;
+  --green-badge-bg:   #d9f2ef;
+  --green-badge-fg:   #00655f;
+
+  /* Chart modality colours that must adapt to theme */
+  --modality-behavior: var(--ai-black);
+
+  /* Dynamic-foraging playback plot — alternating trial-span bands */
+  --df-band-even:     #faf8f4;
+  --df-band-odd:      var(--ai-page-1);
+  /* Legacy token aliases (older partials use these names) */
+  --card-bg:          var(--ai-page-1);
+  --text:             var(--ai-black);
+  --text-mut:         var(--ai-gray-1);
 
   /* Spacing */
   --gap:              12px;
@@ -86,45 +153,90 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --surface-bg:       #141414;
-    --surface-card:     #1e1e1e;
-    --surface-border:   #2e2e2e;
-    --header-bg:        #0f0f0f;
-    --header-border:    #2e2e2e;
-    --text-primary:     #eeeeee;
-    --text-secondary:   #999999;
-    --text-muted:       #666666;
-    --text-on-dark:     #eeeeee;
-    --color-dark-blue:  #dddddd;
-    --color-light-blue: #aaaaaa;
-    --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+    --surface-bg:       var(--ai-black);
+    --surface-card:     #1a1a1a;
+    --surface-raised:   #262626;
+    --surface-border:   #333333;
+    --surface-input:    #1f1f1f;
+    --input-bg:         #1f1f1f;
+    --header-bg:        var(--ai-black);
+    --header-border:    #333333;
+    --text-primary:     var(--ai-white);
+    --text-secondary:   var(--ai-gray-1);
+    --text-muted:       var(--ai-gray-2);
+    --text-on-dark:     var(--ai-white);
+    --color-muted:      var(--ai-gray-1);
+    --surface-hover:    #262626;
+    --chart-ink:        var(--ai-white);
+    --chart-axis:       var(--ai-gray-2);
+    --color-dark-blue:  var(--ai-white);
+    --color-light-blue: var(--ai-gray-1);
+    --accent:           var(--ai-rose);
+    --accent-2:         var(--ai-teal);
+    --green-muted:      #0b2b29;
+    --green-fg:         #4fd5c9;
+    --yellow-muted:     #33280d;
+    --yellow-fg:        #f0b73a;
+    --red-muted:        #340c1c;
+    --red-fg:           #ff6ba0;
+    --green-badge-bg:   #0b2b29;
+    --green-badge-fg:   #4fd5c9;
+    --modality-behavior: var(--ai-white);
+    --df-band-even:     #131313;
+    --df-band-odd:      #1a1a1a;
+    --card-bg:          #1a1a1a;
+    --text:             var(--ai-white);
+    --text-mut:         var(--ai-gray-2);
+    --shadow:           0 1px 4px rgba(0, 0, 0, 0.6);
     --icon-filter: brightness(0.9);
-    --surface:          #141414;
-    --surface-alt:      #1e1e1e;
-    --border:           #2e2e2e;
+    --surface:          var(--ai-black);
+    --surface-alt:      #1a1a1a;
+    --border:           #333333;
   }
 }
 
 /* Explicit dark mode */
 [data-theme="dark"] {
   color-scheme: dark;
-  --surface-bg:       #141414;
-  --surface-card:     #1e1e1e;
-  --surface-border:   #2e2e2e;
-  --surface-input:    #2a2a2a;
-  --header-bg:        #0f0f0f;
-  --header-border:    #2e2e2e;
-  --text-primary:     #eeeeee;
-  --text-secondary:   #999999;
-  --text-muted:       #666666;
-  --text-on-dark:     #eeeeee;
-  --color-dark-blue:  #dddddd;
-  --color-light-blue: #aaaaaa;
-  --shadow:           0 1px 4px rgba(0, 0, 0, 0.45);
+  --surface-bg:       var(--ai-black);
+  --surface-card:     #1a1a1a;
+  --surface-raised:   #262626;
+  --surface-border:   #333333;
+  --surface-input:    #1f1f1f;
+  --input-bg:         #1f1f1f;
+  --header-bg:        var(--ai-black);
+  --header-border:    #333333;
+  --text-primary:     var(--ai-white);
+  --text-secondary:   var(--ai-gray-1);
+  --text-muted:       var(--ai-gray-2);
+  --text-on-dark:     var(--ai-white);
+  --color-muted:      var(--ai-gray-1);
+  --surface-hover:    #262626;
+  --chart-ink:        var(--ai-white);
+  --chart-axis:       var(--ai-gray-2);
+  --color-dark-blue:  var(--ai-white);
+  --color-light-blue: var(--ai-gray-1);
+  --accent:           var(--ai-rose);
+  --accent-2:         var(--ai-teal);
+  --green-muted:      #0b2b29;
+  --green-fg:         #4fd5c9;
+  --yellow-muted:     #33280d;
+  --yellow-fg:        #f0b73a;
+  --red-muted:        #340c1c;
+  --red-fg:           #ff6ba0;
+  --green-badge-bg:   #0b2b29;
+  --green-badge-fg:   #4fd5c9;
+  --modality-behavior: var(--ai-white);
+  --df-band-even:     #131313;
+  --df-band-odd:      #1a1a1a;
+  --card-bg:          #1a1a1a;
+  --text:             var(--ai-white);
+  --text-mut:         var(--ai-gray-2);
+  --shadow:           0 1px 4px rgba(0, 0, 0, 0.6);
   --icon-filter: brightness(0.9);
-  --surface:          #141414;
-  --surface-alt:      #1e1e1e;
-  --border:           #2e2e2e;
+  --surface:          var(--ai-black);
+  --surface-alt:      #1a1a1a;
+  --border:           #333333;
 }
 
 /* ---------------------------------------------------------------------------

@@ -1,14 +1,14 @@
 /**
- * edit-page.js — Admin/member edit page for contributions.
+ * edit-page.js — Admin-only full editor for contributions.
  *
  * Access is gated by ORCID login (via the aind-metadata-viz backend):
- *   - Not logged in            → "Log in with ORCID" prompt.
- *   - Logged in, may edit       → the contributions editor (session-based save).
- *   - Logged in, no access      → "no access" prompt with the reason.
+ *   - Not logged in   → "Log in with ORCID" prompt.
+ *   - Admin           → the full contributions editor (session-based save).
+ *   - Logged in, not admin → "no access" prompt pointing at the add page.
  *
- * Legacy fallback: projects that are still password-locked and for which the
- * user has no membership fall back to the original password modal so existing
- * locked projects keep working during the migration.
+ * "Admin" means a global admin (ADMIN_ORCIDS) or a contributor whose ORCID is
+ * flagged is_admin on this project. Non-admins edit their own author row via
+ * the add wizard. There is no password login and no separate membership.
  */
 
 import { html, render } from 'htm/preact';
@@ -16,67 +16,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid, logout } from '../lib/auth.js';
 import { createContributionsView } from './view.js';
-
-// ---------------------------------------------------------------------------
-// Legacy password modal (kept for still-locked, unmigrated projects)
-// ---------------------------------------------------------------------------
-
-function PasswordModal({ doi, onUnlock }) {
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [checking, setChecking] = useState(false);
-  const inputRef = useRef(null);
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  async function submit(e) {
-    e.preventDefault();
-    if (!password.trim()) return;
-    setChecking(true);
-    setError('');
-    try {
-      const encoded = new TextEncoder().encode(password);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', encoded);
-      const hashed = Array.from(new Uint8Array(hashBuffer))
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('');
-
-      const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}&password=${encodeURIComponent(hashed)}`,
-      );
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Invalid password');
-      }
-      onUnlock(password);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  return html`
-    <div class="cv-modal-backdrop">
-      <div class="cv-modal">
-        <h2 class="cv-modal-title">Project Locked</h2>
-        <p class="cv-modal-desc">
-          <strong>${doi}</strong> is password-protected. Enter the password to continue.
-        </p>
-        <form onSubmit=${submit}>
-          <input ref=${inputRef} type="password" class="cv-modal-input"
-                 placeholder="Password" value=${password}
-                 onInput=${(e) => setPassword(e.target.value)} />
-          ${error && html`<p class="cv-modal-error">${error}</p>`}
-          <button type="submit" class="btn-primary cv-modal-btn"
-                  disabled=${checking || !password.trim()}>
-            ${checking ? 'Checking…' : 'Unlock'}
-          </button>
-        </form>
-      </div>
-    </div>
-  `;
-}
+import { fetchContributions } from './fetch.js';
 
 // ---------------------------------------------------------------------------
 // Login / access gates
@@ -106,8 +46,10 @@ function NoAccessGate({ doi, user }) {
         <h2 class="cv-modal-title">No access</h2>
         <p class="cv-modal-desc">
           You are logged in as <strong>${user?.name || user?.orcid}</strong> but
-          do not have edit access to <strong>${doi}</strong>. Ask the project
-          admin for the invite link, then open it to add yourself.
+          are not an admin of <strong>${doi}</strong>, so you can't open the full
+          editor. To add or update your own author entry, use the
+          <a href=${`/contributions/add?project=${encodeURIComponent(doi)}`}>add page</a>.
+          A project admin can grant you admin access from the editor.
         </p>
         <button class="btn-secondary cv-modal-btn"
                 onClick=${() => logout(() => window.location.reload())}>
@@ -122,12 +64,12 @@ function NoAccessGate({ doi, user }) {
 // Edit Page App
 // ---------------------------------------------------------------------------
 
-// gate: 'loading' | 'login' | 'no-access' | 'password' | 'editor'
+// gate: 'loading' | 'login' | 'no-access' | 'editor'
 function EditApp({ doi }) {
   const [gate, setGate] = useState('loading');
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const passwordRef = useRef('');
+  const [isNew, setIsNew] = useState(false);
   const editorRef = useRef(null);
   const [editorMounted, setEditorMounted] = useState(false);
 
@@ -139,39 +81,51 @@ function EditApp({ doi }) {
       if (cancelled) return;
       setUser(me);
 
-      if (me) {
-        // Logged in: does this user have edit access?
-        try {
-          const res = await fetch(
-            `${CONTRIBUTIONS_API_BASE}/contributions/access?project=${encodeURIComponent(doi)}`,
-            { credentials: 'include' },
-          );
-          const access = res.ok ? await res.json() : {};
-          if (cancelled) return;
-          setIsAdmin(!!access.is_admin);
-          setGate(access.can_edit ? 'editor' : 'no-access');
-        } catch (_) {
-          if (!cancelled) setGate('no-access');
-        }
+      if (!me) {
+        setGate('login');
         return;
       }
 
-      // Not logged in: prefer ORCID login, but fall back to the legacy password
-      // modal for projects that are still password-locked.
+      // Logged in: does this user have edit access?
       try {
-        const res = await fetch(
+        const res = await fetchContributions(
+          `${CONTRIBUTIONS_API_BASE}/contributions/access?project=${encodeURIComponent(doi)}`,
+          { credentials: 'include' },
+        );
+        const access = res.ok ? await res.json() : {};
+        if (cancelled) return;
+
+        // Determine whether the project already exists on the server. This is
+        // independent of admin status — an admin (or global admin) opening a
+        // brand-new project must still be treated as a new project so the view
+        // creates it instead of trying (and failing) to load it.
+        const getRes = await fetchContributions(
           `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
         );
         if (cancelled) return;
-        if (res.ok) {
-          const data = await res.json();
-          setGate(data.locked === true ? 'password' : 'login');
+        const projectExists = getRes.status !== 404;
+
+        if (access.is_admin) {
+          setIsAdmin(true);
+          setIsNew(!projectExists);
+          setGate('editor');
+          return;
+        }
+
+        // Not an admin. Two cases:
+        //   * Project exists  → full editor is admin-only → no access (they use
+        //     the add wizard for their own row instead).
+        //   * Project doesn't exist yet → this is the creator: let them build it.
+        //     They become admin automatically on the first save (backend).
+        if (!projectExists) {
+          setIsAdmin(true);
+          setIsNew(true);
+          setGate('editor');
         } else {
-          // 404 (new project) or error → require login to create/edit.
-          setGate('login');
+          setGate('no-access');
         }
       } catch (_) {
-        if (!cancelled) setGate('login');
+        if (!cancelled) setGate('no-access');
       }
     })();
     return () => { cancelled = true; };
@@ -182,17 +136,13 @@ function EditApp({ doi }) {
     if (gate !== 'editor' || editorMounted || !editorRef.current || !doi) return;
     const el = createContributionsView({
       projectName: doi,
-      password: passwordRef.current,
-      showTokenLinks: isAdmin,
+      isAdmin,
+      isNew,
+      currentUser: user,
     });
     editorRef.current.appendChild(el);
     setEditorMounted(true);
-  }, [gate, doi, isAdmin, editorMounted]);
-
-  function handleUnlock(pw) {
-    passwordRef.current = pw;
-    setGate('editor');
-  }
+  }, [gate, doi, isAdmin, isNew, editorMounted]);
 
   if (!doi) {
     return html`<div class="contributions-edit-page">
@@ -205,7 +155,6 @@ function EditApp({ doi }) {
   }
   if (gate === 'login') return html`<${LoginGate} doi=${doi} />`;
   if (gate === 'no-access') return html`<${NoAccessGate} doi=${doi} user=${user} />`;
-  if (gate === 'password') return html`<${PasswordModal} doi=${doi} onUnlock=${handleUnlock} />`;
 
   return html`
     <div class="contributions-edit-page">

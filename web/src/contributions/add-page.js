@@ -1,20 +1,28 @@
 /**
  * add-page.js — Self-service wizard for adding/editing author contributions.
  *
+ * Reached from the /view "Edit" button (?project=…) by any non-admin. The
+ * visitor logs in with ORCID and is matched to their own contributor row by
+ * ORCID (adding a new row if they have none). Edit access is derived purely
+ * from the contributor metadata on the backend — there is no invite token or
+ * separate membership; a logged-in user may only add/edit their own row.
+ *
  * Flow for new visitors (no per-project cookie):
- *   Step 1: Personal info (name, ORCID, affiliations)
+ *   Step 1: Personal info (name, ORCID, email, affiliations)
  *   Step 2: High-level CRediT role selection
  *   Step 3: Per-role details (descriptions + linked sections)
  *   Step 4: Full editor view (same as admin, scoped to this author)
  *
- * Returning visitors (cookie set) skip directly to step 4.
- * The token is used as the password for both loading and saving data.
+ * Returning visitors (cookie set) and existing authors skip to the full editor.
+ * Saves go through the ORCID session cookie. A visitor may also opt to continue
+ * without logging in: their entry is saved, but they get no editable link back
+ * and must ask an admin to make later changes.
  */
 
 import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
-import { getCurrentUser, loginWithOrcid, joinProject } from '../lib/auth.js';
+import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -23,8 +31,9 @@ import {
   CREDIT_ROLE_ENUM_REVERSE,
   fromEndpointPayload,
   toEndpointPayload,
+  authorNameExists,
 } from './view.js';
-import { CREDIT_ROLES } from './credit-helpers.js';
+import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
@@ -33,55 +42,60 @@ import { RoleTip } from './role-tooltip.js';
 
 const COOKIE_PREFIX = 'contributions_visited_';
 
-function cookieKey(doi, token) {
-  // Key is per-token so different authors' links don't share state.
-  return `${COOKIE_PREFIX}${doi}_${encodeURIComponent(token).slice(0, 40)}`;
+function cookieKey(doi) {
+  return `${COOKIE_PREFIX}${doi}`;
 }
 
-function hasVisitedCookie(doi, token) {
-  return document.cookie.split(';').some((c) => c.trim().startsWith(`${cookieKey(doi, token)}=`));
+function hasVisitedCookie(doi) {
+  return document.cookie.split(';').some((c) => c.trim().startsWith(`${cookieKey(doi)}=`));
 }
 
-function setVisitedCookie(doi, token) {
+function setVisitedCookie(doi) {
   const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
-  document.cookie = `${cookieKey(doi, token)}=1; expires=${expires}; path=/; SameSite=Lax`;
+  document.cookie = `${cookieKey(doi)}=1; expires=${expires}; path=/; SameSite=Lax`;
 }
 
 // ---------------------------------------------------------------------------
-// Draft persistence (localStorage, keyed by token)
+// Draft persistence (localStorage, keyed by project)
 // ---------------------------------------------------------------------------
 
 const DRAFT_PREFIX = 'add_draft_';
 
-function draftKey(token) {
-  return DRAFT_PREFIX + encodeURIComponent(token).slice(0, 60);
+function draftKey(id) {
+  return DRAFT_PREFIX + encodeURIComponent(id).slice(0, 60);
 }
 
-function loadDraft(token) {
+function loadDraft(id) {
   try {
-    const raw = localStorage.getItem(draftKey(token));
+    const raw = localStorage.getItem(draftKey(id));
     return raw ? JSON.parse(raw) : null;
   } catch (_) { return null; }
 }
 
-function saveDraft(token, state) {
-  try { localStorage.setItem(draftKey(token), JSON.stringify(state)); } catch (_) {}
+function saveDraft(id, state) {
+  try { localStorage.setItem(draftKey(id), JSON.stringify(state)); } catch (_) {}
 }
 
-function clearDraft(token) {
-  try { localStorage.removeItem(draftKey(token)); } catch (_) {}
+function clearDraft(id) {
+  try { localStorage.removeItem(draftKey(id)); } catch (_) {}
 }
 
-function translateSaveError(msg) {
+function translateSaveError(msg, anonymous) {
   const s = String(msg || '');
-  if (/allows adding exactly one new author/i.test(s)) {
-    return 'An author with this name already exists on the project. Pick a different name, or ask the lead author for a personal edit link.';
+  // The backend rejects a scope violation with "only add/edit your own author
+  // entry". For an anonymous submitter there is no identity to own a row, so
+  // the only thing they can do is append one new entry — never edit or remove.
+  if (/only (add|edit) your own author entry/i.test(s)) {
+    if (anonymous) {
+      return 'Without logging in you can only add one new author entry — you can’t edit or remove existing entries. Log in with ORCID to make other changes.';
+    }
+    return 'You can only add or edit your own author entry. Ask a project admin to make other changes.';
   }
-  if (/cannot modify existing author/i.test(s)) {
-    return 'Your one-time invite token can only add a new author — it cannot modify an existing one. Ask the lead author for a personal edit link to update an existing entry.';
+  if (/admin can lock or unlock/i.test(s) || /admin can grant or change admin access/i.test(s)) {
+    return 'Only a project admin can change lock or admin settings.';
   }
-  if (/cannot remove existing authors/i.test(s)) {
-    return 'Your token does not have permission to remove existing authors.';
+  if (/project is locked/i.test(s)) {
+    return 'This project is locked; ask an admin to unlock it before editing.';
   }
   return s;
 }
@@ -112,7 +126,7 @@ function extractPayloadMeta(data) {
 // Step 1: Personal Info
 // ---------------------------------------------------------------------------
 
-function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
+function StepPersonalInfo({ name, setName, orcid, setOrcid, email, setEmail, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
   const [orcidResults, setOrcidResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [customAff, setCustomAff] = useState('');
@@ -193,6 +207,13 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
       </div>
 
       <div class="cv-wizard-field">
+        <label class="cv-detail-label" for="cw-email">Email</label>
+        <input id="cw-email" type="email" class="cv-wizard-input"
+               placeholder="name@example.org" value=${email}
+               onInput=${(e) => setEmail(e.target.value)} />
+      </div>
+
+      <div class="cv-wizard-field">
         <label class="cv-detail-label">Affiliations</label>
         ${projectAffiliations.length > 0 && html`
           <div class="cv-wizard-aff-list">
@@ -250,7 +271,8 @@ function StepPersonalInfo({ name, setName, orcid, setOrcid, selectedAffNames, se
 
 const ALLEN_AUTHORSHIP_URL = 'https://alleninstitute.sharepoint.com/sites/AC-Science-Innovation/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents%2Fauthorship%5Fguidelines%2Epdf&parent=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents';
 
-function LevelDefinitionsSidebar() {
+function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
+  if (!allowLevels) return null;
   return html`
     <aside class="cv-level-sidebar">
       <h3 class="cv-level-sidebar-heading">Level definitions</h3>
@@ -260,7 +282,7 @@ function LevelDefinitionsSidebar() {
       <ul class="cv-level-sidebar-list">
         <li><strong>++</strong> indicates a major contribution to a specific CRediT role</li>
         <li><strong>+</strong> indicates a supporting contribution, which may not warrant authorship</li>
-        <li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>
+        ${allowLead && html`<li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>`}
       </ul>
       <p class="cv-level-sidebar-guidelines">
         Please also see the Allen Institute guidelines and appendix for further details:${' '}
@@ -335,7 +357,7 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext, allowLead, allowLeve
           <button class="btn-primary" disabled=${!hasAnyRole} onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }
@@ -360,7 +382,7 @@ function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext,
           <div key=${cat} class="cv-credit-card">
             <div class="cv-credit-card-header">
               <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${roles[cat]}</span>`}
+              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${LEVEL_DISPLAY[roles[cat]] || roles[cat]}</span>`}
             </div>
             <label class="cv-detail-label">Description</label>
             <textarea class="cv-credit-desc-textarea" rows="2"
@@ -412,11 +434,8 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
     else setLevel(title, 'equal');
   }
 
-  const levelOptions = [
-    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
-    { value: 'equal', label: '++' },
-    { value: 'supporting', label: '+' },
-  ];
+  const levelOptions = enabledLevels({ allowLevels, allowLead })
+    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
 
   return html`
     <div class="cv-wizard-layout">
@@ -460,7 +479,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
           <button class="btn-primary" onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }
@@ -470,16 +489,16 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, token, orcidFlow, authorName, orcid, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
-  setAuthorName, setOrcid, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
+  doi, draftId, anonymous, authorName, orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
+  setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
-  const [savedAuthorToken, setSavedAuthorToken] = useState(null);
 
   const [editName, setEditName]               = useState(authorName);
   const [editOrcid, setEditOrcid]             = useState(orcid);
+  const [editEmail, setEditEmail]             = useState(email || '');
   const [editAffNames, setEditAffNames]       = useState(selectedAffNames);
   const [editRoles, setEditRoles]             = useState(() => ({ ...roles }));
   const [editDescs, setEditDescs]             = useState(() => ({ ...descriptions }));
@@ -490,6 +509,7 @@ function StepFullEditor({
 
   useEffect(() => { setAuthorName?.(editName); }, [editName]);
   useEffect(() => { setOrcid?.(editOrcid); }, [editOrcid]);
+  useEffect(() => { setEmail?.(editEmail); }, [editEmail]);
   useEffect(() => { setSelectedAffNames?.(editAffNames); }, [editAffNames]);
   useEffect(() => { setRoles?.(editRoles); }, [editRoles]);
   useEffect(() => { setDescriptions?.(editDescs); }, [editDescs]);
@@ -531,11 +551,8 @@ function StepFullEditor({
 
   const activeRoles = CREDIT_CATEGORIES.filter((cat) => editRoles[cat] && editRoles[cat] !== 'None');
 
-  const sectionLevelOptions = [
-    ...(allowLead ? [{ value: 'lead', label: 'Lead' }] : []),
-    { value: 'equal', label: '++' },
-    { value: 'supporting', label: '+' },
-  ];
+  const sectionLevelOptions = enabledLevels({ allowLevels, allowLead })
+    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
 
   const myRow = useMemo(() => {
     const row = { name: editName.trim() || authorName, isFirst: false, author_level: null };
@@ -547,10 +564,31 @@ function StepFullEditor({
     const nameKey = editName.trim() || authorName;
     const existing = allRows.findIndex((r) => r.name === nameKey || r.name === authorName);
     if (existing >= 0) {
-      return allRows.map((r, i) => i === existing ? myRow : r);
+      // This wizard only models the author's own name and CRediT roles, so the
+      // replacement row must not carry its blank defaults over the display
+      // properties an admin set on this author (byline position, author level,
+      // admin rights). Keep those from the loaded row.
+      const prev = allRows[existing];
+      const preserved = {
+        ...myRow,
+        author_level: prev.author_level ?? null,
+        publication_order: prev.publication_order ?? null,
+        is_admin: prev.is_admin ?? false,
+        ...(prev._passthrough ? { _passthrough: prev._passthrough } : {}),
+      };
+      return allRows.map((r, i) => i === existing ? preserved : r);
     }
     return [...allRows, myRow];
   }, [allRows, myRow, editName, authorName]);
+
+  // An anonymous visitor has no identity to own a row, so a name that matches
+  // an existing contributor would be an attempt to overwrite that person's
+  // record — which the backend won't apply. Catch it here: block the save and
+  // tell them to use a different name or contact an admin.
+  const nameCollision = useMemo(
+    () => anonymous && authorNameExists(allRows, editName.trim() || authorName),
+    [anonymous, allRows, editName, authorName],
+  );
 
   async function save() {
     setSaving(true);
@@ -558,6 +596,7 @@ function StepFullEditor({
     try {
       const myAffNames = editAffNames;
       const authorOrcids = {};
+      const authorEmails = {};
       const authorAffIds = {};
       const creditDescriptions = {};
       const authorStartDates = {};
@@ -566,6 +605,7 @@ function StepFullEditor({
 
       const finalName = editName.trim() || authorName;
       if (editOrcid) authorOrcids[finalName] = editOrcid;
+      if (editEmail.trim()) authorEmails[finalName] = editEmail.trim();
       if (myAffNames.length) {
         const myAffIds = myAffNames.map((n) => {
           const existing = affiliations.find((a) => a.name === n);
@@ -586,6 +626,8 @@ function StepFullEditor({
         if (!name || name === authorName) continue;
         const orc = contributor.author?.registry_identifier;
         if (orc) authorOrcids[name] = orc;
+        const eml = contributor.author?.email;
+        if (eml) authorEmails[name] = eml;
         const affRaw = contributor.author?.affiliation;
         if (Array.isArray(affRaw) && affRaw.length) {
           authorAffIds[name] = affRaw.map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
@@ -610,6 +652,7 @@ function StepFullEditor({
 
       const payload = toEndpointPayload(mergedRows, doi, {
         authorOrcids,
+        authorEmails,
         authorAffIds,
         affiliations: allAffs,
         sections,
@@ -618,13 +661,13 @@ function StepFullEditor({
         authorEndDates,
         authorSectionLevels,
         assets: projectData?.assets || [],
-        doi: projectData?.doi || '',
+        doi: projectData?.doi || [],
       });
 
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(doi)}`;
-      // ORCID flow saves via the session cookie (the user is a member); the
-      // legacy flow presents the token as the password.
-      if (!orcidFlow && token) url += `&password=${encodeURIComponent(token)}`;
+      // Members/admins save via their ORCID session cookie. Anonymous
+      // submitters rely on the project being publicly writable; no editable
+      // link is issued to them.
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(doi)}`;
 
       const res = await fetch(url, {
         method: 'POST',
@@ -635,50 +678,21 @@ function StepFullEditor({
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         const raw = body.error || `Server error ${res.status}`;
-        const friendly = translateSaveError(raw);
+        const friendly = translateSaveError(raw, anonymous);
         throw new Error(friendly);
       }
       const result = await res.json();
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       setSaveStatus({ text: `✓ Saved${commit}`, cls: 'status-success' });
-      clearDraft(token);
-      if (result.edit_token) {
-        setSavedAuthorToken({ token: result.edit_token, author: result.edit_author || editName.trim() || authorName });
-      } else {
-        setTimeout(() => {
-          window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
-        }, 1200);
-      }
+      clearDraft(draftId);
+      setTimeout(() => {
+        window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
+      }, 1200);
     } catch (err) {
       setSaveStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     } finally {
       setSaving(false);
     }
-  }
-
-  if (savedAuthorToken) {
-    const editUrl = `${window.location.origin}/contributions/add?doi=${encodeURIComponent(doi)}&token=${encodeURIComponent(savedAuthorToken.token)}&author=${encodeURIComponent(savedAuthorToken.author)}`;
-    return html`
-      <div class="cv-wizard-step cv-wizard-step-editor">
-        <h2 class="cv-wizard-step-title">Submission saved</h2>
-        <div class="cv-author-token-box">
-          <p class="cv-author-token-notice">
-            <strong>Save the link below to edit your contribution later.</strong>
-            This is the only way to re-open your entry for changes.
-            If you lose it, contact the lead author to have it re-shared.
-          </p>
-          <div class="cv-author-token-display">
-            <code class="cv-author-token-value">${editUrl}</code>
-            <button class="btn-secondary" onClick=${() => navigator.clipboard.writeText(editUrl)}>
-              Copy link
-            </button>
-          </div>
-        </div>
-        <a class="btn-primary" href=${`/contributions/view?doi=${encodeURIComponent(doi)}`}>
-          Go to view page
-        </a>
-      </div>
-    `;
   }
 
   return html`
@@ -687,12 +701,29 @@ function StepFullEditor({
         <h2 class="cv-wizard-step-title">Review & Edit</h2>
         <p class="cv-wizard-step-desc">Edit anything below before saving.</p>
 
+        ${anonymous && html`
+          <div class="cv-anon-warning" role="alert">
+            <strong>You are not logged in.</strong> Your contribution will be
+            saved, but you won't be able to come back and edit it later. To make
+            changes after submitting, you'll have to contact a project admin.
+            Log in with ORCID instead if you want to keep editing access.
+          </div>
+        `}
+
         <h3 class="cv-subsection-heading">Your Information</h3>
 
         <div class="cv-wizard-field">
           <label class="cv-detail-label" for="cwe-name">Full Name *</label>
           <input id="cwe-name" type="text" class="cv-wizard-input"
                  value=${editName} onInput=${(e) => setEditName(e.target.value)} />
+          ${nameCollision && html`
+            <div class="cv-anon-warning" role="alert">
+              <strong>“${editName.trim() || authorName}” already exists on this
+              project.</strong> Without logging in you can only add a new author,
+              not change an existing one. Use a different name, or contact a
+              project admin to update that entry.
+            </div>
+          `}
         </div>
 
         <div class="cv-wizard-field">
@@ -700,6 +731,13 @@ function StepFullEditor({
           <input id="cwe-orcid" type="text" class="cv-wizard-input"
                  placeholder="0000-0000-0000-0000"
                  value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
+        </div>
+
+        <div class="cv-wizard-field">
+          <label class="cv-detail-label" for="cwe-email">Email</label>
+          <input id="cwe-email" type="email" class="cv-wizard-input"
+                 placeholder="name@example.org"
+                 value=${editEmail} onInput=${(e) => setEditEmail(e.target.value)} />
         </div>
 
       <div class="cv-wizard-field">
@@ -832,7 +870,7 @@ function StepFullEditor({
 
       <div class="cv-wizard-nav">
         <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${save} disabled=${saving || !editName.trim()}>
+        <button class="btn-primary" onClick=${save} disabled=${saving || !editName.trim() || nameCollision}>
           ${saving ? 'Saving…' : 'Save Contributions'}
         </button>
       </div>
@@ -842,7 +880,7 @@ function StepFullEditor({
         </div>
       `}
       </div>
-      <${LevelDefinitionsSidebar} />
+      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
 }
@@ -850,10 +888,11 @@ function StepFullEditor({
 // Main Add App
 // ---------------------------------------------------------------------------
 
-function AddApp({ project, doi, token, existingAuthor }) {
-  // New ORCID invite links pass `project`; legacy token links pass `doi`.
-  const orcidFlow = Boolean(project);
+function AddApp({ project, doi, existingAuthor }) {
+  // The /view "Edit" button links here with just `project`. The logged-in user
+  // is recognised by their session and matched to their own row on load.
   const effProject = project || doi;
+  const draftId = effProject;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -862,15 +901,19 @@ function AddApp({ project, doi, token, existingAuthor }) {
   const [allRows, setAllRows] = useState([]);
   const [sections, setSections] = useState([]);
   const [affiliations, setAffiliations] = useState([]);
-  // ORCID flow gate: 'checking' | 'login' | 'joining' | 'ready'
-  const [authGate, setAuthGate] = useState(orcidFlow ? 'checking' : 'ready');
+  // Auth gate: 'checking' | 'login' | 'joining' | 'ready'
+  const [authGate, setAuthGate] = useState('checking');
   const [user, setUser] = useState(null);
+  // True when the visitor opted to continue without logging in: their entry is
+  // saved but they are given no way to edit it later.
+  const [anonymous, setAnonymous] = useState(false);
 
-  const _draft = token ? loadDraft(token) : null;
+  const _draft = loadDraft(draftId);
   const isExisting = Boolean(existingAuthor);
 
   const [name, setName] = useState(_draft?.name || (isExisting ? existingAuthor : ''));
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
+  const [email, setEmail] = useState(_draft?.email || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
   const [joinDate, setJoinDate] = useState(_draft?.joinDate || null);
   const [leaveDate, setLeaveDate] = useState(_draft?.leaveDate || null);
@@ -885,53 +928,40 @@ function AddApp({ project, doi, token, existingAuthor }) {
   const [prefilled, setPrefilled] = useState(Boolean(_draft));
 
   useEffect(() => {
-    if (!token) return;
     if (loading) return;
-    saveDraft(token, { step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
-  }, [step, name, orcid, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
+    saveDraft(draftId, { step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
+  }, [step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
-  // ORCID flow: require login, then join the project with the invite token.
+  // Require ORCID login (with an opt-out). The logged-in user is recognised by
+  // their session and matched to their own row on load; edit access is derived
+  // from the contributor metadata on the backend (no invite token).
   useEffect(() => {
-    if (!orcidFlow) return;
-    if (!effProject || !token) {
-      setAuthGate('ready');
-      return;
-    }
+    if (!effProject) { setAuthGate('ready'); return; }
     let cancelled = false;
     (async () => {
       const me = await getCurrentUser();
       if (cancelled) return;
       setUser(me);
       if (!me) { setAuthGate('login'); return; }
-      setAuthGate('joining');
-      const result = await joinProject(effProject, token);
-      if (cancelled) return;
-      if (!result.ok) {
-        setError(result.error || 'This invite link is invalid or has been disabled.');
-        setLoading(false);
-        setAuthGate('login');
-        return;
-      }
       setAuthGate('ready');
     })();
     return () => { cancelled = true; };
-  }, [orcidFlow, effProject, token]);
+  }, [effProject]);
 
   useEffect(() => {
-    if (orcidFlow && authGate !== 'ready') return;
-    if (!effProject || !token) {
+    if (authGate !== 'ready') return;
+    if (!effProject) {
       setLoading(false);
-      setError('Missing project or token in URL.');
+      setError('Missing project in URL.');
       return;
     }
+    let cancelled = false;
     (async () => {
       try {
-        // ORCID flow loads the (public) project without a password; the legacy
-        // flow presents the token as the password.
-        const getUrl = orcidFlow
-          ? `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}`
-          : `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}&password=${encodeURIComponent(token)}`;
+        // Contribution data is publicly readable; no password/token needed.
+        const getUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}`;
         const res = await fetch(getUrl, { credentials: 'include' });
+        if (cancelled) return;
         if (res.status === 404) throw new Error(`Project "${effProject}" not found.`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -944,65 +974,84 @@ function AddApp({ project, doi, token, existingAuthor }) {
         setSections(meta.sections);
         setAffiliations(meta.affiliations);
 
-        if (isExisting && !_draft && !prefilled) {
-          const contributor = (data.contributors || []).find(
-            (c) => c.author?.name === existingAuthor
-          );
-          if (contributor) {
-            const existingOrcid = contributor.author?.registry_identifier || '';
-            if (existingOrcid) setOrcid(existingOrcid);
+        // Which existing row belongs to this visitor? A logged-in user is
+        // matched by their ORCID; otherwise fall back to the author name in the
+        // URL (legacy prefill hint).
+        const contributors = data.contributors || [];
+        let ownContributor = null;
+        if (user?.orcid) {
+          ownContributor = contributors.find(
+            (c) => c.author?.registry_identifier
+              && c.author.registry_identifier === user.orcid,
+          ) || null;
+        }
+        if (!ownContributor && existingAuthor) {
+          ownContributor = contributors.find((c) => c.author?.name === existingAuthor) || null;
+        }
 
-            const affRaw = contributor.author?.affiliation;
-            const affArr = Array.isArray(affRaw) ? affRaw
-              : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
-            if (affArr.length) setSelectedAffNames(affArr);
+        // Default the ORCID/name fields to the logged-in identity so a newly
+        // created record is tied to their account (and stays editable later).
+        if (user?.orcid && !_draft?.orcid) setOrcid(user.orcid);
+        if (user?.name && !_draft?.name && !ownContributor && !existingAuthor) setName(user.name);
 
-            if (contributor.start_date) setJoinDate(contributor.start_date);
-            if (contributor.end_date) setLeaveDate(contributor.end_date);
+        if (ownContributor && !_draft && !prefilled) {
+          setName(ownContributor.author.name);
+          const existingOrcid = ownContributor.author?.registry_identifier || '';
+          if (existingOrcid) setOrcid(existingOrcid);
+          const existingEmail = ownContributor.author?.email || '';
+          if (existingEmail) setEmail(existingEmail);
 
-            const newRoles = {};
-            for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
-            const newDescs = {};
-            for (const cl of contributor.credit_levels || []) {
-              const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
-              if (displayRole) {
-                newRoles[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
-              }
-              if (cl.description) newDescs[cl.role] = cl.description;
+          const affRaw = ownContributor.author?.affiliation;
+          const affArr = Array.isArray(affRaw) ? affRaw
+            : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
+          if (affArr.length) setSelectedAffNames(affArr);
+
+          if (ownContributor.start_date) setJoinDate(ownContributor.start_date);
+          if (ownContributor.end_date) setLeaveDate(ownContributor.end_date);
+
+          const newRoles = {};
+          for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
+          const newDescs = {};
+          for (const cl of ownContributor.credit_levels || []) {
+            const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
+            if (displayRole) {
+              newRoles[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
             }
-            setRoles(newRoles);
-            if (Object.keys(newDescs).length) setDescriptions(newDescs);
-
-            if (contributor.section_levels?.length) {
-              const newSectionLevels = {};
-              for (const sl of contributor.section_levels) {
-                newSectionLevels[sl.section] = { level: sl.level, description: sl.description || '' };
-              }
-              setSectionLevels(newSectionLevels);
-            }
-
-            setPrefilled(true);
+            if (cl.description) newDescs[cl.role] = cl.description;
           }
+          setRoles(newRoles);
+          if (Object.keys(newDescs).length) setDescriptions(newDescs);
+
+          if (ownContributor.section_levels?.length) {
+            const newSectionLevels = {};
+            for (const sl of ownContributor.section_levels) {
+              newSectionLevels[sl.section] = { level: sl.level, description: sl.description || '' };
+            }
+            setSectionLevels(newSectionLevels);
+          }
+
+          setPrefilled(true);
         }
 
         if (_draft?.step) {
           setStep(_draft.step);
-        } else if (isExisting || hasVisitedCookie(effProject, token)) {
+        } else if (ownContributor || hasVisitedCookie(effProject)) {
           setStep(5);
         } else {
           setStep(1);
         }
       } catch (e) {
-        setError(e.message);
+        if (!cancelled) setError(e.message);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [orcidFlow, authGate, effProject, token]);
+    return () => { cancelled = true; };
+  }, [authGate, effProject]);
 
   function goToStep(n) {
     setStep(n);
-    if (n === 5) setVisitedCookie(effProject, token);
+    if (n === 5) setVisitedCookie(effProject);
   }
 
   function goNextFromRoleDetails() {
@@ -1015,30 +1064,41 @@ function AddApp({ project, doi, token, existingAuthor }) {
 
   const totalWizardSteps = sections.length > 0 ? 4 : 3;
 
-  if (!effProject || !token) {
+  if (!effProject) {
     return html`<div class="contributions-add-page">
-      <p class="cv-placeholder">Invalid link. A project and token are required. <a href="/contributions">Go back</a>.</p>
+      <p class="cv-placeholder">Invalid link. A project is required. <a href="/contributions">Go back</a>.</p>
     </div>`;
   }
 
-  // ORCID flow: prompt for login before joining. Show any join error too.
-  if (orcidFlow && authGate === 'login') {
+  // Prompt for login before joining/editing. Show any join error too, and let
+  // the visitor opt out of logging in (they then can't edit later).
+  if (authGate === 'login') {
     return html`<div class="contributions-add-page">
       <div class="cv-modal">
-        <h2 class="cv-modal-title">Log in to join</h2>
+        <h2 class="cv-modal-title">Log in to continue</h2>
         <p class="cv-modal-desc">
           Sign in with your ORCID account to add yourself to
-          <strong>${effProject}</strong>.
+          <strong>${effProject}</strong>. Logging in ties this contribution to
+          your account so you can come back and edit it any time.
         </p>
         ${error && html`<p class="cv-modal-error">${error}</p>`}
         <button class="btn-primary cv-modal-btn" onClick=${() => loginWithOrcid()}>
           Log in with ORCID
         </button>
+        <p class="cv-modal-desc cv-anon-optout">
+          Don't want to log in? You can still add your contribution, but
+          <strong>you won't be able to edit it later</strong> without asking a
+          project admin.
+        </p>
+        <button class="btn-secondary cv-modal-btn"
+                onClick=${() => { setError(null); setAnonymous(true); setAuthGate('ready'); }}>
+          Continue without logging in
+        </button>
       </div>
     </div>`;
   }
 
-  if ((orcidFlow && (authGate === 'checking' || authGate === 'joining')) || loading) {
+  if (authGate === 'checking' || loading) {
     return html`<div class="contributions-add-page"><p class="cv-placeholder">Loading…</p></div>`;
   }
 
@@ -1065,6 +1125,7 @@ function AddApp({ project, doi, token, existingAuthor }) {
         <${StepPersonalInfo}
           name=${name} setName=${setName}
           orcid=${orcid} setOrcid=${setOrcid}
+          email=${email} setEmail=${setEmail}
           selectedAffNames=${selectedAffNames} setSelectedAffNames=${setSelectedAffNames}
           projectAffiliations=${affiliations}
           joinDate=${joinDate} setJoinDate=${setJoinDate}
@@ -1104,11 +1165,11 @@ function AddApp({ project, doi, token, existingAuthor }) {
 
       ${step === 5 && html`
         <${StepFullEditor}
-          doi=${effProject} token=${token} orcidFlow=${orcidFlow}
-          authorName=${name} orcid=${orcid} selectedAffNames=${selectedAffNames}
+          doi=${effProject} draftId=${draftId} anonymous=${anonymous}
+          authorName=${name} orcid=${orcid} email=${email} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
           joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
-          setAuthorName=${setName} setOrcid=${setOrcid} setSelectedAffNames=${setSelectedAffNames}
+          setAuthorName=${setName} setOrcid=${setOrcid} setEmail=${setEmail} setSelectedAffNames=${setSelectedAffNames}
           setRoles=${setRoles} setDescriptions=${setDescriptions}
           setJoinDate=${setJoinDate} setLeaveDate=${setLeaveDate} setSectionLevels=${setSectionLevels}
           allRows=${allRows}
@@ -1125,10 +1186,10 @@ function AddApp({ project, doi, token, existingAuthor }) {
 // Entry
 // ---------------------------------------------------------------------------
 
-export function createContributionsAddPage({ project = '', doi, token, author = '' }) {
+export function createContributionsAddPage({ project = '', doi, author = '' }) {
   const container = document.createElement('div');
   render(
-    html`<${AddApp} project=${project} doi=${doi} token=${token} existingAuthor=${author} />`,
+    html`<${AddApp} project=${project} doi=${doi} existingAuthor=${author} />`,
     container,
   );
   return container;

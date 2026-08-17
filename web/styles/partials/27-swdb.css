@@ -1,0 +1,423 @@
+/* ==========================================================================
+   27-swdb.css — SWDB dashboard (/swdb and /swdb/set)
+
+   Scoped entirely to `.swdb-*` classes. The behavior player deliberately reuses
+   the shared playback-harness and Dynamic Routing styles (18-playback-harness,
+   15-dynamic-routing), so nothing here restyles those.
+   ========================================================================== */
+
+/* ---- Index page --------------------------------------------------------- */
+
+.swdb-intro {
+  max-width: 70ch;
+  margin-bottom: 1.5rem;
+}
+
+.swdb-intro h1 {
+  margin-bottom: 0.5rem;
+}
+
+.swdb-intro p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.swdb-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.swdb-card {
+  display: block;
+  padding: 1.1rem 1.25rem 1.25rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 10px;
+  background: var(--surface-card);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.swdb-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
+.swdb-card h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.swdb-card-blurb {
+  margin: 0 0 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.swdb-card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0 0 0.75rem;
+}
+
+.swdb-card-stats div {
+  display: flex;
+  flex-direction: column;
+}
+
+.swdb-card-stats dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.swdb-card-stats dd {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-card-span {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 0.6rem;
+}
+
+/* ---- Chips -------------------------------------------------------------- */
+
+.swdb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.swdb-chip {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.swdb-chip--sm {
+  font-size: 0.66rem;
+  padding: 0.05rem 0.4rem;
+  margin-right: 0.2rem;
+}
+
+/* ---- Set page header ---------------------------------------------------- */
+
+.swdb-back {
+  display: inline-block;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.swdb-back:hover {
+  color: var(--accent);
+}
+
+.swdb-set-header h1 {
+  margin: 0 0 0.35rem;
+}
+
+.swdb-set-blurb {
+  max-width: 80ch;
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.swdb-set-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-set-summary strong {
+  color: var(--text-primary);
+}
+
+/* ---- Collapsible sections ---------------------------------------------- */
+
+.swdb-section {
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+  margin-bottom: 1rem;
+}
+
+.swdb-section-summary {
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  list-style: revert;
+}
+
+.swdb-section-body {
+  padding: 0.5rem 0.9rem 1rem;
+  border-top: 1px solid var(--surface-border);
+}
+
+/* ---- Timeline ----------------------------------------------------------- */
+
+.swdb-timeline {
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+/* ---- Tables ------------------------------------------------------------- */
+
+.swdb-table-wrap {
+  overflow-x: auto;
+}
+
+.swdb-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-table th,
+.swdb-table td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  border-bottom: 1px solid var(--surface-border);
+  white-space: nowrap;
+}
+
+.swdb-table th {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.swdb-session-table tbody tr {
+  cursor: pointer;
+}
+
+.swdb-session-table tbody tr:hover {
+  background: var(--surface-hover);
+}
+
+.swdb-row--selected,
+.swdb-session-table tbody tr.swdb-row--selected:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.swdb-mod {
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+}
+
+.swdb-mod--vis {
+  background: color-mix(in srgb, var(--ai-violet) 18%, transparent);
+  color: var(--ai-violet);
+}
+
+.swdb-mod--aud {
+  background: color-mix(in srgb, var(--color-yellow) 22%, transparent);
+  color: var(--yellow-fg);
+}
+
+/* ---- Viewer + tabs ------------------------------------------------------ */
+
+.swdb-asset-header {
+  margin-bottom: 0.6rem;
+}
+
+.swdb-asset-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
+.swdb-asset-meta {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.swdb-tab-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--surface-border);
+  margin-bottom: 0.75rem;
+}
+
+.swdb-tab {
+  padding: 0.35rem 0.75rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.swdb-tab:hover {
+  color: var(--text-primary);
+}
+
+.swdb-tab--active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---- Panel status / captions ------------------------------------------- */
+
+.swdb-panel-status {
+  padding: 0.5rem 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-panel-status--error {
+  color: var(--red-fg);
+}
+
+.swdb-panel-caption {
+  margin: 0.4rem 0 0.9rem;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  max-width: 80ch;
+}
+
+/* ---- Session epoch strip (behavior tab) -------------------------------- */
+
+.swdb-epoch-strip {
+  margin-top: 0.6rem;
+}
+
+.swdb-epoch-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.swdb-epoch-bar {
+  position: relative;
+  height: 22px;
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  background: var(--surface-bg);
+  overflow: hidden;
+}
+
+.swdb-epoch-seg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-right: 1px solid var(--surface-border);
+  font-size: 0.62rem;
+  line-height: 22px;
+  padding: 0 0.25rem;
+  color: var(--text-secondary);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* The task window the player actually covers, outlined over the epochs. */
+.swdb-epoch-task {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 2px solid var(--text-primary);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+/* ---- Trial outcome pill ------------------------------------------------- */
+
+.swdb-outcome {
+  padding: 0.02rem 0.35rem;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.swdb-outcome--hit {
+  background: var(--green-muted);
+  color: var(--green-fg);
+}
+
+.swdb-outcome--miss,
+.swdb-outcome--false-alarm {
+  background: var(--red-muted);
+  color: var(--red-fg);
+}
+
+.swdb-outcome--correct-reject {
+  background: var(--yellow-muted);
+  color: var(--yellow-fg);
+}
+
+/* ---- Eye tracking ------------------------------------------------------- */
+
+.swdb-eye-traces > * + * {
+  margin-top: 0.5rem;
+}
+
+.swdb-eye-scatter {
+  margin-top: 1rem;
+}
+
+/* ---- Session detail key/value ------------------------------------------ */
+
+.swdb-kv {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.6rem 1.25rem;
+  margin: 0 0 1rem;
+}
+
+.swdb-kv dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.swdb-kv dd {
+  margin: 0;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.swdb-epoch-list h3 {
+  font-size: 0.85rem;
+  margin: 0 0 0.35rem;
+}
+
+.swdb-epoch-list ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.4rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}

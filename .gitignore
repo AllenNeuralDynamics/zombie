@@ -157,3 +157,4 @@ web/node_modules/
 web/.vite/
 example_metadata.json
 .claude/launch.json
+/node_modules

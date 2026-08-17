@@ -22,14 +22,18 @@ export function buildPatchIndex(sites) {
   return m;
 }
 
-/** Render (or re-render) the depletion mini-chart into `el`. */
-export function updateDepletion(el, patchIndex, currentSite) {
+/**
+ * Render (or re-render) the depletion mini-chart into `el`.
+ * @param {string} [odorColor] - colour for this patch's odor (same odor name →
+ *   same colour). Falls back to the per-instance patch colour when omitted.
+ */
+export function updateDepletion(el, patchIndex, currentSite, odorColor = null) {
   const patchSites = patchIndex.get(currentSite.patch_index) ?? [];
   if (patchSites.length === 0) { el.replaceChildren(); return; }
 
   const rp    = currentSite.reward_probability;
   const rpStr = rp != null ? `${(rp * 100).toFixed(1)}%` : '–';
-  const pc    = patchColor(currentSite.patch_index);
+  const pc    = odorColor ?? patchColor(currentSite.patch_index);
 
   const label = document.createElement('div');
   label.className = 'vrf-prew';

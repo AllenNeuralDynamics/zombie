@@ -34,7 +34,7 @@ export { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink };
  */
 function linkHtml(href, label) {
   if (!href) return '<span class="no-link">—</span>';
-  return `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+  return `<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a>`;
 }
 
 const ALL_AVAILABLE_COLUMNS = [
@@ -102,26 +102,26 @@ export function renderAssetRow(row, visibleColumns) {
   const procDate = formatDatetime(row.process_date ?? null);
 
   const cellValues = {
-    _id: row._id ?? '',
+    _id: escHtml(row._id ?? ''),
     name: row.name ? `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name)}">${escHtml(row.name)}</a>` : '',
     subject_id: `<a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}">${escHtml(row.subject_id ?? '')}</a>`,
-    acquisition_start_time: acqTime,
-    acquisition_end_time: acqEndTime,
+    acquisition_start_time: escHtml(acqTime),
+    acquisition_end_time: escHtml(acqEndTime),
     project_name: row.project_name ? `<a href="/view?project=${encodeURIComponent(row.project_name)}">${escHtml(row.project_name)}</a>` : '',
-    modalities: Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? ''),
-    data_level: row.data_level ?? '',
-    acquisition_type: row.acquisition_type ?? '',
-    genotype: row.genotype ?? '',
-    age: row.age != null ? String(row.age) : '',
+    modalities: escHtml(Array.isArray(row.modalities) ? row.modalities.join(', ') : (row.modalities ?? '')),
+    data_level: escHtml(row.data_level ?? ''),
+    acquisition_type: escHtml(row.acquisition_type ?? ''),
+    genotype: escHtml(row.genotype ?? ''),
+    age: escHtml(row.age != null ? String(row.age) : ''),
     experimenters: escHtml(Array.isArray(row.experimenters) ? row.experimenters.join(', ') : (row.experimenters ?? '')),
     experimenters_normalized: escHtml(Array.isArray(row.experimenters_normalized) ? row.experimenters_normalized.join(', ') : (row.experimenters_normalized ?? '')),
     investigators: escHtml(Array.isArray(row.investigators) ? row.investigators.join(', ') : (row.investigators ?? '')),
     investigators_normalized: escHtml(Array.isArray(row.investigators_normalized) ? row.investigators_normalized.join(', ') : (row.investigators_normalized ?? '')),
     instrument_id: escHtml(row.instrument_id ?? ''),
     instrument_id_normalized: escHtml(row.instrument_id_normalized ?? ''),
-    location: row.location ?? '',
-    code_ocean: row.code_ocean ?? '',
-    process_date: procDate,
+    location: escHtml(row.location ?? ''),
+    code_ocean: escHtml(row.code_ocean ?? ''),
+    process_date: escHtml(procDate),
   };
 
   const cells = visibleColumns.map((col) => {

@@ -1,0 +1,178 @@
+/* ============================================================
+ * Processing operations table inside platform overview
+ * (platform-overview/processing-status.js)
+ * ============================================================ */
+
+.platform-ops-section {
+  padding: 0.5rem 0;
+  overflow-x: auto;
+}
+
+.ops-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ops-range {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.ops-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.platform-ops-table {
+  font-size: 0.8rem;
+  border-collapse: collapse;
+  width: auto;
+}
+
+.platform-ops-table th,
+.platform-ops-table td {
+  padding-right: 24px;
+  white-space: nowrap;
+}
+
+.platform-ops-table td {
+  vertical-align: top;
+}
+
+.platform-ops-table td:last-child,
+.platform-ops-table th:last-child {
+  width: 100%;
+  padding-right: 0;
+}
+
+.platform-ops-table .ops-asset {
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+}
+
+/* One cell per pipeline: its steps stay on a single left-to-right line so the
+ * run order is read the same way in every column (the section scrolls
+ * horizontally rather than wrapping a pipeline's steps onto a second line). */
+.ops-steps {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: stretch;
+}
+
+/* Pipeline column heading — the pipeline name itself, not a generic label. */
+.platform-ops-table thead th {
+  font-size: 0.76rem;
+  text-align: left;
+}
+
+/* This asset never ran anything in this pipeline. */
+.ops-cell-empty {
+  color: var(--text-muted);
+}
+
+.ops-step {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 9px;
+  border: 1px solid var(--surface-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s;
+}
+
+.ops-step:hover {
+  background: var(--surface-hover, var(--surface-card));
+}
+
+.ops-step.is-selected {
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+
+.ops-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 5px;
+  border-radius: 50%;
+  font-size: 0.62rem;
+  background: var(--surface-border);
+  color: var(--text-muted);
+}
+
+.ops-step-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ops-step-time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.ops-step-done { border-left-color: var(--color-green); }
+.ops-step-done .ops-step-name { color: var(--color-green); }
+.ops-step-error { border-left-color: var(--color-red); }
+.ops-step-error .ops-step-name { color: var(--color-red); }
+.ops-step-running { border-left-color: var(--color-yellow); }
+.ops-step-running .ops-step-name { color: var(--color-yellow); }
+
+/* Full-width row beneath the asset's own row — see the detail row in
+ * processing-status.js. */
+.ops-detail-row > td {
+  padding-right: 0;
+  white-space: normal;
+}
+
+.ops-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  max-width: 720px;
+}
+
+.ops-detail-head {
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+}
+
+.ops-detail-meta {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* Jump-off to the full run log in CloudWatch; only shown for failed steps. */
+.ops-detail-log {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.ops-detail-error {
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  background: var(--surface-bg, transparent);
+  border-radius: var(--radius);
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

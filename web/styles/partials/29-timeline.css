@@ -1,0 +1,246 @@
+/* ---------------------------------------------------------------------------
+ * Asset timeline dashboard (/timeline)
+ *
+ * The charts encode exactly one distinction — did the asset get through this
+ * stage or is it still in it. "Done" is the page's own text ink (black on the
+ * light surface, near-white on the dark one, so the bar reads as the neutral
+ * baseline rather than as a colour with meaning); "still here" is a light red
+ * chosen per surface to sit clearly apart from that ink at bar size.
+ * ------------------------------------------------------------------------ */
+
+:root {
+  --timeline-done:    #111111;
+  --timeline-pending: #ea9490;
+}
+
+/* System dark mode (no explicit override) */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --timeline-done:    #eeeeee;
+    --timeline-pending: #d9756f;
+  }
+}
+
+/* Explicit toggle — must win over the media query in both directions */
+[data-theme="dark"] {
+  --timeline-done:    #eeeeee;
+  --timeline-pending: #d9756f;
+}
+
+.timeline-intro {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0 0 12px;
+  max-width: 70ch;
+}
+
+/* ── Controls: one row above the charts ──────────────────────────────────── */
+
+.timeline-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.timeline-nav {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.timeline-range {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 12ch;
+  text-align: center;
+}
+
+.timeline-select {
+  background: var(--surface-input);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  padding: 4px 6px;
+}
+
+.timeline-csv {
+  margin-left: auto;
+}
+
+.timeline-notice {
+  background: var(--yellow-muted);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--yellow-fg);
+  font-size: 0.8rem;
+  margin-bottom: 14px;
+  padding: 8px 10px;
+}
+
+/* ── Stat tiles ──────────────────────────────────────────────────────────── */
+
+/* The swatch carries stage identity; the numbers stay in text ink. */
+.timeline-swatch {
+  border-radius: 2px;
+  display: inline-block;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: baseline;
+  width: 10px;
+}
+
+/* ── Stage histograms ────────────────────────────────────────────────────── */
+
+.timeline-histograms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.timeline-histogram-panel {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  flex: 1 1 220px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+/* The SVG's viewBox (set by Plot) keeps the chart's proportions while this
+ * stretches it to fill however wide its panel actually is. */
+.timeline-histogram-panel svg {
+  display: block;
+  height: auto;
+  width: 100%;
+}
+
+.timeline-histogram-title {
+  align-items: center;
+  color: var(--text-primary);
+  display: flex;
+  font-size: 0.8rem;
+  font-weight: 600;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+/* The "N now" badge is the live status count for this stage — the only place
+ * that count appears, right beside the historical duration it's paired with. */
+.timeline-histogram-badge {
+  background: var(--surface-hover);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* Two-series key, sitting between the chart and its stats line. */
+.timeline-histogram-legend {
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.68rem;
+  gap: 10px;
+  justify-content: center;
+  margin: 2px 0 3px;
+}
+
+.timeline-histogram-stats {
+  color: var(--text-primary);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.timeline-table {
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.timeline-table td,
+.timeline-table th {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.timeline-row {
+  cursor: pointer;
+}
+
+.timeline-row:hover {
+  background: var(--surface-hover);
+}
+
+.timeline-row.is-open {
+  background: var(--surface-hover);
+}
+
+.timeline-badge {
+  border-radius: 10px;
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Status is state, not series — reserved status colours, always with a label. */
+.timeline-badge.timeline-status-visible {
+  background: var(--green-muted);
+  color: var(--green-fg);
+}
+
+/* Every not-yet-visible status carries the charts' own "still here" red, so a
+ * badge in the table and a bar in a histogram mean the same thing. The ink is a
+ * fixed dark red rather than a per-mode pair: the badge's fill is the chart
+ * colour in both modes, and dark text is what stays legible on it. */
+.timeline-badge.timeline-status-pending-release,
+.timeline-badge.timeline-status-processing,
+.timeline-badge.timeline-status-uploading {
+  background: var(--timeline-pending);
+  color: #4a1210;
+}
+
+.timeline-detail-row > td {
+  background: var(--surface-card);
+  padding: 10px 12px;
+}
+
+.timeline-detail-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+.timeline-detail-stages li {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+/* Marks a stage duration as elapsed-so-far rather than final. */
+.timeline-detail-pending {
+  color: var(--text-secondary);
+  font-size: 0.7rem;
+}
+
+.timeline-detail-meta {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  margin-bottom: 8px;
+}
+
+.timeline-detail-ops {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}

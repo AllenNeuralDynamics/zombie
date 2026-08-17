@@ -1,0 +1,129 @@
+/* 24-midi-sonifier.css — Spike Jukebox: 🎹 button, mapping modal, unit-lane
+   raster strip. Theme-aware via the same light/dark tokens as the rest. */
+
+/* ---- Trigger button in the ecephys controls (right-aligned) ------------- */
+.ecephys-midi-btn {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 2px 8px;
+  margin-left: auto;   /* push to the right edge of the controls row */
+  border: 1px solid var(--border-color, var(--surface-border));
+  border-radius: 6px;
+  background: var(--card-bg, var(--surface-bg));
+  color: inherit;
+  cursor: pointer;
+}
+.ecephys-midi-btn:hover { background: var(--hover-bg, var(--surface-card)); }
+
+/* ---- Unit-lane raster strip (inserted between behavior and videos) ------ */
+.midi-raster {
+  margin: 6px 0;
+  overflow-x: auto;
+}
+.midi-raster-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted, var(--text-secondary));
+  margin: 0 0 2px 2px;
+}
+.midi-raster-mute {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 4px;
+  border: 1px solid var(--border-color, var(--surface-border));
+  border-radius: 6px;
+  background: var(--card-bg, var(--surface-bg));
+  color: inherit;
+  cursor: pointer;
+}
+.midi-raster-mute:hover { background: var(--hover-bg, var(--surface-card)); }
+.midi-raster-mute .material-icons { font-size: 16px; line-height: 1; }
+.midi-raster-canvas { display: block; }
+
+/* ---- Mapping modal ------------------------------------------------------ */
+.midi-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.midi-modal {
+  background: var(--card-bg, var(--surface-bg));
+  color: var(--text-color, var(--text-primary));
+  border-radius: 10px;
+  width: min(860px, 94vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+.midi-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color, var(--surface-border));
+}
+.midi-modal-head h3 { margin: 0; font-size: 1.05rem; }
+.midi-modal-close {
+  border: none; background: none; font-size: 1.1rem; cursor: pointer; color: inherit;
+}
+.midi-modal-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-color, var(--surface-border));
+  font-size: 0.82rem;
+}
+.midi-modal-controls label { display: inline-flex; gap: 4px; align-items: center; }
+.midi-modal-controls input[type="number"] { width: 62px; }
+.midi-modal-controls button {
+  font: inherit; font-size: 0.8rem; padding: 3px 10px;
+  border: 1px solid var(--border-color, var(--surface-border)); border-radius: 6px;
+  background: var(--card-bg, var(--surface-bg)); color: inherit; cursor: pointer;
+}
+.midi-modal-controls button:hover { background: var(--hover-bg, var(--surface-card)); }
+
+.midi-modal-body { padding: 8px 16px; overflow-y: auto; flex: 1; }
+.mm-status { font-size: 0.8rem; color: var(--text-muted, var(--text-secondary)); margin: 4px 0 8px; }
+
+.mm-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.mm-table th, .mm-table td { padding: 3px 6px; text-align: left; }
+.mm-table th.num, .mm-table td.num { text-align: right; }
+.mm-table thead th {
+  border-bottom: 1px solid var(--border-color, var(--surface-border));
+  color: var(--text-muted, var(--text-secondary)); font-weight: 600;
+}
+.mm-row.on { background: var(--surface-hover); }
+.mm-row.flash { background: var(--yellow-muted); }
+.mm-uname { font-family: ui-monospace, monospace; }
+.mm-note { font: inherit; font-size: 0.78rem; }
+.mm-prev {
+  border: 1px solid var(--border-color, var(--surface-border)); border-radius: 4px;
+  background: var(--card-bg, var(--surface-bg)); color: inherit; cursor: pointer; padding: 0 6px;
+}
+.mm-prev:disabled { opacity: 0.4; cursor: default; }
+
+.midi-modal-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 16px; border-top: 1px solid var(--border-color, var(--surface-border));
+  font-size: 0.82rem;
+}
+.mm-foot-btns { display: inline-flex; gap: 8px; }
+.midi-modal-foot button {
+  font: inherit; padding: 5px 14px; border-radius: 6px;
+  border: 1px solid var(--border-color, var(--surface-border)); background: var(--card-bg, var(--surface-border));
+  color: inherit; cursor: pointer;
+}
+.midi-modal-foot .mm-apply:disabled { opacity: 0.45; cursor: default; }
+
+@media (prefers-color-scheme: dark) {
+}

@@ -14,11 +14,11 @@
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
-  background: var(--color-primary, #4338ca);
+  background: var(--color-primary, var(--accent));
   color: #fff;
   transition: background 0.15s, opacity 0.15s;
 }
-.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary, #4338ca) 85%, #000); }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-primary, var(--accent)) 85%, black); }
 .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-secondary {
@@ -36,7 +36,7 @@
   color: var(--text-primary);
   transition: background 0.15s, border-color 0.15s;
 }
-.btn-secondary:hover:not(:disabled) { background: var(--surface-hover, #f3f4f6); border-color: var(--text-secondary); }
+.btn-secondary:hover:not(:disabled) { background: var(--surface-hover, var(--surface-card)); border-color: var(--text-secondary); }
 .btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ===========================================================================
@@ -168,6 +168,32 @@
   min-height: 400px;
 }
 
+/* "Edit" button in the view topbar — pushed to the right of the title. */
+.cv-view-edit-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* Warning shown when a visitor is submitting without logging in. */
+.cv-anon-warning {
+  border: 1px solid var(--color-warning, var(--color-yellow));
+  background: color-mix(in srgb, var(--color-warning, var(--color-yellow)) 12%, transparent);
+  color: var(--text-primary);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+/* Opt-out helper text on the add-page login gate. */
+.cv-anon-optout {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-border);
+  font-size: 0.85rem;
+}
+
 /* ===========================================================================
    Contributions — Edit Page Modal
    =========================================================================== */
@@ -216,7 +242,7 @@
 }
 
 .cv-modal-error {
-  color: var(--color-danger, #e53e3e);
+  color: var(--color-danger, var(--color-red));
   font-size: 0.85rem;
   margin: 4px 0 8px;
 }
@@ -268,13 +294,13 @@
 }
 
 .cv-token-error {
-  color: var(--color-danger, #e53e3e);
+  color: var(--color-danger, var(--color-red));
   font-size: 0.8rem;
 }
 
 .cv-token-copied-badge {
   font-size: 0.8rem;
-  color: var(--color-success, #16a34a);
+  color: var(--color-success, var(--color-green));
   font-weight: 600;
   white-space: nowrap;
 }
@@ -317,7 +343,7 @@
   transition: opacity 0.15s;
 }
 .cv-link-btn:hover { opacity: 1; }
-.cv-link-btn--done { opacity: 1; border-color: var(--color-accent, #4338ca); }
+.cv-link-btn--done { opacity: 1; border-color: var(--color-accent, var(--accent)); }
 .cv-link-btn:disabled { cursor: wait; opacity: 0.4; }
 
 /* Add row actions (Add author + Invite) */
@@ -329,47 +355,6 @@
   flex-wrap: wrap;
 }
 .cv-add-row-actions .cv-add-row-btn { margin-top: 0; }
-.cv-invite-btn { font-size: 0.82rem; padding: 4px 12px; }
-
-/* Invite link + membership admin panel */
-.cv-invite-admin {
-  margin-top: 16px;
-  padding: 14px 16px;
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius);
-  background: var(--surface-bg);
-}
-.cv-invite-heading {
-  margin: 0 0 4px;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-.cv-invite-desc {
-  margin: 0 0 10px;
-  font-size: 0.8rem;
-  color: var(--text-secondary, #6b7280);
-}
-.cv-invite-disable { color: var(--color-danger, #e53e3e); }
-.cv-members { margin-top: 16px; }
-.cv-members-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.cv-members-list li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 0.85rem;
-}
-.cv-member-orcid {
-  font-family: monospace;
-  font-size: 0.75rem;
-  color: var(--text-secondary, #6b7280);
-}
 
 /* ===========================================================================
    Contributions — Add Page / Wizard
@@ -403,14 +388,14 @@
 }
 
 .cv-wizard-dot-active {
-  border-color: var(--color-primary, #4338ca);
-  color: var(--color-primary, #4338ca);
-  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
+  border-color: var(--color-primary, var(--accent));
+  color: var(--color-primary, var(--accent));
+  background: color-mix(in srgb, var(--color-primary, var(--accent)) 10%, var(--surface-bg));
 }
 
 .cv-wizard-dot-done {
-  border-color: var(--color-success, #16a34a);
-  background: var(--color-success, #16a34a);
+  border-color: var(--color-success, var(--color-green));
+  background: var(--color-success, var(--color-green));
   color: #fff;
 }
 
@@ -480,7 +465,7 @@
   text-decoration: none;
   white-space: nowrap;
 }
-.cv-orcid-verify-link:hover { text-decoration: underline; color: var(--color-primary, #4338ca); }
+.cv-orcid-verify-link:hover { text-decoration: underline; color: var(--color-primary, var(--accent)); }
 
 .cv-orcid-dropdown-row {
   display: flex;
@@ -530,8 +515,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: color-mix(in srgb, var(--color-primary, #4338ca) 10%, var(--surface-bg));
-  border: 1px solid color-mix(in srgb, var(--color-primary, #4338ca) 30%, transparent);
+  background: color-mix(in srgb, var(--color-primary, var(--accent)) 10%, var(--surface-bg));
+  border: 1px solid color-mix(in srgb, var(--color-primary, var(--accent)) 30%, transparent);
   border-radius: var(--radius);
   padding: 3px 8px;
   font-size: 0.85rem;
@@ -570,11 +555,11 @@
   z-index: 9999;
   width: 300px;
   max-width: calc(100vw - 16px);
-  background: #fff;
-  color: #111827;
+  background: var(--surface-bg);
+  color: var(--text-primary);
   font-weight: 400;
   font-style: normal;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--surface-border);
   border-radius: var(--radius, 6px);
   box-shadow: 0 8px 24px rgba(0,0,0,0.18);
   padding: 12px 14px;
@@ -587,14 +572,14 @@
   font-size: 0.9rem;
   font-weight: 700;
   margin-bottom: 6px;
-  color: #111827;
+  color: var(--text-primary);
 }
 
 .cv-role-tip-def {
   display: block;
   font-style: normal;
   font-size: 0.8rem;
-  color: #6b7280;
+  color: var(--text-secondary);
   margin-bottom: 8px;
   line-height: 1.5;
 }
@@ -604,7 +589,7 @@
   padding-left: 16px;
   font-size: 0.78rem;
   font-weight: 400;
-  color: #111827;
+  color: var(--text-primary);
   line-height: 1.5;
 }
 
@@ -613,17 +598,22 @@
 }
 .cv-role-tip-examples li:last-child { margin-bottom: 0; }
 
-/* Roles grid (step 2) */
+/* Roles grid (step 2) — two columns, filled column-major:
+   down the first column, then down the second. */
 .cv-wizard-roles-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
+  columns: 2;
+  column-gap: 10px;
+}
+@media (max-width: 640px) {
+  .cv-wizard-roles-grid { columns: 1; }
 }
 
 .cv-wizard-role-card {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius);
   padding: 10px 12px;
+  margin-bottom: 10px;
+  break-inside: avoid;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -634,8 +624,8 @@
 }
 
 .cv-wizard-role-active {
-  border-color: var(--color-primary, #4338ca);
-  background: color-mix(in srgb, var(--color-primary, #4338ca) 5%, var(--surface-bg));
+  border-color: var(--color-primary, var(--accent));
+  background: color-mix(in srgb, var(--color-primary, var(--accent)) 5%, var(--surface-bg));
 }
 
 .cv-wizard-role-check {
@@ -673,7 +663,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 4px;
-  border-bottom: 1px solid var(--surface-border, #e5e7eb);
+  border-bottom: 1px solid var(--surface-border);
   flex-wrap: wrap;
 }
 .cv-section-contrib-row:last-child { border-bottom: none; }
@@ -700,9 +690,9 @@
 .cv-section-contrib-level {
   font-size: 0.82rem;
   padding: 4px 8px;
-  border: 1px solid var(--surface-border, #e5e7eb);
+  border: 1px solid var(--surface-border);
   border-radius: 6px;
-  background: var(--surface-input, #fff);
+  background: var(--surface-input, var(--surface-bg));
   color: inherit;
 }
 .cv-section-contrib-desc {
@@ -710,23 +700,17 @@
   min-width: 160px;
   font-size: 0.82rem;
   padding: 4px 8px;
-  border: 1px solid var(--surface-border, #e5e7eb);
+  border: 1px solid var(--surface-border);
   border-radius: 6px;
-  background: var(--surface-input, #fff);
+  background: var(--surface-input, var(--surface-bg));
   color: inherit;
   font-family: inherit;
 }
-[data-theme="dark"] .cv-section-contrib-level,
-[data-theme="dark"] .cv-section-contrib-desc {
-  background: #1f2937;
-  border-color: #374151;
-  color: #e5e7eb;
-}
 
 .cv-chip-selected {
-  background: var(--color-primary, #4338ca) !important;
+  background: var(--color-primary, var(--accent)) !important;
   color: #fff !important;
-  border-color: var(--color-primary, #4338ca) !important;
+  border-color: var(--color-primary, var(--accent)) !important;
 }
 
 /* Step 4 editor */

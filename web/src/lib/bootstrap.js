@@ -10,9 +10,10 @@
  * @module
  */
 
-import { fetchMetadata, registerEagerTables } from './metadata.js';
+import { fetchMetadata, registerEagerTables, RequiredTablesError, getResolvedVersion } from './metadata.js';
 import { setMetadata } from './registry.js';
 import { VERSIONS_URL } from '../constants.js';
+import { buildTableLoadErrorBox, buildTableLoadWarningBox } from './table-load-error.js';
 
 /**
  * Connect DuckDB, fetch metadata, register tables, then call the view factory.
@@ -22,10 +23,16 @@ import { VERSIONS_URL } from '../constants.js';
  *   the root DOM element to mount into `#app`.
  * @param {object} [opts]
  * @param {boolean} [opts.graceful=false] - If true, still mount the view even
- *   if DuckDB/metadata fails (coordinator passed as null). Used by pages like
- *   subject/project that can partially work without DuckDB.
+ *   if DuckDB/metadata fails entirely (coordinator passed as null). Used by
+ *   pages like subject/project that can partially work without DuckDB. This
+ *   does NOT apply to required-table failures (e.g. asset_basics) — those
+ *   always block the page with a table-load error, regardless of `graceful`.
+ * @param {string[]} [opts.requiredTables=['asset_basics']] - Tables that must
+ *   register successfully or the page will show a blocking error.
+ * @param {string[]} [opts.optionalTables=[]] - Tables that may fail without
+ *   blocking the page; failures are shown as a dismissible warning.
  */
-export async function bootstrap(createView, { graceful = false } = {}) {
+export async function bootstrap(createView, { graceful = false, requiredTables = ['asset_basics'], optionalTables = [] } = {}) {
   const loadingEl = document.getElementById('loading-message');
   const app = document.getElementById('app');
   if (!app) return;
@@ -52,6 +59,7 @@ export async function bootstrap(createView, { graceful = false } = {}) {
 
   let coord = null;
   let metadata = null;
+  let optionalFailures = [];
 
   try {
     // Kick off the DuckDB-WASM engine download (@uwdata/vgplot, ~600 KB)
@@ -70,9 +78,23 @@ export async function bootstrap(createView, { graceful = false } = {}) {
     const { coordinator, wasmConnector } = await vgPromise;
     coordinator().databaseConnector(wasmConnector());
     coord = coordinator();
-    await registerEagerTables(coord, metadata, { onProgress });
+    const registration = await registerEagerTables(coord, metadata, { onProgress, requiredTables, optionalTables });
+    optionalFailures = registration.failures.filter((f) => !f.required);
     if (loadingEl) loadingEl.remove();
   } catch (err) {
+    if (err instanceof RequiredTablesError) {
+      // Required-table failures always block the page, even in graceful
+      // mode — graceful mode is only for total DuckDB/network unavailability.
+      console.error('[bootstrap] Required table(s) failed to load:', err);
+      if (loadingEl) loadingEl.remove();
+      const errorBox = buildTableLoadErrorBox({
+        failures: err.requiredFailures,
+        version: getResolvedVersion(),
+        onRetry: () => window.location.reload(),
+      });
+      app.replaceChildren(errorBox);
+      return;
+    }
     if (graceful) {
       console.warn('[bootstrap] DuckDB unavailable, continuing in graceful mode:', err?.message);
       if (loadingEl) loadingEl.remove();
@@ -89,13 +111,20 @@ export async function bootstrap(createView, { graceful = false } = {}) {
   try {
     const el = await createView(coord, metadata);
     if (el) app.appendChild(el);
+    if (optionalFailures.length > 0) {
+      const warningBox = buildTableLoadWarningBox({ failures: optionalFailures, version: getResolvedVersion() });
+      app.insertBefore(warningBox, app.firstChild);
+    }
   } catch (err) {
     console.error('[bootstrap] View creation failed:', err);
     if (loadingEl && loadingEl.parentNode) {
       loadingEl.textContent = `Failed to load: ${err?.message ?? err}`;
       loadingEl.className = 'loading-message error';
     } else {
-      app.innerHTML = `<p class="loading-message error">Failed to load: ${err?.message ?? err}</p>`;
+      const errorEl = document.createElement('p');
+      errorEl.className = 'loading-message error';
+      errorEl.textContent = `Failed to load: ${err?.message ?? err}`;
+      app.replaceChildren(errorEl);
     }
   }
 }

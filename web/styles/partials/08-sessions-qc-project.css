@@ -361,9 +361,9 @@
 .qc-tree .tree-node:hover { background: var(--surface-card); }
 .qc-tree .tree-toggle { width: 16px; text-align: center; font-size: 0.7em; user-select: none; flex-shrink: 0; color: var(--text-muted); }
 .qc-tree .tree-icon { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.qc-tree .tree-icon.pass { background: #1D8649; }
-.qc-tree .tree-icon.fail { background: #c0392b; }
-.qc-tree .tree-icon.pending { background: #888888; }
+.qc-tree .tree-icon.pass { background: var(--color-green); }
+.qc-tree .tree-icon.fail { background: var(--color-red); }
+.qc-tree .tree-icon.pending { background: var(--text-muted); }
 .qc-tree .tree-children { display: none; }
 .qc-tree .tree-children.expanded { display: block; }
 .qc-content { flex: 1; overflow-y: auto; min-width: 0; }
@@ -381,11 +381,11 @@
 .qc-metric-card .metric-value { margin: 8px 0; font-size: 0.9em; }
 .qc-metric-card .metric-status { display: flex; align-items: center; gap: 6px; font-size: 0.85em; }
 .qc-metric-card .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.qc-metric-card .status-dot.pass { background: #1D8649; }
-.qc-metric-card .status-dot.fail { background: #c0392b; }
-.qc-metric-card .status-dot.pending { background: #888888; }
-.qc-metric-curation { border-left: 3px solid var(--color-blue, #4a8fc4); }
-.metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--color-blue, #4a8fc4); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.qc-metric-card .status-dot.pass { background: var(--color-green); }
+.qc-metric-card .status-dot.fail { background: var(--color-red); }
+.qc-metric-card .status-dot.pending { background: var(--text-muted); }
+.qc-metric-curation { border-left: 3px solid var(--color-blue, var(--accent-2)); }
+.metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--color-blue, var(--accent-2)); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .qc-value-json { max-height: 300px; overflow-y: auto; }
 .qc-media { flex: 1; min-width: 0; position: relative; }
 .qc-media img { max-width: 100%; height: auto; border-radius: var(--radius); display: block; }
@@ -400,7 +400,7 @@
 .qc-value-table th, .qc-value-table td { border: 1px solid var(--surface-border); padding: 3px 7px; text-align: left; }
 .qc-value-table th { background: var(--surface-bg); font-weight: 600; }
 .qc-value-json { font-size: 0.8em; white-space: pre-wrap; word-break: break-all; background: var(--surface-bg); padding: 6px; border-radius: var(--radius); border: 1px solid var(--surface-border); }
-.qc-edit-btn { background: var(--color-red); color: #fff; border: none; padding: 5px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; font-size: 0.85em; }
+.qc-edit-btn { background: var(--color-red); color: var(--surface-bg); border: none; padding: 5px 14px; border-radius: var(--radius); cursor: pointer; font-weight: 500; font-size: 0.85em; }
 .qc-edit-btn:hover { background: var(--color-red-hover); }
 .qc-loading, .qc-error, .qc-empty { padding: 40px; text-align: center; color: var(--text-secondary); }
 
@@ -414,7 +414,7 @@
 .qc-readonly-checklist { display: flex; flex-direction: column; gap: 2px; }
 .qc-readonly-check { color: var(--text-secondary); }
 .qc-readonly-check .qc-checkbox { color: var(--text-muted); }
-.qc-readonly-check .qc-checkbox.checked { color: var(--color-blue, #4a8fc4); }
+.qc-readonly-check .qc-checkbox.checked { color: var(--color-blue, var(--accent-2)); }
 
 /* HDF5 volumetric-data placeholder */
 .qc-media-h5 { color: var(--text-secondary); font-size: 0.9em; }
@@ -424,7 +424,7 @@
 .qc-swipe { position: relative; display: inline-block; max-width: 100%; }
 .qc-swipe .qc-swipe-base { display: block; max-width: 100%; height: auto; border-radius: var(--radius); }
 .qc-swipe .qc-swipe-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border-radius: var(--radius); }
-.qc-swipe .qc-swipe-handle { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 3px rgba(0,0,0,0.6); transform: translateX(-1px); pointer-events: none; }
+.qc-swipe .qc-swipe-handle { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--surface-bg); box-shadow: 0 0 3px rgba(0,0,0,0.6); transform: translateX(-1px); pointer-events: none; }
 .qc-swipe .qc-swipe-slider { position: absolute; bottom: 8px; left: 5%; width: 90%; }
 
 /* ---------------------------------------------------------------------------
@@ -492,7 +492,7 @@
 .pt-row-even { fill: var(--surface-bg); }
 .pt-row-odd  { fill: var(--surface-card); }
 .pt-row-highlight {
-  fill: #2563eb;
+  fill: var(--accent);
   fill-opacity: 0.07;
   pointer-events: none;
 }
@@ -516,7 +516,7 @@
   cursor: pointer;
 }
 .pt-subject-label--selected {
-  fill: #2563eb;
+  fill: var(--accent);
   font-weight: 600;
 }
 
@@ -534,7 +534,7 @@
 }
 
 .pt-dot-selected .pt-dot-ring {
-  stroke: var(--color-primary, #4338ca);
+  stroke: var(--color-primary, var(--accent));
   stroke-width: 2.5;
 }
 
@@ -709,7 +709,7 @@
   margin: 12px 0 20px;
   padding: 12px 16px;
   background: var(--surface-card);
-  border-left: 3px solid var(--color-yellow, #d97706);
+  border-left: 3px solid var(--color-yellow);
   border-radius: var(--radius);
 }
 
@@ -740,7 +740,7 @@
 }
 
 .fib-alert-asset-row td {
-  background: var(--surface-row-alt, #f9fafb);
+  background: var(--surface-row-alt, var(--surface-card));
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
@@ -752,12 +752,12 @@
 
 /* Fiber photometry grouped table rows */
 .assets-table .fib-group-row {
-  background: var(--surface-bg, #fff);
+  background: var(--surface-bg);
   font-weight: 500;
 }
 
 .assets-table .fib-group-row td {
-  border-top: 2px solid var(--surface-border, #e5e7eb);
+  border-top: 2px solid var(--surface-border);
 }
 
 .fib-toggle-btn {
@@ -765,7 +765,7 @@
   border: none;
   cursor: pointer;
   padding: 0 5px 0 0;
-  color: var(--color-muted, #666);
+  color: var(--color-muted, var(--text-secondary));
   font-size: 0.7em;
   line-height: 1;
   vertical-align: middle;
@@ -779,12 +779,12 @@
 
 .assets-table .fib-asset-row {
   opacity: 0.82;
-  background: var(--surface-card, #f8f8f8);
+  background: var(--surface-card);
 }
 
 .assets-table .fib-asset-name-cell {
   padding-left: 1.5rem;
-  color: var(--color-muted, #666);
+  color: var(--color-muted, var(--text-secondary));
   font-size: 0.85rem;
 }
 

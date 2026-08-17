@@ -45,22 +45,14 @@
   border-color: var(--header-border);
 }
 
-[data-theme="dark"] .error-banner {
-  background: #2a0a0a;
-}
-
-[data-theme="dark"] .dv-debug-error,
-[data-theme="dark"] .dv-plot-error {
-  background: #2a0a0a;
-}
-
 [data-theme="dark"] .card pre {
   background: var(--surface-card);
   color: var(--text-primary);
 }
 
-[data-theme="dark"] .dv-filter-chip {
-  background: #555555;
+[data-theme="dark"] .table-load-error-diagnostics pre {
+  background: var(--surface-card);
+  color: var(--text-primary);
 }
 
 [data-theme="dark"] .contributions-view {
@@ -89,22 +81,9 @@
     border-color: var(--header-border);
   }
 
-  :root:not([data-theme="light"]) .error-banner {
-    background: #2a0a0a;
-  }
-
-  :root:not([data-theme="light"]) .dv-debug-error,
-  :root:not([data-theme="light"]) .dv-plot-error {
-    background: #2a0a0a;
-  }
-
   :root:not([data-theme="light"]) .card pre {
     background: var(--surface-card);
     color: var(--text-primary);
-  }
-
-  :root:not([data-theme="light"]) .dv-filter-chip {
-    background: #555555;
   }
 
   :root:not([data-theme="light"]) .contributions-view {

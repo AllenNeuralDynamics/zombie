@@ -22,7 +22,7 @@
   flex-wrap: wrap;
   padding-bottom: 8px;
   margin-bottom: 10px;
-  border-bottom: 1px solid var(--border, #e4e4e4);
+  border-bottom: 1px solid var(--border, var(--surface-border));
 }
 
 .pb-header-meta {
@@ -34,13 +34,13 @@
 .pb-header-count {
   font-weight: 600;
   font-size: 14px;
-  color: var(--text, #111);
+  color: var(--text, var(--text-primary));
   font-variant-numeric: tabular-nums;
 }
 
 .pb-header-actype {
   font-size: 12px;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
 }
 .pb-header-actype:empty { display: none; }
 
@@ -61,9 +61,9 @@
 .pb-play,
 .pb-prev,
 .pb-next {
-  border: 1px solid var(--border, #e1e1e1);
-  background: var(--input-bg, #fff);
-  color: var(--text, #111);
+  border: 1px solid var(--border, var(--surface-border));
+  background: var(--input-bg, var(--surface-bg));
+  color: var(--text, var(--text-primary));
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
@@ -73,11 +73,11 @@
 .pb-play { min-width: 36px; }
 .pb-play:hover,
 .pb-prev:hover,
-.pb-next:hover { background: var(--bg-alt, #f5f5f5); }
+.pb-next:hover { background: var(--bg-alt, var(--surface-card)); }
 
 .pb-step-label {
   font-size: 11px;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
 }
 
 .pb-speed-label {
@@ -85,23 +85,23 @@
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
 }
 
 .pb-speed {
   padding: 2px 4px;
   font-size: 12px;
-  border: 1px solid var(--border, #ccc);
+  border: 1px solid var(--border, var(--surface-border));
   border-radius: 4px;
-  background: var(--input-bg, #fff);
-  color: var(--text, #111);
+  background: var(--input-bg, var(--surface-bg));
+  color: var(--text, var(--text-primary));
   cursor: pointer;
 }
 
 .pb-time {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
   width: 8.5em;
   flex: none;
   text-align: right;
@@ -111,11 +111,11 @@
 /* ---- Status line --------------------------------------------------------- */
 .pb-status {
   font-size: 12px;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
   font-variant-numeric: tabular-nums;
   margin: 4px 0 8px;
 }
-.pb-status--error { color: #c0392b; }
+.pb-status--error { color: var(--color-red); }
 
 /* ---- Body ---------------------------------------------------------------- */
 .pb-body {
@@ -134,7 +134,8 @@
   gap: 12px;
 }
 .pb-player--df .pb-main,
-.pb-player--dr .pb-main {
+.pb-player--dr .pb-main,
+.pb-player--mfish .pb-main {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: flex-start;
@@ -157,7 +158,8 @@
 .pb-plot { width: 100%; }
 .pb-plot[hidden] { display: none; }
 .pb-player--df .pb-plot,
-.pb-player--dr .pb-plot {
+.pb-player--dr .pb-plot,
+.pb-player--mfish .pb-plot {
   flex: 1 1 440px;
   min-width: 0;
 }
@@ -212,14 +214,14 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
 }
 .pb-stage-label[hidden] { display: none; }
 
 .pb-stage-canvas-wrap {
   position: relative;          /* anchors abs-positioned stage overlays */
-  background: var(--input-bg, #fff);
-  border: 1px solid var(--border, #e4e4e4);
+  background: var(--input-bg, var(--surface-bg));
+  border: 1px solid var(--border, var(--surface-border));
   border-radius: 6px;
   padding: 6px;
   align-self: flex-start;
@@ -230,12 +232,46 @@
   image-rendering: auto;
 }
 
-/* Fixed-size square-arena tasks (DF / DR). */
+/* Fixed-size square-arena tasks (DF / DR / mFISH). */
 .pb-player--df .pb-canvas,
-.pb-player--dr .pb-canvas {
+.pb-player--dr .pb-canvas,
+.pb-player--mfish .pb-canvas {
   width: 320px;
   height: 360px;
 }
+
+/* mFISH event plot fills its column so the ResizeObserver can size it. */
+.mfish-evt-plot-wrap { width: 100%; min-width: 0; }
+
+/* Shared zoomable overview + brush (lib/behaviors/brush-overview.js) --------- */
+.pbz-wrap { width: 100%; min-width: 0; }
+.pbz-overview-wrap {
+  position: relative;
+  width: 100%;
+  margin-bottom: 4px;
+  border: 1px solid var(--border, var(--surface-border));
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--input-bg, var(--surface-bg));
+}
+.pbz-overview-holder { display: block; }
+.pbz-overview-holder svg { display: block; overflow: hidden; }
+.pbz-brush-dim {
+  position: absolute;
+  top: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+.pbz-brush-interact {
+  position: absolute;
+  top: 0; bottom: 0;
+  cursor: crosshair;
+  touch-action: none;
+}
+.pbz-main-wrap { position: relative; }
+.pbz-main-wrap svg { display: block; }
+/* VRF's velocity panel has axis labels that extend past the SVG frame. */
+.vrf-trace-wrap .pbz-main-wrap svg { overflow: visible; }
 
 /* Corridor task (VRF) fills the available width; height is fixed by CH. */
 .pb-player--vrf .pb-stage-canvas-wrap {
@@ -249,11 +285,11 @@
 .pb-trial-info {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text, #111);
+  color: var(--text, var(--text-primary));
   font-variant-numeric: tabular-nums;
 }
 .pb-trial-info[hidden] { display: none; }
-.pb-trial-info b { color: var(--text, #111); }
+.pb-trial-info b { color: var(--text); }
 
 /* ---- Videos -------------------------------------------------------------- */
 .pb-videos { margin-top: 6px; }
@@ -263,15 +299,15 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
   margin-bottom: 6px;
 }
 
 .pb-videos-speed-warning {
   font-size: 12px;
-  color: #7a6000;
-  background: #fffbe6;
-  border: 1px solid #ffe58f;
+  color: var(--yellow-fg);
+  background: var(--yellow-muted);
+  border: 1px solid var(--color-yellow);
   border-radius: 4px;
   padding: 4px 8px;
   margin-bottom: 8px;
@@ -300,7 +336,7 @@
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-mut, #6a6a6a);
+  color: var(--text-mut, var(--text-secondary));
   text-align: center;
 }
 .pb-video {
@@ -308,7 +344,7 @@
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
-  border: 1px solid var(--border, #e1e1e1);
+  border: 1px solid var(--border, var(--surface-border));
 }
 
 /* ---- VRF plot slot (odor legend + depletion, in lieu of a brush plot) ---- */
@@ -325,7 +361,7 @@
 /* ---- Modality separator (behavior player ⟂ fiber, …) -------------------- */
 .session-playback-sep {
   border: 0;
-  border-top: 1px solid var(--border, #e4e4e4);
+  border-top: 1px solid var(--border, var(--surface-border));
   margin: 20px 0 16px;
 }
 .session-playback-modality { width: 100%; }
@@ -337,7 +373,7 @@
   flex-wrap: wrap;
   gap: 0.25rem;
   margin-bottom: 0.5rem;
-  border-bottom: 2px solid var(--color-grey, #ddd);
+  border-bottom: 2px solid var(--color-grey, var(--surface-border));
   padding-bottom: 0.25rem;
 }
 .vrf-view-tab {
@@ -349,12 +385,12 @@
   font-size: 0.85rem;
   color: inherit;
 }
-.vrf-view-tab:hover:not(:disabled) { background: var(--color-grey, #eee); }
+.vrf-view-tab:hover:not(:disabled) { background: var(--color-grey, var(--surface-card)); }
 .vrf-view-tab:disabled { opacity: 0.4; cursor: default; }
 .vrf-view-tab.is-active {
-  background: var(--surface-card, #fff);
-  border-color: var(--color-grey, #ddd);
-  border-bottom-color: var(--surface-card, #fff);
+  background: var(--surface-card, var(--surface-bg));
+  border-color: var(--color-grey, var(--surface-border));
+  border-bottom-color: var(--surface-card, var(--surface-border));
   font-weight: 600;
   margin-bottom: -2px;
 }
@@ -367,11 +403,11 @@
   gap: 16px;
   align-items: center;
   font-size: 12px;
-  color: var(--text-muted, #555);
+  color: var(--text-muted, var(--text-secondary));
 }
 .vrf-altview-controls label { display: inline-flex; align-items: center; gap: 6px; }
 .vrf-altview-controls input[type="number"] { width: 64px; }
 .vrf-altview-controls input[type="range"] { width: 160px; }
 .vrf-altview-plot { width: 100%; overflow-x: auto; }
 .vrf-altview-plot svg { overflow: visible; }
-.vrf-altview-empty { color: var(--text-muted, #888); font-size: 13px; padding: 24px 0; }
+.vrf-altview-empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; }

@@ -8,7 +8,7 @@
  * representing acquisitions coloured by modality or curriculum stage.
  */
 
-import { MODALITY_COLOR } from './charts.js';
+import { MODALITY_COLOR, modalityColor } from './charts.js';
 
 // ---------------------------------------------------------------------------
 // Constants (exported so callers can compute cell widths)
@@ -293,7 +293,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
       c.setAttribute('cx', 0);
       c.setAttribute('cy', 0);
       c.setAttribute('r', TIMELINE_DOT_R);
-      c.setAttribute('fill', MODALITY_COLOR[modalities[0]] ?? '#888888');
+      c.setAttribute('fill', modalityColor(modalities[0]));
       sym.appendChild(c);
     } else {
       const n = modalities.length;
@@ -309,7 +309,7 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
         const large = step > Math.PI ? 1 : 0;
         const path = document.createElementNS(NS, 'path');
         path.setAttribute('d', `M 0 0 L ${x0} ${y0} A ${TIMELINE_DOT_R} ${TIMELINE_DOT_R} 0 ${large} 1 ${x1} ${y1} Z`);
-        path.setAttribute('fill', MODALITY_COLOR[modalities[i]] ?? '#888888');
+        path.setAttribute('fill', modalityColor(modalities[i]));
         sym.appendChild(path);
       }
     }
@@ -403,7 +403,8 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
 
     if (tooltipEl) {
       const showTip = (e) => {
-        tooltipEl.innerHTML = dayAssets.map((a) => {
+        tooltipEl.replaceChildren();
+        for (const a of dayAssets) {
           const cur = curriculumMap?.get(a.name);
           const metaLines = [
             a.acquisition_type ? `type: ${a.acquisition_type}` : '',
@@ -411,9 +412,24 @@ export function buildTimelineSvg(assets, windowStart, onDotClick, {
             cur?.curriculum_name ? `curriculum: ${cur.curriculum_name}` : '',
             cur?.stage_name ? `stage: ${cur.stage_name}` : '',
           ].filter(Boolean);
-          const metaHtml = metaLines.map((l) => `<div>${l}</div>`).join('');
-          return `<div class="pt-tip-row"><div class="pt-tip-name">${a.name ?? ''}</div>${metaHtml ? `<div class="pt-tip-meta">${metaHtml}</div>` : ''}</div>`;
-        }).join('');
+          const row = document.createElement('div');
+          row.className = 'pt-tip-row';
+          const name = document.createElement('div');
+          name.className = 'pt-tip-name';
+          name.textContent = a.name ?? '';
+          row.appendChild(name);
+          if (metaLines.length) {
+            const meta = document.createElement('div');
+            meta.className = 'pt-tip-meta';
+            for (const line of metaLines) {
+              const item = document.createElement('div');
+              item.textContent = line;
+              meta.appendChild(item);
+            }
+            row.appendChild(meta);
+          }
+          tooltipEl.appendChild(row);
+        }
         tooltipEl.style.display = '';
         tooltipEl.style.left = `${e.clientX + 14}px`;
         tooltipEl.style.top  = `${e.clientY + 14}px`;

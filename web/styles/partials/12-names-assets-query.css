@@ -283,7 +283,7 @@
   padding: 5px 14px;
   border: none;
   border-radius: var(--radius);
-  background: var(--brand-green, #1D8649);
+  background: var(--brand-green, var(--color-green));
   color: #fff;
   cursor: pointer;
   transition: opacity 0.15s;
@@ -324,12 +324,12 @@
 }
 
 .qb-status-ok {
-  color: var(--brand-green, #1D8649);
+  color: var(--brand-green, var(--color-green));
   font-weight: 600;
 }
 
 .qb-status-error {
-  color: var(--brand-red, #c0392b);
+  color: var(--brand-red, var(--color-red));
 }
 
 /* ── RIGHT column ────────────────────────────────────────────────────────── */
@@ -393,7 +393,7 @@
   padding: 5px 12px;
   border: none;
   border-radius: var(--radius);
-  background: var(--aind-blue, #2563eb);
+  background: var(--aind-blue, var(--accent));
   color: #fff;
   cursor: pointer;
   transition: opacity 0.15s;

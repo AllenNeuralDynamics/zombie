@@ -29,6 +29,7 @@ import surfaceDepthData from './allen_mouse_100um_v1.2/surface_depth.json';
 import { parseTranslation } from '../lib/coord-systems.js';
 import { ITEM_COLORS } from './brain-viz.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
+import { vizSceneBg, onVizThemeChange } from './viz-theme.js';
 
 // ── Surface depth lookup ──────────────────────────────────────────────────
 // surface_depth.json: depth_um[AP_idx][ML_idx] = DV µm of first brain voxel
@@ -168,18 +169,18 @@ export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
   const container = document.createElement('div');
   container.className = 'brain-viz-3d-container';
   container.style.cssText =
-    'position:relative;width:100%;height:600px;background:#fff;border-radius:4px;overflow:hidden';
+    'position:relative;width:100%;height:600px;background:var(--surface-bg,#fff);border-radius:4px;overflow:hidden';
 
   const statusEl = document.createElement('div');
   statusEl.style.cssText =
-    'position:absolute;bottom:12px;left:12px;color:#444;font:11px monospace;' +
+    'position:absolute;bottom:12px;left:12px;color:var(--text-primary,#444);font:11px monospace;' +
     'pointer-events:none;z-index:10;line-height:1.6';
   statusEl.textContent = 'Loading 3D brain…';
   container.appendChild(statusEl);
 
   const infoEl = document.createElement('div');
   infoEl.style.cssText =
-    'position:absolute;top:12px;right:12px;color:#333;font:11px monospace;' +
+    'position:absolute;top:12px;right:12px;color:var(--text-primary,#333);font:11px monospace;' +
     'pointer-events:none;z-index:10;text-align:right;line-height:1.6';
   container.appendChild(infoEl);
 
@@ -198,7 +199,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 
   // ── Scene ──────────────────────────────────────────────────────────────
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff);
+  scene.background = new THREE.Color(vizSceneBg());
 
   // ── Camera ────────────────────────────────────────────────────────────
   const w = container.clientWidth  || 600;
@@ -211,7 +212,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
   // ── Renderer ──────────────────────────────────────────────────────────
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setClearColor(0xffffff, 1);
+  renderer.setClearColor(new THREE.Color(vizSceneBg()), 1);
   renderer.setSize(w, h);
   container.appendChild(renderer.domElement);
 
@@ -317,12 +318,20 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
     renderer.render(scene, camera);
   })();
 
+  // Re-theme the WebGL scene when the colour scheme changes.
+  const disconnectTheme = onVizThemeChange(() => {
+    const bg = new THREE.Color(vizSceneBg());
+    scene.background = bg;
+    renderer.setClearColor(bg, 1);
+  });
+
   // Clean up when container is removed from DOM
   const mo = new MutationObserver(() => {
     if (!document.contains(container)) {
       alive = false;
       ro.disconnect();
       mo.disconnect();
+      disconnectTheme();
       renderer.dispose();
     }
   });

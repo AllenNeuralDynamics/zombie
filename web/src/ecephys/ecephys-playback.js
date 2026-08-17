@@ -1,10 +1,14 @@
-import { S3_BUCKET, S3_REGION } from '../constants.js';
+import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
 import { escHtml } from '../lib/utils.js';
 import { ensureTable } from '../lib/registry.js';
-import { getResolvedBaseUrl, getResolvedVersion } from '../lib/metadata.js';
+import { getResolvedVersion } from '../lib/metadata.js';
 import { createBaselineControls, baselineSeries, buildPsthPlot } from '../lib/psth.js';
 import * as Plot from '@observablehq/plot';
+import { CLOCK } from './midi-config.js';
+import { createSonifier } from './midi-sonifier.js';
+import { createSpikeRasterView } from './spike-raster-view.js';
+import { openMidiModal } from './midi-modal.js';
 
 const TIME_BINS = 250;
 const DEPTH_BINS = 120;
@@ -41,7 +45,7 @@ function sessionDate(rawAssetName) {
 }
 
 function dfTrialsUrl(subjectId) {
-  return `${getResolvedBaseUrl()}/platform_dynamic_foraging_trials`
+  return `${DATA_CACHE_PREFIX}/${getResolvedVersion()}/platform_dynamic_foraging_trials`
     + `/subject_id=${esc(subjectId)}/data.pqt`;
 }
 
@@ -467,7 +471,119 @@ function buildDepthRasterPlot(bins, lo, hi, dlo, dhi, width) {
 }
 
 
-export function createEcephysPlayback(coord, subjectId, rawAssetName) {
+/** Distinct lane/timbre colour for the i-th mapped unit. */
+function unitColor(i, n) {
+  return `hsl(${Math.round((360 * i) / Math.max(1, n))}, 70%, 50%)`;
+}
+
+/**
+ * Wire the hidden Spike-Jukebox tool into an ecephys panel. Reveals the 🎹
+ * button once the corridor player has registered, opens the mapping modal, and
+ * on Apply loads the mapped units' spike trains and drives the sonifier + the
+ * unit-lane raster view off the shared transport clock.
+ */
+function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }) {
+  const midiBtn = section.querySelector('.ecephys-midi-btn');
+  if (!midiBtn) return;
+
+  let sonifier = null;      // created lazily (needs a user gesture for audio)
+  let rasterView = null;
+  let unsubTick = null;
+
+  const ensureSonifier = () => {
+    if (!sonifier) sonifier = createSonifier();
+    return sonifier;
+  };
+
+  // Only reveal the button once a corridor transport exists to sync to.
+  bridge.onReady(() => { midiBtn.hidden = false; });
+
+  async function startSonification({ units, timbre }) {
+    const probe = probeSel.value;
+    const names = units.map((u) => u.unitName);
+    if (!names.length) return;
+    let rows;
+    try {
+      rows = await queryRows(coord, `
+        SELECT unit_name, spike_time
+        FROM read_parquet('${esc(spikesUrl)}')
+        WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL
+          AND unit_name IN (${names.map((n) => `'${esc(n)}'`).join(', ')})
+        ORDER BY unit_name, spike_time`);
+    } catch (err) {
+      console.error('[midi] spike load failed', err);
+      return;
+    }
+
+    const byUnit = new Map();
+    for (const r of rows) {
+      const k = r.unit_name;
+      let arr = byUnit.get(k);
+      if (!arr) { arr = []; byUnit.set(k, arr); }
+      arr.push(Number(r.spike_time));
+    }
+
+    // Clock alignment: "0 means 0" — line the recording zero up with transport
+    // t=0 by subtracting MIN(spike_time) (see midi-config CLOCK).
+    let t0 = 0;
+    if (CLOCK.t0Policy === 'min_spike') {
+      let m = Infinity;
+      for (const arr of byUnit.values()) if (arr.length) m = Math.min(m, arr[0]);
+      t0 = Number.isFinite(m) ? m : 0;
+    }
+
+    const anim = bridge.getAnim();
+    const n = units.length;
+    const mapped = units.map((u, i) => {
+      const raw = byUnit.get(u.unitName) ?? [];
+      const times = new Float64Array(raw.length);
+      // Align to transport t=0 ("0 means 0"); the strip scrolls by real time.
+      for (let j = 0; j < raw.length; j++) times[j] = raw[j] - t0;
+      return { unitName: u.unitName, note: u.note, timbre, times, color: unitColor(i, n) };
+    });
+
+    const snd = ensureSonifier();
+
+    // Build / refresh the raster view first so onFire flashes resolve. The
+    // mute toggle lives inside the jukebox strip itself.
+    rasterView?.destroy();
+    rasterView = createSpikeRasterView({
+      anim,
+      units: mapped,
+      onToggleMute: () => {
+        const on = !snd.isEnabled();
+        snd.setEnabled(on);
+        if (!on) snd.stop();
+        return on;
+      },
+    });
+    bridge.insertView(rasterView.element);
+    rasterView.render();
+
+    snd.setMapping(mapped.map((u) => ({
+      unitName: u.unitName, times: u.times, note: u.note, timbre: u.timbre,
+      onFire: () => rasterView?.flash(u.unitName),
+    })));
+    snd.reseek(anim ? anim.t : 0);
+    snd.setEnabled(true);
+
+    unsubTick?.();
+    unsubTick = bridge.onTick((t, prevT, state) => {
+      snd.tick(t, prevT, state);
+      rasterView?.render();
+    });
+  }
+
+  midiBtn.onclick = () => {
+    openMidiModal({
+      coord, unitsUrl, probe: probeSel.value,
+      onPreview: (note, tb) => { const s = ensureSonifier(); s.setEnabled(true); s.preview(note, tb); },
+      onApply: (mapping) => { startSonification(mapping); },
+    });
+  };
+}
+
+export function createEcephysPlayback(coord, subjectId, rawAssetName, sonifierBridge = null) {
   const section = document.createElement('section');
   section.className = 'ecephys-playback-section';
   section.innerHTML = '<p class="ecephys-loading">Checking for ecephys data\u2026</p>';
@@ -555,6 +671,8 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
         ${eventControl}
         <span class="ecephys-selection">All units</span>
         <span class="ecephys-hint">${hint}</span>
+        ${hasUnits && sonifierBridge ? `
+        <button class="ecephys-midi-btn" type="button" hidden title="Map units to pitches and hear them during replay">🎹 Sonify</button>` : ''}
       </div>
       <div class="ecephys-plots">
         <div class="ecephys-psth-col">
@@ -811,6 +929,14 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName) {
     probeSel.addEventListener('change', refreshProbe);
     if (eventSel) eventSel.addEventListener('change', () => { renderPsth(); });
     if (qcFilterSel) qcFilterSel.addEventListener('change', () => { paintUnitsTable(); });
+
+    // ---- Spike Jukebox (hidden MIDI sonification tool) -------------------
+    if (hasUnits && sonifierBridge) {
+      setupSonifier({
+        section, coord, spikesUrl: url, unitsUrl, probeSel,
+        bridge: sonifierBridge,
+      });
+    }
 
     await refreshProbe();
   })().catch((err) => {

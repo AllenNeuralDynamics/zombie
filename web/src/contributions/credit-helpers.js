@@ -5,23 +5,44 @@
  * CRediT (Contributor Roles Taxonomy) roles and visualizations.
  */
 
-/** All 14 CRediT taxonomy roles in canonical display order. */
+/** All 14 CRediT taxonomy roles in alphabetical order (the default order CRediT uses). */
 export const CREDIT_ROLES = [
   'Conceptualization',
-  'Methodology',
-  'Software',
-  'Validation',
-  'Formal analysis',
-  'Investigation',
-  'Resources',
   'Data curation',
+  'Formal analysis',
+  'Funding Acquisition',
+  'Investigation',
+  'Methodology',
+  'Project Administration',
+  'Resources',
+  'Software',
+  'Supervision',
+  'Validation',
+  'Visualization',
   'Writing – original draft',
   'Writing – review & editing',
-  'Visualization',
-  'Supervision',
-  'Project Administration',
-  'Funding Acquisition',
 ];
+
+/**
+ * Display labels for the three contribution levels, keyed by lowercase
+ * backend level name. These are the labels users see everywhere — matrix
+ * legends, dropdowns, tooltips — so "Equal"/"Supporting" never surface raw.
+ */
+export const LEVEL_LABELS = { none: 'None', lead: 'Lead', equal: '++', supporting: '+' };
+
+/**
+ * The levels a project actually offers, most-significant first, given its
+ * settings. `allow_levels: false` means contributions are a plain yes/no
+ * (stored as `equal`), so there is nothing to label; `allow_lead: false`
+ * drops the Lead tier.
+ *
+ * @param {{allowLevels?: boolean, allowLead?: boolean}} [settings]
+ * @returns {Array<'lead'|'equal'|'supporting'>}
+ */
+export function enabledLevels({ allowLevels = true, allowLead = true } = {}) {
+  if (!allowLevels) return [];
+  return allowLead ? ['lead', 'equal', 'supporting'] : ['equal', 'supporting'];
+}
 
 /** Full definitions and examples for each CRediT role, sourced from credit.niso.org (CC-BY 4.0). */
 export const CREDIT_ROLE_DESCRIPTIONS = {

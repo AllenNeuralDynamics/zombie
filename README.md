@@ -22,17 +22,16 @@ Some of the properties we aim to embed in these portals:
 
 Set `AWS_PROFILE` before starting the server so it can read the S3 Parquet files.
 
-Deployment is done via:
-
-nginx (:8000) → duckdb-server (:3000) + DocDB proxy (:3001) + static SPA. Two managed processes (nginx + duckdb-server + docdb-proxy via supervisord).
+In production, nginx serves the static Vite build on port 8000 and forwards
+the required S3-list, log-server, and DocDB requests to the Python proxy on
+port 3001. DuckDB runs in each browser through DuckDB-WASM. Supervisor manages
+nginx and the Python proxy.
 
 ### Install and Run
 
 ```bash
-# Python dependencies (includes duckdb-server)
-pip install -e .
-# or, if using the project venv:
-.venv/bin/pip install -e .
+# Python dependencies for local proxy endpoints
+uv sync
 
 # Node dependencies
 cd web && npm install
@@ -40,14 +39,14 @@ cd web && npm install
 
 ```bash
 cd web
-npm start          # launches duckdb-server on :3000 AND Vite dev server on :5173
+npm start          # launches the Python proxy and Vite dev server
 ```
 
 Or run them separately in two terminals:
 
 ```bash
-# Terminal 1 — DuckDB server (reads S3 via AWS_PROFILE)
-cd web && npm run server
+# Terminal 1 — Python proxy for S3 listing, log-server, and DocDB requests
+cd web && npm run docdb
 
 # Terminal 2 — Vite dev server
 cd web && npm run dev
@@ -63,7 +62,8 @@ cd web && npm test
 
 ## Production build
 
-A Docker container bundles the Vite build (static files), the duckdb-server, and the DocDB proxy behind an nginx reverse proxy.
+A Docker container bundles the static Vite build and Python proxy behind nginx.
+DuckDB-WASM remains browser-side and requires no container service.
 
 ```bash
 docker build -t zombie .

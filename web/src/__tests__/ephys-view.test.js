@@ -210,6 +210,19 @@ describe('buildEphysProbeCard', () => {
     const html = buildEphysProbeCard(probe, 2);
     expect(html).toContain('Probe 3:');
   });
+
+  it('escapes probe metadata', () => {
+    const payload = '<img src=x onerror="globalThis.__xss = true">';
+    const html = buildEphysProbeCard({
+      ...probe,
+      name: payload,
+      dye: payload,
+      notes: payload,
+      primaryStructure: { name: payload, acronym: payload },
+    }, 0);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('&lt;img');
+  });
 });
 
 describe('buildCraniotomySubProcHtml', () => {

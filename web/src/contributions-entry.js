@@ -76,6 +76,11 @@ function looksLikeDoi(value) {
   return /^10\.\d{4,}\//.test(value.trim()) || value.trim().toLowerCase().startsWith('doi:');
 }
 
+/** True when the value is something we can open directly: a DOI or a real project. */
+function isReal(value) {
+  return looksLikeDoi(value) || isKnownProject(value);
+}
+
 function init() {
   const app = document.getElementById('app');
   if (!app) return;
@@ -88,11 +93,11 @@ function init() {
       </p>
       <div class="contributions-landing-form">
         <input id="cl-doi-input" type="text" class="contributions-landing-input"
-               placeholder="e.g. 10.1234/example.2024 or my-project-name" />
+               placeholder="e.g. 10.1234/example.2024 or my-project-name" autocomplete="off" />
         <div id="cl-suggest" class="contributions-landing-suggest" hidden></div>
         <div class="contributions-landing-btns">
-          <button id="cl-view-btn" class="btn-primary">View</button>
-          <button id="cl-edit-btn" class="btn-secondary">Edit</button>
+          <button id="cl-view-btn" class="btn-primary" disabled>View</button>
+          <button id="cl-edit-btn" class="btn-secondary" disabled>Edit</button>
         </div>
       </div>
     </div>
@@ -103,10 +108,11 @@ function init() {
   const editBtn = app.querySelector('#cl-edit-btn');
   const suggestEl = app.querySelector('#cl-suggest');
 
-  // Load the project list in the background for fuzzy matching.
+  // Load the project list in the background for fuzzy matching / validation,
+  // then re-evaluate the current input so buttons enable once the list arrives.
   fetch(`${CONTRIBUTIONS_API_BASE}/contributions/projects`)
     .then((res) => (res.ok ? res.json() : []))
-    .then((names) => { if (Array.isArray(names)) projectNames = names; })
+    .then((names) => { if (Array.isArray(names)) projectNames = names; refresh(); })
     .catch(() => { /* fuzzy suggestions are best-effort */ });
 
   function clearSuggestions() {
@@ -114,31 +120,10 @@ function init() {
     suggestEl.innerHTML = '';
   }
 
-  function go(page, value) {
-    window.location.href = `/contributions/${page}?doi=${encodeURIComponent(value)}`;
-  }
-
-  function navigate(page) {
-    const value = input.value.trim();
-    if (!value) { input.focus(); return; }
-
-    // Pass through DOIs, exact project matches, or when we have no list yet.
-    if (looksLikeDoi(value) || projectNames.length === 0 || isKnownProject(value)) {
-      go(page, value);
-      return;
-    }
-
-    const matches = fuzzyMatch(value);
-    if (matches.length === 0) {
-      // Nothing close — let the target page report "not found".
-      go(page, value);
-      return;
-    }
-
-    // Offer the closest project name(s) before navigating.
+  function renderSuggestions(matches) {
     suggestEl.hidden = false;
     suggestEl.innerHTML = `
-      <span class="contributions-landing-suggest-label">Did you mean:</span>
+      <span class="contributions-landing-suggest-label">Matching projects:</span>
       ${matches
         .map(
           (name) =>
@@ -147,25 +132,59 @@ function init() {
             }">${name}</button>`,
         )
         .join('')}
-      <button type="button" class="contributions-landing-suggest-btn contributions-landing-suggest-keep"
-              data-keep="1">Use "${value}" anyway</button>
     `;
     suggestEl.querySelectorAll('.contributions-landing-suggest-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
-        const chosen = btn.dataset.keep ? value : btn.dataset.name;
-        input.value = chosen;
-        clearSuggestions();
-        go(page, chosen);
+        input.value = btn.dataset.name;
+        refresh();
+        input.focus();
       });
     });
   }
 
-  viewBtn.addEventListener('click', () => navigate('view'));
-  editBtn.addEventListener('click', () => navigate('edit'));
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') navigate('view');
+  // Re-evaluate button state and live suggestions for the current input.
+  function refresh() {
+    const value = input.value.trim();
+    const real = !!value && isReal(value);
+
+    // View only opens an existing project/DOI; Edit doubles as "create New".
+    viewBtn.disabled = !real;
+    editBtn.disabled = !value;
+    editBtn.textContent = real ? 'Edit' : 'New';
+    editBtn.title = real
+      ? 'Edit this project'
+      : (value ? `Create a new project "${value}"` : '');
+
+    // Suggest close matches while the typed name isn't a real project yet.
+    if (value && !real && !looksLikeDoi(value) && projectNames.length) {
+      const matches = fuzzyMatch(value);
+      if (matches.length) renderSuggestions(matches);
+      else clearSuggestions();
+    } else {
+      clearSuggestions();
+    }
+  }
+
+  function go(page, value) {
+    window.location.href = `/contributions/${page}?doi=${encodeURIComponent(value)}`;
+  }
+
+  viewBtn.addEventListener('click', () => {
+    const value = input.value.trim();
+    if (value && isReal(value)) go('view', value);
   });
-  input.addEventListener('input', clearSuggestions);
+  editBtn.addEventListener('click', () => {
+    const value = input.value.trim();
+    if (value) go('edit', value);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const value = input.value.trim();
+    if (value && isReal(value)) go('view', value);
+  });
+  input.addEventListener('input', refresh);
+
+  refresh();
 }
 
 init();

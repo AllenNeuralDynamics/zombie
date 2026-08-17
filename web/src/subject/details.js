@@ -71,16 +71,16 @@ export async function upgradeProtocolLinks(container) {
 
 function fmtDate(date) {
   if (!date) return 'Unknown';
-  return date instanceof Date
+  return escHtml(date instanceof Date
     ? date.toISOString().slice(0, 10)
-    : String(date);
+    : String(date));
 }
 
 function fmtDateTime(date) {
   if (!date) return 'Unknown';
-  return date instanceof Date
+  return escHtml(date instanceof Date
     ? date.toISOString().replace('T', ' ').slice(0, 19) + ' UTC'
-    : String(date);
+    : String(date));
 }
 
 /**
@@ -95,7 +95,7 @@ export function buildBirthDetail(event) {
       <h4>Birth</h4>
       <dl>
         <dt>Date</dt><dd>${fmtDate(event.start)}</dd>
-        <dt>Details</dt><dd>${event.details ?? ''}</dd>
+        <dt>Details</dt><dd>${escHtml(event.details ?? '')}</dd>
       </dl>
     </div>`;
 }
@@ -139,17 +139,17 @@ export function buildAcquisitionDetail(event) {
     data.session_type ? `<dt>Session type</dt><dd>${data.session_type}</dd>` : '',
     data.protocol_name ? `<dt>Protocol</dt><dd>${data.protocol_name}</dd>` : '',
     data.experimenter_full_name
-      ? `<dt>Experimenter</dt><dd>${[].concat(data.experimenter_full_name).join(', ')}</dd>`
+      ? `<dt>Experimenter</dt><dd>${escHtml([].concat(data.experimenter_full_name).join(', '))}</dd>`
       : '',
     data.reward_consumed_total != null
       ? `<dt>Reward consumed</dt><dd>${data.reward_consumed_total} ${data.reward_consumed_unit ?? ''}</dd>`
       : '',
-    modalities?.length ? `<dt>Modalities</dt><dd>${modalities.join(', ')}</dd>` : '',
+    modalities?.length ? `<dt>Modalities</dt><dd>${escHtml(modalities.join(', '))}</dd>` : '',
     linkParts ? `<dt>Links</dt><dd>${linkParts}</dd>` : '',
   ].join('');
   return `
     <div class="detail-card">
-      <h4>${label}</h4>
+      <h4>${escHtml(label)}</h4>
       <dl>
         <dt>Start</dt><dd>${fmtDateTime(start)}</dd>
         <dt>End</dt><dd>${fmtDateTime(end)}</dd>
@@ -171,7 +171,7 @@ export function buildSessionDetail(event) {
       <h4>${event.event ?? 'Session'}</h4>
       <dl>
         <dt>Date</dt><dd>${fmtDateTime(event.start)}</dd>
-        <dt>Details</dt><dd>${event.details ?? ''}</dd>
+        <dt>Details</dt><dd>${escHtml(event.details ?? '')}</dd>
       </dl>
     </div>`;
 }
@@ -185,11 +185,11 @@ export function buildSessionDetail(event) {
 export function buildSubProcedureDetail(event) {
   return `
     <div class="detail-card">
-      <h4>${event.event ?? 'Procedure'}</h4>
+      <h4>${escHtml(event.event ?? 'Procedure')}</h4>
       <dl>
-        <dt>Type</dt><dd>${event.type ?? 'Unknown'}</dd>
+        <dt>Type</dt><dd>${escHtml(event.type ?? 'Unknown')}</dd>
         <dt>Date</dt><dd>${fmtDate(event.start)}</dd>
-        <dt>Details</dt><dd>${event.details ?? ''}</dd>
+        <dt>Details</dt><dd>${escHtml(event.details ?? '')}</dd>
       </dl>
     </div>`;
 }
@@ -207,14 +207,14 @@ export function buildSpecimenProcedureDetail(event) {
   const notes = event.data?.notes ?? '';
   return `
     <div class="detail-card">
-      <h4>${event.event ?? 'Specimen Procedure'}</h4>
+      <h4>${escHtml(event.event ?? 'Specimen Procedure')}</h4>
       <dl>
-        <dt>Type</dt><dd>${event.type ?? 'Unknown'}</dd>
+        <dt>Type</dt><dd>${escHtml(event.type ?? 'Unknown')}</dd>
         <dt>Start</dt><dd>${fmtDate(event.start)}</dd>
         <dt>End</dt><dd>${fmtDate(event.end)}</dd>
         <dt>Duration</dt><dd>${durationDays} days</dd>
-        <dt>Details</dt><dd>${event.details ?? ''}</dd>
-        ${notes ? `<dt>Notes</dt><dd>${notes}</dd>` : ''}
+        <dt>Details</dt><dd>${escHtml(event.details ?? '')}</dd>
+        ${notes ? `<dt>Notes</dt><dd>${escHtml(notes)}</dd>` : ''}
       </dl>
     </div>`;
 }
@@ -338,7 +338,7 @@ function buildSurgeryOverviewHtml(event) {
       <h4>${title}</h4>
       <dl>
         <dt>Date</dt><dd>${fmtDate(start)}</dd>
-        <dt>Procedures</dt><dd>${details ?? ''}</dd>
+        <dt>Procedures</dt><dd>${escHtml(details ?? '')}</dd>
         ${extra}
       </dl>
       <br>
@@ -348,14 +348,14 @@ function buildSurgeryOverviewHtml(event) {
 
 function fmtDetailValue(value) {
   if (value == null || value === '') return 'Unknown';
-  return String(value);
+  return escHtml(String(value));
 }
 
 function fmtDetailList(value) {
   const vals = Array.isArray(value)
     ? value.filter((v) => v != null && v !== '')
     : [];
-  return vals.length ? vals.join(', ') : 'Unknown';
+  return vals.length ? escHtml(vals.join(', ')) : 'Unknown';
 }
 
 function fmtDetailBoolean(value) {
@@ -371,7 +371,7 @@ export function buildCraniotomySubProcHtml(subProc) {
     <dt>Type</dt><dd>${fmtDetailValue(subProc.craniotomy_type)}</dd>
     <dt>Coordinate system</dt><dd>${fmtDetailValue(subProc.coordinate_system_name)}</dd>
     <dt>Position</dt><dd>${fmtDetailList(subProc.position)}</dd>
-    <dt>Size</dt><dd>${size}</dd>
+    <dt>Size</dt><dd>${escHtml(size)}</dd>
     <dt>Protective material</dt><dd>${fmtDetailValue(subProc.protective_material)}</dd>
     <dt>Implant part number</dt><dd>${fmtDetailValue(subProc.implant_part_number)}</dd>
     <dt>Dura removed</dt><dd>${fmtDetailBoolean(subProc.dura_removed)}</dd>
@@ -393,7 +393,7 @@ export function buildHeadframeSubProcHtml(subProc) {
 function buildSubProcHtml(subProc) {
   const type = subProc.object_type ?? 'Unknown';
   if (type === 'Perfusion') {
-    const specimens = (subProc.output_specimen_ids ?? []).join(', ') || 'Unknown';
+    const specimens = escHtml((subProc.output_specimen_ids ?? []).join(', ') || 'Unknown');
     return `<div class="detail-card"><h4>Perfusion</h4><dl>
       <dt>Protocol</dt><dd>${fmtProtocolId(subProc.protocol_id)}</dd>
       <dt>Output specimens</dt><dd>${specimens}</dd>
@@ -401,8 +401,8 @@ function buildSubProcHtml(subProc) {
   }
   if (type === 'Generic surgery procedure') {
     return `<div class="detail-card"><h4>Generic Procedure</h4><dl>
-      <dt>Description</dt><dd>${subProc.description ?? 'No description'}</dd>
-      ${subProc.notes ? `<dt>Notes</dt><dd>${subProc.notes}</dd>` : ''}
+      <dt>Description</dt><dd>${escHtml(subProc.description ?? 'No description')}</dd>
+      ${subProc.notes ? `<dt>Notes</dt><dd>${escHtml(subProc.notes)}</dd>` : ''}
     </dl></div>`;
   }
   if (type === 'Craniotomy') {
@@ -411,7 +411,7 @@ function buildSubProcHtml(subProc) {
   if (type === 'Headframe') {
     return buildHeadframeSubProcHtml(subProc);
   }
-  return `<div class="detail-card"><h4>${type}</h4><p>No additional details available.</p></div>`;
+  return `<div class="detail-card"><h4>${escHtml(type)}</h4><p>No additional details available.</p></div>`;
 }
 
 function createInjectionVizPanel(surgeryData, subjectId) {
@@ -437,15 +437,15 @@ function createInjectionVizPanel(surgeryData, subjectId) {
           ? `${inj.dynamics.volume.toFixed(1)} ${inj.dynamics.volumeUnit}`
           : 'N/A';
         return `<tr>
-          <td>${inj.name}</td>
+          <td>${escHtml(inj.name)}</td>
           <td>${inj.ap.toFixed(2)}</td><td>${inj.ml.toFixed(2)}</td><td>${inj.dv.toFixed(2)}</td>
-          <td>${inj.materialNames.join(', ') || 'Unknown'}</td>
-          <td>${vol}</td>
-          <td>${inj.position}</td>
+          <td>${escHtml(inj.materialNames.join(', ') || 'Unknown')}</td>
+          <td>${escHtml(vol)}</td>
+          <td>${escHtml(inj.position)}</td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
-  container.innerHTML = `<h4>Brain Injections (Subject: ${subjectId})</h4>${tableHtml}`;
+  container.innerHTML = `<h4>Brain Injections (Subject: ${escHtml(subjectId)})</h4>${tableHtml}`;
 
   // Canvas scatter
   const points = injections.map((inj) => [inj.ml, inj.ap]);
@@ -475,16 +475,16 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
         <th>Depth (mm)</th><th>Angle (°)</th><th>Target</th>
       </tr></thead>
       <tbody>${fibers.map((f) => `<tr>
-        <td>${f.name}</td>
+        <td>${escHtml(f.name)}</td>
         <td>${f.ap.toFixed(2)}</td>
         <td>${f.ml.toFixed(2)}</td>
         <td>${f.dv != null ? f.dv.toFixed(2) : 'N/A'}</td>
         <td>${f.depth != null ? f.depth.toFixed(2) : 'N/A'}</td>
         <td>${Math.abs(f.angle) > 0.1 ? f.angle.toFixed(1) : '0'}</td>
-        <td>${f.targetedStructure}</td>
+        <td>${escHtml(f.targetedStructure)}</td>
       </tr>`).join('')}</tbody>
     </table>`;
-  container.innerHTML = `<h4>Fiber Implants (Subject: ${subjectId})</h4>${tableHtml}`;
+  container.innerHTML = `<h4>Fiber Implants (Subject: ${escHtml(subjectId)})</h4>${tableHtml}`;
 
   const points = fibers.map((f) => [f.ml, f.ap]);
   const labels = fibers.map((f) => f.name);
@@ -545,13 +545,13 @@ export function buildEphysProbeCard(probe, index) {
 
   return `
     <div class="detail-card">
-      <h4>Probe ${index + 1}: ${probe.name}</h4>
+      <h4>Probe ${index + 1}: ${escHtml(probe.name)}</h4>
       <dl>
-        <dt>Primary target</dt><dd>${primary}</dd>
-        ${others ? `<dt>Other targets</dt><dd>${others}</dd>` : ''}
-        ${probe.dye ? `<dt>Dye</dt><dd>${probe.dye}</dd>` : ''}
-        ${moduleAngles ? `<dt>Module angles</dt><dd>${moduleAngles}</dd>` : ''}
-        ${probe.notes ? `<dt>Notes</dt><dd>${probe.notes}</dd>` : ''}
+        <dt>Primary target</dt><dd>${escHtml(primary)}</dd>
+        ${others ? `<dt>Other targets</dt><dd>${escHtml(others)}</dd>` : ''}
+        ${probe.dye ? `<dt>Dye</dt><dd>${escHtml(probe.dye)}</dd>` : ''}
+        ${moduleAngles ? `<dt>Module angles</dt><dd>${escHtml(moduleAngles)}</dd>` : ''}
+        ${probe.notes ? `<dt>Notes</dt><dd>${escHtml(probe.notes)}</dd>` : ''}
       </dl>
     </div>`;
 }

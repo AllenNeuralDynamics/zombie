@@ -5,75 +5,54 @@
  * top-down PNG is rotated 90° CW so the mouse faces the running direction.
  */
 
-import { patchColor } from './theme.js';
+import { patchColor, isDarkMode, buildOdorPalette } from './theme.js';
+
+// Re-exported for existing importers (buildOdorPalette now lives in theme.js so
+// the corridor, plots and legend all share one odor→colour source of truth).
+export { buildOdorPalette };
 
 export const CW = 480;
 export const CH = 120;
-const MOUSE_X      = 140;
+// Exported so the spike-raster lane strip can scroll on the identical spatial
+// (cm) axis as the corridor: mouse/playhead fixed at MOUSE_X, PX_PER_CM zoom.
+export const MOUSE_X      = 140;
+export const PX_PER_CM    = 1.4;
 const CORR_CY      = CH / 2;
 const CORR_H       = 56;
 const CORR_Y       = CORR_CY - CORR_H / 2;
-const PX_PER_CM    = 1.4;
 const MOUSE_LEN_PX = 84;
 
 const MOUSE_Y = CORR_CY;
 
-const C = {
+const C_LIGHT = {
   bg:                 '#ffffff',
   void:               '#f3f3f3',
   patch:              '#fafafa',
+  patchFill:          '#efefef',
   corridorEdge:       '#dcdcdc',
+  triangle:           '#cccccc',
   rewardSiteRing:     '#222222',
   rewardBlue:         '#2980b9',
   rewardRed:          '#c0392b',
   siteFillUnknown:    '#ffffff',
 };
 
-const ORANGE = '#e67e22';
-const GREEN  = '#27ae60';
-const PURPLE = '#8e44ad';
-const BLUE   = '#2980b9';
-const RED    = '#c0392b';
-
-const ODOR_PALETTES = {
-  1: [ORANGE],
-  2: [ORANGE, PURPLE],
-  3: [ORANGE, GREEN, PURPLE],
-  4: [ORANGE, GREEN, BLUE, PURPLE],
-  5: [ORANGE, GREEN, BLUE, RED, PURPLE],
+const C_DARK = {
+  bg:                 '#1e1e1e',
+  void:               '#262626',
+  patch:              '#202020',
+  patchFill:          '#2a2a2a',
+  corridorEdge:       '#3a3a3a',
+  triangle:           '#555555',
+  rewardSiteRing:     '#dddddd',
+  rewardBlue:         '#3498db',
+  rewardRed:          '#e74c3c',
+  siteFillUnknown:    '#1e1e1e',
 };
-const ODOR_FALLBACK = [ORANGE, GREEN, BLUE, RED, PURPLE, '#16a085', '#d35400'];
 
-function parseOdorProb(label) {
-  if (label == null) return null;
-  const m = String(label).match(/(\d+(?:\.\d+)?)/);
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * Map<patch_label, color>. Highest odor probability gets orange, lowest gets
- * purple; middle ranks fill in with green, blue, red.
- */
-export function buildOdorPalette(sites) {
-  const labels = new Set();
-  for (const s of sites) {
-    if (s.site_label === 'InterPatch') continue;
-    if (s.patch_label != null) labels.add(s.patch_label);
-  }
-  const sorted = [...labels].sort((a, b) => {
-    const pa = parseOdorProb(a);
-    const pb = parseOdorProb(b);
-    if (pa == null && pb == null) return String(a).localeCompare(String(b));
-    if (pa == null) return 1;
-    if (pb == null) return -1;
-    return pb - pa;
-  });
-  const colors = ODOR_PALETTES[sorted.length] ?? ODOR_FALLBACK;
-  const map = new Map();
-  sorted.forEach((label, i) => {
-    map.set(label, colors[i] ?? ODOR_FALLBACK[i % ODOR_FALLBACK.length]);
-  });
-  return map;
+/** Current corridor palette — re-read on each render so theme toggles apply. */
+function corridorColors() {
+  return isDarkMode() ? C_DARK : C_LIGHT;
 }
 
 function findOutTime(s) {
@@ -164,7 +143,7 @@ export class VrfAnimation {
 
     this.t       = 0;
     this.playing = false;
-    this.speed   = 10;
+    this.speed   = 1;
 
     this.onFrame = null;
 
@@ -223,6 +202,12 @@ export class VrfAnimation {
 
   cumRewardsAt(siteIndex) { return this._cumRewards[Math.min(siteIndex, this._cumRewards.length - 1)]; }
   get totalRewards()      { return this._cumRewards[this.sites.length - 1]; }
+
+  /** Current logical (CSS) draw width — matches the corridor's visible width. */
+  get logicalW() { return this._logicalW; }
+
+  /** Mouse position (cm) at the current transport time. */
+  mousePosCm() { return this.posAt(this.t); }
 
   posAt(t) {
     const { pos_t, pos_cm } = this.traces;
@@ -307,6 +292,7 @@ export class VrfAnimation {
     const state      = this._mouseState(this.t);
 
     const W = this._logicalW;
+    const C = corridorColors();
     ctx.fillStyle = C.bg;
     ctx.fillRect(0, 0, W, CH);
 
@@ -332,6 +318,7 @@ export class VrfAnimation {
 
   _drawCorridor(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
+    const C = corridorColors();
     const startIdx = Math.max(0, firstSiteReaching(this.sites, west) - 1);
 
     for (let i = startIdx; i < this.sites.length; i++) {
@@ -347,12 +334,12 @@ export class VrfAnimation {
       if (s.site_label === 'InterPatch') {
         ctx.fillStyle = C.void;
       } else {
-        ctx.fillStyle = '#efefef';
+        ctx.fillStyle = C.patchFill;
       }
       ctx.fillRect(xLeft, CORR_Y, segW, CORR_H);
     }
 
-    ctx.fillStyle = '#cccccc';
+    ctx.fillStyle = C.triangle;
     for (const tri of this._bgTriangles) {
       if (tri.cm < west - 6 || tri.cm > east + 6) continue;
       const tx = this._cmToX(tri.cm, mousePosCm);
@@ -377,6 +364,7 @@ export class VrfAnimation {
 
   _drawSites(ctx, mousePosCm) {
     const { west, east } = this._visibleRangeCm(mousePosCm);
+    const C = corridorColors();
     const startIdx = Math.max(0, firstSiteReaching(this.sites, west) - 1);
     const nowT = this.t;
 
@@ -390,7 +378,7 @@ export class VrfAnimation {
       const xRight = Math.ceil(this._cmToX(sEast, mousePosCm));
       const segW   = Math.max(1, xRight - xLeft);
 
-      const odorColor   = patchColor(s.patch_index);
+      const odorColor   = this.odorPalette.get(s.patch_label) ?? patchColor(s.patch_index);
       const outcomeColor = s.has_reward ? C.rewardBlue : C.rewardRed;
       const foT  = this._findOut[i];
       const known = foT != null && nowT >= foT;

@@ -22,6 +22,7 @@ import {
   isForagingAcquisition,
   extractForagingSessionInfo,
 } from './dynamic-foraging.js';
+import { createSonifierBridge } from './sonifier-bridge.js';
 
 const DR_PROJECT_NAME = 'Dynamic Routing';
 const VRF_ACQUISITION_TYPE = 'AindVrForaging';
@@ -39,6 +40,7 @@ export function detectPlaybackPlatform(event) {
 
   if (isForagingAcquisition(event)) return 'dynamic_foraging';
   if (data.acquisition_type === VRF_ACQUISITION_TYPE) return 'vr_foraging';
+  if (/mfish/i.test(data._project_name ?? '') && (event.modalities ?? []).includes('behavior')) return 'mfish';
   if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
   return null;
@@ -111,6 +113,15 @@ function buildPlatformPlayer(platform, event, context, coord, extraOpts = {}) {
     return mount;
   }
 
+  if (platform === 'mfish') {
+    const rawName = event.data?._assetName ?? null;
+    if (!rawName) return null;
+    import('../../mfish/player.js')
+      .then(({ createMfishSessionPlayback }) => swap(createMfishSessionPlayback(coord, rawName, playerOpts)))
+      .catch((err) => { console.error('[playback] mFISH load failed', err); swap(null); });
+    return mount;
+  }
+
   return null;
 }
 
@@ -149,8 +160,10 @@ export function createSessionPlayback(event, context = {}) {
   const canFiber = !!(subjectId && rawAssetName && hasFiberModality);
   const hasEcephysModality = modalities.some((m) => /ecephys/i.test(String(m)));
   const canEcephys = !!(subjectId && rawAssetName && hasEcephysModality);
+  const hasPophysModality = modalities.some((m) => /pophys/i.test(String(m)));
+  const canPophys = !!(rawAssetName && hasPophysModality);
 
-  if (!platform && !canFiber && !canEcephys) return null;
+  if (!platform && !canFiber && !canEcephys && !canPophys) return null;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'session-playback-wrapper';
@@ -163,10 +176,16 @@ export function createSessionPlayback(event, context = {}) {
     for (const m of modalityMounts) m.hidden = !visible;
   };
 
+  // Bridge between the ecephys panel's Spike-Jukebox button and the corridor
+  // player's transport/DOM. Only the VRF corridor player registers itself, so
+  // the button only surfaces when a corridor is present.
+  const sonifierBridge = createSonifierBridge();
+
   let hasPlayer = false;
   if (platform) {
     const playerEl = buildPlatformPlayer(platform, event, context, coord, {
       onModalitiesVisible: setModalitiesVisible,
+      sonifierBridge,
     });
     if (playerEl) { wrapper.appendChild(playerEl); hasPlayer = true; }
   }
@@ -178,7 +197,7 @@ export function createSessionPlayback(event, context = {}) {
     modalityMounts.push(ephysMount);
     import('../../ecephys/ecephys-playback.js')
       .then(({ createEcephysPlayback }) => {
-        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName);
+        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName, sonifierBridge);
         if (hasPlayer) {
           const hr = document.createElement('hr');
           hr.className = 'session-playback-sep';
@@ -207,6 +226,24 @@ export function createSessionPlayback(event, context = {}) {
         fiberMount.appendChild(fiberEl);
       })
       .catch((err) => { console.error('[playback] fiber load failed', err); });
+  }
+
+  if (canPophys) {
+    const pophysMount = document.createElement('div');
+    pophysMount.className = 'session-playback-modality';
+    wrapper.appendChild(pophysMount);
+    modalityMounts.push(pophysMount);
+    import('../../pophys/view.js')
+      .then(({ createPophysViewer }) => {
+        const pophysEl = createPophysViewer(coord, event);
+        if (hasPlayer || canEcephys || canFiber) {
+          const hr = document.createElement('hr');
+          hr.className = 'session-playback-sep';
+          pophysMount.appendChild(hr);
+        }
+        pophysMount.appendChild(pophysEl);
+      })
+      .catch((err) => { console.error('[playback] pophys load failed', err); });
   }
 
   return wrapper;
