@@ -27,7 +27,7 @@ import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
 import structuresData from './allen_mouse_100um_v1.2/structures.json';
 import surfaceDepthData from './allen_mouse_100um_v1.2/surface_depth.json';
 import { parseTranslation } from '../lib/coord-systems.js';
-import { ITEM_COLORS } from './brain-viz.js';
+import { fiberColorByName } from './brain-viz.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
 import { vizSceneBg, onVizThemeChange } from './viz-theme.js';
 
@@ -237,7 +237,7 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 
   // ── Legend ────────────────────────────────────────────────────
   const legendLines = probes.map((p, i) => {
-    const cssHex = ITEM_COLORS[i % ITEM_COLORS.length];
+    const cssHex = fiberColorByName(p.name, i);
     return `<span style="color:${cssHex}">■</span> ${p.name} → ${p.structureName || p.structureAcronym || 'unknown'}`;
   });
   legendLines.push('<span style="color:#aaa39f">●</span> Bregma');
@@ -344,7 +344,7 @@ function _buildProbes(THREE, scene, probes) {
   for (let i = 0; i < probes.length; i++) {
     const probe = probes[i];
     const { AP, ML, Depth, angle, length, diameterMm } = probe;
-    const color = cssHexToThree(ITEM_COLORS[i % ITEM_COLORS.length]);
+    const color = cssHexToThree(fiberColorByName(probe.name, i));
     const radius = diameterMm / 2;
 
     // Negate ML so right hemisphere is on screen-right (camera looks from above, screen-right = -X world)

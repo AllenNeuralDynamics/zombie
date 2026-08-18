@@ -14,7 +14,7 @@ import {
   extractInjectionsFromSurgery,
   extractFibersFromSurgery,
 } from './parsers.js';
-import { createBrainVizCanvas } from './brain-viz.js';
+import { createBrainVizCanvas, fiberColorByName } from './brain-viz.js';
 import { extractEphysProbes } from './ephys-data.js';
 import { createInstrumentPanel } from './instrument-view.js';
 import { hasImagingConfig } from './imaging-data.js';
@@ -490,6 +490,7 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
   const labels = fibers.map((f) => f.name);
   const { canvas } = createBrainVizCanvas(points, labels, {
     title: 'Fiber Implant Locations (Top View)',
+    colors: fibers.map((f, i) => fiberColorByName(f.name, i)),
   });
 
   // Side-by-side layout: 2D canvas on left, 3D viewer on right

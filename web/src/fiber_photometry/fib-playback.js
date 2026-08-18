@@ -21,7 +21,7 @@ import { queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
 import { getResolvedVersion } from '../lib/metadata.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { ITEM_COLORS } from '../subject/brain-viz.js';
+import { FIBER_COLORS, fiberColorByName } from '../subject/brain-viz.js';
 import { createBaselineControls, buildPsthPlot as sharedPsthPlot } from '../lib/psth.js';
 import * as Plot from '@observablehq/plot';
 
@@ -250,7 +250,7 @@ async function loadSurgery(subjectId) {
 /**
  * Build a per-fiber colour/structure map keyed by numeric fiber index.
  * Colours are assigned in the same probe order used by the 3D brain viewer
- * (ITEM_COLORS[i]) so PSTH/trace borders match the implant view.
+ * (FIBER_COLORS[fiber index]) so PSTH/trace borders match the implant view.
  *
  * @returns {Map<number, {color: string, structureName: string, structureAcronym: string}>}
  */
@@ -266,7 +266,7 @@ function buildFiberColorInfo(surgery) {
     const idx = nameMatch ? Number(nameMatch[1]) : i;
     const struct = cfg.primary_targeted_structure ?? {};
     map.set(idx, {
-      color: ITEM_COLORS[i % ITEM_COLORS.length],
+      color: fiberColorByName(cfg.device_name, i),
       structureName: struct.name ?? '',
       structureAcronym: struct.acronym ?? '',
     });
@@ -274,9 +274,9 @@ function buildFiberColorInfo(surgery) {
   return map;
 }
 
-/** Colour for a fiber, falling back to the palette by ordinal position. */
+/** Colour for a fiber, falling back to the palette keyed by fiber index. */
 function fiberColor(fiberInfoMap, idx, order) {
-  return fiberInfoMap.get(idx)?.color ?? ITEM_COLORS[order % ITEM_COLORS.length];
+  return fiberInfoMap.get(idx)?.color ?? FIBER_COLORS[(Number.isFinite(idx) ? idx : order) % FIBER_COLORS.length];
 }
 
 // ---------------------------------------------------------------------------

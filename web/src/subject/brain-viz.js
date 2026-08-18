@@ -41,6 +41,38 @@ export const ITEM_COLORS = [
   '#FFEB23', // RGB 255/235/35
 ];
 
+/**
+ * Fiber photometry palette — fiber index drives the colour, so fiber 0 is
+ * always red, 1 blue, 2 purple, 3 yellow (used by the 2D top view, the 3D
+ * viewer, and the photometry trace/PSTH cards). Extra entries cover rigs with
+ * more than four fibers.
+ */
+export const FIBER_COLORS = [
+  '#FF3232', // 0 — red    RGB 255/50/50
+  '#3264FF', // 1 — blue   RGB 50/100/255
+  '#9632FF', // 2 — purple RGB 150/50/255
+  '#FFD700', // 3 — yellow RGB 255/215/0
+  '#00A59B', // RGB 0/165/155
+  '#FF00FF', // RGB 255/0/255
+  '#FF6E00', // RGB 255/110/0
+  '#CDEB05', // RGB 205/235/5
+];
+
+/**
+ * Palette colour for a fiber, keyed off the number in its device name
+ * ("Fiber_0" → red, "Fiber_1" → blue, …) so a fiber keeps the same colour in
+ * every view regardless of ordering. Falls back to positional index.
+ *
+ * @param {string} name
+ * @param {number} [fallbackIndex]
+ * @returns {string}
+ */
+export function fiberColorByName(name, fallbackIndex = 0) {
+  const m = String(name ?? '').match(/(\d+)/);
+  const i = m ? Number(m[1]) : fallbackIndex;
+  return FIBER_COLORS[i % FIBER_COLORS.length];
+}
+
 // ---------------------------------------------------------------------------
 // Pure coordinate helpers (no DOM — fully testable in Node)
 // ---------------------------------------------------------------------------
