@@ -1095,6 +1095,16 @@
   white-space: nowrap;
 }
 
+.tl-bubble-acqtype {
+  font-size: 0.63rem;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 100%;
+}
+
+
 .subject-detail-container { min-height: 60px; }
 
 /* Detail cards rendered by subject-details.js */

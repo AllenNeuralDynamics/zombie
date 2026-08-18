@@ -223,6 +223,18 @@ export function createSubjectTimeline(events, opts = {}) {
     typeEl.className = 'tl-bubble-type';
     typeEl.textContent = ev.type === 'Surgery' ? (ev.event ?? ev.type) : ev.type;
 
+    // Acquisition type sits above the date; truncated so the bubble stays one line.
+    const acqType = ev.type === 'Acquisition'
+      ? (ev.data?.acquisition_type ?? ev.data?.session_type ?? '')
+      : '';
+    let acqEl = null;
+    if (acqType) {
+      acqEl = document.createElement('span');
+      acqEl.className = 'tl-bubble-acqtype';
+      acqEl.textContent = `(${acqType.length > 12 ? `${acqType.slice(0, 11)}\u2026` : acqType})`;
+      acqEl.title = acqType;
+    }
+
     const dateEl = document.createElement('span');
     dateEl.className = 'tl-bubble-date';
     dateEl.textContent = ev.dateOnly
@@ -240,6 +252,7 @@ export function createSubjectTimeline(events, opts = {}) {
 
     bubble.appendChild(dot);
     bubble.appendChild(typeEl);
+    if (acqEl) bubble.appendChild(acqEl);
     bubble.appendChild(dateEl);
 
     if (ev.type === 'Acquisition' && ev.modalities?.length) {
