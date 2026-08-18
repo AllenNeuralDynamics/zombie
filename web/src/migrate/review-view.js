@@ -1,95 +1,93 @@
 /**
  * migrate/review-view.js — Second-actor /migrate/review page.
  *
- * Lists all pending metadata migrations from the QC portal (combined across
- * v1 and v2 DocDB), lets the user open one in a detail pane, diff the
- * proposed body against the live record, and approve as the second of two
- * required QC-portal-authenticated users. After approval the page polls
- * DocDB for ~10 seconds to confirm the upsert landed, then displays the
- * actual diff applied — without clearing the detail pane, so the reviewer
- * can close it and move on to the next pending entry.
+ * Lists metadata proposals stored on the QC portal, lets a reviewer diff one
+ * against the record it was based on, and approve it in a single click. The
+ * approval sends back the `body_hash` that was displayed, so "approved" always
+ * means "approved *this* payload"; the portal re-checks that hash, that the
+ * reviewer is not the author, and that DocDB has not moved since the proposal
+ * was made, then performs the upsert itself.
+ *
+ * If DocDB has moved, approval is refused and the reviewer is offered a
+ * rebase: the author's changed sections are re-applied onto the current record
+ * as a fresh proposal that supersedes the stale one.
  *
  * URL params:
- *   ?focus=<body_hash>  Highlights / auto-opens a specific pending entry.
+ *   ?focus=<proposal_id>  Highlights / auto-opens a specific proposal.
  */
 
 import { html } from 'htm/preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
-import { QC_PORTAL_BASE } from '../constants.js';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import { getQcUser, loginToQcPortal, logoutQcPortal } from '../lib/qc-auth.js';
 import {
-  canonicalJson,
-  clearAuthCookies,
+  approveProposal,
+  createProposal,
   deepEqual,
   diffJson,
   DiffView,
   fetchFullRecord,
-  readCookie,
+  formatProposalTime,
+  listProposals,
+  QcLoginBar,
+  rebaseOntoCurrent,
+  rejectProposal,
+  StatusPill,
   topLevelChangedSections,
+  withdrawProposal,
 } from './lib.js';
 
-const POLL_INTERVAL_MS = 10000;
-const POST_SUBMIT_DELAY_MS = 2000;
-const POST_SUBMIT_RETRIES = 5;
+const REFRESH_INTERVAL_MS = 30000;
 
-async function fetchAllPending(signal) {
-  const resp = await fetch(`${QC_PORTAL_BASE}/metadata/pending`, {
-    credentials: 'include',
-    signal,
-  });
-  if (!resp.ok) throw new Error(`QC portal pending list HTTP ${resp.status}`);
-  const body = await resp.json();
-  return Array.isArray(body?.pending) ? body.pending : [];
-}
+const FILTERS = [
+  { key: 'open', label: 'Open', status: 'open' },
+  { key: 'mine', label: 'Mine', status: 'all' },
+  { key: 'closed', label: 'Applied / rejected', status: 'applied,rejected,withdrawn,superseded' },
+  { key: 'all', label: 'All', status: 'all' },
+];
 
 export function MigrateReviewPage() {
-  const [pending, setPending] = useState([]);
+  const [filter, setFilter] = useState('open');
+  const [proposals, setProposals] = useState([]);
   const [listStatus, setListStatus] = useState('idle');
   const [listError, setListError] = useState('');
 
-  const initialFocus = useMemo(() => {
-    return new URLSearchParams(window.location.search).get('focus') ?? null;
-  }, []);
-  const [openHash, setOpenHash] = useState(initialFocus);
+  const initialFocus = useMemo(
+    () => new URLSearchParams(window.location.search).get('focus') ?? null,
+    [],
+  );
+  const [openId, setOpenId] = useState(initialFocus);
 
-  const [token, setToken] = useState(() => readCookie('qc_auth_token'));
-  const [tokenExpiresAt, setTokenExpiresAt] = useState(() => {
-    const v = readCookie('qc_auth_token_expires_at');
-    return v ? Number(v) * 1000 : null;
-  });
+  const [user, setUser] = useState(null);
+  const [authStatus, setAuthStatus] = useState('loading');
 
-  // Keep a stable map of details by body_hash so review state survives list
-  // refreshes (e.g. once an entry is upserted it disappears from /pending but
-  // we want to keep the "confirmed" detail panel open).
-  // detail entries: { entry, currentRecord, originalRecord, status, error, submitResult }
-  const [details, setDetails] = useState(/** @type {Record<string, any>} */ ({}));
+  // Per-proposal review state, keyed by proposal_id:
+  //   { live, liveStatus, liveError, action, error, drift, result }
+  const [details, setDetails] = useState({});
 
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (openHash) url.searchParams.set('focus', openHash);
+    if (openId) url.searchParams.set('focus', openId);
     else url.searchParams.delete('focus');
     history.replaceState({}, '', url);
-  }, [openHash]);
+  }, [openId]);
 
-  useEffect(() => {
-    const handler = () => {
-      const t = readCookie('qc_auth_token');
-      const exp = readCookie('qc_auth_token_expires_at');
-      setToken(t || null);
-      setTokenExpiresAt(exp ? Number(exp) * 1000 : null);
-    };
-    handler();
-    window.addEventListener('focus', handler);
-    const id = setInterval(handler, 5000);
-    return () => { window.removeEventListener('focus', handler); clearInterval(id); };
+  const refreshUser = useCallback(async () => {
+    const me = await getQcUser();
+    setUser(me?.user ?? null);
+    setAuthStatus('ready');
   }, []);
 
-  async function refreshList(signal) {
+  useEffect(() => { refreshUser(); }, [refreshUser]);
+
+  const activeFilter = FILTERS.find((f) => f.key === filter) ?? FILTERS[0];
+
+  const refreshList = useCallback(async (signal) => {
     setListStatus('loading');
     setListError('');
     try {
-      const items = await fetchAllPending(signal);
+      const items = await listProposals({ status: activeFilter.status, signal });
       if (signal?.aborted) return;
-      setPending(items);
+      setProposals(items);
       setListStatus('ready');
     } catch (err) {
       if (signal?.aborted) return;
@@ -97,469 +95,391 @@ export function MigrateReviewPage() {
       setListError(err.message || String(err));
       setListStatus('error');
     }
-  }
+  }, [activeFilter.status]);
 
   useEffect(() => {
     const ctrl = new AbortController();
     refreshList(ctrl.signal);
-    const id = setInterval(() => refreshList(ctrl.signal), POLL_INTERVAL_MS);
+    const id = setInterval(() => refreshList(ctrl.signal), REFRESH_INTERVAL_MS);
     return () => { ctrl.abort(); clearInterval(id); };
-  }, []);
+  }, [refreshList]);
 
-  // Load the current DocDB record for any newly opened detail.
+  const visible = useMemo(
+    () => (filter === 'mine' ? proposals.filter((p) => p.author === user) : proposals),
+    [filter, proposals, user],
+  );
+
+  const open = useMemo(
+    () => proposals.find((p) => p.proposal_id === openId) ?? null,
+    [proposals, openId],
+  );
+
+  // Pull the live DocDB record for whichever proposal is open, so drift is
+  // visible before the reviewer clicks anything.
   useEffect(() => {
-    if (!openHash) return undefined;
-    const entry = pending.find((p) => p.body_hash === openHash);
-    // If the entry has disappeared (e.g. already upserted) but we have a
-    // cached detail (from a previous submission), keep showing it.
-    if (!entry) return undefined;
-
-    // Avoid re-loading if we already loaded this hash.
-    const existing = details[openHash];
-    if (existing && existing.currentRecord) return undefined;
+    if (!open) return undefined;
+    const pid = open.proposal_id;
+    if (details[pid]?.live || details[pid]?.liveStatus === 'loading') return undefined;
 
     const ctrl = new AbortController();
-    setDetails((d) => ({
-      ...d,
-      [openHash]: { ...(d[openHash] ?? {}), entry, status: 'loading' },
-    }));
-
+    patchDetail(pid, { liveStatus: 'loading', liveError: '' });
     (async () => {
       try {
-        const current = await fetchFullRecord(entry.version, entry.id, ctrl.signal);
+        const live = await fetchFullRecord(open.version, open.record_id, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        setDetails((d) => ({
-          ...d,
-          [openHash]: {
-            ...(d[openHash] ?? {}),
-            entry,
-            currentRecord: current,
-            originalRecord: current,
-            status: 'ready',
-          },
-        }));
+        patchDetail(pid, { live, liveStatus: 'ready' });
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        setDetails((d) => ({
-          ...d,
-          [openHash]: {
-            ...(d[openHash] ?? {}),
-            entry,
-            status: 'load-error',
-            error: err.message || String(err),
-          },
-        }));
+        patchDetail(pid, { liveStatus: 'error', liveError: err.message || String(err) });
       }
     })();
-
     return () => ctrl.abort();
-  }, [openHash, pending]);
+  }, [open]);
 
-  function handleRequestToken(entry) {
-    if (!entry) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set('focus', entry.body_hash);
-    const tokenUrl = `${QC_PORTAL_BASE}/metadata/token`
-      + `?id=${encodeURIComponent(entry.id)}`
-      + `&redirect=${encodeURIComponent(url.toString())}`;
-    window.location.assign(tokenUrl);
+  function patchDetail(pid, patch) {
+    setDetails((d) => ({ ...d, [pid]: { ...(d[pid] ?? {}), ...patch } }));
   }
 
-  async function pollForUpsert(entry, expectedBody) {
-    for (let i = 0; i < POST_SUBMIT_RETRIES; i++) {
-      await new Promise((r) => setTimeout(r, POST_SUBMIT_DELAY_MS));
-      try {
-        const fresh = await fetchFullRecord(entry.version, entry.id);
-        if (deepEqual(fresh, expectedBody) || deepEqual(stripVolatile(fresh), stripVolatile(expectedBody))) {
-          return { matched: true, record: fresh };
-        }
-        // Last resort: capture freshest record to display even if mismatched.
-        if (i === POST_SUBMIT_RETRIES - 1) return { matched: false, record: fresh };
-      } catch (err) {
-        if (i === POST_SUBMIT_RETRIES - 1) return { matched: false, error: err };
-      }
-    }
-    return { matched: false };
+  function requireLogin() {
+    if (user) return true;
+    loginToQcPortal();
+    return false;
   }
 
-  async function handleApprove(entry) {
-    const hash = entry.body_hash;
-    if (!token) { handleRequestToken(entry); return; }
-
-    setDetails((d) => ({
-      ...d,
-      [hash]: { ...(d[hash] ?? { entry }), status: 'submitting', error: '' },
-    }));
-
+  async function handleApprove(proposal) {
+    if (!requireLogin()) return;
+    const pid = proposal.proposal_id;
+    patchDetail(pid, { action: 'approving', error: '', drift: null });
     try {
-      const url = `${QC_PORTAL_BASE}/metadata/${entry.version}?auth-token=${encodeURIComponent(token)}`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(entry.body),
-      });
-      let body;
-      try { body = await resp.json(); }
-      catch { body = { error: await resp.text().catch(() => '') }; }
-
-      if (resp.status === 401 && body?.error === 'invalid_token') {
-        // Token was rejected (typically because the QC portal restarted and
-        // its in-memory token table was wiped). Clear the dead cookie,
-        // reset detail state so the panel is retry-ready if the user lands
-        // back without a token, then bounce through re-validation.
-        clearAuthCookies();
-        setToken(null);
-        setTokenExpiresAt(null);
-        setDetails((d) => ({
-          ...d,
-          [hash]: { ...(d[hash] ?? { entry }), status: 'ready', error: '', submitResult: null },
-        }));
-        handleRequestToken(entry);
-        return;
-      }
-
-      if (!resp.ok) {
-        setDetails((d) => ({
-          ...d,
-          [hash]: {
-            ...(d[hash] ?? { entry }),
-            status: 'error',
-            submitResult: body,
-            error: `HTTP ${resp.status}: ${body?.error || body?.detail || JSON.stringify(body)}`,
-          },
-        }));
-        return;
-      }
-
-      if (body?.status === 'pending') {
-        // Should be rare on review (first submitter already counted), but
-        // possible if the original submitter approved their own request.
-        setDetails((d) => ({
-          ...d,
-          [hash]: {
-            ...(d[hash] ?? { entry }),
-            status: 'still-pending',
-            submitResult: body,
-          },
-        }));
-        return;
-      }
-
-      if (body?.status === 'failed') {
-        setDetails((d) => ({
-          ...d,
-          [hash]: {
-            ...(d[hash] ?? { entry }),
-            status: 'failed',
-            submitResult: body,
-          },
-        }));
-        return;
-      }
-
-      // status === 'submitted' — verify upsert by re-pulling.
-      setDetails((d) => ({
-        ...d,
-        [hash]: {
-          ...(d[hash] ?? { entry }),
-          status: 'verifying',
-          submitResult: body,
-        },
-      }));
-
-      const { matched, record, error } = await pollForUpsert(entry, entry.body);
-      setDetails((d) => ({
-        ...d,
-        [hash]: {
-          ...(d[hash] ?? { entry }),
-          status: matched ? 'confirmed' : 'verification-mismatch',
-          currentRecord: record ?? d[hash]?.currentRecord ?? null,
-          submitResult: body,
-          error: error ? (error.message || String(error)) : '',
-        },
-      }));
+      const result = await approveProposal(pid, proposal.body_hash);
+      patchDetail(pid, { action: 'applied', result });
+      refreshList();
     } catch (err) {
-      console.error('[migrate/review] submit failed:', err);
-      setDetails((d) => ({
-        ...d,
-        [hash]: {
-          ...(d[hash] ?? { entry }),
-          status: 'error',
-          error: err.message || String(err),
-        },
-      }));
+      console.error('[migrate/review] approve failed:', err);
+      if (err.code === 'base_drift') {
+        patchDetail(pid, {
+          action: 'drift',
+          drift: err.payload.current ?? null,
+          live: err.payload.current ?? null,
+          error: err.payload.detail || 'The DocDB record changed after this proposal was made.',
+        });
+        return;
+      }
+      if (err.code === 'not_authenticated') { loginToQcPortal(); return; }
+      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
+      if (err.code === 'not_open' || err.code === 'hash_mismatch') refreshList();
     }
   }
 
-  function handleClose(hash) {
-    if (openHash === hash) setOpenHash(null);
-    setDetails((d) => {
-      const next = { ...d };
-      delete next[hash];
-      return next;
-    });
+  async function handleReject(proposal, reason) {
+    if (!requireLogin()) return;
+    const pid = proposal.proposal_id;
+    patchDetail(pid, { action: 'rejecting', error: '' });
+    try {
+      await rejectProposal(pid, reason);
+      patchDetail(pid, { action: 'rejected' });
+      refreshList();
+    } catch (err) {
+      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
+    }
   }
 
-  const tokenLabel = token
-    ? (tokenExpiresAt ? `token valid · expires ${new Date(tokenExpiresAt).toLocaleString()}` : 'token valid')
-    : 'no token (will redirect to validate)';
+  async function handleWithdraw(proposal) {
+    if (!requireLogin()) return;
+    const pid = proposal.proposal_id;
+    patchDetail(pid, { action: 'withdrawing', error: '' });
+    try {
+      await withdrawProposal(pid);
+      patchDetail(pid, { action: 'withdrawn' });
+      refreshList();
+    } catch (err) {
+      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
+    }
+  }
+
+  async function handleRebase(proposal, live) {
+    if (!requireLogin()) return;
+    const pid = proposal.proposal_id;
+    patchDetail(pid, { action: 'rebasing', error: '' });
+    try {
+      const body = rebaseOntoCurrent(proposal.base, proposal.body, live);
+      const created = await createProposal({
+        version: proposal.version,
+        id: proposal.record_id,
+        body,
+        note: proposal.note
+          ? `${proposal.note} (rebased from ${pid})`
+          : `Rebased from ${pid}`,
+        supersedes: pid,
+      });
+      patchDetail(pid, { action: 'rebased', result: { proposal: created } });
+      setOpenId(created.proposal_id);
+      refreshList();
+    } catch (err) {
+      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
+    }
+  }
 
   return html`
     <div class="migrate-page">
-      <h1>Review pending migrations</h1>
+      <h1>Review metadata proposals</h1>
       <p class="migrate-intro">
-        Every pending metadata migration submitted via
-        <a href="/migrate/submit">/migrate/submit</a> shows up here. Open one
-        to diff the proposed change against the live DocDB record, then
-        approve as the second of two required QC-portal users. Approved
-        upserts are verified against DocDB before the panel marks them
-        confirmed.
-        <br/><span class="text-secondary">Token status: ${tokenLabel}.</span>
+        Every change submitted from <a href="/migrate/submit">/migrate/submit</a>
+        waits here until a second QC-portal user approves it. Open one to see
+        exactly what it changes, then approve — the portal writes to DocDB for
+        you, after re-checking that the record has not moved in the meantime.
+        You cannot approve your own proposal.
       </p>
+
+      <${QcLoginBar}
+        user=${user}
+        status=${authStatus}
+        onLogin=${() => loginToQcPortal()}
+        onLogout=${() => logoutQcPortal(refreshUser)}
+      />
 
       <section class="migrate-section">
         <div class="migrate-controls-row">
+          <div class="migrate-toggle" role="group" aria-label="Filter">
+            ${FILTERS.map(
+              (f) => html`
+                <button
+                  class=${`migrate-toggle-btn ${filter === f.key ? 'is-active' : ''}`}
+                  onClick=${() => setFilter(f.key)}
+                >${f.label}</button>`,
+            )}
+          </div>
           <button class="btn-secondary" onClick=${() => refreshList()}>
-            ${listStatus === 'loading' ? 'Refreshing…' : 'Refresh list'}
+            ${listStatus === 'loading' ? 'Refreshing…' : 'Refresh'}
           </button>
           <a class="btn-secondary" href="/migrate/submit">Open submit page →</a>
         </div>
-        ${listStatus === 'error'
+        ${listError
           ? html`<p class="error-banner" style="margin-top:8px">${listError}</p>`
           : null}
       </section>
 
       <section class="migrate-section">
-        <h2>Pending (${pending.length})</h2>
-        ${pending.length === 0
-          ? html`<p class="migrate-empty">${listStatus === 'loading' ? 'Loading…' : 'No pending migrations.'}</p>`
+        <h2>${activeFilter.label} (${visible.length})</h2>
+        ${visible.length === 0
+          ? html`<p class="migrate-empty">${listStatus === 'loading' ? 'Loading…' : 'Nothing here.'}</p>`
           : html`
               <div class="migrate-table-responsive">
                 <table class="data-table migrate-table">
                   <thead>
                     <tr>
-                      <th>Version</th>
+                      <th>Submitted</th>
+                      <th>Author</th>
+                      <th>DocDB</th>
                       <th>Asset</th>
-                      <th>_id</th>
                       <th>Changed sections</th>
-                      <th>Submissions</th>
-                      <th>Hash</th>
+                      <th>Status</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${pending.map((p) => {
-                      const open = openHash === p.body_hash;
-                      const detail = details[p.body_hash];
-                      const sections = detail?.originalRecord
-                        ? topLevelChangedSections(detail.originalRecord, p.body).join(', ')
-                        : '—';
-                      const name = p.body?.name ?? '—';
+                    ${visible.map((p) => {
+                      const isOpen = openId === p.proposal_id;
+                      const sections = topLevelChangedSections(p.base, p.body).join(', ') || '—';
                       return html`
                         <tr
-                          key=${p.body_hash}
-                          class=${open ? 'migrate-row-selected' : ''}
-                          onClick=${() => setOpenHash(open ? null : p.body_hash)}
+                          key=${p.proposal_id}
+                          class=${isOpen ? 'migrate-row-selected' : ''}
+                          onClick=${() => setOpenId(isOpen ? null : p.proposal_id)}
                         >
+                          <td>${formatProposalTime(p.created_at)}</td>
+                          <td>${p.author}</td>
                           <td>${p.version}</td>
-                          <td>${name}</td>
-                          <td class="migrate-id-cell">${p.id}</td>
+                          <td>${p.record_name ?? p.record_id}</td>
                           <td>${sections}</td>
-                          <td>${p.submissions}/${p.required ?? 2}</td>
-                          <td class="migrate-id-cell">${p.body_hash.slice(0, 10)}…</td>
+                          <td><${StatusPill} status=${p.status} /></td>
                           <td>
-                            <button class="btn-secondary" onClick=${(e) => { e.stopPropagation(); setOpenHash(open ? null : p.body_hash); }}>
-                              ${open ? 'Close' : 'Review'}
-                            </button>
+                            <button
+                              class="btn-secondary"
+                              onClick=${(e) => { e.stopPropagation(); setOpenId(isOpen ? null : p.proposal_id); }}
+                            >${isOpen ? 'Close' : 'Review'}</button>
                           </td>
-                        </tr>
-                      `;
+                        </tr>`;
                     })}
                   </tbody>
                 </table>
-              </div>
-            `}
+              </div>`}
       </section>
 
-      ${Object.entries(details)
-        .filter(([_, d]) => d && d.entry)
-        .map(([hash, d]) => html`
-          <${ReviewDetail}
-            key=${hash}
-            detail=${d}
-            isOpen=${openHash === hash}
-            token=${token}
-            onApprove=${() => handleApprove(d.entry)}
-            onRequestToken=${() => handleRequestToken(d.entry)}
-            onClose=${() => handleClose(hash)}
-            onCopyUrl=${() => {
-              const url = new URL(window.location.href);
-              url.searchParams.set('focus', hash);
-              navigator.clipboard.writeText(url.toString()).catch(() => {});
-            }}
-          />
-        `)}
+      ${open
+        ? html`
+            <${ReviewDetail}
+              key=${open.proposal_id}
+              proposal=${open}
+              detail=${details[open.proposal_id] ?? {}}
+              user=${user}
+              onApprove=${() => handleApprove(open)}
+              onReject=${(reason) => handleReject(open, reason)}
+              onWithdraw=${() => handleWithdraw(open)}
+              onRebase=${(live) => handleRebase(open, live)}
+              onClose=${() => setOpenId(null)}
+            />`
+        : null}
     </div>`;
 }
 
-/** Render one pending-entry detail panel. */
-function ReviewDetail({ detail, isOpen, token, onApprove, onRequestToken, onClose, onCopyUrl }) {
-  const { entry, currentRecord, originalRecord, status, error, submitResult } = detail;
+/** Detail panel for one proposal. */
+function ReviewDetail({ proposal, detail, user, onApprove, onReject, onWithdraw, onRebase, onClose }) {
+  const { live, liveStatus, liveError, action, error, result } = detail;
+  const [reason, setReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
-  const proposed = entry.body;
-  const liveDiff = useMemo(
-    () => (currentRecord ? diffJson(currentRecord, proposed) : null),
-    [currentRecord, proposed],
+  const proposedDiff = useMemo(
+    () => diffJson(proposal.base ?? null, proposal.body),
+    [proposal],
   );
-  const appliedDiff = useMemo(
-    () => (originalRecord && currentRecord && originalRecord !== currentRecord
-      ? diffJson(originalRecord, currentRecord)
-      : null),
-    [originalRecord, currentRecord],
+  // Drift is the same check the portal makes at approve time, surfaced early.
+  const drifted = Boolean(live) && proposal.status === 'open' && !deepEqual(live, proposal.base);
+  const driftDiff = useMemo(
+    () => (drifted ? diffJson(proposal.base ?? null, live) : null),
+    [drifted, proposal, live],
   );
 
-  const submitting = status === 'submitting' || status === 'verifying';
-  const isConfirmed = status === 'confirmed';
-  const isMismatched = status === 'verification-mismatch';
-  const actionLabel = !token
-    ? 'Validate token (second approver)'
-    : isConfirmed ? 'Approved ✓'
-    : submitting ? (status === 'verifying' ? 'Verifying…' : 'Submitting…')
-    : 'Approve (consume second token)';
+  const busy = ['approving', 'rejecting', 'withdrawing', 'rebasing'].includes(action);
+  const done = ['applied', 'rejected', 'withdrawn', 'rebased'].includes(action);
+  const isAuthor = Boolean(user) && user === proposal.author;
+  const closed = proposal.status !== 'open';
+
+  const approveLabel = action === 'approving' ? 'Approving…'
+    : action === 'applied' ? 'Applied ✓'
+    : user ? 'Approve & apply'
+    : 'Log in to approve';
 
   return html`
-    <section
-      class="migrate-section"
-      style=${isOpen ? '' : 'display:none'}
-    >
+    <section class="migrate-section">
       <h2>
         Review:
-        <code style="font-weight:normal">${entry.body?.name ?? entry.id}</code>
+        <code style="font-weight:normal">${proposal.record_name ?? proposal.record_id}</code>
         <span class="text-secondary" style="font-weight:400; font-size:0.85em; margin-left:8px;">
-          (${entry.version} · _id ${entry.id} · ${entry.submissions}/${entry.required ?? 2})
+          (${proposal.version} · _id ${proposal.record_id} · by ${proposal.author} ·
+          ${formatProposalTime(proposal.created_at)})
         </span>
       </h2>
 
-      ${status === 'loading'
-        ? html`<p class="loading-message">Fetching live DocDB record…</p>`
+      <div class="migrate-selected">
+        <div><strong>status:</strong> <${StatusPill} status=${proposal.status} /></div>
+        ${proposal.note ? html`<div><strong>note:</strong> ${proposal.note}</div>` : null}
+        <div><strong>changed sections:</strong>
+          ${topLevelChangedSections(proposal.base, proposal.body).join(', ') || '—'}</div>
+        <div><strong>body hash:</strong> <code>${proposal.body_hash}</code></div>
+        ${proposal.reviewer
+          ? html`<div><strong>reviewed by:</strong> ${proposal.reviewer} (${formatProposalTime(proposal.reviewed_at)})</div>`
+          : null}
+        ${proposal.reason ? html`<div><strong>reason:</strong> ${proposal.reason}</div>` : null}
+        ${proposal.superseded_by
+          ? html`<div><strong>superseded by:</strong>
+              <a href=${`/migrate/review?focus=${encodeURIComponent(proposal.superseded_by)}`}>${proposal.superseded_by}</a></div>`
+          : null}
+      </div>
+
+      <${DiffView} entries=${proposedDiff} title="What this proposal changes" />
+
+      ${liveStatus === 'loading'
+        ? html`<p class="loading-message">Checking the live DocDB record…</p>`
+        : null}
+      ${liveStatus === 'error'
+        ? html`<p class="warning-banner">Could not read the live DocDB record: ${liveError}</p>`
         : null}
 
-      ${status === 'load-error'
-        ? html`<p class="error-banner">Failed to load current DocDB record: ${error}</p>`
-        : null}
-
-      ${currentRecord
+      ${drifted
         ? html`
-            <div class="migrate-selected">
-              <div><strong>name:</strong> ${currentRecord.name ?? '—'}</div>
-              <div><strong>subject_id:</strong> ${currentRecord?.subject?.subject_id ?? '—'}</div>
-              <div><strong>changed top-level sections:</strong>
-                ${(() => {
-                  const sections = originalRecord
-                    ? topLevelChangedSections(originalRecord, proposed)
-                    : [];
-                  return sections.length ? sections.join(', ') : '—';
-                })()}
+            <div class="migrate-submit-banner migrate-failed">
+              <strong>⚠ The DocDB record changed after this proposal was made.</strong>
+              Approving is blocked so the newer record is not clobbered. Rebase to
+              re-apply the author's sections onto the current record as a new
+              proposal — which then needs its own review.
+              <${DiffView} entries=${driftDiff} title="What changed in DocDB since this proposal" />
+              <div class="migrate-submit-row">
+                <button class="btn-primary" disabled=${busy} onClick=${() => onRebase(live)}>
+                  ${action === 'rebasing' ? 'Rebasing…' : 'Rebase onto current record'}
+                </button>
               </div>
-            </div>
+            </div>`
+        : null}
 
-            <${DiffView}
-              entries=${liveDiff}
-              title="Diff of proposed body vs current DocDB record"
-            />
-
+      ${!closed
+        ? html`
             <div class="migrate-submit-row">
               <button
-                class=${`${token && !isConfirmed && !submitting ? 'btn-primary' : 'btn-secondary'} migrate-action-btn`}
-                onClick=${token ? onApprove : onRequestToken}
-                disabled=${submitting || isConfirmed}
-              >${actionLabel}</button>
-              <button class="btn-secondary" onClick=${onCopyUrl}>Copy review URL</button>
+                class="btn-primary migrate-action-btn"
+                onClick=${onApprove}
+                disabled=${busy || done || drifted || (isAuthor && Boolean(user))}
+                title=${isAuthor ? 'You submitted this proposal — someone else has to approve it' : ''}
+              >${approveLabel}</button>
+              <button class="btn-secondary" disabled=${busy || done} onClick=${() => setRejecting((v) => !v)}>
+                Reject…
+              </button>
+              ${isAuthor
+                ? html`<button class="btn-secondary" disabled=${busy || done} onClick=${onWithdraw}>Withdraw</button>`
+                : null}
+              <button
+                class="btn-secondary"
+                onClick=${() => navigator.clipboard
+                  .writeText(`${window.location.origin}/migrate/review?focus=${proposal.proposal_id}`)
+                  .catch(() => {})}
+              >Copy review URL</button>
               <button class="btn-secondary" onClick=${onClose}>Close</button>
             </div>
 
-            ${status === 'still-pending'
-              ? html`
-                  <div class="migrate-submit-banner migrate-pending">
-                    <strong>Still 1/2.</strong> The QC portal recorded your
-                    submission but a second distinct user is still required.
-                    This usually means you are the same user as the first
-                    submitter — ask a different QC-portal user to approve.
-                    <pre class="migrate-submit-detail">${JSON.stringify(submitResult, null, 2)}</pre>
-                  </div>`
+            ${isAuthor && user
+              ? html`<p class="text-secondary" style="margin-top:8px">
+                  You submitted this proposal — it needs a different QC-portal user to approve it.
+                </p>`
               : null}
 
-            ${isConfirmed
+            ${rejecting
               ? html`
-                  <div class="migrate-submit-banner migrate-success">
-                    <strong>✓ Upsert applied and confirmed.</strong>
-                    ${submitResult?.docdb_status
-                      ? html` DocDB status: ${submitResult.docdb_status}.`
-                      : null}
-                    ${appliedDiff
-                      ? html`<${DiffView} entries=${appliedDiff} title="Actual changes applied to DocDB" />`
-                      : null}
+                  <div class="migrate-note-row">
+                    <label for="migrate-reject-reason">Why are you rejecting this?</label>
+                    <input
+                      id="migrate-reject-reason"
+                      type="text"
+                      class="migrate-asset-input"
+                      placeholder="e.g. the existing value is correct — the service pull is wrong"
+                      value=${reason}
+                      onInput=${(e) => setReason(e.currentTarget.value)}
+                    />
+                    <button class="btn-secondary" disabled=${busy} onClick=${() => onReject(reason)}>
+                      ${action === 'rejecting' ? 'Rejecting…' : 'Confirm reject'}
+                    </button>
                   </div>`
-              : null}
+              : null}`
+        : html`
+            <div class="migrate-submit-row">
+              <button class="btn-secondary" onClick=${onClose}>Close</button>
+            </div>`}
 
-            ${isMismatched
-              ? html`
-                  <div class="migrate-submit-banner migrate-failed">
-                    <strong>⚠ Upsert reported success but the live record
-                    does not match the submitted body.</strong> The verification
-                    re-pull found a record but its contents differ from the
-                    approved payload. Inspect manually before closing.
-                    ${error ? html`<div>${error}</div>` : null}
-                    ${appliedDiff
-                      ? html`<${DiffView} entries=${appliedDiff} title="What actually changed in DocDB" />`
-                      : null}
-                  </div>`
-              : null}
-
-            ${status === 'failed'
-              ? html`
-                  <div class="migrate-submit-banner migrate-failed">
-                    <strong>DocDB upsert failed.</strong>
-                    ${submitResult?.docdb_status ? html` Status ${submitResult.docdb_status}.` : null}
-                    Tokens are NOT consumed; another reviewer can retry.
-                    <pre class="migrate-submit-detail">${JSON.stringify(submitResult, null, 2)}</pre>
-                  </div>`
-              : null}
-
-            ${status === 'error'
-              ? html`
-                  <div class="migrate-submit-banner migrate-error">
-                    <strong>Submission error.</strong> ${error}
-                    ${submitResult
-                      ? html`<pre class="migrate-submit-detail">${JSON.stringify(submitResult, null, 2)}</pre>`
-                      : null}
-                  </div>`
-              : null}
-          `
+      ${action === 'applied'
+        ? html`
+            <div class="migrate-submit-banner migrate-success">
+              <strong>✓ Applied to DocDB.</strong>
+              ${result?.proposal?.docdb_status ? html` DocDB status: ${result.proposal.docdb_status}.` : null}
+            </div>`
         : null}
-    </section>
-  `;
-}
 
-/** Drop fields that DocDB / pydantic models frequently rewrite (timestamps,
- * derived hashes). Keeps the verification step from spuriously reporting a
- * mismatch when the only diffs are server-rewritten metadata.
- */
-function stripVolatile(record) {
-  if (!record || typeof record !== 'object') return record;
-  const out = { ...record };
-  for (const k of ['last_modified', 'created', 'object_hash', '_id_hash']) {
-    if (k in out) delete out[k];
-  }
-  // Also strip last_modified inside nested top-level objects.
-  for (const [k, v] of Object.entries(out)) {
-    if (v && typeof v === 'object' && !Array.isArray(v) && 'last_modified' in v) {
-      const inner = { ...v };
-      delete inner.last_modified;
-      out[k] = inner;
-    }
-  }
-  // Re-canonicalize so deepEqual on the result is order-stable.
-  return JSON.parse(canonicalJson(out));
+      ${action === 'rejected'
+        ? html`<div class="migrate-submit-banner migrate-pending"><strong>Rejected.</strong></div>`
+        : null}
+
+      ${action === 'withdrawn'
+        ? html`<div class="migrate-submit-banner migrate-pending"><strong>Withdrawn.</strong></div>`
+        : null}
+
+      ${action === 'rebased'
+        ? html`
+            <div class="migrate-submit-banner migrate-pending">
+              <strong>Rebased.</strong> A new proposal has been opened against the
+              current record and still needs review.
+            </div>`
+        : null}
+
+      ${action === 'error' || (action === 'drift' && error)
+        ? html`<div class="migrate-submit-banner migrate-error"><strong>Error.</strong> ${error}</div>`
+        : null}
+    </section>`;
 }

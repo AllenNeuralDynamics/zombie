@@ -76,18 +76,20 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
   : '/metadata-viz';
 
 // ---------------------------------------------------------------------------
-// QC portal metadata-auth flow (see METADATA-AUTH.md in aind-qc-portal/dev)
+// QC portal metadata proposals API (see METADATA-AUTH.md in aind-qc-portal/dev)
 // ---------------------------------------------------------------------------
 
 /**
- * Base URL for the QC portal hosting the two-party metadata-auth endpoints:
- *   GET  /metadata/token?id=<id>&redirect=<url>
- *   POST /metadata/v1?auth-token=<token>
- *   POST /metadata/v2?auth-token=<token>
+ * Base URL for the QC portal hosting the two-party metadata proposals flow:
+ *   GET    /metadata/login?redirect=<url>   (top-level navigation)
+ *   GET    /metadata/me
+ *   GET    /metadata/proposals[?status=…]
+ *   POST   /metadata/proposals
+ *   POST   /metadata/proposals/<id>/approve|reject
+ *   DELETE /metadata/proposals/<id>
  *
- * The token cookies (`qc_auth_token`, `qc_auth_token_expires_at`) are set
- * on `.allenneuraldynamics.org`, so the migrate page only works when served
- * from an `*.allenneuraldynamics.org` host.
+ * The session cookie is HttpOnly on `.allenneuraldynamics.org`, so the migrate
+ * pages only work when served from an `*.allenneuraldynamics.org` host.
  */
 export const QC_PORTAL_BASE = 'https://qc.allenneuraldynamics.org';
 

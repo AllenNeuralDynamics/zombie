@@ -2264,8 +2264,20 @@
 }
 
 
-/* ---- Migrate: QC portal login button (right-aligned in controls row) ---- */
-.migrate-control-right { margin-left: auto; align-items: flex-end; }
+/* ---- Migrate: QC portal login state ---- */
+.migrate-login-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: 6px;
+  background: var(--surface-card);
+  font-size: 0.85rem;
+}
+.migrate-login-bar button { margin-left: auto; }
 .migrate-login-btn {
   display: inline-flex;
   align-items: center;
@@ -2282,13 +2294,46 @@
   transition: background 0.15s;
 }
 .migrate-login-btn:hover { background: color-mix(in srgb, var(--color-green) 85%, black); }
-.migrate-login-btn.is-logged-in,
 .migrate-login-btn:disabled {
   background: var(--text-secondary);
   color: #fff;
   cursor: default;
   opacity: 0.7;
 }
+
+/* ---- Migrate: proposal status pill + reviewer note field ---- */
+.migrate-status-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: color-mix(in srgb, var(--text-secondary) 20%, transparent);
+  color: var(--text-secondary);
+}
+.migrate-status-pill.is-open {
+  background: color-mix(in srgb, var(--color-yellow) 20%, transparent);
+  color: var(--color-yellow);
+}
+.migrate-status-pill.is-applied {
+  background: color-mix(in srgb, var(--color-green) 20%, transparent);
+  color: var(--color-green);
+}
+.migrate-status-pill.is-rejected {
+  background: color-mix(in srgb, var(--color-red) 20%, transparent);
+  color: var(--color-red);
+}
+.migrate-note-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+.migrate-note-row label { font-size: 0.85rem; color: var(--text-secondary); }
+.migrate-note-row .migrate-asset-input { flex: 1; min-width: 260px; }
 
 /* ── exaspim morphology: 3D/2D mode + projection-plane toggles ───────────── */
 

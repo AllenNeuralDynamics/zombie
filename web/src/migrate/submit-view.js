@@ -1,22 +1,26 @@
 /**
  * migrate/submit-view.js — First-actor /migrate/submit page.
  *
- * Replaces the old single-page MigratePage. Key change: the DocDB version
- * (where the record lives) and the metadata-service version (where the
- * proposed replacement section is pulled from) are now independent. A v1
- * record can be patched with v2 subject/procedures data and vice versa.
+ * Pick an asset, pick where the replacement section comes from, look at the
+ * diff, submit it for review. The DocDB version (where the record lives) and
+ * the metadata-service version (where the proposed replacement section is
+ * pulled from) are independent: a v1 record can be patched with v2
+ * subject/procedures data and vice versa.
+ *
+ * Submitting stores a *proposal* on the QC portal (see METADATA-AUTH.md in
+ * aind-qc-portal). Nothing is written to DocDB until a second QC-portal user
+ * approves it on /migrate/review.
  *
  * URL params kept in sync:
  *   ?dbDocdb=v1|v2  ?dbSvc=v1|v2  ?id=<asset id or name>  ?endpoint=subject|procedures
  */
 
 import { html } from 'htm/preact';
-import { useEffect, useMemo, useState } from 'preact/hooks';
-import { QC_PORTAL_BASE } from '../constants.js';
+import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
+import { getQcUser, loginToQcPortal, logoutQcPortal } from '../lib/qc-auth.js';
 import {
-  clearAuthCookies,
   clearMetadataCache,
-  deepEqual,
+  createProposal,
   diffJson,
   DB_VERSIONS,
   DiffView,
@@ -27,7 +31,7 @@ import {
   getAtPath,
   lookupIdForEndpoint,
   lookupLabelForEndpoint,
-  readCookie,
+  QcLoginBar,
   setAtPath,
 } from './lib.js';
 
@@ -63,14 +67,14 @@ export function MigrateSubmitPage() {
   const [serviceWarning, setServiceWarning] = useState(null);
   const [cacheHit, setCacheHit] = useState(false);
 
-  const [token, setToken] = useState(() => readCookie('qc_auth_token'));
-  const [tokenExpiresAt, setTokenExpiresAt] = useState(() => {
-    const v = readCookie('qc_auth_token_expires_at');
-    return v ? Number(v) * 1000 : null;
-  });
+  const [user, setUser] = useState(null);
+  const [authStatus, setAuthStatus] = useState('loading');
+
   const [submitState, setSubmitState] = useState('idle');
-  const [submitResult, setSubmitResult] = useState(null);
+  const [proposal, setProposal] = useState(null);
   const [submitError, setSubmitError] = useState('');
+  const [duplicateId, setDuplicateId] = useState(null);
+  const [note, setNote] = useState('');
 
   const [originalRecord, setOriginalRecord] = useState(null);
 
@@ -95,18 +99,13 @@ export function MigrateSubmitPage() {
     history.replaceState({}, '', url);
   }, [dbDocdb, dbSvc, selectedId, endpoint]);
 
-  useEffect(() => {
-    const handler = () => {
-      const t = readCookie('qc_auth_token');
-      const exp = readCookie('qc_auth_token_expires_at');
-      setToken(t || null);
-      setTokenExpiresAt(exp ? Number(exp) * 1000 : null);
-    };
-    handler();
-    window.addEventListener('focus', handler);
-    const id = setInterval(handler, 5000);
-    return () => { window.removeEventListener('focus', handler); clearInterval(id); };
+  const refreshUser = useCallback(async () => {
+    const me = await getQcUser();
+    setUser(me?.user ?? null);
+    setAuthStatus('ready');
   }, []);
+
+  useEffect(() => { refreshUser(); }, [refreshUser]);
 
   useEffect(() => {
     if (!selectedId || !endpoint) {
@@ -126,8 +125,9 @@ export function MigrateSubmitPage() {
     setCandidate(null);
     setEditing(false);
     setSubmitState('idle');
-    setSubmitResult(null);
+    setProposal(null);
     setSubmitError('');
+    setDuplicateId(null);
 
     (async () => {
       try {
@@ -197,112 +197,42 @@ export function MigrateSubmitPage() {
       : null;
   }, [isEdit, editing, parsedEdit, originalRecord, currentRecord, candidate, targetPath]);
 
-  const finalDiff = useMemo(
-    () => (!isEdit && originalRecord && currentRecord && originalRecord !== currentRecord && targetPath
-      ? diffJson(getAtPath(originalRecord, targetPath) ?? null, getAtPath(currentRecord, targetPath) ?? null)
-      : null),
-    [isEdit, originalRecord, currentRecord, targetPath],
-  );
-
-  useEffect(() => {
-    if (submitState !== 'pending') return undefined;
-    const id = setInterval(async () => {
-      try {
-        const fresh = await fetchFullRecord(dbDocdb, selectedId);
-        const applied = isEdit
-          ? merged && deepEqual(fresh, merged)
-          : candidate != null && targetPath && deepEqual(getAtPath(fresh, targetPath) ?? null, candidate);
-        if (applied) {
-          setCurrentRecord(fresh);
-          setSubmitState('submitted');
-          setSubmitResult((r) => r || { status: 'submitted', detected_via: 'polling' });
-        }
-      } catch (err) {
-        console.debug('[migrate/submit] poll failed:', err.message);
-      }
-    }, 10000);
-    return () => clearInterval(id);
-  }, [submitState, dbDocdb, selectedId, candidate, targetPath, isEdit, merged]);
-
   function handleFetch() {
     const name = assetInput.trim();
     if (!name) return;
     setSubmitState('idle');
-    setSubmitResult(null);
+    setProposal(null);
     setSubmitError('');
+    setDuplicateId(null);
     setOriginalRecord(null);
     setSelectedId(name);
   }
 
-  function handleRequestToken() {
-    const id = currentRecord?._id ?? selectedId;
-    if (!id) return;
-    const here = window.location.href;
-    const url = `${QC_PORTAL_BASE}/metadata/token`
-      + `?id=${encodeURIComponent(id)}`
-      + `&redirect=${encodeURIComponent(here)}`;
-    window.location.assign(url);
-  }
-
   async function handleSubmit() {
-    if (!token || !merged) return;
+    if (!merged) return;
     setSubmitState('submitting');
-    setSubmitResult(null);
     setSubmitError('');
+    setDuplicateId(null);
     try {
-      const url = `${QC_PORTAL_BASE}/metadata/${dbDocdb}?auth-token=${encodeURIComponent(token)}`;
-      const resp = await fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(merged),
+      const created = await createProposal({
+        version: dbDocdb,
+        id: merged._id ?? selectedId,
+        body: merged,
+        note,
       });
-      let body;
-      try { body = await resp.json(); }
-      catch { body = { error: await resp.text().catch(() => '') }; }
-
-      if (resp.status === 401 && body?.error === 'invalid_token') {
-        // Token was rejected (typically because the QC portal restarted and
-        // its in-memory token table was wiped). Clear the dead cookie,
-        // reset state so the page is in a clean retry-ready state if the
-        // user lands back without a token, then bounce through the
-        // re-validation redirect.
-        clearAuthCookies();
-        setToken(null);
-        setTokenExpiresAt(null);
-        setSubmitState('idle');
-        setSubmitResult(null);
-        setSubmitError('');
-        handleRequestToken();
-        return;
-      }
-
-      if (!resp.ok) {
-        setSubmitState('error');
-        setSubmitResult(body);
-        setSubmitError(`HTTP ${resp.status}: ${body?.error || body?.detail || JSON.stringify(body)}`);
-        return;
-      }
-
-      setSubmitResult(body);
-      if (body?.status === 'pending') {
-        setSubmitState('pending');
-      } else if (body?.status === 'submitted') {
-        setSubmitState('submitted');
-        try {
-          const fresh = await fetchFullRecord(dbDocdb, selectedId);
-          setCurrentRecord(fresh);
-        } catch { /* ignore */ }
-      } else if (body?.status === 'failed') {
-        setSubmitState('failed');
-      } else {
-        setSubmitState('error');
-        setSubmitError('Unexpected response from QC portal.');
-      }
+      setProposal(created);
+      setSubmitState('submitted');
     } catch (err) {
       console.error('[migrate/submit] submit failed:', err);
+      if (err.code === 'not_authenticated') {
+        loginToQcPortal();
+        return;
+      }
+      if (err.code === 'duplicate_proposal') {
+        setDuplicateId(err.payload.proposal_id ?? null);
+      }
       setSubmitState('error');
-      setSubmitError(err.message || String(err));
+      setSubmitError(err.payload?.detail || err.message || String(err));
     }
   }
 
@@ -322,11 +252,11 @@ export function MigrateSubmitPage() {
     setEditing(true);
   }
 
-  const tokenLabel = token
-    ? (tokenExpiresAt
-        ? `Submit (token expires ${new Date(tokenExpiresAt).toLocaleString()})`
-        : 'Submit')
-    : 'Validate token';
+  const noChanges = sectionDiff != null && sectionDiff.length === 0;
+  const submitDisabled = (isEdit && editing)
+    || noChanges
+    || submitState === 'submitting'
+    || submitState === 'submitted';
 
   return html`
     <div class="migrate-page">
@@ -341,10 +271,18 @@ export function MigrateSubmitPage() {
         and merged into <code>data_description</code>. Or pick <code>Edit</code>
         to change any fields by hand. The DocDB and metadata-service versions are
         independent — you can pull v2 metadata into a v1 record, or vice versa.
-        Once submitted, the proposed change is visible publicly on the
+        Nothing is written to DocDB when you submit: the proposal is stored on
+        the QC portal and shown publicly on the
         <a href="/migrate/review">review page</a> until a second QC-portal user
         approves it.
       </p>
+
+      <${QcLoginBar}
+        user=${user}
+        status=${authStatus}
+        onLogin=${() => loginToQcPortal()}
+        onLogout=${() => logoutQcPortal(refreshUser)}
+      />
 
       <section class="migrate-section">
         <div class="migrate-controls-row">
@@ -388,13 +326,6 @@ export function MigrateSubmitPage() {
                 onClick=${() => setEndpoint(EDIT)}
               >Edit</button>
             </div>
-          </div>
-          <div class="migrate-control migrate-control-right">
-            <label>QC portal</label>
-            <${QcLoginButton}
-              token=${token}
-              assetName=${currentRecord?.name ?? assetInput.trim() ?? selectedId}
-            />
           </div>
         </div>
       </section>
@@ -504,55 +435,45 @@ export function MigrateSubmitPage() {
                             title=${`Proposed changes to '${endpoint}' (DocDB ${dbDocdb} ← metadata-service ${dbSvc})`}
                           />`}
 
+                    ${submitState !== 'submitted' && !noChanges
+                      ? html`
+                          <div class="migrate-note-row">
+                            <label for="migrate-note">Note for the reviewer (optional)</label>
+                            <input
+                              id="migrate-note"
+                              type="text"
+                              class="migrate-asset-input"
+                              placeholder="Why this change is right…"
+                              value=${note}
+                              onInput=${(e) => setNote(e.currentTarget.value)}
+                            />
+                          </div>`
+                      : null}
+
                     <div class="migrate-submit-row">
                       <button
-                        class=${`${token ? 'btn-primary' : 'btn-secondary'} migrate-action-btn`}
-                        onClick=${token ? handleSubmit : handleRequestToken}
-                        disabled=${(isEdit && editing)
-                          || (sectionDiff && sectionDiff.length === 0)
-                          || submitState === 'submitting'
-                          || submitState === 'submitted'
-                          || submitState === 'pending'}
-                      >${submitState === 'submitting' ? 'Submitting…' : tokenLabel}</button>
+                        class="btn-primary migrate-action-btn"
+                        onClick=${user ? handleSubmit : () => loginToQcPortal()}
+                        disabled=${submitDisabled}
+                      >${submitState === 'submitting' ? 'Submitting…'
+                        : user ? 'Submit for review'
+                        : 'Log in to submit'}</button>
                       <button class="btn-secondary" onClick=${handleCopyUrl}>Copy shareable URL</button>
                       <a class="btn-secondary" href="/migrate/review">Open review queue →</a>
                     </div>
 
-                    ${submitState === 'pending'
+                    ${submitState === 'submitted' && proposal
                       ? html`
                           <div class="migrate-submit-banner migrate-pending">
-                            <strong>1/2 — submitted; awaiting second approver.</strong>
-                            ${submitResult?.expires_at
-                              ? html` Token expires ${new Date(submitResult.expires_at * 1000).toLocaleString()}.`
-                              : null}
-                            The pending request now appears on the
-                            <a href="/migrate/review">review page</a> for any QC-portal user.
-                            <div class="migrate-pending-poll">Polling DocDB every 10s to detect upsert…</div>
-                          </div>`
-                      : null}
-
-                    ${submitState === 'submitted'
-                      ? html`
-                          <div class="migrate-submit-banner migrate-success">
-                            <strong>✓ Upsert applied.</strong>
-                            ${submitResult?.docdb_status
-                              ? html` DocDB status: ${submitResult.docdb_status}.`
-                              : null}
-                            ${finalDiff
-                              ? html`<${DiffView} entries=${finalDiff} title="Final change applied to DocDB" />`
-                              : null}
-                          </div>`
-                      : null}
-
-                    ${submitState === 'failed'
-                      ? html`
-                          <div class="migrate-submit-banner migrate-failed">
-                            <strong>DocDB upsert failed.</strong>
-                            ${submitResult?.docdb_status
-                              ? html` Status ${submitResult.docdb_status}.`
-                              : null}
-                            Tokens are NOT consumed; retry from the review page.
-                            <pre class="migrate-submit-detail">${JSON.stringify(submitResult, null, 2)}</pre>
+                            <strong>Submitted for review.</strong> Nothing has been
+                            written to DocDB yet — a second QC-portal user has to
+                            approve it. Send them this link:
+                            ${' '}<a href=${`/migrate/review?focus=${encodeURIComponent(proposal.proposal_id)}`}>
+                              /migrate/review?focus=${proposal.proposal_id}
+                            </a>
+                            <div class="migrate-pending-poll">
+                              Body hash <code>${proposal.body_hash?.slice(0, 12)}…</code>
+                            </div>
                           </div>`
                       : null}
 
@@ -560,8 +481,8 @@ export function MigrateSubmitPage() {
                       ? html`
                           <div class="migrate-submit-banner migrate-error">
                             <strong>Submission error.</strong> ${submitError}
-                            ${submitResult
-                              ? html`<pre class="migrate-submit-detail">${JSON.stringify(submitResult, null, 2)}</pre>`
+                            ${duplicateId
+                              ? html` <a href=${`/migrate/review?focus=${encodeURIComponent(duplicateId)}`}>Open the existing proposal →</a>`
                               : null}
                           </div>`
                       : null}
@@ -570,14 +491,4 @@ export function MigrateSubmitPage() {
             </section>`
         : null}
     </div>`;
-}
-
-function QcLoginButton({ token, assetName }) {
-  const loggedIn = Boolean(token);
-  const next = assetName ? `/view?name=${encodeURIComponent(assetName)}` : '/';
-  const href = `${QC_PORTAL_BASE}/login?next=${encodeURIComponent(next)}`;
-  if (loggedIn) {
-    return html`<button class="migrate-login-btn is-logged-in" disabled>Logged in</button>`;
-  }
-  return html`<a class="migrate-login-btn" href=${href} target="_blank" rel="noopener noreferrer">Login</a>`;
 }

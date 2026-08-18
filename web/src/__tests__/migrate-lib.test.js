@@ -5,8 +5,10 @@
  * runtime and a network); these tests cover the pure helpers.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { QC_PORTAL_BASE } from '../constants.js';
 import {
+  approveProposal,
   buildMergedRecord,
   canonicalJson,
   deepEqual,
@@ -15,7 +17,11 @@ import {
   formatDiffValue,
   getAtPath,
   lookupIdForEndpoint,
+  createProposal,
+  listProposals,
   normalizeServiceSection,
+  QcError,
+  rebaseOntoCurrent,
   setAtPath,
   topLevelChangedSections,
 } from '../migrate/lib.js';
@@ -283,5 +289,112 @@ describe('normalizeServiceSection', () => {
 
   it('returns an empty investigators list when v1 funding has no investigators string', () => {
     expect(normalizeServiceSection('investigators', 'v1', { grant_number: 'G1' })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rebaseOntoCurrent
+// ---------------------------------------------------------------------------
+
+describe('rebaseOntoCurrent', () => {
+  const base = { _id: 'x', subject: { id: '1' }, procedures: { list: [1] }, notes: 'a' };
+  const proposed = { _id: 'x', subject: { id: '2' }, procedures: { list: [1] }, notes: 'a' };
+
+  it("keeps the current record's untouched sections", () => {
+    const current = { ...base, notes: 'edited elsewhere' };
+    expect(rebaseOntoCurrent(base, proposed, current)).toEqual({
+      _id: 'x', subject: { id: '2' }, procedures: { list: [1] }, notes: 'edited elsewhere',
+    });
+  });
+
+  it('re-applies every section the proposal changed', () => {
+    const current = { ...base, subject: { id: '9' } };
+    expect(rebaseOntoCurrent(base, proposed, current).subject).toEqual({ id: '2' });
+  });
+
+  it('propagates a section the proposal removed', () => {
+    const removing = { _id: 'x', procedures: { list: [1] }, notes: 'a' };
+    const current = { ...base, notes: 'b' };
+    const out = rebaseOntoCurrent(base, removing, current);
+    expect('subject' in out).toBe(false);
+    expect(out.notes).toBe('b');
+  });
+
+  it('falls back to the proposed body when there is nothing to rebase onto', () => {
+    expect(rebaseOntoCurrent(null, proposed, null)).toBe(proposed);
+    expect(rebaseOntoCurrent(base, null, {})).toBe(null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proposals API client
+// ---------------------------------------------------------------------------
+
+function mockFetch(status, body) {
+  const fetchMock = vi.fn(async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => body,
+  }));
+  globalThis.fetch = fetchMock;
+  return fetchMock;
+}
+
+describe('proposals API client', () => {
+  afterEach(() => { vi.restoreAllMocks(); delete globalThis.fetch; });
+
+  it('creates a proposal with credentials and a JSON body', async () => {
+    const proposal = { proposal_id: 'p1', body_hash: 'abc' };
+    const fetchMock = mockFetch(201, { proposal });
+
+    const out = await createProposal({ version: 'v2', id: 'rec', body: { _id: 'rec' }, note: 'why' });
+
+    expect(out).toEqual(proposal);
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${QC_PORTAL_BASE}/metadata/proposals`);
+    expect(opts.method).toBe('POST');
+    expect(opts.credentials).toBe('include');
+    expect(JSON.parse(opts.body)).toEqual({ version: 'v2', id: 'rec', body: { _id: 'rec' }, note: 'why' });
+  });
+
+  it('sends the reviewed hash on approve', async () => {
+    const fetchMock = mockFetch(200, { status: 'applied' });
+    await approveProposal('p1', 'hash-1');
+    const [url, opts] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${QC_PORTAL_BASE}/metadata/proposals/p1/approve`);
+    expect(JSON.parse(opts.body)).toEqual({ body_hash: 'hash-1' });
+  });
+
+  it('defaults the queue to open proposals', async () => {
+    const fetchMock = mockFetch(200, { proposals: [{ proposal_id: 'p1' }] });
+    const out = await listProposals();
+    expect(out).toHaveLength(1);
+    expect(fetchMock.mock.calls[0][0]).toContain('status=open');
+  });
+
+  it('returns an empty queue when the portal sends no list', async () => {
+    mockFetch(200, {});
+    expect(await listProposals()).toEqual([]);
+  });
+
+  it('raises QcError carrying the portal error code and payload', async () => {
+    mockFetch(409, { error: 'base_drift', detail: 'record moved', current: { _id: 'rec' } });
+    await expect(approveProposal('p1', 'hash-1')).rejects.toMatchObject({
+      name: 'QcError',
+      status: 409,
+      code: 'base_drift',
+      message: 'record moved',
+    });
+  });
+
+  it('falls back to an http_<status> code when the body is not JSON', async () => {
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      json: async () => { throw new Error('not json'); },
+    }));
+    const err = await approveProposal('p1', 'h').catch((e) => e);
+    expect(err).toBeInstanceOf(QcError);
+    expect(err.code).toBe('http_500');
   });
 });

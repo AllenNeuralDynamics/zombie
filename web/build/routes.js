@@ -145,7 +145,7 @@ export const ROUTES = [
   }),
   page({
     route: '/migrate/review', html: 'migrate/review.html', inputKey: 'migrate_review',
-    header: { sub: 'review pending migrations' },
+    header: { sub: 'review metadata proposals' },
   }),
   page({
     route: '/coordinate-system-builder', html: 'coordinate-system-builder.html',

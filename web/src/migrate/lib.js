@@ -2,11 +2,13 @@
  * migrate/lib.js — Shared helpers + components for the /migrate/* pages.
  *
  * Pure helpers (canonicalJson, deepEqual, diffJson, …) are exported for
- * unit testing. Network helpers wrap DocDB queries and the internal
- * aind-metadata-service, with a 24h localStorage cache on service responses.
+ * unit testing. Network helpers wrap DocDB queries, the internal
+ * aind-metadata-service (with a 24h localStorage cache on service responses),
+ * and the QC portal's proposals API.
  */
 
 import { html } from 'htm/preact';
+import { QC_PORTAL_BASE } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
 
 export const DOCDB_BASES = {
@@ -71,29 +73,6 @@ export function lookupLabelForEndpoint(endpoint) {
 // ---------------------------------------------------------------------------
 // Pure helpers — exported for unit testing
 // ---------------------------------------------------------------------------
-
-export function readCookie(name) {
-  const parts = (document.cookie || '').split('; ');
-  for (const part of parts) {
-    if (part.startsWith(`${name}=`)) return decodeURIComponent(part.slice(name.length + 1));
-  }
-  return null;
-}
-
-/** Clear the QC-portal auth cookies locally. The cookies are set on
- * `.allenneuraldynamics.org`, so we have to delete them with the matching
- * Domain attribute (an undated attempt without Domain is also issued in case
- * a previous deploy set them host-only). Used after the QC portal returns
- * `401 invalid_token` so the UI reverts to the "Validate token" flow.
- */
-export function clearAuthCookies() {
-  const names = ['qc_auth_token', 'qc_auth_token_expires_at'];
-  const expired = 'expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
-  for (const name of names) {
-    document.cookie = `${name}=; ${expired}; domain=.allenneuraldynamics.org; secure; samesite=none`;
-    document.cookie = `${name}=; ${expired}`;
-  }
-}
 
 export function canonicalJson(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -237,6 +216,26 @@ export function normalizeServiceSection(endpoint, db, payload) {
   return payload;
 }
 
+/**
+ * Re-apply a proposal's intent onto a record that has moved on.
+ *
+ * Rebasing is deliberately coarse: every top-level section the author changed
+ * (`base` → `proposed`) is copied onto `current`, and every other section is
+ * taken from `current`. That keeps the result predictable — a reviewer can see
+ * exactly which sections the proposal owns — and the rebased body still goes
+ * through a full review before it is applied.
+ */
+export function rebaseOntoCurrent(base, proposed, current) {
+  if (!proposed) return null;
+  if (!base || !current) return proposed;
+  const out = { ...current };
+  for (const key of topLevelChangedSections(base, proposed)) {
+    if (key in proposed) out[key] = proposed[key];
+    else delete out[key];
+  }
+  return out;
+}
+
 /** Find the top-level fields that differ between two records — useful for
  * giving reviewers a quick summary of which sections a pending migration touches.
  */
@@ -325,6 +324,133 @@ export async function fetchMetadataServiceSection(db, endpoint, lookupId, signal
   const data = normalizeServiceSection(endpoint, db, payload);
   writeMetadataCache(cacheKey, data, warning);
   return { data, warning, fromCache: false };
+}
+
+// ---------------------------------------------------------------------------
+// Proposals API (QC portal) — see METADATA-AUTH.md in aind-qc-portal
+// ---------------------------------------------------------------------------
+
+/**
+ * Error carrying the QC portal's structured JSON body. `code` is the portal's
+ * machine-readable `error` field ('self_approval', 'base_drift', …) and
+ * `payload` the whole response, so callers can act on e.g. `payload.current`
+ * for a drifted record.
+ */
+export class QcError extends Error {
+  constructor(status, payload) {
+    const code = payload?.error || `http_${status}`;
+    super(payload?.detail || code);
+    this.name = 'QcError';
+    this.status = status;
+    this.code = code;
+    this.payload = payload ?? {};
+  }
+}
+
+async function qcFetch(path, { method = 'GET', body, signal } = {}) {
+  const resp = await fetch(`${QC_PORTAL_BASE}${path}`, {
+    method,
+    credentials: 'include',
+    signal,
+    ...(body === undefined
+      ? {}
+      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  });
+  let parsed = null;
+  try { parsed = await resp.json(); } catch { /* empty or non-JSON body */ }
+  if (!resp.ok) throw new QcError(resp.status, parsed);
+  return parsed;
+}
+
+/** List proposals. `status` accepts 'open', 'all', or a comma-separated list. */
+export async function listProposals({ status = 'open', version, id, signal } = {}) {
+  const params = new URLSearchParams({ status });
+  if (version) params.set('version', version);
+  if (id) params.set('id', id);
+  const body = await qcFetch(`/metadata/proposals?${params}`, { signal });
+  return Array.isArray(body?.proposals) ? body.proposals : [];
+}
+
+/** Fetch one proposal by id. */
+export async function getProposal(proposalId, signal) {
+  const body = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}`, { signal });
+  return body?.proposal ?? null;
+}
+
+/** Create a proposal. Throws QcError('duplicate_proposal' | 'no_changes' | …). */
+export async function createProposal({ version, id, body, note, supersedes }) {
+  const resp = await qcFetch('/metadata/proposals', {
+    method: 'POST',
+    body: { version, id, body, note: note ?? '', ...(supersedes ? { supersedes } : {}) },
+  });
+  return resp?.proposal ?? null;
+}
+
+/**
+ * Approve a proposal as the second actor. `bodyHash` must be the hash that was
+ * displayed to the reviewer — that is what makes the approval mean "I approve
+ * *this* payload".
+ */
+export async function approveProposal(proposalId, bodyHash) {
+  return qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/approve`, {
+    method: 'POST',
+    body: { body_hash: bodyHash },
+  });
+}
+
+/** Reject a proposal with a reason. */
+export async function rejectProposal(proposalId, reason) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/reject`, {
+    method: 'POST',
+    body: { reason: reason ?? '' },
+  });
+  return resp?.proposal ?? null;
+}
+
+/** Withdraw one's own open proposal. */
+export async function withdrawProposal(proposalId) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}`, {
+    method: 'DELETE',
+  });
+  return resp?.proposal ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Shared components
+// ---------------------------------------------------------------------------
+
+/**
+ * Login state for the QC portal, shown on both migrate pages so it is always
+ * obvious whether an action will work before the user tries it.
+ */
+export function QcLoginBar({ user, status, onLogin, onLogout }) {
+  if (status === 'loading') {
+    return html`<div class="migrate-login-bar"><span class="text-secondary">Checking QC-portal login…</span></div>`;
+  }
+  if (!user) {
+    return html`
+      <div class="migrate-login-bar">
+        <span class="text-secondary">Not logged in to the QC portal — you can browse, but not submit or approve.</span>
+        <button class="migrate-login-btn" onClick=${onLogin}>Log in</button>
+      </div>`;
+  }
+  return html`
+    <div class="migrate-login-bar">
+      <span>Logged in to the QC portal as <strong>${user}</strong></span>
+      <button class="btn-secondary" onClick=${onLogout}>Log out</button>
+    </div>`;
+}
+
+/** Short label for a proposal status, colour-coded by outcome. */
+export function StatusPill({ status }) {
+  return html`<span class=${`migrate-status-pill is-${status}`}>${status}</span>`;
+}
+
+/** Format an ISO timestamp for the queue table; falls back to the raw string. */
+export function formatProposalTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
 // ---------------------------------------------------------------------------
