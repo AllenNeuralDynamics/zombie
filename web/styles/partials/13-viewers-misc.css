@@ -151,22 +151,23 @@
   transform: rotate(-90deg);
 }
 
-/* Syntax colours */
+/* Syntax colours — keep raw values in plain text for readability; only
+   null/empty placeholders get the muted grey treatment. */
 .json-key {
-  color: var(--accent);
+  color: var(--text-primary);
   font-weight: 500;
 }
 
 .json-string {
-  color: var(--success, var(--color-green));
+  color: var(--text-primary);
 }
 
 .json-number {
-  color: var(--warning, var(--color-yellow));
+  color: var(--text-primary);
 }
 
 .json-bool {
-  color: var(--purple, var(--ai-violet));
+  color: var(--text-primary);
 }
 
 .json-null {
