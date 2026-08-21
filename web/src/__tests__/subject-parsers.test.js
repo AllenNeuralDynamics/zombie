@@ -157,6 +157,15 @@ describe('parseAcquisition', () => {
     expect(Array.isArray(ev.modalities)).toBe(true);
   });
 
+  it('preserves string modality abbreviations from asset_basics', () => {
+    const ev = parseAcquisition({
+      acquisition_start_time: '2025-06-01T10:00:00Z',
+      acquisition_end_time: '2025-06-01T14:00:00Z',
+      _modalities: ['pophys', 'behavior-videos'],
+    });
+    expect(ev.modalities).toEqual(['pophys', 'behavior-videos']);
+  });
+
   it('includes protocol in label when present', () => {
     const ev = parseAcquisition({
       acquisition_start_time: '2025-06-01T10:00:00Z',

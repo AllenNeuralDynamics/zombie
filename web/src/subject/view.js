@@ -121,11 +121,19 @@ export function organizeSubjectData(records, subjectId) {
     }
 
     // Acquisitions — store asset name alongside acquisition data.
-    // Derived assets are excluded: they duplicate the source raw acquisition on
-    // the timeline and cause overlapping bubbles.
+    //
+    // Do not use data_level alone to identify timeline children.  The cache can
+    // legitimately label canonical source assets as "derived" (for example,
+    // the V1DD assets for subject 409828).  source_data is the authoritative
+    // provenance link: only records that point at another asset are duplicate
+    // children and should be omitted from the acquisition timeline.
+    const sourceData = rec.data_description?.source_data;
+    const hasSourceData = Array.isArray(sourceData)
+      ? sourceData.some(Boolean)
+      : Boolean(sourceData);
     if (
       rec.acquisition?.acquisition_start_time &&
-      rec.data_description?.data_level !== 'derived'
+      !hasSourceData
     ) {
       bundle.acquisitions.push({
         ...rec.acquisition,

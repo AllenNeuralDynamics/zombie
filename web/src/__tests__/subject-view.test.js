@@ -135,7 +135,7 @@ describe('organizeSubjectData', () => {
         },
       },
       {
-        data_description: { data_level: 'derived' },
+        data_description: { data_level: 'derived', source_data: ['raw-asset'] },
         acquisition: {
           acquisition_start_time: '2025-06-01T10:00:00Z',
           acquisition_end_time: '2025-06-01T14:00:00Z',
@@ -144,6 +144,33 @@ describe('organizeSubjectData', () => {
     ];
     const bundle = organizeSubjectData(records, '42');
     expect(bundle.acquisitions).toHaveLength(1);
+  });
+
+  it('keeps canonical acquisitions whose cache level is derived', () => {
+    const records = [
+      {
+        name: '409828_2018-11-06_14-02-59_nwb_2025-12-15_19-56-21',
+        data_description: { data_level: 'derived', source_data: null },
+        acquisition: {
+          acquisition_start_time: '2018-11-06T22:02:59.889Z',
+          acquisition_end_time: '2018-11-06T23:02:13.545Z',
+        },
+      },
+      {
+        name: '409828_2018-11-06_14-02-59_filtered_2026-04-09_04-59-00',
+        data_description: {
+          data_level: 'derived',
+          source_data: ['409828_2018-11-06_14-02-59_nwb_2025-12-15_19-56-21'],
+        },
+        acquisition: {
+          acquisition_start_time: '2018-11-06T22:02:59.889Z',
+          acquisition_end_time: '2018-11-06T23:02:13.545Z',
+        },
+      },
+    ];
+    const bundle = organizeSubjectData(records, '409828');
+    expect(bundle.acquisitions).toHaveLength(1);
+    expect(bundle.acquisitions[0]._assetName).toContain('_nwb_');
   });
 
   it('uses first matching subject record only', () => {

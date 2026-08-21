@@ -146,7 +146,7 @@ export function parseAcquisition(acquisition) {
   const durationHrs = (end - start) / 3_600_000;
 
   const modalities = (acquisition._modalities ?? [])
-    .map((m) => m.abbreviation ?? m.name)
+    .map((m) => typeof m === 'string' ? m : (m?.abbreviation ?? m?.name))
     .filter(Boolean);
 
   return {
