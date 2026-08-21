@@ -2095,7 +2095,7 @@
   letter-spacing: 0.5px;
 }
 
-.df-spout-label-l { color: var(--accent); }
+.df-spout-label-l { color: var(--color-blue); }
 .df-spout-label-r { color: var(--color-red); }
 
 .df-plot-col {
@@ -2203,7 +2203,7 @@
   border-radius: 6px;
 }
 .df-trial-info b { color: var(--text); }
-.df-side-l { color: var(--accent); font-weight: 600; }
+.df-side-l { color: var(--color-blue); font-weight: 600; }
 .df-side-r { color: var(--color-red); font-weight: 600; }
 .df-side-ign { color: var(--text-mut); }
 .df-rew-yes { color: var(--color-green); font-weight: 600; }

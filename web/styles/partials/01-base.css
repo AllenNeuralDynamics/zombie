@@ -79,6 +79,7 @@
   --color-green:      var(--ai-teal);
   --color-yellow:     var(--ai-ochre);
   --color-grey:       var(--ai-gray-1);
+  --color-blue:       var(--ai-blue);
 
   /* Chart marks — black-and-white first, colour only as a highlight. */
   --chart-ink:        var(--ai-black);

@@ -384,8 +384,8 @@
 .qc-metric-card .status-dot.pass { background: var(--color-green); }
 .qc-metric-card .status-dot.fail { background: var(--color-red); }
 .qc-metric-card .status-dot.pending { background: var(--text-muted); }
-.qc-metric-curation { border-left: 3px solid var(--color-blue, var(--accent-2)); }
-.metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--color-blue, var(--accent-2)); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.qc-metric-curation { border-left: 3px solid var(--accent-2); }
+.metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .qc-value-json { max-height: 300px; overflow-y: auto; }
 .qc-media { flex: 1; min-width: 0; position: relative; }
 .qc-media img { max-width: 100%; height: auto; border-radius: var(--radius); display: block; }
@@ -414,7 +414,7 @@
 .qc-readonly-checklist { display: flex; flex-direction: column; gap: 2px; }
 .qc-readonly-check { color: var(--text-secondary); }
 .qc-readonly-check .qc-checkbox { color: var(--text-muted); }
-.qc-readonly-check .qc-checkbox.checked { color: var(--color-blue, var(--accent-2)); }
+.qc-readonly-check .qc-checkbox.checked { color: var(--accent-2); }
 
 /* HDF5 volumetric-data placeholder */
 .qc-media-h5 { color: var(--text-secondary); font-size: 0.9em; }

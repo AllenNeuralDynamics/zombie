@@ -17,6 +17,25 @@ export const SWDB_SETS = {
       + 'behavior trials, DLC eye tracking, receptive-field mapping, optotagging and sorted units.',
     task: 'Dynamic Routing',
   },
+  'neuropixels-opto': {
+    title: 'Neuropixels Opto',
+    blurb:
+      'Merged NWB sessions combining electrophysiology with optogenetic tagging across many '
+      + 'subjects.',
+    task: 'Neuropixels Opto',
+  },
+  'v1dd': {
+    title: 'V1DD',
+    blurb:
+      'Multiplane-ophys sessions from the V1 Deep Dive project, filtered to ROIs likely to be '
+      + 'somas.',
+    task: 'V1 Deep Dive',
+  },
+  'brain-computer-interface': {
+    title: 'Brain-Computer Interface',
+    blurb: 'Single-plane-ophys sessions from the Brain-Computer Interface project.',
+    task: 'Brain-Computer Interface',
+  },
 };
 
 /**

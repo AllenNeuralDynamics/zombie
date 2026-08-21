@@ -29,7 +29,7 @@ import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
 
 const PLOT_HEIGHT      = 320;
 const OVERVIEW_HEIGHT  = 34;    // compact context-chart strip
-const COLOR_L          = '#2563eb';     // blue (left) spout
+const COLOR_L          = '#6464ff';     // blue (left) spout — matches --color-blue
 const COLOR_R          = '#dc2626';     // red (right) spout
 const COLOR_IGNORED    = '#9333ea';     // purple — ignored trials
 const COLOR_EVENT      = 'var(--text-primary, #111111)'; // black in light / white in dark — reward deliveries

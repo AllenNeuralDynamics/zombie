@@ -37,7 +37,7 @@ export const SPOUT_H = 70;
 const SPOUT_OFFSET_X = 38;                         // gap from nose centre
 const SPOUT_REST_Y   = NOSE_Y - SPOUT_H + 28;      // tip just touching the nose
 const SPOUT_LIFT_PX  = 12;                         // how far the tongue "lifts" it
-const SPOUT_COLOR_L  = '#2563eb';                  // blue
+const SPOUT_COLOR_L  = '#6464ff';                  // blue — matches --color-blue
 const SPOUT_COLOR_R  = '#dc2626';                  // red
 
 // Tongue — short pink ellipse extending from mouth toward the active spout.
