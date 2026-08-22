@@ -146,7 +146,6 @@ function createDatasetDetailView(coord, metadata, datasetName) {
       header.innerHTML = `
         <a class="swdb-back" href="/swdb">← All SWDB datasets</a>
         <h1>${escHtml(info.title)}</h1>
-        <p class="swdb-set-blurb">${escHtml(info.blurb)}</p>
         <div class="swdb-set-summary">
           <span><strong>${summary.nAssets.toLocaleString()}</strong> assets</span>
           <span><strong>${summary.nSubjects.toLocaleString()}</strong> subjects</span>

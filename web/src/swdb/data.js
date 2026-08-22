@@ -34,7 +34,7 @@ export const SWDB_TABLES = {
 };
 
 /** Registry prefix for the published SWDB metadata datasets. */
-export const SWDB_DATASET_PREFIX = 'swdb_2025_';
+export const SWDB_DATASET_PREFIX = 'swdb_';
 
 function _base() {
   const version = getResolvedVersion();
@@ -102,12 +102,24 @@ export async function loadSessions(coord) {
  * Return the SWDB metadata datasets present in the resolved cache registry.
  *
  * The metadata cache currently publishes one small table per curated dataset
- * (for example, `swdb_2025_bci`). Keeping discovery registry-driven means the
+ * (for example, `swdb_2026_visual_learning`). Keeping discovery registry-driven means the
  * landing page shows newly published datasets without a frontend release.
  */
 export function listSwdbDatasets(metadata) {
-  return (metadata?.acorns ?? [])
+  const acorns = metadata?.acorns ?? [];
+  const hasPublicReplacement = new Set(
+    acorns.filter((acorn) => acorn.name.startsWith('swdb_2026_')).map((acorn) => acorn.name),
+  );
+  return acorns
     .filter((acorn) => acorn.name.startsWith(SWDB_DATASET_PREFIX))
+    // The 2026 public-collection tables supersede the old DocDB-derived
+    // copies when both are present; otherwise the landing page shows duplicate
+    // BCI/V1DD cards for the same public dataset.
+    .filter((acorn) => !(
+      acorn.name === 'swdb_2025_bci' && hasPublicReplacement.has('swdb_2026_bci')
+    ) && !(
+      acorn.name === 'swdb_2025_v1dd' && hasPublicReplacement.has('swdb_2026_v1dd')
+    ))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -157,9 +169,12 @@ export async function loadSwdbDatasetAssets(coord, metadata, datasetName) {
   if (!acorn) throw new Error(`Unknown SWDB dataset: ${datasetName}`);
 
   const table = await ensureTable(coord, acorn.name);
+  const hasDataAssetId = (acorn.columns ?? []).some((column) => (
+    (typeof column === 'string' ? column : column.name) === 'data_asset_id'
+  ));
   const datasetRows = await queryRows(
     coord,
-    `SELECT name FROM ${quoteIdentifier(table)} WHERE name IS NOT NULL ORDER BY name`,
+    `SELECT name${hasDataAssetId ? ', data_asset_id' : ''} FROM ${quoteIdentifier(table)} WHERE name IS NOT NULL ORDER BY name`,
   );
   const names = datasetRows.map((row) => row.name).filter(Boolean);
   if (names.length === 0) return { assets: [], sourceMap: {} };
@@ -167,7 +182,23 @@ export async function loadSwdbDatasetAssets(coord, metadata, datasetName) {
   const quotedNames = names
     .map((name) => `'${String(name).replace(/'/g, "''")}'`)
     .join(', ');
-  return fetchAssetsWithSources(coord, `a.name IN (${quotedNames})`);
+
+  // SWDB bootstraps with no eager tables. The shared asset dataframe helper
+  // joins against asset_basics, so register that canonical table lazily here
+  // before delegating to it.
+  await ensureTable(coord, 'asset_basics');
+  const canonical = await fetchAssetsWithSources(coord, `a.name IN (${quotedNames})`);
+  const matched = new Set(canonical.assets.map((asset) => asset.name));
+  // Public Code Ocean data assets can be collection-level products without a
+  // matching metadata-index row. Keep those names in the standard table so
+  // membership is still visible and the eventual /view link remains usable.
+  const missing = datasetRows
+    .filter((row) => row.name && !matched.has(row.name))
+    .map((row) => ({ name: row.name, code_ocean: row.data_asset_id ?? null }));
+  return {
+    assets: [...canonical.assets, ...missing],
+    sourceMap: canonical.sourceMap,
+  };
 }
 
 /**

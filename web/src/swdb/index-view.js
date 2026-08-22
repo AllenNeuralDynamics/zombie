@@ -52,10 +52,6 @@ function buildIntro() {
   el.className = 'swdb-intro';
   el.innerHTML = `
     <h1>SWDB data sets</h1>
-    <p>
-      Curated datasets prepared for the Summer Workshop on the Dynamic Brain. Pick a dataset to
-      browse its canonical assets now; interactive dataset plots will be added here next.
-    </p>
   `;
   return el;
 }
@@ -72,7 +68,6 @@ function buildCard(dataset) {
 
   card.innerHTML = `
     <h2>${escHtml(info.title)}</h2>
-    <p class="swdb-card-blurb">${escHtml(info.blurb)}</p>
     <dl class="swdb-card-stats">
       <div><dt>Assets</dt><dd>${dataset.nAssets.toLocaleString()}</dd></div>
       <div><dt>Subjects</dt><dd>${dataset.nSubjects.toLocaleString()}</dd></div>

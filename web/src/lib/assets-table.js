@@ -105,9 +105,12 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
       const subjectCell = asset.subject_id
         ? `<a href="/view?subject_id=${encodeURIComponent(asset.subject_id)}">${escHtml(asset.subject_id)}</a>`
         : '';
+      const assetName = asset.name
+        ? `<a href="/view?asset=${encodeURIComponent(asset.name)}">${escHtml(asset.name)}</a>`
+        : '';
 
       tr.innerHTML = `
-        <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${escHtml(asset.name ?? '')}</td>
+        <td class="${isChild ? 'asset-name-child' : ''}">${isChild ? '↳ ' : ''}${assetName}</td>
         <td>${subjectCell}</td>
         <td>${escHtml(formatDatetime(asset.acquisition_start_time))}</td>
         <td>${escHtml(Array.isArray(asset.modalities) ? asset.modalities.join(', ') : (asset.modalities ?? ''))}</td>

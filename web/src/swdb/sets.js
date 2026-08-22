@@ -42,11 +42,30 @@ export const SWDB_SETS = {
 export const SWDB_DATASETS = {
   swdb_2025_bci: {
     title: 'Brain-Computer Interface',
-    blurb: 'Curated single-neuron stimulation sessions from the SWDB 2025 brain-computer interface dataset.',
   },
   swdb_2025_v1dd: {
     title: 'V1 Deep Dive',
-    blurb: 'Curated assets from the SWDB 2025 V1 Deep Dive dataset.',
+  },
+  swdb_2026_bci: {
+    title: 'Brain-Computer Interface',
+  },
+  swdb_2026_v1dd: {
+    title: 'V1 Deep Dive',
+  },
+  swdb_2026_visual_learning: {
+    title: 'Visual Learning',
+  },
+  swdb_2026_visual_coding_neuropixels: {
+    title: 'Visual Coding · Neuropixels',
+  },
+  swdb_2026_visual_coding_ophys: {
+    title: 'Visual Coding · Ophys',
+  },
+  swdb_2026_dynamic_routing: {
+    title: 'Dynamic Routing',
+  },
+  swdb_2026_neuropixels_opto: {
+    title: 'Neuropixels Opto',
   },
 };
 
@@ -63,8 +82,7 @@ export function setInfo(setId) {
 /** Return display copy for a published SWDB metadata dataset. */
 export function datasetInfo(datasetName) {
   return SWDB_DATASETS[datasetName] ?? {
-    title: datasetName.replace(/^swdb_2025_/, '').replace(/_/g, ' '),
-    blurb: 'Curated SWDB dataset.',
+    title: datasetName.replace(/^swdb_(?:2025|2026)_/, '').replace(/_/g, ' '),
   };
 }
 

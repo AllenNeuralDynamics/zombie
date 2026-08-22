@@ -54,3 +54,13 @@ describe('buildAssetsTable — goToAsset', () => {
     document.body.innerHTML = '';
   });
 });
+
+describe('buildAssetsTable — asset links', () => {
+  it('links asset names to the canonical asset view', () => {
+    const wrapper = buildAssetsTable([makeAsset('asset with spaces')], null);
+    const link = wrapper.querySelector('tbody td a');
+
+    expect(link.textContent).toBe('asset with spaces');
+    expect(link.getAttribute('href')).toBe('/view?asset=asset%20with%20spaces');
+  });
+});
