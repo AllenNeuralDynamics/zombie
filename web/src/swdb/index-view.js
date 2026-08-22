@@ -1,23 +1,22 @@
 /**
- * swdb/index-view.js — SWDB landing page: one card per curated set.
+ * swdb/index-view.js — SWDB landing page: one card per curated dataset.
  *
- * Reads only the small unpartitioned session catalog, so the page is a single
- * parquet fetch regardless of how many sets exist. Each card summarises the set
- * (assets, subjects, date span, totals, which modalities are present) and links to
- * its own page at `/swdb/set?set=<id>`.
+ * Each card summarises one registry-published SWDB metadata table and links to
+ * its dataset page at `/swdb/set?dataset=<name>`.
  */
 
 import { escHtml } from '../lib/utils.js';
-import { loadSessions } from './data.js';
-import { summariseSets } from './sets.js';
+import { loadSwdbDatasetSummaries } from './data.js';
+import { datasetInfo } from './sets.js';
 
 /**
  * Build the SWDB index view.
  *
  * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {{ acorns: object[] }} metadata - Resolved cache registry.
  * @returns {HTMLElement}
  */
-export function createSwdbIndexView(coord) {
+export function createSwdbIndexView(coord, metadata) {
   const root = document.createElement('div');
   root.className = 'swdb-index';
   root.appendChild(buildIntro());
@@ -29,18 +28,17 @@ export function createSwdbIndexView(coord) {
 
   (async () => {
     try {
-      const sessions = await loadSessions(coord);
-      const sets = summariseSets(sessions);
-      if (sets.length === 0) {
-        cards.innerHTML = '<div class="swdb-panel-status">No SWDB sets are cached yet.</div>';
+      const datasets = await loadSwdbDatasetSummaries(coord, metadata);
+      if (datasets.length === 0) {
+        cards.innerHTML = '<div class="swdb-panel-status">No SWDB datasets are cached yet.</div>';
         return;
       }
-      cards.replaceChildren(...sets.map(buildCard));
+      cards.replaceChildren(...datasets.map(buildCard));
     } catch (err) {
       cards.innerHTML = '';
       const msg = document.createElement('div');
       msg.className = 'swdb-panel-status swdb-panel-status--error';
-      msg.textContent = `Could not load the SWDB session catalog: ${err.message}`;
+      msg.textContent = `Could not load the SWDB dataset catalog: ${err.message}`;
       cards.appendChild(msg);
       console.error('[SWDB] index load failed', err);
     }
@@ -55,49 +53,32 @@ function buildIntro() {
   el.innerHTML = `
     <h1>SWDB data sets</h1>
     <p>
-      Curated sets of merged NWB assets prepared for the Summer Workshop on the Dynamic Brain.
-      Each asset folds several modalities — behavior, DLC eye tracking, receptive-field mapping,
-      optotagging and sorted units — into a single file. Pick a set to see its history and open
-      individual sessions in the viewer.
+      Curated datasets prepared for the Summer Workshop on the Dynamic Brain. Pick a dataset to
+      browse its canonical assets now; interactive dataset plots will be added here next.
     </p>
   `;
   return el;
 }
 
-const MODALITY_LABELS = {
-  behavior: 'Behavior',
-  eye: 'Eye tracking',
-  units: 'Sorted units',
-  optotagging: 'Optotagging',
-  rfMapping: 'RF mapping',
-};
-
-function buildCard(set) {
+function buildCard(dataset) {
+  const info = datasetInfo(dataset.name);
   const card = document.createElement('a');
   card.className = 'swdb-card';
-  card.href = `/swdb/set?set=${encodeURIComponent(set.setId)}`;
+  card.href = `/swdb/set?dataset=${encodeURIComponent(dataset.name)}`;
 
-  const span = set.firstDate && set.lastDate
-    ? `${set.firstDate} → ${set.lastDate}`
+  const span = dataset.firstDate && dataset.lastDate
+    ? `${dataset.firstDate} → ${dataset.lastDate}`
     : 'dates unavailable';
 
-  const chips = Object.entries(MODALITY_LABELS)
-    .filter(([key]) => set.modalities[key])
-    .map(([, label]) => `<span class="swdb-chip">${escHtml(label)}</span>`)
-    .join('');
-
   card.innerHTML = `
-    <h2>${escHtml(set.title)}</h2>
-    <p class="swdb-card-blurb">${escHtml(set.blurb)}</p>
+    <h2>${escHtml(info.title)}</h2>
+    <p class="swdb-card-blurb">${escHtml(info.blurb)}</p>
     <dl class="swdb-card-stats">
-      <div><dt>Assets</dt><dd>${set.nAssets}</dd></div>
-      <div><dt>Subjects</dt><dd>${set.nSubjects}</dd></div>
-      <div><dt>Trials</dt><dd>${set.nTrials.toLocaleString()}</dd></div>
-      <div><dt>Units</dt><dd>${set.nUnits.toLocaleString()}</dd></div>
-      <div><dt>Recorded</dt><dd>${set.totalHours.toFixed(0)} h</dd></div>
+      <div><dt>Assets</dt><dd>${dataset.nAssets.toLocaleString()}</dd></div>
+      <div><dt>Subjects</dt><dd>${dataset.nSubjects.toLocaleString()}</dd></div>
     </dl>
     <div class="swdb-card-span">${escHtml(span)}</div>
-    <div class="swdb-chips">${chips}</div>
+    <div class="swdb-card-action">Open dataset <span aria-hidden="true">→</span></div>
   `;
   return card;
 }

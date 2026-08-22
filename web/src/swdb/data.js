@@ -18,8 +18,10 @@
  */
 
 import { DATA_CACHE_PREFIX } from '../constants.js';
-import { getResolvedVersion } from '../lib/metadata.js';
+import { getResolvedVersion, quoteIdentifier } from '../lib/metadata.js';
 import { queryRows } from '../lib/arrow.js';
+import { ensureTable } from '../lib/registry.js';
+import { fetchAssetsWithSources } from '../lib/assets-table.js';
 
 /** Registry names of the SWDB cache tables. */
 export const SWDB_TABLES = {
@@ -30,6 +32,9 @@ export const SWDB_TABLES = {
   eye: 'platform_swdb_eye',
   running: 'platform_swdb_running',
 };
+
+/** Registry prefix for the published SWDB metadata datasets. */
+export const SWDB_DATASET_PREFIX = 'swdb_2025_';
 
 function _base() {
   const version = getResolvedVersion();
@@ -91,6 +96,78 @@ export async function loadSessions(coord) {
     coord,
     `SELECT * FROM read_parquet(${sqlStr(sessionsUrl())}) ORDER BY set_id, session_date`,
   );
+}
+
+/**
+ * Return the SWDB metadata datasets present in the resolved cache registry.
+ *
+ * The metadata cache currently publishes one small table per curated dataset
+ * (for example, `swdb_2025_bci`). Keeping discovery registry-driven means the
+ * landing page shows newly published datasets without a frontend release.
+ */
+export function listSwdbDatasets(metadata) {
+  return (metadata?.acorns ?? [])
+    .filter((acorn) => acorn.name.startsWith(SWDB_DATASET_PREFIX))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Load one summary row for every published SWDB metadata dataset.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {{ acorns: object[] }} metadata - Resolved cache registry.
+ * @returns {Promise<object[]>}
+ */
+export async function loadSwdbDatasetSummaries(coord, metadata) {
+  return Promise.all(listSwdbDatasets(metadata).map(async (acorn) => {
+    const table = await ensureTable(coord, acorn.name);
+    const columns = new Set((acorn.columns ?? []).map((column) => (
+      typeof column === 'string' ? column : column.name
+    )));
+    const expressions = ['COUNT(*) AS n_assets'];
+    if (columns.has('subject_id')) expressions.push('COUNT(DISTINCT subject_id) AS n_subjects');
+    if (columns.has('session_date')) {
+      expressions.push('MIN(session_date) AS first_date', 'MAX(session_date) AS last_date');
+    }
+    const [row] = await queryRows(
+      coord,
+      `SELECT ${expressions.join(', ')} FROM ${quoteIdentifier(table)}`,
+    );
+    return {
+      ...acorn,
+      nAssets: Number(row?.n_assets) || 0,
+      nSubjects: Number(row?.n_subjects) || 0,
+      firstDate: row?.first_date ?? null,
+      lastDate: row?.last_date ?? null,
+    };
+  }));
+}
+
+/**
+ * Resolve the published dataset's asset names into the canonical asset_basics
+ * rows used by the standard `/view` asset dataframe.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {{ acorns: object[] }} metadata - Resolved cache registry.
+ * @param {string} datasetName - Registry name such as `swdb_2025_bci`.
+ * @returns {Promise<{assets: object[], sourceMap: object}>}
+ */
+export async function loadSwdbDatasetAssets(coord, metadata, datasetName) {
+  const acorn = listSwdbDatasets(metadata).find((candidate) => candidate.name === datasetName);
+  if (!acorn) throw new Error(`Unknown SWDB dataset: ${datasetName}`);
+
+  const table = await ensureTable(coord, acorn.name);
+  const datasetRows = await queryRows(
+    coord,
+    `SELECT name FROM ${quoteIdentifier(table)} WHERE name IS NOT NULL ORDER BY name`,
+  );
+  const names = datasetRows.map((row) => row.name).filter(Boolean);
+  if (names.length === 0) return { assets: [], sourceMap: {} };
+
+  const quotedNames = names
+    .map((name) => `'${String(name).replace(/'/g, "''")}'`)
+    .join(', ');
+  return fetchAssetsWithSources(coord, `a.name IN (${quotedNames})`);
 }
 
 /**

@@ -13,8 +13,9 @@
  */
 
 import { escHtml } from '../lib/utils.js';
-import { loadSessions } from './data.js';
-import { setInfo, summariseSets } from './sets.js';
+import { buildAssetsTable } from '../lib/assets-table.js';
+import { loadSessions, loadSwdbDatasetAssets, loadSwdbDatasetSummaries } from './data.js';
+import { datasetInfo, setInfo, summariseSets } from './sets.js';
 import { createSetTimeline } from './timeline.js';
 import { createSwdbBehaviorView } from './behavior-view.js';
 import { createSwdbEyeView } from './eye-view.js';
@@ -26,8 +27,11 @@ import { createSwdbPerformanceView } from './performance-view.js';
  * @param {object} coord - Mosaic/DuckDB coordinator.
  * @returns {HTMLElement}
  */
-export function createSwdbSetView(coord) {
+export function createSwdbSetView(coord, metadata) {
   const params = new URLSearchParams(window.location.search);
+  const datasetName = params.get('dataset');
+  if (datasetName) return createDatasetDetailView(coord, metadata, datasetName);
+
   const setId = params.get('set') ?? 'dynamic-routing';
   const initialAsset = params.get('asset') ?? null;
 
@@ -101,6 +105,71 @@ export function createSwdbSetView(coord) {
       msg.textContent = `Could not load the SWDB session catalog: ${err.message}`;
       historySection.body.appendChild(msg);
       console.error('[SWDB] set load failed', err);
+    }
+  })();
+
+  return root;
+}
+
+/**
+ * Lightweight detail landing page for a published SWDB metadata dataset.
+ *
+ * The richer per-asset viewer belongs on this route eventually; keeping the
+ * link functional now gives each index card a useful destination even when
+ * the cache only contains metadata tables.
+ */
+function createDatasetDetailView(coord, metadata, datasetName) {
+  const root = document.createElement('div');
+  root.className = 'swdb-set-view';
+  const header = document.createElement('section');
+  header.className = 'swdb-set-header';
+  root.appendChild(header);
+
+  const assetsSection = buildSection('Assets', true);
+  root.appendChild(assetsSection.details);
+  assetsSection.body.innerHTML = '<div class="swdb-panel-status">Loading assets…</div>';
+
+  (async () => {
+    try {
+      const summary = (await loadSwdbDatasetSummaries(coord, metadata))
+        .find((dataset) => dataset.name === datasetName);
+      if (!summary) {
+        header.innerHTML = `<h1>${escHtml(datasetInfo(datasetName).title)}</h1>`;
+        assetsSection.body.innerHTML =
+          `<div class="swdb-panel-status swdb-panel-status--error">No cached SWDB dataset named "${escHtml(datasetName)}".</div>`;
+        return;
+      }
+
+      const { assets, sourceMap } = await loadSwdbDatasetAssets(coord, metadata, datasetName);
+
+      const info = datasetInfo(summary.name);
+      header.innerHTML = `
+        <a class="swdb-back" href="/swdb">← All SWDB datasets</a>
+        <h1>${escHtml(info.title)}</h1>
+        <p class="swdb-set-blurb">${escHtml(info.blurb)}</p>
+        <div class="swdb-set-summary">
+          <span><strong>${summary.nAssets.toLocaleString()}</strong> assets</span>
+          <span><strong>${summary.nSubjects.toLocaleString()}</strong> subjects</span>
+          ${summary.firstDate && summary.lastDate
+            ? `<span>${escHtml(`${summary.firstDate} → ${summary.lastDate}`)}</span>`
+            : ''}
+        </div>
+      `;
+      if (assets.length > 0) {
+        assetsSection.body.replaceChildren(buildAssetsTable(assets, sourceMap));
+      } else {
+        const empty = document.createElement('p');
+        empty.className = 'swdb-panel-caption';
+        empty.textContent = 'No matching asset records are present in asset_basics yet.';
+        assetsSection.body.replaceChildren(empty);
+      }
+    } catch (err) {
+      assetsSection.body.innerHTML = '';
+      const msg = document.createElement('div');
+      msg.className = 'swdb-panel-status swdb-panel-status--error';
+      msg.textContent = `Could not load the SWDB dataset: ${err.message}`;
+      assetsSection.body.appendChild(msg);
+      console.error('[SWDB] dataset detail load failed', err);
     }
   })();
 

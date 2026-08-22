@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { summariseSets, setInfo } from '../swdb/sets.js';
+import { summariseSets, setInfo, datasetInfo } from '../swdb/sets.js';
 import { buildLickResponses, buildEpochSpans } from '../swdb/dr-session.js';
 import { cleanEyeRows, decimate } from '../swdb/eye-view.js';
 import { normalisePerformance } from '../swdb/performance-view.js';
@@ -13,7 +13,13 @@ import { normalisePerformance } from '../swdb/performance-view.js';
 // The URL helpers read the resolved cache version from lib/metadata.js.
 vi.mock('../lib/metadata.js', () => ({ getResolvedVersion: () => 'bdc-v0.39' }));
 
-const { sessionsUrl, partitionUrl, assertAssetName, SWDB_TABLES } = await import('../swdb/data.js');
+const {
+  sessionsUrl,
+  partitionUrl,
+  assertAssetName,
+  SWDB_TABLES,
+  listSwdbDatasets,
+} = await import('../swdb/data.js');
 
 const ASSET = 'ecephys_664851_2023-11-13_12-49-51_nwb_2026-07-24_13-29-15';
 
@@ -112,6 +118,27 @@ describe('summariseSets', () => {
     expect(setInfo('brand-new').title).toBe('brand-new');
     const [set] = summariseSets([sessionRow({ set_id: 'brand-new' })]);
     expect(set.title).toBe('brand-new');
+  });
+});
+
+describe('published SWDB datasets', () => {
+  it('discovers only SWDB dataset tables from the registry', () => {
+    const datasets = listSwdbDatasets({
+      acorns: [
+        { name: 'asset_basics' },
+        { name: 'swdb_2025_v1dd' },
+        { name: 'swdb_2025_bci' },
+      ],
+    });
+    expect(datasets.map((dataset) => dataset.name)).toEqual([
+      'swdb_2025_bci',
+      'swdb_2025_v1dd',
+    ]);
+  });
+
+  it('provides display copy with a safe fallback', () => {
+    expect(datasetInfo('swdb_2025_bci').title).toBe('Brain-Computer Interface');
+    expect(datasetInfo('swdb_2025_new_set').title).toBe('new set');
   });
 });
 

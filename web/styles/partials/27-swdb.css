@@ -44,6 +44,11 @@
   transform: translateY(-2px);
 }
 
+.swdb-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .swdb-card h2 {
   margin: 0 0 0.4rem;
   font-size: 1.15rem;
@@ -87,6 +92,12 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   margin-bottom: 0.6rem;
+}
+
+.swdb-card-action {
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
 /* ---- Chips -------------------------------------------------------------- */

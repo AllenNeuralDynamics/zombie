@@ -38,6 +38,18 @@ export const SWDB_SETS = {
   },
 };
 
+/** Human-facing copy for the metadata datasets currently published by the cache. */
+export const SWDB_DATASETS = {
+  swdb_2025_bci: {
+    title: 'Brain-Computer Interface',
+    blurb: 'Curated single-neuron stimulation sessions from the SWDB 2025 brain-computer interface dataset.',
+  },
+  swdb_2025_v1dd: {
+    title: 'V1 Deep Dive',
+    blurb: 'Curated assets from the SWDB 2025 V1 Deep Dive dataset.',
+  },
+};
+
 /**
  * Return display copy for a set id, falling back to the raw id.
  *
@@ -46,6 +58,14 @@ export const SWDB_SETS = {
  */
 export function setInfo(setId) {
   return SWDB_SETS[setId] ?? { title: setId, blurb: '', task: null };
+}
+
+/** Return display copy for a published SWDB metadata dataset. */
+export function datasetInfo(datasetName) {
+  return SWDB_DATASETS[datasetName] ?? {
+    title: datasetName.replace(/^swdb_2025_/, '').replace(/_/g, ' '),
+    blurb: 'Curated SWDB dataset.',
+  };
 }
 
 /**
