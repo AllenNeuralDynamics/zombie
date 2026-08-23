@@ -13,8 +13,8 @@
  *   'images'    (TRAINING_3+/OPHYS_*): behavior asset `<raw>_behavior-nwb_<ts>`,
  *       inner `behavior.nwb.zarr`; stimuli in `intervals/stimulus_presentations`;
  *       a full change-detection `intervals/trials` table (change_time /
- *       reward_time / hit / miss / …); NO processed lick stream; running in
- *       `processing/running/speed`.
+ *       reward_time / hit / miss / …); licks may be in
+ *       `processing/behavior/licks`; running is in `processing/running/speed`.
  *
  * The variant is detected by probing which intervals table exists. The inner
  * NWB name is discovered from the derived asset's S3 prefix when possible;
