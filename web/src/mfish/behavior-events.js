@@ -16,8 +16,10 @@
  *       reward_time / hit / miss / …); NO processed lick stream; running in
  *       `processing/running/speed`.
  *
- * The variant is detected by probing which intervals table exists (not by the
- * asset name, which is only used to guess the inner NWB filename).
+ * The variant is detected by probing which intervals table exists. The inner
+ * NWB name is discovered from the derived asset's S3 prefix when possible;
+ * older processed assets use several different names, so guessing it from
+ * the raw acquisition is not reliable.
  *
  * Output — a single normalized shape both the behavior player and the pophys
  * PSTH consume:
@@ -37,18 +39,89 @@ import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
 import { resolveLatestDerived } from '../lib/raw-to-derived.js';
 
 const RUNNING_MAX_POINTS = 3000;
+const S3_NWB_LIST_MAX_KEYS = 1000;
+const nwbBaseCache = new Map();
+
+function xmlUnescape(value) {
+  return String(value ?? '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+/**
+ * Find an NWB-Zarr directory immediately below an asset prefix.
+ *
+ * The public behavior capsules have used all of these forms over time:
+ *   <asset>/behavior.nwb.zarr/
+ *   <asset>/<raw>.nwb/
+ *   <asset>/<session>.nwb.zarr/
+ * Keep this parser independent of the S3 client so it can be tested without
+ * a live bucket.
+ */
+export function findBehaviorNwbPrefix(xml, assetKey) {
+  const prefix = `${String(assetKey ?? '').replace(/^\/+|\/+$/g, '')}/`;
+  const roots = [
+    ...String(xml ?? '').matchAll(/<CommonPrefixes>\s*<Prefix>([^<]+)<\/Prefix>\s*<\/CommonPrefixes>/g),
+  ]
+    .map((m) => xmlUnescape(m[1]))
+    .filter((key) => key.startsWith(prefix) && /\.nwb(?:\.zarr)?\/$/i.test(key))
+    .sort((a, b) => {
+      // Prefer an explicit Zarr suffix, then the conventional behavior name.
+      const rank = (key) => (/behavior\.nwb\.zarr\/$/i.test(key) ? 0
+        : /\.nwb\.zarr\/$/i.test(key) ? 1 : 2);
+      return rank(a) - rank(b) || a.localeCompare(b);
+    });
+  return roots[0] ?? null;
+}
+
+function s3ListUrl(baseUrl) {
+  const u = new URL(baseUrl);
+  const key = u.pathname.replace(/^\/+|\/+$/g, '');
+  return `${u.origin}/?list-type=2&prefix=${encodeURIComponent(`${key}/`)}`
+    + `&delimiter=${encodeURIComponent('/')}&max-keys=${S3_NWB_LIST_MAX_KEYS}`;
+}
+
+/** Discover the behavior NWB root rather than relying on a filename guess. */
+async function discoverBehaviorNwbBase(baseUrl, { signal } = {}) {
+  if (nwbBaseCache.has(baseUrl)) return nwbBaseCache.get(baseUrl);
+  const promise = (async () => {
+    const listResp = await fetch(s3ListUrl(baseUrl), { signal });
+    if (!listResp.ok) throw new Error(`behavior NWB listing failed (${listResp.status})`);
+    const u = new URL(baseUrl);
+    const assetKey = u.pathname.replace(/^\/+|\/+$/g, '');
+    const rootPrefix = findBehaviorNwbPrefix(await listResp.text(), assetKey);
+    if (!rootPrefix) throw new Error('no behavior NWB-Zarr root found');
+    return `${u.origin}/${rootPrefix.replace(/\/$/, '')}`;
+  })();
+  nwbBaseCache.set(baseUrl, promise);
+  try {
+    return await promise;
+  } catch (err) {
+    nwbBaseCache.delete(baseUrl);
+    throw err;
+  }
+}
 
 /** Resolve the behavior NWB base URL + variant hint for a raw acquisition. */
-export async function resolveBehaviorNwb(coord, rawAssetName) {
+export async function resolveBehaviorNwb(coord, rawAssetName, { signal } = {}) {
   if (!coord || !rawAssetName) return null;
   const row = await resolveLatestDerived(coord, rawAssetName, { modality: 'behavior' });
   if (!row) return null;
   const base = s3LocationToHttps(row.location);
   if (!base) return null;
-  // Inner filename differs by pipeline: the "behavior-nwb" capsule writes
-  // `behavior.nwb.zarr`; the older "processed" capsule writes `<raw>.nwb`.
-  const inner = /_behavior-nwb_/.test(row.name) ? 'behavior.nwb.zarr' : `${rawAssetName}.nwb`;
-  return { name: row.name, baseUrl: `${base}/${inner}` };
+  // The listing is authoritative. Retain the historical guess as a fallback
+  // for buckets that do not permit listing (and for local test doubles).
+  let nwbBase;
+  try {
+    nwbBase = await discoverBehaviorNwbBase(base, { signal });
+  } catch {
+    const inner = /_behavior-nwb_/.test(row.name) ? 'behavior.nwb.zarr' : `${rawAssetName}.nwb`;
+    nwbBase = `${base}/${inner}`;
+  }
+  return { name: row.name, baseUrl: nwbBase };
 }
 
 async function tryArray(root, path, signal) {
@@ -89,7 +162,7 @@ function downsample(times, vals) {
  * @returns {Promise<object|null>} normalized events, or null if unresolved.
  */
 export async function loadBehaviorEvents(coord, rawAssetName, { signal } = {}) {
-  const resolved = await resolveBehaviorNwb(coord, rawAssetName);
+  const resolved = await resolveBehaviorNwb(coord, rawAssetName, { signal });
   if (!resolved) return null;
   if (signal?.aborted) throw new Error('aborted');
   const events = await loadBehaviorEventsFromUrl(resolved.baseUrl, { signal });
@@ -123,11 +196,11 @@ async function _loadGratings(root, gStart, signal) {
   const [gStop, gImg, lickT, rewT, rewV, runT, runV] = await Promise.all([
     tryArray(root, 'intervals/grating_presentations/stop_time', signal),
     tryArray(root, 'intervals/grating_presentations/image_name', signal),
-    tryArray(root, 'acquisition/licks/timestamps', signal),
-    tryArray(root, 'acquisition/reward_volume/timestamps', signal),
+    firstArray(root, ['acquisition/licks/timestamps', 'processing/behavior/licks/timestamps'], signal),
+    firstArray(root, ['acquisition/reward_volume/timestamps', 'processing/behavior/rewards/timestamps'], signal),
     tryArray(root, 'acquisition/reward_volume/data', signal),
-    tryArray(root, 'processing/running/running_speed/timestamps', signal),
-    tryArray(root, 'processing/running/running_speed/data', signal),
+    firstArray(root, ['processing/running/running_speed/timestamps', 'processing/running/speed/timestamps'], signal),
+    firstArray(root, ['processing/running/running_speed/data', 'processing/running/speed/data'], signal),
   ]);
 
   const stimuli = [];
@@ -159,7 +232,7 @@ async function _loadGratings(root, gStart, signal) {
 
 async function _loadImages(root, signal) {
   const [sStart, sStop, sImg, sChange, sOmit, sOri,
-    chTime, rewTime, runT, runV] = await Promise.all([
+    chTime, rewTime, lickT, rewAcqT, rewAcqV, runT, runV] = await Promise.all([
     tryArray(root, 'intervals/stimulus_presentations/start_time', signal),
     tryArray(root, 'intervals/stimulus_presentations/stop_time', signal),
     tryArray(root, 'intervals/stimulus_presentations/image_name', signal),
@@ -168,9 +241,16 @@ async function _loadImages(root, signal) {
     tryArray(root, 'intervals/stimulus_presentations/orientation', signal),
     tryArray(root, 'intervals/trials/change_time', signal),
     tryArray(root, 'intervals/trials/reward_time', signal),
-    tryArray(root, 'processing/running/speed/timestamps', signal),
-    tryArray(root, 'processing/running/speed/data', signal),
+    firstArray(root, ['processing/behavior/licks/timestamps', 'acquisition/licks/timestamps'], signal),
+    firstArray(root, ['acquisition/reward_volume/timestamps', 'processing/behavior/rewards/timestamps'], signal),
+    tryArray(root, 'acquisition/reward_volume/data', signal),
+    firstArray(root, ['processing/running/speed/timestamps', 'processing/running/running_speed/timestamps'], signal),
+    firstArray(root, ['processing/running/speed/data', 'processing/running/running_speed/data'], signal),
   ]);
+
+  if (!sStart) {
+    throw new Error('Behavior NWB has no stimulus_presentations/start_time array');
+  }
 
   const stimuli = [];
   const changesArr = [];
@@ -196,13 +276,29 @@ async function _loadImages(root, signal) {
     for (const t of chTime) if (Number.isFinite(Number(t))) changesArr.push(Number(t));
   }
 
-  const rewards = rewTime
-    ? toF64Sorted(Array.from(rewTime, Number).filter(Number.isFinite))
+  const trialRewards = rewTime
+    ? Array.from(rewTime, Number).filter(Number.isFinite)
+    : [];
+  const acquisitionRewards = rewAcqT
+    ? _rewardsFromVolume(rewAcqT, rewAcqV)
     : new Float64Array();
+  const rewards = trialRewards.length ? toF64Sorted(trialRewards) : acquisitionRewards;
   const running = runT && runV ? downsample(runT, runV) : { t: new Float64Array(), v: new Float64Array() };
 
-  // No processed lick stream in this variant.
-  return _finish(stimuli, changesArr, rewards, null, running);
+  // Older Visual Behavior NWBs store licks in processing/behavior; some
+  // processed mFISH assets retain the acquisition TimeSeries instead.
+  const licks = lickT ? toF64Sorted(lickT) : null;
+  return _finish(stimuli, changesArr, rewards, licks, running);
+}
+
+/** Resolve the first available array from a list of historical NWB paths. */
+async function firstArray(root, paths, signal) {
+  for (const path of paths) {
+    const value = await tryArray(root, path, signal);
+    if (value != null) return value;
+    if (signal?.aborted) throw new Error('aborted');
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
