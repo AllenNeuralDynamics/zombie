@@ -126,8 +126,13 @@ export function createPophysViewer(coord, event) {
       if (!cachePlanes.length) { setStatus('No pophys ROI cache found for this asset.', true); return; }
       planes = cachePlanes;
 
-      tracesPublic = String(asset.location ?? '').startsWith('s3://aind-open-data/');
-      if (tracesPublic) nwbRoot = openPophysNwb(asset.name);
+      if (String(asset.location ?? '').startsWith('s3://aind-open-data/')) {
+        nwbRoot = await openPophysNwb(asset.name, { signal: ctrl.signal }).catch((err) => {
+          console.warn('[pophys] NWB-Zarr unavailable; showing ROI cache only', err);
+          return null;
+        });
+      }
+      tracesPublic = !!nwbRoot;
 
       // Populate controls.
       planeSel.innerHTML = planes

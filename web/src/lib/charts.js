@@ -6,7 +6,7 @@ import * as Plot from '@observablehq/plot';
 import { escHtml } from './utils.js';
 
 // ---------------------------------------------------------------------------
-// Modality histogram
+// Asset overview histogram
 // ---------------------------------------------------------------------------
 
 /** Fixed colour per modality — used by both project and platform overview pages. */
@@ -74,42 +74,92 @@ function _quarterlyTicks(domainMin, domainMax) {
 }
 
 /**
- * Build a stacked bar chart of acquisitions per month, coloured by modality.
+ * Convert the metadata representation of modalities into plain strings.
+ */
+function _modalities(value) {
+  return Array.isArray(value)
+    ? value.map(String).filter(Boolean)
+    : String(value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+const DATASET_COLORS = [
+  '#4e79a7', '#f28e2b', '#59a14f', '#e15759', '#76b7b2', '#b07aa1',
+  '#9c755f', '#edc949', '#af7aa1', '#ff9da7', '#79706e', '#86bcb6',
+];
+
+/** Resolve a deterministic colour for an SWDB dataset. */
+export function datasetColor(dataset) {
+  let hash = 0;
+  for (const char of String(dataset ?? '')) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return DATASET_COLORS[hash % DATASET_COLORS.length];
+}
+
+function _histogramRows(assets, groupBy) {
+  const counts = new Map();
+  const labels = new Map();
+  const seenAssets = new Set();
+  for (const asset of assets) {
+    // An SWDB asset can belong to more than one published dataset. Dataset
+    // mode intentionally preserves those memberships; modality mode should
+    // still count the canonical asset only once.
+    if (!asset.acquisition_start_time) continue;
+    const date = new Date(asset.acquisition_start_time);
+    if (Number.isNaN(date.valueOf())) continue;
+    if (groupBy === 'modality' && asset.name) {
+      if (seenAssets.has(asset.name)) continue;
+      seenAssets.add(asset.name);
+    }
+    const day = date.getUTCDay(); // 0=Sun
+    const week = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - day));
+    const weekKey = _isoDate(week);
+    const groups = groupBy === 'dataset' ? [asset.dataset].filter(Boolean) : _modalities(asset.modalities);
+    for (const group of groups) {
+      const key = `${weekKey}|${group}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+      if (groupBy === 'dataset' && asset.datasetLabel) labels.set(group, asset.datasetLabel);
+    }
+  }
+  return {
+    rows: Array.from(counts.entries()).map(([key, n]) => {
+      const separator = key.indexOf('|');
+      const group = key.slice(separator + 1);
+      return {
+        week: new Date(key.slice(0, separator)),
+        group,
+        groupLabel: labels.get(group) ?? group,
+        n,
+      };
+    }),
+    labels,
+  };
+}
+
+/**
+ * Build the shared stacked asset-overview histogram used by the assets page,
+ * platform pages, and the SWDB landing page.
  *
  * Pre-aggregates the assets in JS (data already in memory) then passes a
  * plain array to Observable Plot.
  *
- * @param {object[]} assets        - Raw assets with acquisition_start_time and modalities.
+ * @param {object[]} assets        - Rows with acquisition_start_time and either
+ *   modalities or dataset, depending on groupBy.
  * @param {number}   containerWidth - Available pixel width for sizing the chart.
  * @param {object}   [opts]
+ * @param {'modality'|'dataset'} [opts.groupBy='modality'] - Stack colour grouping.
  * @param {'auto'|'month'|'quarter'|'year'} [opts.xTicks='auto'] - Tick granularity on the
  *   x-axis. 'auto' selects the best fit based on containerWidth and data date range.
+ * @param {Set<string>} [opts.hiddenGroups] - Groups to omit from the plot.
+ * @param {boolean} [opts.showLegend=true]
  * @returns {HTMLElement|null} The plot element, or null if there is no data.
  */
-export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 'auto', hiddenModalities = new Set(), showLegend = true } = {}) {
-  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
-  if (dated.length === 0) return null;
-
-  const counts = new Map(); // `weekStart|modality` → count
-  for (const a of dated) {
-    const d = new Date(a.acquisition_start_time);
-    const day = d.getUTCDay(); // 0=Sun
-    const weekStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - day));
-    const weekStr = _isoDate(weekStart);
-    for (const m of (Array.isArray(a.modalities) ? a.modalities : String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean))) {
-      const key = `${weekStr}|${m}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-  }
-
-  const allRows = Array.from(counts.entries()).map(([key, n]) => {
-    const [week, modality] = key.split('|');
-    return { week: new Date(week), modality, n };
-  });
-
-  const rows = hiddenModalities.size > 0
-    ? allRows.filter((r) => !hiddenModalities.has(r.modality))
-    : allRows;
+export function buildAssetOverviewHistogram(
+  assets,
+  containerWidth = 700,
+  { groupBy = 'modality', xTicks = 'auto', hiddenGroups = new Set(), showLegend = true } = {},
+) {
+  const { rows: allRows } = _histogramRows(assets, groupBy);
+  if (allRows.length === 0) return null;
+  const rows = hiddenGroups.size > 0 ? allRows.filter((r) => !hiddenGroups.has(r.group)) : allRows;
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
@@ -150,13 +200,13 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
         : d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
   }
 
-  const totalByModality = new Map();
-  for (const r of allRows) totalByModality.set(r.modality, (totalByModality.get(r.modality) ?? 0) + r.n);
-  const presentModalities = Array.from(totalByModality.keys())
-    .filter((m) => !hiddenModalities.has(m))
-    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
-  const colorDomain = presentModalities;
-  const colorRange = presentModalities.map((m) => modalityColor(m));
+  const totalByGroup = new Map();
+  for (const row of allRows) totalByGroup.set(row.group, (totalByGroup.get(row.group) ?? 0) + row.n);
+  const presentGroups = Array.from(totalByGroup.keys())
+    .filter((group) => !hiddenGroups.has(group))
+    .sort((a, b) => totalByGroup.get(b) - totalByGroup.get(a));
+  const colorDomain = presentGroups;
+  const colorRange = presentGroups.map((group) => groupBy === 'dataset' ? datasetColor(group) : modalityColor(group));
 
   return Plot.plot({
     width: chartWidth,
@@ -168,18 +218,30 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
       tickFormat,
       domain: xDomain,
     },
-    y: { label: 'Acquisitions', grid: true },
+    y: { label: groupBy === 'dataset' ? 'Assets' : 'Acquisitions', grid: true },
     color: { domain: colorDomain, range: colorRange, legend: showLegend },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
       Plot.rectY(rows, Plot.stackY({
-        order: presentModalities,
+        order: presentGroups,
         x: (d) => d.week,
         interval: 'week',
         y: 'n',
-        fill: 'modality',
+        fill: 'group',
+        title: (d) => `${d.groupLabel}: ${d.n.toLocaleString()}`,
+        ariaLabel: (d) => d.group,
       })),
     ],
+  });
+}
+
+/** Backwards-compatible platform/project wrapper. */
+export function buildModalityHistogram(assets, containerWidth = 700, opts = {}) {
+  const { hiddenModalities = new Set(), ...rest } = opts;
+  return buildAssetOverviewHistogram(assets, containerWidth, {
+    ...rest,
+    groupBy: 'modality',
+    hiddenGroups: hiddenModalities,
   });
 }
 
@@ -195,68 +257,105 @@ export function buildModalityHistogram(assets, containerWidth = 700, { xTicks = 
  * @returns {HTMLElement|null}
  */
 export function buildInteractiveModalityHistogram(assets, containerWidth = 700, opts = {}) {
-  const dated = assets.filter((a) => a.acquisition_start_time && a.modalities);
-  if (dated.length === 0) return null;
+  return buildInteractiveAssetOverviewHistogram(assets, containerWidth, {
+    ...opts,
+    groupBy: 'modality',
+    hoverFilters: false,
+  });
+}
 
-  const totalByModality = new Map();
-  for (const a of dated) {
-    for (const m of (Array.isArray(a.modalities) ? a.modalities : String(a.modalities).split(',').map((s) => s.trim()).filter(Boolean))) {
-      totalByModality.set(m, (totalByModality.get(m) ?? 0) + 1);
-    }
+/**
+ * Build an interactive overview histogram with a legend that can hide groups
+ * on click and temporarily filter to one group on hover.
+ */
+export function buildInteractiveAssetOverviewHistogram(
+  assets,
+  containerWidth = 700,
+  {
+    groupBy = 'modality',
+    xTicks = 'auto',
+    hoverFilters = false,
+    onHoverGroup = null,
+  } = {},
+) {
+  const { rows } = _histogramRows(assets, groupBy);
+  if (rows.length === 0) return null;
+
+  const totals = new Map();
+  const labels = new Map();
+  for (const row of rows) {
+    totals.set(row.group, (totals.get(row.group) ?? 0) + row.n);
+    labels.set(row.group, row.groupLabel);
   }
-  const allModalities = Array.from(totalByModality.keys())
-    .sort((a, b) => totalByModality.get(b) - totalByModality.get(a));
-
+  const groups = Array.from(totals.keys()).sort((a, b) => totals.get(b) - totals.get(a));
   const hidden = new Set();
+  let hoverGroup = null;
   const container = document.createElement('div');
-  container.className = 'modality-histogram-interactive';
+  container.className = groupBy === 'dataset' ? 'asset-overview-histogram-interactive' : 'modality-histogram-interactive';
 
   const legend = document.createElement('div');
   legend.className = 'modality-legend';
-  for (const m of allModalities) {
-    const item = document.createElement('span');
+  container.appendChild(legend);
+
+  const plotWrap = document.createElement('div');
+  plotWrap.className = 'modality-plot';
+  container.appendChild(plotWrap);
+
+  function render() {
+    const filtered = hoverGroup == null
+      ? hidden
+      : new Set(groups.filter((group) => group !== hoverGroup));
+    const plot = buildAssetOverviewHistogram(assets, containerWidth, {
+      groupBy,
+      xTicks,
+      hiddenGroups: filtered,
+      showLegend: false,
+    });
+    plotWrap.replaceChildren();
+    if (plot) plotWrap.appendChild(plot);
+    onHoverGroup?.(hoverGroup);
+  }
+
+  for (const group of groups) {
+    const item = document.createElement('button');
+    item.type = 'button';
     item.className = 'modality-legend-item';
-    item.dataset.modality = m;
+    item.dataset.group = group;
+    item.title = hoverFilters ? `Filter to ${labels.get(group)}` : `Toggle ${labels.get(group)}`;
 
     const swatch = document.createElement('span');
     swatch.className = 'modality-legend-swatch';
-    swatch.style.background = modalityColor(m);
-    swatch.style.borderColor = modalityColor(m);
+    const color = groupBy === 'dataset' ? datasetColor(group) : modalityColor(group);
+    swatch.style.background = color;
+    swatch.style.borderColor = color;
+    item.append(swatch, document.createTextNode(labels.get(group)));
 
-    const label = document.createTextNode(m);
-    item.appendChild(swatch);
-    item.appendChild(label);
-
+    item.addEventListener('mouseenter', () => {
+      if (!hoverFilters) return;
+      hoverGroup = group;
+      render();
+    });
+    item.addEventListener('mouseleave', () => {
+      if (!hoverFilters) return;
+      hoverGroup = null;
+      render();
+    });
     item.addEventListener('click', () => {
-      if (hidden.has(m)) {
-        hidden.delete(m);
+      if (hidden.has(group)) {
+        hidden.delete(group);
         item.classList.remove('faded');
-        swatch.style.background = modalityColor(m);
+        swatch.style.background = color;
       } else {
-        hidden.add(m);
+        hidden.add(group);
         item.classList.add('faded');
         swatch.style.background = 'transparent';
       }
-      const newPlot = buildModalityHistogram(assets, containerWidth, { ...opts, hiddenModalities: hidden, showLegend: false });
-      const old = container.querySelector('.modality-plot');
-      if (old) old.remove();
-      if (newPlot) {
-        newPlot.classList.add('modality-plot');
-        container.appendChild(newPlot);
-      }
+      render();
     });
-
     legend.appendChild(item);
   }
 
-  container.appendChild(legend);
-
-  const initialPlot = buildModalityHistogram(assets, containerWidth, { ...opts, hiddenModalities: hidden, showLegend: false });
-  if (initialPlot) {
-    initialPlot.classList.add('modality-plot');
-    container.appendChild(initialPlot);
-  }
-
+  render();
   return container;
 }
 

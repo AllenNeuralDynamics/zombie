@@ -17,6 +17,79 @@
   margin-bottom: 0.5rem;
 }
 
+.swdb-overview {
+  margin-bottom: 1.5rem;
+}
+
+.swdb-overview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.35rem;
+}
+
+.swdb-overview-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.swdb-overview-toggle {
+  display: inline-flex;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 999px;
+  background: var(--surface-bg);
+}
+
+.swdb-overview-toggle-button {
+  padding: 0.25rem 0.65rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.swdb-overview-toggle-button:hover,
+.swdb-overview-toggle-button.is-active {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.swdb-overview-chart {
+  width: 100%;
+}
+
+.asset-overview-histogram-interactive .modality-legend {
+  margin-bottom: 0.25rem;
+}
+
+.asset-overview-histogram-interactive .modality-legend-item {
+  cursor: pointer;
+}
+
+.asset-overview-histogram-interactive .modality-legend-item:hover {
+  color: var(--text-primary);
+}
+
+.swdb-card {
+  transition: border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+.swdb-card--dimmed {
+  opacity: 0.35;
+}
+
+.swdb-card--highlighted {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+}
+
 .swdb-intro p {
   color: var(--text-secondary);
   line-height: 1.55;
@@ -36,7 +109,7 @@
   background: var(--surface-card);
   color: inherit;
   text-decoration: none;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
 .swdb-card:hover {

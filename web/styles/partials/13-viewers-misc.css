@@ -770,6 +770,11 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   font-size: 0.8rem;
   user-select: none;

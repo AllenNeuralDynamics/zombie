@@ -20,6 +20,56 @@ import * as zarr from 'zarrita';
 
 const S3_BASE = 'https://aind-open-data.s3.amazonaws.com';
 
+const _nwbBaseCache = new Map();
+
+function assertAssetName(asset) {
+  if (!/^[A-Za-z0-9_.-]+$/.test(asset ?? '')) {
+    throw new Error(`Invalid pophys asset name: ${asset}`);
+  }
+  return asset;
+}
+
+/** Find the NWB-Zarr directory directly under an asset's S3 prefix. */
+export function findNwbZarrPrefix(xml, asset) {
+  const prefix = `${assertAssetName(asset)}/`;
+  const roots = [...String(xml ?? '').matchAll(
+    /<CommonPrefixes>\s*<Prefix>([^<]+)<\/Prefix>\s*<\/CommonPrefixes>/g,
+  )]
+    .map((m) => m[1])
+    .filter((key) => key.startsWith(prefix) && key.endsWith('.nwb.zarr/'))
+    .sort();
+  return roots[0] ?? null;
+}
+
+/**
+ * Discover the NWB-Zarr root rather than assuming a particular inner filename.
+ * Asset prefixes currently contain names such as `<asset>.nwb.zarr` and
+ * `<session>.nwb.zarr`; future pipeline naming changes should not require a
+ * viewer release as long as the root remains an NWB-Zarr directory.
+ */
+export async function resolvePophysNwbBase(asset, { signal } = {}) {
+  const key = assertAssetName(asset);
+  if (_nwbBaseCache.has(key)) return _nwbBaseCache.get(key);
+
+  const promise = (async () => {
+    const prefix = `${key}/`;
+    const url = `${S3_BASE}/?list-type=2&prefix=${encodeURIComponent(prefix)}`
+      + `&delimiter=${encodeURIComponent('/')}&max-keys=1000`;
+    const resp = await fetch(url, { signal });
+    if (!resp.ok) throw new Error(`NWB-Zarr listing failed (${resp.status})`);
+    const rootPrefix = findNwbZarrPrefix(await resp.text(), key);
+    if (!rootPrefix) throw new Error('No NWB-Zarr root found for this asset');
+    return `${S3_BASE}/${rootPrefix.replace(/\/$/, '')}`;
+  })();
+  _nwbBaseCache.set(key, promise);
+  try {
+    return await promise;
+  } catch (err) {
+    _nwbBaseCache.delete(key);
+    throw err;
+  }
+}
+
 /** Available trace series → path template under processing/<plane>/. */
 export const TRACE_SERIES = {
   dff: (p) => `processing/${p}/dff_timeseries/dff_timeseries/data`,
@@ -35,13 +85,13 @@ export const TRACE_LABELS = {
   raw: 'raw fluorescence',
 };
 
-export function pophysNwbBase(asset) {
-  return `${S3_BASE}/${asset}/pophys.nwb.zarr`;
+export function pophysNwbBase(asset, rootPrefix = 'pophys.nwb.zarr') {
+  return `${S3_BASE}/${assertAssetName(asset)}/${rootPrefix}`;
 }
 
 /** Open the NWB zarr root for a derived pophys asset. */
-export function openPophysNwb(asset) {
-  const store = new zarr.FetchStore(pophysNwbBase(asset));
+export async function openPophysNwb(asset, options = {}) {
+  const store = new zarr.FetchStore(await resolvePophysNwbBase(asset, options));
   return zarr.root(store);
 }
 

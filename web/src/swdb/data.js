@@ -56,6 +56,18 @@ function sqlStr(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
+function fallbackAcquisitionTime(assetName) {
+  const match = String(assetName ?? '').match(/(?:^|_)(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})(?:_|$)/);
+  return match ? `${match[1]}T${match[2].replaceAll('-', ':')}Z` : null;
+}
+
+function fallbackModality(datasetName) {
+  const name = String(datasetName ?? '');
+  return /neuropixels|dynamic_routing|visual_coding_neuropixels/i.test(name)
+    ? ['ecephys']
+    : ['pophys'];
+}
+
 /**
  * Assert an asset name is a plain cache partition key.
  *
@@ -131,28 +143,94 @@ export function listSwdbDatasets(metadata) {
  * @returns {Promise<object[]>}
  */
 export async function loadSwdbDatasetSummaries(coord, metadata) {
-  return Promise.all(listSwdbDatasets(metadata).map(async (acorn) => {
+  const datasets = listSwdbDatasets(metadata);
+  if (datasets.length === 0) return [];
+
+  // Dataset tables only describe membership. Resolve subjects from the
+  // canonical metadata table so public collection products and older SWDB
+  // tables use the same subject definition.
+  await ensureTable(coord, 'asset_basics');
+
+  return Promise.all(datasets.map(async (acorn) => {
+    const table = await ensureTable(coord, acorn.name);
+    const [datasetRow] = await queryRows(
+      coord,
+      `SELECT COUNT(*) AS n_assets FROM ${quoteIdentifier(table)}`,
+    );
+    const [metadataRow] = await queryRows(
+      coord,
+      `
+        SELECT
+          COUNT(DISTINCT a.subject_id) AS n_subjects,
+          MIN(TRY_CAST(a.acquisition_start_time AS DATE)) AS first_date,
+          MAX(TRY_CAST(a.acquisition_start_time AS DATE)) AS last_date
+        FROM asset_basics a
+        INNER JOIN (
+          SELECT DISTINCT name
+          FROM ${quoteIdentifier(table)}
+          WHERE name IS NOT NULL
+        ) d ON d.name = a.name
+        WHERE a.subject_id IS NOT NULL
+      `,
+    );
+    return {
+      ...acorn,
+      nAssets: Number(datasetRow?.n_assets) || 0,
+      nSubjects: Number(metadataRow?.n_subjects) || 0,
+      firstDate: metadataRow?.first_date ?? null,
+      lastDate: metadataRow?.last_date ?? null,
+    };
+  }));
+}
+
+/**
+ * Load the dated canonical asset rows needed by the SWDB landing-page
+ * overview. Each row carries its published SWDB dataset name so the shared
+ * histogram can switch between modality and dataset grouping in the browser.
+ *
+ * @param {object} coord
+ * @param {{ acorns: object[] }} metadata
+ * @returns {Promise<object[]>}
+ */
+export async function loadSwdbOverviewAssets(coord, metadata) {
+  const datasets = listSwdbDatasets(metadata);
+  if (datasets.length === 0) return [];
+
+  await ensureTable(coord, 'asset_basics');
+  const rowsByDataset = await Promise.all(datasets.map(async (acorn) => {
     const table = await ensureTable(coord, acorn.name);
     const columns = new Set((acorn.columns ?? []).map((column) => (
       typeof column === 'string' ? column : column.name
     )));
-    const expressions = ['COUNT(*) AS n_assets'];
-    if (columns.has('subject_id')) expressions.push('COUNT(DISTINCT subject_id) AS n_subjects');
-    if (columns.has('session_date')) {
-      expressions.push('MIN(session_date) AS first_date', 'MAX(session_date) AS last_date');
-    }
-    const [row] = await queryRows(
+    const datasetModality = columns.has('modality') ? ', d.modality AS dataset_modality' : '';
+    const datasetDate = columns.has('session_date') ? ', d.session_date::VARCHAR AS dataset_date' : '';
+    const rows = await queryRows(
       coord,
-      `SELECT ${expressions.join(', ')} FROM ${quoteIdentifier(table)}`,
+      `
+        SELECT d.name, a.acquisition_start_time::VARCHAR AS acquisition_start_time,
+               a.modalities${datasetModality}${datasetDate}
+        FROM (
+          SELECT DISTINCT name${columns.has('modality') ? ', modality' : ''}${columns.has('session_date') ? ', session_date' : ''}
+          FROM ${quoteIdentifier(table)}
+          WHERE name IS NOT NULL
+        ) d
+        LEFT JOIN asset_basics a
+          ON d.name = a.name
+         AND (a.data_level IS NULL OR a.data_level != 'derived')
+        ORDER BY a.acquisition_start_time, d.name
+      `,
     );
-    return {
-      ...acorn,
-      nAssets: Number(row?.n_assets) || 0,
-      nSubjects: Number(row?.n_subjects) || 0,
-      firstDate: row?.first_date ?? null,
-      lastDate: row?.last_date ?? null,
-    };
+    return rows.map((row) => ({
+      name: row.name,
+      acquisition_start_time: row.acquisition_start_time
+        ?? row.dataset_date
+        ?? fallbackAcquisitionTime(row.name),
+      modalities: row.modalities ?? (row.dataset_modality ? [row.dataset_modality] : fallbackModality(acorn.name)),
+      dataset: acorn.name,
+    }));
   }));
+
+  return rowsByDataset.flat();
 }
 
 /**
