@@ -29,6 +29,35 @@
 
 import { createProjectView } from '../project/view.js';
 import { createSubjectView } from '../subject/view.js';
+import { queryRows } from '../lib/arrow.js';
+
+/**
+ * Resolve an asset-only deep link through the canonical asset index.
+ *
+ * `/view` is subject-centric, but asset links are also valid entry points.
+ * Keep this lookup in the combined view so the URL owner can add the resolved
+ * subject_id before loading the embedded subject view.  SWDB membership tables
+ * are intentionally not consulted here: only canonical asset_basics rows can
+ * establish the subject relationship for this page.
+ *
+ * @param {object|null} coordinator
+ * @param {string} assetName
+ * @returns {Promise<string|null>}
+ */
+export async function resolveAssetSubject(coordinator, assetName) {
+  if (!coordinator || !assetName) return null;
+  const safeAssetName = String(assetName).replace(/'/g, "''");
+  const rows = await queryRows(
+    coordinator,
+    `SELECT subject_id::VARCHAR AS subject_id
+       FROM asset_basics
+      WHERE name = '${safeAssetName}'
+        AND subject_id IS NOT NULL
+      LIMIT 1`,
+  );
+  const subjectId = rows[0]?.subject_id;
+  return subjectId == null ? null : String(subjectId);
+}
 
 export function createCombinedView(opts = {}) {
   const { coordinator } = opts;
@@ -128,6 +157,21 @@ export function createCombinedView(opts = {}) {
     e.preventDefault();
     openProject(name);
   });
+
+  // Asset-only links are valid deep links. Resolve the canonical asset row,
+  // then load its subject and keep the requested asset selected. Do this after
+  // both child views exist so a late lookup cannot race their construction.
+  if (!initialSubject && initialAsset && coordinator) {
+    resolveAssetSubject(coordinator, initialAsset)
+      .then((subjectId) => {
+        // The user may have navigated elsewhere while the lookup was running.
+        if (!subjectId || currentSubject || currentAsset !== initialAsset) return;
+        openSubject(subjectId, { acquisitionName: initialAsset });
+      })
+      .catch((err) => {
+        console.warn('[CombinedView] Failed to resolve asset subject:', err);
+      });
+  }
 
   // ── Lazy project load on first expand ──────────────────────────────────────
   projectDetails.addEventListener('toggle', () => {
