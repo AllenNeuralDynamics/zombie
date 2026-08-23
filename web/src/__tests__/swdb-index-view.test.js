@@ -62,5 +62,14 @@ describe('SWDB index view', () => {
       .toEqual(DATASET_NAMES);
     expect(root.querySelectorAll('.asset-overview-histogram-interactive .modality-legend-item'))
       .toHaveLength(DATASET_NAMES.length);
+
+    const cards = root.querySelectorAll('.swdb-card');
+    cards[0].dispatchEvent(new Event('mouseenter'));
+    expect(cards[1].classList.contains('swdb-card--dimmed')).toBe(true);
+    expect(cards[0].classList.contains('swdb-card--highlighted')).toBe(true);
+
+    cards[0].dispatchEvent(new Event('mouseleave'));
+    expect(cards[1].classList.contains('swdb-card--dimmed')).toBe(false);
+    expect(cards[0].classList.contains('swdb-card--highlighted')).toBe(false);
   });
 });

@@ -74,6 +74,57 @@ function _quarterlyTicks(domainMin, domainMax) {
 }
 
 /**
+ * Compute the full date domain for an asset overview.
+ *
+ * This deliberately reads directly from the input assets rather than from
+ * currently visible histogram rows. Hovering or hiding a group must not
+ * change the temporal frame of reference for the chart.
+ */
+function _assetOverviewXDomain(assets) {
+  const times = assets
+    .map((asset) => {
+      const date = new Date(asset.acquisition_start_time);
+      if (Number.isNaN(date.valueOf())) return NaN;
+      return Date.UTC(
+        date.getUTCFullYear(),
+        date.getUTCMonth(),
+        date.getUTCDate() - date.getUTCDay(),
+      );
+    })
+    .filter((time) => !Number.isNaN(time));
+  if (times.length === 0) return undefined;
+
+  const rawMin = Math.min(...times);
+  const rawMax = Math.max(...times);
+  const ONE_YEAR_MS = 365.25 * 24 * 3600 * 1000;
+  if (rawMax - rawMin < ONE_YEAR_MS) {
+    const median = (rawMin + rawMax) / 2;
+    const half = ONE_YEAR_MS / 2;
+    return [new Date(median - half), new Date(median + half)];
+  }
+  return [new Date(rawMin), new Date(rawMax)];
+}
+
+/** Compute the full stacked height so filtered states share one Y domain. */
+function _assetOverviewYDomain(rows) {
+  const totalsByWeek = new Map();
+  for (const row of rows) {
+    const week = row.week.getTime();
+    totalsByWeek.set(week, (totalsByWeek.get(week) ?? 0) + row.n);
+  }
+  return [0, Math.max(...totalsByWeek.values())];
+}
+
+/** Keep the scale stable when the same overview toggles between groupings. */
+function _assetOverviewYDomainForAssets(assets, groupBy) {
+  const currentRows = _histogramRows(assets, groupBy).rows;
+  const alternateRows = _histogramRows(assets, groupBy === 'dataset' ? 'modality' : 'dataset').rows;
+  return _assetOverviewYDomain(
+    alternateRows.length > 0 ? [...currentRows, ...alternateRows] : currentRows,
+  );
+}
+
+/**
  * Convert the metadata representation of modalities into plain strings.
  */
 function _modalities(value) {
@@ -94,21 +145,53 @@ export function datasetColor(dataset) {
   return DATASET_COLORS[hash % DATASET_COLORS.length];
 }
 
+/**
+ * Collapse duplicate dataset-membership rows into one asset for modality mode
+ * while retaining every modality reported by any membership row.
+ */
+function _mergeModalityAssets(assets) {
+  const mergedByName = new Map();
+  const merged = [];
+  for (const asset of assets) {
+    if (!asset.name) {
+      merged.push(asset);
+      continue;
+    }
+
+    let entry = mergedByName.get(asset.name);
+    if (!entry) {
+      entry = {
+        ...asset,
+        modalities: new Set(_modalities(asset.modalities)),
+      };
+      mergedByName.set(asset.name, entry);
+      merged.push(entry);
+    } else {
+      for (const modality of _modalities(asset.modalities)) entry.modalities.add(modality);
+      const currentDate = new Date(entry.acquisition_start_time);
+      const incomingDate = new Date(asset.acquisition_start_time);
+      if (Number.isNaN(currentDate.valueOf()) && !Number.isNaN(incomingDate.valueOf())) {
+        entry.acquisition_start_time = asset.acquisition_start_time;
+      }
+    }
+  }
+  return merged.map((asset) => ({
+    ...asset,
+    modalities: asset.modalities instanceof Set ? Array.from(asset.modalities) : asset.modalities,
+  }));
+}
+
 function _histogramRows(assets, groupBy) {
   const counts = new Map();
   const labels = new Map();
-  const seenAssets = new Set();
-  for (const asset of assets) {
+  const sourceAssets = groupBy === 'modality' ? _mergeModalityAssets(assets) : assets;
+  for (const asset of sourceAssets) {
     // An SWDB asset can belong to more than one published dataset. Dataset
-    // mode intentionally preserves those memberships; modality mode should
-    // still count the canonical asset only once.
+    // mode intentionally preserves those memberships; modality mode merges
+    // those rows before counting the canonical asset only once.
     if (!asset.acquisition_start_time) continue;
     const date = new Date(asset.acquisition_start_time);
     if (Number.isNaN(date.valueOf())) continue;
-    if (groupBy === 'modality' && asset.name) {
-      if (seenAssets.has(asset.name)) continue;
-      seenAssets.add(asset.name);
-    }
     const day = date.getUTCDay(); // 0=Sun
     const week = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - day));
     const weekKey = _isoDate(week);
@@ -149,13 +232,22 @@ function _histogramRows(assets, groupBy) {
  * @param {'auto'|'month'|'quarter'|'year'} [opts.xTicks='auto'] - Tick granularity on the
  *   x-axis. 'auto' selects the best fit based on containerWidth and data date range.
  * @param {Set<string>} [opts.hiddenGroups] - Groups to omit from the plot.
+ * @param {[Date, Date]} [opts.xDomain] - Fixed x-axis domain for re-rendered states.
+ * @param {[number, number]} [opts.yDomain] - Fixed y-axis domain for re-rendered states.
  * @param {boolean} [opts.showLegend=true]
  * @returns {HTMLElement|null} The plot element, or null if there is no data.
  */
 export function buildAssetOverviewHistogram(
   assets,
   containerWidth = 700,
-  { groupBy = 'modality', xTicks = 'auto', hiddenGroups = new Set(), showLegend = true } = {},
+  {
+    groupBy = 'modality',
+    xTicks = 'auto',
+    hiddenGroups = new Set(),
+    showLegend = true,
+    xDomain: fixedXDomain = null,
+    yDomain: fixedYDomain = null,
+  } = {},
 ) {
   const { rows: allRows } = _histogramRows(assets, groupBy);
   if (allRows.length === 0) return null;
@@ -163,20 +255,8 @@ export function buildAssetOverviewHistogram(
 
   const chartWidth = Math.max(300, containerWidth - 32);
 
-  const ONE_YEAR_MS = 365.25 * 24 * 3600 * 1000;
-  const visibleTimes = rows.map((r) => r.week.getTime()).filter((t) => !isNaN(t));
-  let xDomain;
-  if (visibleTimes.length > 0) {
-    const rawMin = Math.min(...visibleTimes);
-    const rawMax = Math.max(...visibleTimes);
-    if (rawMax - rawMin < ONE_YEAR_MS) {
-      const median = (rawMin + rawMax) / 2;
-      const half = ONE_YEAR_MS / 2;
-      xDomain = [new Date(median - half), new Date(median + half)];
-    } else {
-      xDomain = [new Date(rawMin), new Date(rawMax)];
-    }
-  }
+  const xDomain = fixedXDomain ?? _assetOverviewXDomain(assets);
+  const yDomain = fixedYDomain ?? _assetOverviewYDomain(allRows);
 
   const domainSpanMs = xDomain ? xDomain[1].getTime() - xDomain[0].getTime() : 0;
   const strategy = xTicks === 'auto' ? _selectTickStrategy(chartWidth, domainSpanMs) : xTicks;
@@ -218,7 +298,11 @@ export function buildAssetOverviewHistogram(
       tickFormat,
       domain: xDomain,
     },
-    y: { label: groupBy === 'dataset' ? 'Assets' : 'Acquisitions', grid: true },
+    y: {
+      label: groupBy === 'dataset' ? 'Assets' : 'Acquisitions',
+      domain: yDomain,
+      grid: true,
+    },
     color: { domain: colorDomain, range: colorRange, legend: showLegend },
     style: { background: 'transparent', fontSize: '11px', fontFamily: 'inherit' },
     marks: [
@@ -280,6 +364,8 @@ export function buildInteractiveAssetOverviewHistogram(
 ) {
   const { rows } = _histogramRows(assets, groupBy);
   if (rows.length === 0) return null;
+  const xDomain = _assetOverviewXDomain(assets);
+  const yDomain = _assetOverviewYDomainForAssets(assets, groupBy);
 
   const totals = new Map();
   const labels = new Map();
@@ -310,6 +396,8 @@ export function buildInteractiveAssetOverviewHistogram(
       xTicks,
       hiddenGroups: filtered,
       showLegend: false,
+      xDomain,
+      yDomain,
     });
     plotWrap.replaceChildren();
     if (plot) plotWrap.appendChild(plot);
@@ -354,6 +442,19 @@ export function buildInteractiveAssetOverviewHistogram(
     });
     legend.appendChild(item);
   }
+
+  // Expose the same hover state to surrounding UI, such as SWDB dataset cards.
+  // This keeps card hover and legend hover behavior identical.
+  container.setHoverGroup = (group) => {
+    if (!hoverFilters) return;
+    hoverGroup = group;
+    render();
+  };
+  container.clearHoverGroup = () => {
+    if (!hoverFilters) return;
+    hoverGroup = null;
+    render();
+  };
 
   render();
   return container;

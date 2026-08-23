@@ -68,6 +68,12 @@ function fallbackModality(datasetName) {
     : ['pophys'];
 }
 
+function hasModalities(value) {
+  return Array.isArray(value)
+    ? value.length > 0
+    : value != null && String(value).trim().length > 0;
+}
+
 /**
  * Assert an asset name is a plain cache partition key.
  *
@@ -225,7 +231,9 @@ export async function loadSwdbOverviewAssets(coord, metadata) {
       acquisition_start_time: row.acquisition_start_time
         ?? row.dataset_date
         ?? fallbackAcquisitionTime(row.name),
-      modalities: row.modalities ?? (row.dataset_modality ? [row.dataset_modality] : fallbackModality(acorn.name)),
+      modalities: hasModalities(row.modalities)
+        ? row.modalities
+        : (row.dataset_modality ? [row.dataset_modality] : fallbackModality(acorn.name)),
       dataset: acorn.name,
     }));
   }));

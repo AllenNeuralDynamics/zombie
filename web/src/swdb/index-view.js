@@ -39,6 +39,10 @@ export function createSwdbIndexView(coord, metadata) {
         return;
       }
       cards.replaceChildren(...datasets.map(buildCard));
+      cards.querySelectorAll('.swdb-card[data-dataset]').forEach((card) => {
+        card.addEventListener('mouseenter', () => overview.hoverDataset(card.dataset.dataset));
+        card.addEventListener('mouseleave', () => overview.clearDatasetHover());
+      });
       try {
         const rows = await loadSwdbOverviewAssets(coord, metadata);
         overview.setRows(rows.map((row) => ({
@@ -119,6 +123,7 @@ function buildOverview() {
   let rows = [];
   let error = null;
   let resizeObserver = null;
+  let interactivePlot = null;
 
   function render() {
     if (error) {
@@ -133,7 +138,7 @@ function buildOverview() {
     }
     chart.className = 'platform-overview-histogram-plot';
     const width = chart.getBoundingClientRect().width || 650;
-    const plot = buildInteractiveAssetOverviewHistogram(rows, width, {
+    interactivePlot = buildInteractiveAssetOverviewHistogram(rows, width, {
       groupBy: mode,
       xTicks: 'year',
       hoverFilters: mode === 'dataset',
@@ -142,7 +147,7 @@ function buildOverview() {
       },
     });
     chart.replaceChildren();
-    if (plot) chart.appendChild(plot);
+    if (interactivePlot) chart.appendChild(interactivePlot);
   }
 
   section.addEventListener('swdb-dataset-hover', (event) => {
@@ -169,6 +174,12 @@ function buildOverview() {
     setError(nextError) {
       error = nextError;
       render();
+    },
+    hoverDataset(dataset) {
+      if (mode === 'dataset') interactivePlot?.setHoverGroup?.(dataset);
+    },
+    clearDatasetHover() {
+      if (mode === 'dataset') interactivePlot?.clearHoverGroup?.();
     },
     dispose() {
       resizeObserver?.disconnect();
