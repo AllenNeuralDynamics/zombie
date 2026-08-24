@@ -23,7 +23,8 @@ const SPOUT_START_Y = 62;
 const SPOUT_TRAVEL = 82;
 const FOV_X = 242;
 const FOV_Y = 22;
-const FOV_SIZE = 96;
+const FOV_W = 96;
+const FOV_H = 48;
 
 const SPOUT_COLOR = '#4b5563';
 const TONGUE_COLOR = '#ff7faa';
@@ -136,28 +137,31 @@ export class BciAnimation {
   _drawFov(ctx, target) {
     ctx.save();
     ctx.fillStyle = '#e2e8f0';
-    ctx.fillRect(FOV_X, FOV_Y, FOV_SIZE, FOV_SIZE);
+    ctx.fillRect(FOV_X, FOV_Y, FOV_W, FOV_H);
     if (this.sprites.fov) {
       ctx.globalAlpha = 0.9;
-      ctx.drawImage(this.sprites.fov, FOV_X, FOV_Y, FOV_SIZE, FOV_SIZE);
+      // BCI projections are 512×256. Keep the compact task thumbnail at the
+      // same 2:1 aspect ratio as the source image.
+      ctx.drawImage(this.sprites.fov, FOV_X, FOV_Y, FOV_W, FOV_H);
     } else {
       ctx.strokeStyle = '#94a3b8';
       ctx.lineWidth = 1;
       for (let i = 1; i < 4; i++) {
-        const offset = FOV_SIZE * i / 4;
+        const xOffset = FOV_W * i / 4;
+        const yOffset = FOV_H * i / 4;
         ctx.beginPath();
-        ctx.moveTo(FOV_X + offset, FOV_Y);
-        ctx.lineTo(FOV_X + offset, FOV_Y + FOV_SIZE);
-        ctx.moveTo(FOV_X, FOV_Y + offset);
-        ctx.lineTo(FOV_X + FOV_SIZE, FOV_Y + offset);
+        ctx.moveTo(FOV_X + xOffset, FOV_Y);
+        ctx.lineTo(FOV_X + xOffset, FOV_Y + FOV_H);
+        ctx.moveTo(FOV_X, FOV_Y + yOffset);
+        ctx.lineTo(FOV_X + FOV_W, FOV_Y + yOffset);
         ctx.stroke();
       }
     }
     ctx.strokeStyle = '#64748b';
-    ctx.strokeRect(FOV_X, FOV_Y, FOV_SIZE, FOV_SIZE);
+    ctx.strokeRect(FOV_X, FOV_Y, FOV_W, FOV_H);
     if (target?.targetX != null && target?.targetY != null) {
-      const x = FOV_X + clamp(target.targetX / 512, 0, 1) * FOV_SIZE;
-      const y = FOV_Y + clamp(target.targetY / 512, 0, 1) * FOV_SIZE;
+      const x = FOV_X + clamp(target.targetX / 512, 0, 1) * FOV_W;
+      const y = FOV_Y + clamp(target.targetY / 256, 0, 1) * FOV_H;
       ctx.fillStyle = TARGET_COLOR;
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 2;
@@ -169,7 +173,7 @@ export class BciAnimation {
     ctx.fillStyle = '#334155';
     ctx.font = '10px system-ui, sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillText('target FOV', FOV_X, FOV_Y + FOV_SIZE + 13);
+    ctx.fillText('target FOV', FOV_X, FOV_Y + FOV_H + 13);
     ctx.restore();
   }
 
