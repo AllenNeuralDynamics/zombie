@@ -64,6 +64,7 @@ describe('SWDB index view', () => {
     expect(root.querySelectorAll('.asset-overview-histogram-interactive .modality-legend-item'))
       .toHaveLength(DATASET_NAMES.length);
     expect(root.querySelector('.swdb-card-modalities').textContent).toContain('pophys');
+    expect(root.querySelector('.swdb-card-span').textContent).toBe('2025-01-01 → 2025-01-01');
 
     const cards = root.querySelectorAll('.swdb-card');
     cards[0].dispatchEvent(new Event('mouseenter'));

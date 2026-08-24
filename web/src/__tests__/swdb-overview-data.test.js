@@ -16,8 +16,27 @@ vi.mock('../lib/assets-table.js', () => ({ fetchAssetsWithSources: vi.fn() }));
 vi.mock('../lib/arrow.js', () => ({
   queryRows: vi.fn(async (_coord, sql) => {
     if (sql.includes('COUNT(*) AS n_assets')) return [{ n_assets: 3 }];
+    if (sql.includes('SELECT name, session_date')) {
+      return [
+        { name: 'asset_2025-01-01_00-00-00', session_date: '2025-01-01' },
+        { name: 'asset_2025-01-03_00-00-00', session_date: '2025-01-03' },
+      ];
+    }
+    if (sql.includes('SELECT name\n') && sql.includes('WHERE name IS NOT NULL')) {
+      return [
+        { name: 'asset_2025-01-01_00-00-00' },
+        { name: 'asset_2025-01-03_00-00-00' },
+      ];
+    }
+    if (sql.includes('COUNT(DISTINCT a.subject_id)') && sql.includes('swdb_2026_public')) {
+      return [{ n_subjects: 0, first_date: null, last_date: null }];
+    }
     if (sql.includes('COUNT(DISTINCT a.subject_id)')) {
-      return [{ n_subjects: 2, first_date: '2025-01-01', last_date: '2025-01-03' }];
+      return [{
+        n_subjects: 2,
+        first_date: new Date('2025-01-01T00:00:00Z'),
+        last_date: new Date('2025-01-03T00:00:00Z'),
+      }];
     }
     if (sql.includes('SELECT DISTINCT unnest(a.modalities) AS modality')) {
       return [{ modality: 'ecephys' }, { modality: 'pophys' }];
@@ -74,5 +93,20 @@ describe('loadSwdbDatasetSummaries', () => {
     const [summary] = await loadSwdbDatasetSummaries({}, metadata);
 
     expect(summary.modalities).toEqual(['behavior', 'ecephys', 'pophys']);
+    expect(summary.firstDate).toBe('2025-01-01');
+    expect(summary.lastDate).toBe('2025-01-03');
+  });
+
+  it('gets dates from public membership names when canonical rows are absent', async () => {
+    const metadata = {
+      acorns: [{
+        name: 'swdb_2026_public',
+        columns: [{ name: 'name' }, { name: 'data_asset_id' }],
+      }],
+    };
+    const [summary] = await loadSwdbDatasetSummaries({}, metadata);
+
+    expect(summary.firstDate).toBe('2025-01-01');
+    expect(summary.lastDate).toBe('2025-01-03');
   });
 });

@@ -56,9 +56,40 @@ function sqlStr(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
+/** Normalize a DuckDB date/timestamp value to YYYY-MM-DD. */
+function normalizeSwdbDate(value) {
+  if (value == null || value === '') return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const pad = (number) => String(number).padStart(2, '0');
+    return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())}`;
+  }
+  const match = String(value).match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
+/** Format a DuckDB date/timestamp value for SWDB date spans. */
+function formatSwdbDate(value) {
+  const date = normalizeSwdbDate(value);
+  return date;
+}
+
 function fallbackAcquisitionTime(assetName) {
   const match = String(assetName ?? '').match(/(?:^|_)(\d{4}-\d{2}-\d{2})_(\d{2}-\d{2}-\d{2})(?:_|$)/);
   return match ? `${match[1]}T${match[2].replaceAll('-', ':')}Z` : null;
+}
+
+function datasetDateBounds(rows, hasSessionDate) {
+  const dates = rows
+    .map((row) => (
+      (hasSessionDate ? normalizeSwdbDate(row.session_date) : null)
+      ?? normalizeSwdbDate(fallbackAcquisitionTime(row.name)?.slice(0, 10))
+    ))
+    .filter(Boolean)
+    .sort();
+  return {
+    first: dates[0] ?? null,
+    last: dates.at(-1) ?? null,
+  };
 }
 
 function fallbackModality(datasetName) {
@@ -165,10 +196,20 @@ export async function loadSwdbDatasetSummaries(coord, metadata) {
 
   return Promise.all(datasets.map(async (acorn) => {
     const table = await ensureTable(coord, acorn.name);
+    const columns = new Set((acorn.columns ?? []).map((column) => (
+      typeof column === 'string' ? column : column.name
+    )));
     const [datasetRow] = await queryRows(
       coord,
       `SELECT COUNT(*) AS n_assets FROM ${quoteIdentifier(table)}`,
     );
+    const datasetDateRows = await queryRows(
+      coord,
+      `SELECT name${columns.has('session_date') ? ', session_date' : ''}
+       FROM ${quoteIdentifier(table)}
+       WHERE name IS NOT NULL`,
+    );
+    const datasetDates = datasetDateBounds(datasetDateRows, columns.has('session_date'));
     const [metadataRow] = await queryRows(
       coord,
       `
@@ -182,7 +223,6 @@ export async function loadSwdbDatasetSummaries(coord, metadata) {
           FROM ${quoteIdentifier(table)}
           WHERE name IS NOT NULL
         ) d ON d.name = a.name
-        WHERE a.subject_id IS NOT NULL
       `,
     );
     const assetModalityRows = await queryRows(
@@ -215,8 +255,8 @@ export async function loadSwdbDatasetSummaries(coord, metadata) {
       ...acorn,
       nAssets: Number(datasetRow?.n_assets) || 0,
       nSubjects: Number(metadataRow?.n_subjects) || 0,
-      firstDate: metadataRow?.first_date ?? null,
-      lastDate: metadataRow?.last_date ?? null,
+      firstDate: formatSwdbDate(metadataRow?.first_date) ?? formatSwdbDate(datasetDates.first),
+      lastDate: formatSwdbDate(metadataRow?.last_date) ?? formatSwdbDate(datasetDates.last),
       modalities: modalities.length > 0 ? modalities : fallbackModality(acorn.name),
     };
   }));
