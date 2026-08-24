@@ -119,10 +119,14 @@ export function createCombinedView(opts = {}) {
       projectView.highlightSubject?.(subjectId || null);
       syncUrl();
     },
-    onAcquisitionSelect: (assetName) => {
-      currentAsset = assetName || '';
+    onAcquisitionSelect: (assetName, { programmatic = false } = {}) => {
+      // A deep link may name a derived asset, which the timeline resolves to the
+      // acquisition it descends from. Don't rewrite ?asset= to that ancestor —
+      // keep what the user asked for until they pick a bubble themselves.
+      const keepDeepLink = programmatic && currentAsset && currentAsset !== assetName;
+      if (!keepDeepLink) currentAsset = assetName || '';
       syncUrl();
-      projectView.highlightAsset?.(assetName);
+      projectView.highlightAsset?.(currentAsset);
     },
   });
   subjectBody.appendChild(subjectView);

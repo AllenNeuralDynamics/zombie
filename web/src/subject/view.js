@@ -75,6 +75,7 @@ export function generateInfoHtml(subject, projects = []) {
  *   subject: object,
  *   procedures: { subject_procedures: object[], specimen_procedures: object[] },
  *   acquisitions: object[],
+ *   assetSources: Map<string, string[]>,
  * }}
  */
 export function organizeSubjectData(records, subjectId) {
@@ -82,7 +83,8 @@ export function organizeSubjectData(records, subjectId) {
     subject: {},
     procedures: { subject_procedures: [], specimen_procedures: [], coordinate_system: null },
     acquisitions: [],
-    instruments: new Map(), // instrument_id → instrument data
+    instruments: new Map(),   // instrument_id → instrument data
+    assetSources: new Map(),  // asset name → its source_data parents
   };
 
   const subjectProcKeys = new Set();
@@ -128,9 +130,9 @@ export function organizeSubjectData(records, subjectId) {
     // provenance link: only records that point at another asset are duplicate
     // children and should be omitted from the acquisition timeline.
     const sourceData = rec.data_description?.source_data;
-    const hasSourceData = Array.isArray(sourceData)
-      ? sourceData.some(Boolean)
-      : Boolean(sourceData);
+    const parents = (Array.isArray(sourceData) ? sourceData : [sourceData]).filter(Boolean);
+    const hasSourceData = parents.length > 0;
+    if (rec.name) bundle.assetSources.set(rec.name, parents);
     if (
       rec.acquisition?.acquisition_start_time &&
       !hasSourceData
@@ -331,6 +333,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         },
         acquisitions: [],
         instruments: new Map(),
+        assetSources: new Map(),
       };
       hasProceduresFallback = true;
     } else {
@@ -368,13 +371,14 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
     let assetsTableEl = null;
 
     const timelineSvg = createSubjectTimeline(events, {
-      onSelect: (ev) => {
+      assetSources: bundle.assetSources,
+      onSelect: (ev, { programmatic = false } = {}) => {
         renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator, instruments: bundle.instruments });
         if (ev?.type === 'Acquisition') {
           const targetName = ev.data?._assetName ?? '';
           if (targetName) {
             assetsTableEl?.goToAsset?.(targetName);
-            onAcquisitionSelect?.(targetName);
+            onAcquisitionSelect?.(targetName, { programmatic });
           }
         }
       },

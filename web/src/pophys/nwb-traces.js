@@ -70,20 +70,97 @@ export async function resolvePophysNwbBase(asset, { signal } = {}) {
   }
 }
 
-/** Available trace series → path template under processing/<plane>/. */
-export const TRACE_SERIES = {
-  dff: (p) => `processing/${p}/dff_timeseries/dff_timeseries/data`,
-  events: (p) => `processing/${p}/event_timeseries/data`,
-  neuropil_corrected: (p) => `processing/${p}/neuropil_corrected_timeseries/data`,
-  raw: (p) => `processing/${p}/raw_timeseries/ROI_fluorescence_timeseries/data`,
-};
+/**
+ * Trace layouts. Derived pophys NWBs come in two generations and the plane
+ * groups are named differently in each, so the group path is resolved by
+ * probing rather than assumed:
+ *
+ *   modern  processing/<plane>/dff_timeseries/dff_timeseries/{data,timestamps}
+ *   legacy  processing/<plane>/dff/{data,timestamps}
+ *
+ * The legacy layout is what the V1 deep-dive assets use (plane names are
+ * `plane-0`… rather than `VISp_3`), and it carries two extra series.
+ */
+const LAYOUTS = [
+  {
+    name: 'modern',
+    groups: {
+      dff: (p) => `processing/${p}/dff_timeseries/dff_timeseries`,
+      events: (p) => `processing/${p}/event_timeseries`,
+      neuropil_corrected: (p) => `processing/${p}/neuropil_corrected_timeseries`,
+      raw: (p) => `processing/${p}/raw_timeseries/ROI_fluorescence_timeseries`,
+    },
+  },
+  {
+    name: 'legacy',
+    groups: {
+      dff: (p) => `processing/${p}/dff`,
+      events: (p) => `processing/${p}/events`,
+      demixed: (p) => `processing/${p}/demixed`,
+      neuropil_corrected: (p) => `processing/${p}/neuropil_corrected`,
+      neuropil_fluorescence: (p) => `processing/${p}/neuropil_fluorescence`,
+      raw: (p) => `processing/${p}/raw`,
+    },
+  },
+];
+
+/** Preferred order for the series picker; unknown keys sort last. */
+export const SERIES_ORDER = [
+  'dff', 'events', 'demixed', 'neuropil_corrected', 'neuropil_fluorescence', 'raw',
+];
 
 export const TRACE_LABELS = {
   dff: 'dF/F',
   events: 'events (deconvolved)',
+  demixed: 'demixed',
   neuropil_corrected: 'neuropil-corrected',
+  neuropil_fluorescence: 'neuropil fluorescence',
   raw: 'raw fluorescence',
 };
+
+/** root → plane → Promise<{name, groups, series}> */
+const _layoutCache = new WeakMap();
+
+async function _arrayExists(root, path) {
+  try {
+    await zarr.open(root.resolve(path), { kind: 'array' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve which trace layout a plane uses, and which series it actually has.
+ *
+ * @returns {Promise<{name: string, groups: object, series: string[]}>}
+ */
+export function resolvePlaneLayout(root, plane) {
+  let byPlane = _layoutCache.get(root);
+  if (!byPlane) { byPlane = new Map(); _layoutCache.set(root, byPlane); }
+  if (byPlane.has(plane)) return byPlane.get(plane);
+
+  const promise = (async () => {
+    for (const layout of LAYOUTS) {
+      const keys = Object.keys(layout.groups);
+      const hits = await Promise.all(
+        keys.map((k) => _arrayExists(root, `${layout.groups[k](plane)}/data`)),
+      );
+      const series = keys.filter((_, i) => hits[i]);
+      // dff is the anchor: every generation has it, and its timestamps are the
+      // plane clock. A layout matching only stray names is not a match.
+      if (series.includes('dff')) {
+        series.sort((a, b) => SERIES_ORDER.indexOf(a) - SERIES_ORDER.indexOf(b));
+        return { name: layout.name, groups: layout.groups, series };
+      }
+    }
+    throw new Error(`No recognised NWB trace layout for plane "${plane}"`);
+  })();
+
+  byPlane.set(plane, promise);
+  promise.catch(() => byPlane.delete(plane));
+  return promise;
+}
 
 export function pophysNwbBase(asset, rootPrefix = 'pophys.nwb.zarr') {
   return `${S3_BASE}/${assertAssetName(asset)}/${rootPrefix}`;
@@ -97,8 +174,9 @@ export async function openPophysNwb(asset, options = {}) {
 
 /** Load a plane's frame timestamps (seconds, session clock). */
 export async function loadPlaneTimestamps(root, plane, { signal } = {}) {
+  const layout = await resolvePlaneLayout(root, plane);
   const arr = await zarr.open(
-    root.resolve(`processing/${plane}/dff_timeseries/dff_timeseries/timestamps`),
+    root.resolve(`${layout.groups.dff(plane)}/timestamps`),
     { kind: 'array' },
   );
   const chunk = await zarr.get(arr);
@@ -110,12 +188,13 @@ export async function loadPlaneTimestamps(root, plane, { signal } = {}) {
  * Read one ROI's trace column for a plane / series.
  *
  * @param {number} roiId - ROI column index (== cache roi_id).
- * @param {keyof TRACE_SERIES} [series='dff']
+ * @param {string} [series='dff'] - Key from `resolvePlaneLayout().series`.
  * @returns {Promise<Float32Array>}
  */
 export async function loadRoiTrace(root, plane, roiId, series = 'dff', { signal } = {}) {
-  const tmpl = TRACE_SERIES[series] ?? TRACE_SERIES.dff;
-  const arr = await zarr.open(root.resolve(tmpl(plane)), { kind: 'array' });
+  const layout = await resolvePlaneLayout(root, plane);
+  const key = layout.series.includes(series) ? series : 'dff';
+  const arr = await zarr.open(root.resolve(`${layout.groups[key](plane)}/data`), { kind: 'array' });
   // Integer index on the ROI axis reduces it away → a 1-D column.
   const chunk = await zarr.get(arr, [null, roiId]);
   if (signal?.aborted) throw new Error('aborted');

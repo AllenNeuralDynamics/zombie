@@ -97,11 +97,16 @@ export function buildTimelineSvgParts(events, totalWidth, totalHeight) {
  *
  * @param {Array<object>} events - Timeline event objects from buildTimelineEvents().
  * @param {object} [opts]
- * @param {(ev: object) => void} [opts.onSelect] - Called with the event object on click.
+ * @param {(ev: object, info: {programmatic: boolean}) => void} [opts.onSelect] -
+ *   Called with the event object on selection. `programmatic` is true when the
+ *   selection came from `selectAcquisition()` (e.g. a deep link) rather than a
+ *   user click or keypress.
+ * @param {Map<string, string[]>} [opts.assetSources] - name → its `source_data`
+ *   parents, used to walk a derived asset back to the acquisition it came from.
  * @returns {HTMLElement}
  */
 export function createSubjectTimeline(events, opts = {}) {
-  const { onSelect } = opts;
+  const { onSelect, assetSources = null } = opts;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'subject-timeline-wrapper';
@@ -189,14 +194,14 @@ export function createSubjectTimeline(events, opts = {}) {
   let selectedBubble = null;
   const bubbleEls = []; // parallel to sorted[]
 
-  function selectBubble(bubble, ev, { focus = false } = {}) {
+  function selectBubble(bubble, ev, { focus = false, programmatic = false } = {}) {
     if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
     bubble.classList.add('tl-bubble--selected');
     selectedBubble = bubble;
     bubble.scrollIntoView?.({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     // Keep keyboard focus on the selected bubble so arrow-key navigation keeps working.
     if (focus) bubble.focus?.({ preventScroll: true });
-    onSelect?.(ev);
+    onSelect?.(ev, { programmatic });
   }
 
   // Arrow-key navigation: move one event into the past (←) or future (→).
@@ -272,27 +277,62 @@ export function createSubjectTimeline(events, opts = {}) {
 
   // Expose imperative acquisition selection (used by the combined view to jump
   // to a specific acquisition when arriving from a project-page dot click).
+  const acqIndexByName = new Map();
+  sorted.forEach((ev, i) => {
+    if (ev.type === 'Acquisition' && ev.data?._assetName) {
+      acqIndexByName.set(ev.data._assetName, i);
+    }
+  });
+
+  /**
+   * Walk a derived asset name back to the acquisition it descends from.
+   *
+   * The timeline only carries assets with no `source_data`, but deep links
+   * arrive with any asset name — including derived children several hops down
+   * (e.g. a `_filtered_` asset whose parent is itself a derived `_nwb_` asset).
+   * Provenance is followed through `assetSources`; the old longest-common-prefix
+   * guess only worked when derived names happened to extend their parent's name,
+   * which is not true in general.
+   */
+  function resolveAcqIndex(assetName) {
+    if (acqIndexByName.has(assetName)) return acqIndexByName.get(assetName);
+
+    if (assetSources) {
+      const seen = new Set([assetName]);
+      let frontier = [assetName];
+      // Breadth-first up the provenance DAG; depth is bounded by `seen`.
+      while (frontier.length) {
+        const next = [];
+        for (const name of frontier) {
+          for (const parent of assetSources.get(name) ?? []) {
+            if (!parent || seen.has(parent)) continue;
+            if (acqIndexByName.has(parent)) return acqIndexByName.get(parent);
+            seen.add(parent);
+            next.push(parent);
+          }
+        }
+        frontier = next;
+      }
+    }
+
+    // Last resort for assets missing from `assetSources`: the acquisition whose
+    // name is the longest prefix of the requested one.
+    let idx = -1;
+    let bestLen = 0;
+    for (const [raw, i] of acqIndexByName) {
+      if (assetName.startsWith(`${raw}_`) && raw.length > bestLen) {
+        bestLen = raw.length;
+        idx = i;
+      }
+    }
+    return idx;
+  }
+
   wrapper.selectAcquisition = (assetName) => {
     if (!assetName) return false;
-    let idx = sorted.findIndex(
-      (ev) => ev.type === 'Acquisition' && ev.data?._assetName === assetName,
-    );
-    // Fallback for derived assets: the timeline only carries raw acquisitions, but a
-    // deep-link may arrive with a derived asset name (e.g. "<raw>_processed_<datetime>").
-    // Derived names are prefixed by their source raw name, so select the acquisition
-    // whose _assetName is the longest prefix of the requested name.
-    if (idx === -1) {
-      let bestLen = 0;
-      sorted.forEach((ev, i) => {
-        const raw = ev.type === 'Acquisition' ? ev.data?._assetName : '';
-        if (raw && assetName.startsWith(`${raw}_`) && raw.length > bestLen) {
-          bestLen = raw.length;
-          idx = i;
-        }
-      });
-    }
-    if (idx === -1) return false;
-    selectBubble(bubbleEls[idx], sorted[idx], { focus: true });
+    const idx = resolveAcqIndex(assetName);
+    if (idx === -1 || idx == null) return false;
+    selectBubble(bubbleEls[idx], sorted[idx], { focus: true, programmatic: true });
     return true;
   };
 

@@ -1,5 +1,19 @@
-import { describe, expect, it, vi } from 'vitest';
-import { findNwbZarrPrefix, resolvePophysNwbBase } from '../pophys/nwb-traces.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as zarr from 'zarrita';
+
+// zarrita's namespace is frozen, so spyOn cannot patch it — mock the module.
+vi.mock('zarrita', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, open: vi.fn(), get: vi.fn() };
+});
+
+import {
+  findNwbZarrPrefix,
+  loadPlaneTimestamps,
+  loadRoiTrace,
+  resolvePlaneLayout,
+  resolvePophysNwbBase,
+} from '../pophys/nwb-traces.js';
 
 const ASSET = '409828_2018-12-13_15-10-05_nwb_2025-12-15_18-49-28';
 
@@ -35,5 +49,108 @@ describe('pophys NWB-Zarr discovery', () => {
 
   it('rejects unsafe asset names before making a request', async () => {
     await expect(resolvePophysNwbBase('../not-an-asset')).rejects.toThrow(/Invalid pophys asset name/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trace layout resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Fake zarr root: `resolve()` returns the path, and the module's zarr.open is
+ * stubbed to succeed only for paths present in `present`.
+ */
+function fakeRoot(present) {
+  return {
+    _present: new Set(present),
+    resolve(path) { return { _root: this, path }; },
+  };
+}
+
+const MODERN_PLANE = 'VISp_3';
+const LEGACY_PLANE = 'plane-0';
+
+const MODERN_ARRAYS = [
+  `processing/${MODERN_PLANE}/dff_timeseries/dff_timeseries/data`,
+  `processing/${MODERN_PLANE}/dff_timeseries/dff_timeseries/timestamps`,
+  `processing/${MODERN_PLANE}/event_timeseries/data`,
+  `processing/${MODERN_PLANE}/raw_timeseries/ROI_fluorescence_timeseries/data`,
+];
+
+// The V1 deep-dive layout: short group names, plus two extra series.
+const LEGACY_ARRAYS = [
+  `processing/${LEGACY_PLANE}/dff/data`,
+  `processing/${LEGACY_PLANE}/dff/timestamps`,
+  `processing/${LEGACY_PLANE}/events/data`,
+  `processing/${LEGACY_PLANE}/demixed/data`,
+  `processing/${LEGACY_PLANE}/neuropil_corrected/data`,
+  `processing/${LEGACY_PLANE}/neuropil_fluorescence/data`,
+  `processing/${LEGACY_PLANE}/raw/data`,
+];
+
+describe('pophys NWB trace layouts', () => {
+  let opened;
+
+  beforeEach(() => {
+    opened = [];
+    zarr.open.mockReset();
+    zarr.get.mockReset();
+    zarr.open.mockImplementation(async (loc) => {
+      opened.push(loc.path);
+      if (!loc._root._present.has(loc.path)) throw new Error(`no such array: ${loc.path}`);
+      return { path: loc.path };
+    });
+  });
+
+  afterEach(() => { zarr.open.mockReset(); zarr.get.mockReset(); });
+
+  it('detects the modern layout and its series', async () => {
+    const layout = await resolvePlaneLayout(fakeRoot(MODERN_ARRAYS), MODERN_PLANE);
+    expect(layout.name).toBe('modern');
+    expect(layout.series).toEqual(['dff', 'events', 'raw']);
+  });
+
+  it('detects the legacy layout used by the V1 deep-dive assets', async () => {
+    const layout = await resolvePlaneLayout(fakeRoot(LEGACY_ARRAYS), LEGACY_PLANE);
+    expect(layout.name).toBe('legacy');
+    expect(layout.series).toEqual([
+      'dff', 'events', 'demixed', 'neuropil_corrected', 'neuropil_fluorescence', 'raw',
+    ]);
+  });
+
+  it('reads a legacy ROI column from processing/<plane>/dff/data', async () => {
+    zarr.get.mockResolvedValue({ data: [1, 2, 3] });
+    const root = fakeRoot(LEGACY_ARRAYS);
+    const out = await loadRoiTrace(root, LEGACY_PLANE, 42, 'dff');
+    expect(out).toEqual(Float32Array.from([1, 2, 3]));
+    expect(opened).toContain(`processing/${LEGACY_PLANE}/dff/data`);
+    expect(zarr.get).toHaveBeenCalledWith({ path: `processing/${LEGACY_PLANE}/dff/data` }, [null, 42]);
+  });
+
+  it('reads legacy timestamps from the dff group', async () => {
+    zarr.get.mockResolvedValue({ data: [0, 0.03] });
+    const root = fakeRoot(LEGACY_ARRAYS);
+    await loadPlaneTimestamps(root, LEGACY_PLANE);
+    expect(opened).toContain(`processing/${LEGACY_PLANE}/dff/timestamps`);
+  });
+
+  it('falls back to dff when the requested series is absent in this layout', async () => {
+    zarr.get.mockResolvedValue({ data: [1] });
+    const root = fakeRoot(MODERN_ARRAYS);
+    await loadRoiTrace(root, MODERN_PLANE, 0, 'demixed');
+    expect(opened).toContain(`processing/${MODERN_PLANE}/dff_timeseries/dff_timeseries/data`);
+  });
+
+  it('caches the resolved layout per plane', async () => {
+    const root = fakeRoot(LEGACY_ARRAYS);
+    await resolvePlaneLayout(root, LEGACY_PLANE);
+    const afterFirst = opened.length;
+    await resolvePlaneLayout(root, LEGACY_PLANE);
+    expect(opened.length).toBe(afterFirst);
+  });
+
+  it('rejects a plane with no recognised layout', async () => {
+    await expect(resolvePlaneLayout(fakeRoot([]), 'nope'))
+      .rejects.toThrow(/No recognised NWB trace layout/);
   });
 });

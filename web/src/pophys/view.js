@@ -24,10 +24,10 @@ import {
   loadPlaneTimestamps,
   loadRoiTrace,
   loadPlaneMeta,
+  resolvePlaneLayout,
   TRACE_LABELS,
 } from './nwb-traces.js';
 
-const SERIES_ORDER = ['dff', 'events', 'neuropil_corrected', 'raw'];
 const SOMA_COLOR = '#3b82f6';
 const NONSOMA_COLOR = '#f59e0b';
 
@@ -138,10 +138,8 @@ export function createPophysViewer(coord, event) {
       planeSel.innerHTML = planes
         .map((p, i) => `<option value="${i}">${p.plane} (${p.rois.length} ROIs)</option>`)
         .join('');
-      seriesSel.innerHTML = SERIES_ORDER
-        .map((s) => `<option value="${s}">${TRACE_LABELS[s]}</option>`)
-        .join('');
-      seriesSel.value = 'dff';
+      // The series list depends on the NWB layout of the selected plane, so it
+      // is filled in by selectPlane() rather than assumed here.
       seriesSel.disabled = !tracesPublic;
       controlsEl.hidden = false;
 
@@ -173,6 +171,33 @@ export function createPophysViewer(coord, event) {
       ? 'Click an ROI to see its trace'
       : 'Traces unavailable (pophys NWB not public for this asset)';
     tracePlot.replaceChildren();
+    if (tracesPublic) _updateSeriesOptions(plane.plane);
+  }
+
+  /**
+   * Fill the series picker from the plane's actual NWB layout. The two NWB
+   * generations expose different series (legacy adds demixed / neuropil
+   * fluorescence), so offering a fixed list produced silent 404s on click.
+   */
+  async function _updateSeriesOptions(plane) {
+    const previous = seriesSel.value;
+    let layout;
+    try {
+      layout = await resolvePlaneLayout(nwbRoot, plane);
+    } catch (err) {
+      if (ctrl.signal.aborted || curPlane?.plane !== plane) return;
+      console.warn('[pophys] no readable trace layout for plane', plane, err);
+      seriesSel.innerHTML = '';
+      seriesSel.disabled = true;
+      traceTitle.textContent = 'Traces unavailable (unrecognised NWB layout for this plane)';
+      return;
+    }
+    if (ctrl.signal.aborted || curPlane?.plane !== plane) return;
+    seriesSel.innerHTML = layout.series
+      .map((k) => `<option value="${k}">${TRACE_LABELS[k] ?? k}</option>`)
+      .join('');
+    seriesSel.value = layout.series.includes(previous) ? previous : 'dff';
+    seriesSel.disabled = false;
   }
 
   async function _updateCaption(plane) {
