@@ -33,6 +33,7 @@ const summaries = DATASET_NAMES.map((name) => ({
   nSubjects: 1,
   firstDate: '2025-01-01',
   lastDate: '2025-01-01',
+  modalities: ['pophys'],
 }));
 
 const overviewRows = DATASET_NAMES.map((dataset, index) => ({
@@ -62,6 +63,7 @@ describe('SWDB index view', () => {
       .toEqual(DATASET_NAMES);
     expect(root.querySelectorAll('.asset-overview-histogram-interactive .modality-legend-item'))
       .toHaveLength(DATASET_NAMES.length);
+    expect(root.querySelector('.swdb-card-modalities').textContent).toContain('pophys');
 
     const cards = root.querySelectorAll('.swdb-card');
     cards[0].dispatchEvent(new Event('mouseenter'));

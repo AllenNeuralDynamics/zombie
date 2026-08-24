@@ -74,6 +74,12 @@ function hasModalities(value) {
     : value != null && String(value).trim().length > 0;
 }
 
+function modalityValues(value) {
+  return Array.isArray(value)
+    ? value.map(String).filter(Boolean)
+    : String(value ?? '').split(',').map((modality) => modality.trim()).filter(Boolean);
+}
+
 /**
  * Assert an asset name is a plain cache partition key.
  *
@@ -179,12 +185,39 @@ export async function loadSwdbDatasetSummaries(coord, metadata) {
         WHERE a.subject_id IS NOT NULL
       `,
     );
+    const assetModalityRows = await queryRows(
+      coord,
+      `
+        SELECT DISTINCT unnest(a.modalities) AS modality
+        FROM asset_basics a
+        INNER JOIN (
+          SELECT DISTINCT name
+          FROM ${quoteIdentifier(table)}
+          WHERE name IS NOT NULL
+        ) d ON d.name = a.name
+        WHERE a.modalities IS NOT NULL
+        ORDER BY modality
+      `,
+    );
+    const datasetModalityRows = (acorn.columns ?? []).some((column) => (
+      (typeof column === 'string' ? column : column.name) === 'modality'
+    ))
+      ? await queryRows(
+        coord,
+        `SELECT DISTINCT modality FROM ${quoteIdentifier(table)} WHERE modality IS NOT NULL ORDER BY modality`,
+      )
+      : [];
+    const modalities = [...new Set([
+      ...assetModalityRows.flatMap((row) => modalityValues(row.modality)),
+      ...datasetModalityRows.flatMap((row) => modalityValues(row.modality)),
+    ])].sort();
     return {
       ...acorn,
       nAssets: Number(datasetRow?.n_assets) || 0,
       nSubjects: Number(metadataRow?.n_subjects) || 0,
       firstDate: metadataRow?.first_date ?? null,
       lastDate: metadataRow?.last_date ?? null,
+      modalities: modalities.length > 0 ? modalities : fallbackModality(acorn.name),
     };
   }));
 }

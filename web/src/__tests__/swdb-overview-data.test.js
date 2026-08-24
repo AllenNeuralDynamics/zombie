@@ -15,8 +15,21 @@ vi.mock('../lib/registry.js', () => ({
 vi.mock('../lib/assets-table.js', () => ({ fetchAssetsWithSources: vi.fn() }));
 vi.mock('../lib/arrow.js', () => ({
   queryRows: vi.fn(async (_coord, sql) => {
+    if (sql.includes('COUNT(*) AS n_assets')) return [{ n_assets: 3 }];
+    if (sql.includes('COUNT(DISTINCT a.subject_id)')) {
+      return [{ n_subjects: 2, first_date: '2025-01-01', last_date: '2025-01-03' }];
+    }
+    if (sql.includes('SELECT DISTINCT unnest(a.modalities) AS modality')) {
+      return [{ modality: 'ecephys' }, { modality: 'pophys' }];
+    }
+    if (sql.includes('SELECT DISTINCT modality FROM')) {
+      return [{ modality: 'behavior' }, { modality: 'pophys' }];
+    }
     // Simulate the real case: none of these public collection assets has an
     // asset_basics match, so an INNER JOIN would silently return no rows.
+    if (sql.includes('SELECT DISTINCT unnest(a.modalities) AS modality')) {
+      return [{ modality: 'pophys' }, { modality: 'behavior' }];
+    }
     if (!sql.includes('LEFT JOIN asset_basics')) return [];
     const table = sql.match(/FROM "(swdb_[^"]+)"/)?.[1];
     return [{
@@ -27,7 +40,7 @@ vi.mock('../lib/arrow.js', () => ({
   }),
 }));
 
-const { loadSwdbOverviewAssets } = await import('../swdb/data.js');
+const { loadSwdbDatasetSummaries, loadSwdbOverviewAssets } = await import('../swdb/data.js');
 
 const DATASET_NAMES = [
   'swdb_2026_bci',
@@ -47,5 +60,19 @@ describe('loadSwdbOverviewAssets', () => {
     expect(new Set(rows.map((row) => row.dataset))).toEqual(new Set(DATASET_NAMES));
     expect(rows).toHaveLength(DATASET_NAMES.length);
     expect(rows.every((row) => row.acquisition_start_time && row.modalities.length > 0)).toBe(true);
+  });
+});
+
+describe('loadSwdbDatasetSummaries', () => {
+  it('reports every unique modality across canonical and dataset rows', async () => {
+    const metadata = {
+      acorns: [{
+        name: 'swdb_2026_mixed',
+        columns: [{ name: 'name' }, { name: 'modality' }],
+      }],
+    };
+    const [summary] = await loadSwdbDatasetSummaries({}, metadata);
+
+    expect(summary.modalities).toEqual(['behavior', 'ecephys', 'pophys']);
   });
 });

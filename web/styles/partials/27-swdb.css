@@ -127,6 +127,21 @@
   font-size: 1.15rem;
 }
 
+.swdb-card-modalities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  margin-bottom: 0.8rem;
+}
+
+.swdb-card-modalities-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
 .swdb-card-stats {
   display: flex;
   flex-wrap: wrap;

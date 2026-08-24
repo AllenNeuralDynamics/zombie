@@ -206,9 +206,16 @@ function buildCard(dataset) {
   const span = dataset.firstDate && dataset.lastDate
     ? `${dataset.firstDate} → ${dataset.lastDate}`
     : 'dates unavailable';
+  const modalities = (dataset.modalities ?? [])
+    .map((modality) => `<span class="swdb-chip">${escHtml(modality)}</span>`)
+    .join('');
 
   card.innerHTML = `
     <h2>${escHtml(info.title)}</h2>
+    <div class="swdb-card-modalities" aria-label="Modalities">
+      <span class="swdb-card-modalities-label">Modalities</span>
+      <div class="swdb-chips">${modalities}</div>
+    </div>
     <dl class="swdb-card-stats">
       <div><dt>Assets</dt><dd>${dataset.nAssets.toLocaleString()}</dd></div>
       <div><dt>Subjects</dt><dd>${dataset.nSubjects.toLocaleString()}</dd></div>
