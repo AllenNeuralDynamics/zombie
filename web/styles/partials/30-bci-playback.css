@@ -92,6 +92,59 @@
   user-select: none;
 }
 
+/* BCI population-ophys panel. It reuses the standard pophys layout, while
+ * keeping the 512×256 BCI projection geometry and linked trace details local. */
+.bci-pophys-viewer {
+  margin-top: 1.4rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #d1d5db);
+}
+
+.bci-pophys-viewer .pophys-fov-stage {
+  width: min(560px, 100%);
+  aspect-ratio: 2 / 1;
+  background: #111827;
+}
+
+.bci-pophys-viewer .pophys-fov-img,
+.bci-pophys-mask {
+  object-fit: contain;
+}
+
+.bci-pophys-mask {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.bci-pophys-viewer .pophys-fov-caption {
+  min-height: 1.2em;
+}
+
+.bci-pophys-viewer .pophys-trace-title {
+  margin-bottom: 10px;
+}
+
+.bci-pophys-session-label,
+.bci-pophys-current-label {
+  color: var(--muted, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 600;
+  margin: 5px 0 2px;
+}
+
+.bci-pophys-session-plot,
+.bci-pophys-current-plot {
+  width: 100%;
+  min-height: 80px;
+}
+
+.bci-pophys-current-plot {
+  min-height: 220px;
+}
+
 @media (max-width: 720px) {
   .pb-player--bci .pb-main {
     display: block;
@@ -105,5 +158,13 @@
 
   .pb-player--bci .pb-stage {
     margin-bottom: 0.8rem;
+  }
+
+  .bci-pophys-viewer .pophys-body {
+    display: block;
+  }
+
+  .bci-pophys-viewer .pophys-fov {
+    margin-bottom: 1rem;
   }
 }

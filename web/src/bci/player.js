@@ -2,8 +2,8 @@
  * bci/player.js — embedded Brain-Computer Interface session playback.
  *
  * This module is intentionally independent from the existing pophys viewer:
- * BCI task data lives in a dedicated behavior NWB-Zarr store and its calcium
- * output is HDF5.  Only the shared playback harness and generic camera/video
+ * BCI task data lives in a dedicated behavior NWB-Zarr store with a nested
+ * calcium layout. Only the shared playback harness and generic camera/video
  * plumbing are reused.
  */
 
@@ -13,6 +13,7 @@ import { resolveLatestDerived } from '../lib/raw-to-derived.js';
 import { findBciTrialAt, loadBciSession } from './data.js';
 import { BciAnimation } from './animation.js';
 import { createBciEventPlot } from './event-plot.js';
+import { createBciPophysViewer } from './pophys.js';
 import { loadMouseSprite } from './assets.js';
 
 const SPEED_STEPS = [1, 2, 5, 10, 25, 50];
@@ -97,6 +98,21 @@ export function createBciSessionPlayback(coord, rawAssetName, opts = {}) {
         onStep: (animation, direction) => stepTrial(animation, data, direction),
         videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
       });
+
+      // Keep the BCI calcium panel on the same transport clock without adding
+      // BCI-specific coupling to the shared playback harness.
+      const pophys = createBciPophysViewer(data);
+      root.appendChild(pophys.element);
+      const harnessOnFrame = anim.onFrame;
+      anim.onFrame = (t, ...rest) => {
+        harnessOnFrame?.(t, ...rest);
+        pophys.updateTime(t);
+      };
+      pophys.updateTime(anim.t);
+      root._dispose = () => {
+        ctrl.abort();
+        pophys.dispose();
+      };
       root.classList.add('bci-player--loaded');
     } catch (err) {
       if (ctrl.signal.aborted) return;

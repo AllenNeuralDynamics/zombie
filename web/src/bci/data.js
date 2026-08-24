@@ -91,12 +91,18 @@ export async function resolveBciBehaviorBase(asset, options = {}) {
   return (await resolveBciRoots(asset, options)).behaviorBase;
 }
 
-/** Build the optional FOV backdrop URL from the discovered processing root. */
-export function bciFovUrl(processingBase) {
+/** Build a BCI projection URL from the discovered processing root. */
+export function bciProjectionUrl(processingBase, kind = 'maximum') {
   if (!processingBase) return null;
   const name = String(processingBase).replace(/\/$/, '').split('/').pop();
   if (!name) return null;
-  return `${processingBase}/motion_correction/${name}_maximum_projection.png`;
+  const projection = kind === 'average' ? 'average' : 'maximum';
+  return `${processingBase}/motion_correction/${name}_${projection}_projection.png`;
+}
+
+/** Build the compact target-FOV backdrop URL used by the task animation. */
+export function bciFovUrl(processingBase) {
+  return bciProjectionUrl(processingBase, 'maximum');
 }
 
 async function loadArray(root, path, { signal, optional = false } = {}) {
