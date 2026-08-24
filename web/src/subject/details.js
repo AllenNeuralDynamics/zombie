@@ -519,42 +519,54 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
 // ---------------------------------------------------------------------------
 
 /**
- * Build an HTML string for a single ephys probe info card.
+ * Build an HTML table for the ephys probe information.
  * Pure function, Node-testable.
  *
- * @param {object} probe - Probe object from extractEphysProbes().
- * @param {number} index - Probe index (for color reference).
+ * @param {Array<object>} probes - Probe objects from extractEphysProbes().
  * @returns {string}
  */
-export function buildEphysProbeCard(probe, index) {
-  const primary = probe.primaryStructure
-    ? `${probe.primaryStructure.name} (${probe.primaryStructure.acronym})`
-    : 'Not specified';
-  const others = probe.otherStructures.length
-    ? probe.otherStructures.map((s) => `${s.name} (${s.acronym})`).join(', ')
-    : null;
-  const moduleAngles = probe.modules
-    .filter((m) => m && (m.arc_angle != null || m.module_angle != null))
-    .map((m) => {
-      const parts = [];
-      if (m.arc_angle != null) parts.push(`arc ${m.arc_angle}°`);
-      if (m.module_angle != null) parts.push(`module ${m.module_angle}°`);
-      if (m.rotation_angle != null) parts.push(`rotation ${m.rotation_angle}°`);
-      return parts.join(', ');
-    })
-    .join('; ');
+export function buildEphysProbeTable(probes) {
+  const rows = probes.map((probe, index) => {
+    const primary = probe.primaryStructure
+      ? `${probe.primaryStructure.name} (${probe.primaryStructure.acronym})`
+      : 'Not specified';
+    const others = probe.otherStructures.length
+      ? probe.otherStructures.map((s) => `${s.name} (${s.acronym})`).join(', ')
+      : 'None';
+    const moduleAngles = probe.modules
+      .filter((m) => m && (m.arc_angle != null || m.module_angle != null))
+      .map((m) => {
+        const parts = [];
+        if (m.arc_angle != null) parts.push(`arc ${m.arc_angle}°`);
+        if (m.module_angle != null) parts.push(`module ${m.module_angle}°`);
+        if (m.rotation_angle != null) parts.push(`rotation ${m.rotation_angle}°`);
+        return parts.join(', ');
+      })
+      .join('; ');
 
-  return `
-    <div class="detail-card">
-      <h4>Probe ${index + 1}: ${escHtml(probe.name)}</h4>
-      <dl>
-        <dt>Primary target</dt><dd>${escHtml(primary)}</dd>
-        ${others ? `<dt>Other targets</dt><dd>${escHtml(others)}</dd>` : ''}
-        ${probe.dye ? `<dt>Dye</dt><dd>${escHtml(probe.dye)}</dd>` : ''}
-        ${moduleAngles ? `<dt>Module angles</dt><dd>${escHtml(moduleAngles)}</dd>` : ''}
-        ${probe.notes ? `<dt>Notes</dt><dd>${escHtml(probe.notes)}</dd>` : ''}
-      </dl>
-    </div>`;
+    return `<tr>
+        <td>${escHtml(`Probe ${index + 1}: ${probe.name}`)}</td>
+        <td>${escHtml(primary)}</td>
+        <td>${escHtml(others)}</td>
+        <td>${escHtml(probe.dye || 'Not specified')}</td>
+        <td>${escHtml(moduleAngles || 'Not specified')}</td>
+        <td>${escHtml(probe.notes || 'None')}</td>
+      </tr>`;
+  }).join('');
+
+  return `<div class="ephys-probe-table-wrap">
+    <table class="detail-table ephys-probe-table">
+      <thead><tr>
+        <th>Probe</th>
+        <th>Primary target</th>
+        <th>Other targets</th>
+        <th>Dye</th>
+        <th>Module angles</th>
+        <th>Notes</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
 }
 
 /**
@@ -571,17 +583,14 @@ function createEphysPanel(acquisitionData) {
     return container;
   }
 
-  // Info cards for each probe
-  const cardsHtml = probes.map((p, i) => buildEphysProbeCard(p, i)).join('');
-  container.innerHTML = cardsHtml;
-
-  // 3D viewer below the cards (loaded on demand)
+  // 3D viewer first, followed by the probe table (loaded on demand)
   mountLazy3D(container, async () => {
     const { createEphysViz3D } = await import('./ephys-viz-3d.js');
     const viz3d = createEphysViz3D(acquisitionData);
     viz3d.style.cssText += ';margin-top:12px';
     return viz3d;
   });
+  container.insertAdjacentHTML('beforeend', buildEphysProbeTable(probes));
 
   return container;
 }

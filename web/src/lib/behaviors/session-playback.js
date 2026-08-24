@@ -27,12 +27,17 @@ import { createSonifierBridge } from './sonifier-bridge.js';
 const DR_PROJECT_NAME = 'Dynamic Routing';
 const VRF_ACQUISITION_TYPE = 'AindVrForaging';
 
+/** Return true for the BCI project-name variants used in metadata records. */
+export function isBciProject(projectName) {
+  return /brain[\s-]*computer|(?:^|[\s_-])bci(?:$|[\s_-])/i.test(String(projectName ?? ''));
+}
+
 /**
  * Determine which playback platform (if any) an acquisition event qualifies
  * for. Returns a platform key or null.
  *
  * @param {object} event - Subject timeline acquisition event.
- * @returns {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|null}
+ * @returns {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'|null}
  */
 export function detectPlaybackPlatform(event) {
   if (!event || event.type !== 'Acquisition') return null;
@@ -40,6 +45,7 @@ export function detectPlaybackPlatform(event) {
 
   if (isForagingAcquisition(event)) return 'dynamic_foraging';
   if (data.acquisition_type === VRF_ACQUISITION_TYPE) return 'vr_foraging';
+  if (isBciProject(data._project_name)) return 'bci';
   if (/mfish/i.test(data._project_name ?? '') && (event.modalities ?? []).includes('behavior')) return 'mfish';
   if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
@@ -59,7 +65,7 @@ function drSessionId(event, subjectId) {
  * Build the platform-specific player mount for a qualifying acquisition, or
  * null if the event does not qualify (or required context is missing).
  *
- * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'} platform
+ * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'} platform
  * @param {object} event   - Subject timeline acquisition event.
  * @param {object} context - { coordinator, subjectId }.
  * @param {object} coord   - DuckDB coordinator.
@@ -82,6 +88,7 @@ function buildPlatformPlayer(platform, event, context, coord, extraOpts = {}) {
   // Shared options: header metadata + raw asset location (for behavior videos).
   const playerOpts = {
     acquisitionType: event.data?.acquisition_type ?? '',
+    projectName: event.data?._project_name ?? '',
     location: event.data?._location ?? null,
     ...extraOpts,
   };
@@ -119,6 +126,15 @@ function buildPlatformPlayer(platform, event, context, coord, extraOpts = {}) {
     import('../../mfish/player.js')
       .then(({ createMfishSessionPlayback }) => swap(createMfishSessionPlayback(coord, rawName, playerOpts)))
       .catch((err) => { console.error('[playback] mFISH load failed', err); swap(null); });
+    return mount;
+  }
+
+  if (platform === 'bci') {
+    const rawName = event.data?._assetName ?? null;
+    if (!rawName) return null;
+    import('../../bci/player.js')
+      .then(({ createBciSessionPlayback }) => swap(createBciSessionPlayback(coord, rawName, playerOpts)))
+      .catch((err) => { console.error('[playback] BCI load failed', err); swap(null); });
     return mount;
   }
 
@@ -161,7 +177,9 @@ export function createSessionPlayback(event, context = {}) {
   const hasEcephysModality = modalities.some((m) => /ecephys/i.test(String(m)));
   const canEcephys = !!(subjectId && rawAssetName && hasEcephysModality);
   const hasPophysModality = modalities.some((m) => /pophys/i.test(String(m)));
-  const canPophys = !!(rawAssetName && hasPophysModality);
+  // BCI has a separate behavior-NWB-backed player. Do not append the legacy
+  // pophys panel as well; its NWB-Zarr assumptions do not match these assets.
+  const canPophys = platform !== 'bci' && !!(rawAssetName && hasPophysModality);
 
   if (!platform && !canFiber && !canEcephys && !canPophys) return null;
 

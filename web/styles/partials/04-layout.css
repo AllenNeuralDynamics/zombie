@@ -138,3 +138,12 @@
   margin-top: 12px;
 }
 
+
+/* Combined /view sections — secondary label so a collapsed section can still
+   say what it holds (e.g. the project an asset deep link resolved to). */
+.combined-section-detail {
+  margin-left: 8px;
+  font-weight: 400;
+  font-size: 0.85em;
+  color: var(--text-secondary);
+}

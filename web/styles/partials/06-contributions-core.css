@@ -1220,6 +1220,9 @@
 
 .detail-table th { background: var(--color-grey, var(--surface-card)); font-weight: 600; }
 
+.ephys-probe-table-wrap { overflow-x: auto; }
+.ephys-probe-table { min-width: 48rem; }
+
 /* Error banner */
 .error-banner {
   background: var(--red-muted);

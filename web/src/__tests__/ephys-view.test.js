@@ -1,7 +1,7 @@
 /**
  * ephys-view.test.js — Unit tests for ephys-related pure helpers in details.js.
  *
- * Tests hasEphysAssemblies and buildEphysProbeCard, which are Node-safe (no DOM/Three.js).
+ * Tests hasEphysAssemblies and buildEphysProbeTable, which are Node-safe (no DOM/Three.js).
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -33,7 +33,7 @@ vi.mock('../assets/links.js', () => ({
 
 import {
   hasEphysAssemblies,
-  buildEphysProbeCard,
+  buildEphysProbeTable,
   buildCraniotomySubProcHtml,
   buildHeadframeSubProcHtml,
 } from '../subject/details.js';
@@ -126,7 +126,7 @@ describe('hasEphysAssemblies', () => {
   });
 });
 
-describe('buildEphysProbeCard', () => {
+describe('buildEphysProbeTable', () => {
   const probe = {
     name: '46121',
     dye: 'DiD',
@@ -141,36 +141,38 @@ describe('buildEphysProbeCard', () => {
     structureIds: ['803'],
   };
 
-  it('renders the probe name in a heading', () => {
-    const html = buildEphysProbeCard(probe, 0);
+  it('renders the probe name in a table cell', () => {
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('46121');
+    expect(html).not.toContain('<h4>');
   });
 
   it('renders the primary targeted structure', () => {
-    const html = buildEphysProbeCard(probe, 0);
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('Pallidum');
     expect(html).toContain('PAL');
   });
 
   it('renders the dye', () => {
-    const html = buildEphysProbeCard(probe, 0);
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('DiD');
   });
 
   it('renders module angles', () => {
-    const html = buildEphysProbeCard(probe, 0);
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('arc -10');
     expect(html).toContain('module -15');
   });
 
   it('renders notes', () => {
-    const html = buildEphysProbeCard(probe, 0);
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('Probe notes.');
   });
 
-  it('does not render other targets section when otherStructures is empty', () => {
-    const html = buildEphysProbeCard(probe, 0);
-    expect(html).not.toContain('Other targets');
+  it('shows an empty-state value when otherStructures is empty', () => {
+    const html = buildEphysProbeTable([probe]);
+    expect(html).toContain('<th>Other targets</th>');
+    expect(html).toContain('>None</td>');
   });
 
   it('renders other targeted structures when present', () => {
@@ -178,48 +180,50 @@ describe('buildEphysProbeCard', () => {
       ...probe,
       otherStructures: [{ acronym: 'MD', id: '362', name: 'Mediodorsal nucleus of thalamus' }],
     };
-    const html = buildEphysProbeCard(p2, 0);
+    const html = buildEphysProbeTable([p2]);
     expect(html).toContain('Mediodorsal nucleus of thalamus');
     expect(html).toContain('Other targets');
   });
 
-  it('omits dye row when dye is null', () => {
+  it('shows an empty-state value when dye is null', () => {
     const p2 = { ...probe, dye: null };
-    const html = buildEphysProbeCard(p2, 0);
-    expect(html).not.toContain('DiD');
+    const html = buildEphysProbeTable([p2]);
+    expect(html).toContain('>Not specified</td>');
   });
 
-  it('omits notes row when notes is null', () => {
+  it('shows an empty-state value when notes is null', () => {
     const p2 = { ...probe, notes: null };
-    const html = buildEphysProbeCard(p2, 1);
+    const html = buildEphysProbeTable([p2]);
+    expect(html).toContain('>None</td>');
     expect(html).not.toContain('Probe notes.');
   });
 
   it('handles probe with no modules gracefully', () => {
     const p2 = { ...probe, modules: [] };
-    const html = buildEphysProbeCard(p2, 0);
-    expect(html).not.toContain('Module angles');
+    const html = buildEphysProbeTable([p2]);
+    expect(html).toContain('<th>Module angles</th>');
+    expect(html).toContain('>Not specified</td>');
   });
 
   it('shows "Probe N:" prefix using 1-based index', () => {
-    const html = buildEphysProbeCard(probe, 0);
+    const html = buildEphysProbeTable([probe]);
     expect(html).toContain('Probe 1:');
   });
 
   it('index 2 shows "Probe 3:"', () => {
-    const html = buildEphysProbeCard(probe, 2);
+    const html = buildEphysProbeTable([probe, probe, probe]);
     expect(html).toContain('Probe 3:');
   });
 
   it('escapes probe metadata', () => {
     const payload = '<img src=x onerror="globalThis.__xss = true">';
-    const html = buildEphysProbeCard({
+    const html = buildEphysProbeTable([{
       ...probe,
       name: payload,
       dye: payload,
       notes: payload,
       primaryStructure: { name: payload, acronym: payload },
-    }, 0);
+    }]);
     expect(html).not.toContain('<img');
     expect(html).toContain('&lt;img');
   });
