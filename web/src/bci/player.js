@@ -101,7 +101,7 @@ export function createBciSessionPlayback(coord, rawAssetName, opts = {}) {
 
       // Keep the BCI calcium panel on the same transport clock without adding
       // BCI-specific coupling to the shared playback harness.
-      const pophys = createBciPophysViewer(data);
+      const pophys = createBciPophysViewer(coord, data);
       root.appendChild(pophys.element);
       const harnessOnFrame = anim.onFrame;
       anim.onFrame = (t, ...rest) => {

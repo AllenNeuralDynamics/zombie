@@ -32,12 +32,17 @@ export function isBciProject(projectName) {
   return /brain[\s-]*computer|(?:^|[\s_-])bci(?:$|[\s_-])/i.test(String(projectName ?? ''));
 }
 
+/** Return true for canonical Allen Brain Observatory Visual Coding Ophys assets. */
+export function isVisualCodingOphysProject(projectName) {
+  return /visual\s*coding\s*ophys/i.test(String(projectName ?? ''));
+}
+
 /**
  * Determine which playback platform (if any) an acquisition event qualifies
  * for. Returns a platform key or null.
  *
  * @param {object} event - Subject timeline acquisition event.
- * @returns {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'|null}
+ * @returns {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'|'visual_coding_ophys'|null}
  */
 export function detectPlaybackPlatform(event) {
   if (!event || event.type !== 'Acquisition') return null;
@@ -46,6 +51,10 @@ export function detectPlaybackPlatform(event) {
   if (isForagingAcquisition(event)) return 'dynamic_foraging';
   if (data.acquisition_type === VRF_ACQUISITION_TYPE) return 'vr_foraging';
   if (isBciProject(data._project_name)) return 'bci';
+  if (isVisualCodingOphysProject(data._project_name)
+      && (event.modalities ?? []).some((modality) => /pophys|ophys/i.test(String(modality)))) {
+    return 'visual_coding_ophys';
+  }
   if (/mfish/i.test(data._project_name ?? '') && (event.modalities ?? []).includes('behavior')) return 'mfish';
   if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
@@ -65,7 +74,7 @@ function drSessionId(event, subjectId) {
  * Build the platform-specific player mount for a qualifying acquisition, or
  * null if the event does not qualify (or required context is missing).
  *
- * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'} platform
+ * @param {'dynamic_foraging'|'vr_foraging'|'dynamic_routing'|'mfish'|'bci'|'visual_coding_ophys'} platform
  * @param {object} event   - Subject timeline acquisition event.
  * @param {object} context - { coordinator, subjectId }.
  * @param {object} coord   - DuckDB coordinator.
@@ -138,6 +147,13 @@ function buildPlatformPlayer(platform, event, context, coord, extraOpts = {}) {
     return mount;
   }
 
+  if (platform === 'visual_coding_ophys') {
+    import('../../visual_coding_ophys/view.js')
+      .then(({ createVisualCodingOphysViewer }) => swap(createVisualCodingOphysViewer(coord, event)))
+      .catch((err) => { console.error('[playback] Visual Coding Ophys load failed', err); swap(null); });
+    return mount;
+  }
+
   return null;
 }
 
@@ -179,7 +195,8 @@ export function createSessionPlayback(event, context = {}) {
   const hasPophysModality = modalities.some((m) => /pophys/i.test(String(m)));
   // BCI has a separate behavior-NWB-backed player. Do not append the legacy
   // pophys panel as well; its NWB-Zarr assumptions do not match these assets.
-  const canPophys = platform !== 'bci' && !!(rawAssetName && hasPophysModality);
+  const canPophys = platform !== 'bci' && platform !== 'visual_coding_ophys'
+    && !!(rawAssetName && hasPophysModality);
 
   if (!platform && !canFiber && !canEcephys && !canPophys) return null;
 

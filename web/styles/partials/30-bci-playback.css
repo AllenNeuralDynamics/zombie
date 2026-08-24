@@ -106,9 +106,34 @@
   background: #111827;
 }
 
-.bci-pophys-viewer .pophys-fov-img,
+.bci-pophys-average-stage {
+  position: relative;
+  width: min(560px, 100%);
+  aspect-ratio: 2 / 1;
+  margin-top: 0.65rem;
+  background: #111827;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.bci-pophys-image-label {
+  margin-top: 0.55rem;
+  margin-bottom: 0.25rem;
+  color: var(--muted, var(--text-secondary));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.bci-pophys-viewer .bci-pophys-average-img,
 .bci-pophys-mask {
   object-fit: contain;
+}
+
+.bci-pophys-average-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .bci-pophys-mask {
@@ -117,6 +142,10 @@
   width: 100%;
   height: 100%;
   pointer-events: none;
+}
+
+.bci-pophys-viewer .pophys-fov-overlay {
+  pointer-events: auto;
 }
 
 .bci-pophys-viewer .pophys-fov-caption {
@@ -137,12 +166,27 @@
 
 .bci-pophys-session-plot,
 .bci-pophys-current-plot {
-  width: 100%;
-  min-height: 80px;
+  width: 520px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
+.bci-pophys-session-plot { height: 100px; }
 .bci-pophys-current-plot {
-  min-height: 220px;
+  height: 220px;
+}
+
+.bci-pophys-viewer .pophys-psth {
+  margin-top: 14px;
+}
+
+.bci-pophys-viewer .pophys-psth-plot {
+  width: 520px;
+  max-width: 100%;
+  height: 180px;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 @media (max-width: 720px) {

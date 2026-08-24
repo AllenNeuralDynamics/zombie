@@ -1,0 +1,9 @@
+/* Visual Coding Ophys uses the shared pophys layout with a single-plane label. */
+
+.visual-coding-ophys-viewer .pophys-fov-stage {
+  aspect-ratio: 1 / 1;
+}
+
+.visual-coding-ophys-viewer .pophys-trace-plot {
+  min-height: 220px;
+}

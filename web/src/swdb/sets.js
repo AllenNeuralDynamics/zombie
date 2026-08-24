@@ -18,7 +18,7 @@ export const SWDB_SETS = {
     task: 'Dynamic Routing',
   },
   'neuropixels-opto': {
-    title: 'Neuropixels Opto',
+    title: 'Cell Type Lookup Table',
     blurb:
       'Merged NWB sessions combining electrophysiology with optogenetic tagging across many '
       + 'subjects.',
@@ -65,7 +65,7 @@ export const SWDB_DATASETS = {
     title: 'Dynamic Routing',
   },
   swdb_2026_neuropixels_opto: {
-    title: 'Neuropixels Opto',
+    title: 'Cell Type Lookup Table',
   },
 };
 

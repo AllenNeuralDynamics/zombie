@@ -5,7 +5,11 @@ import {
   findBciTrialAt,
   normalizeBciTrials,
 } from '../bci/data.js';
-import { detectPlaybackPlatform, isBciProject } from '../lib/behaviors/session-playback.js';
+import {
+  detectPlaybackPlatform,
+  isBciProject,
+  isVisualCodingOphysProject,
+} from '../lib/behaviors/session-playback.js';
 
 const ASSET = 'single-plane-ophys_767715_2025-02-17_17-41-50_processed_2025-08-05_01-05-20';
 
@@ -43,6 +47,20 @@ describe('BCI project routing', () => {
       modalities: ['behavior', 'pophys'],
       data: { _project_name: 'Brain-Computer Interface' },
     })).toBe('bci');
+  });
+});
+
+describe('Visual Coding Ophys routing', () => {
+  it('recognizes the canonical project name', () => {
+    expect(isVisualCodingOphysProject('Allen Brain Observatory - Visual Coding Ophys')).toBe(true);
+  });
+
+  it('selects the isolated Visual Coding Ophys viewer', () => {
+    expect(detectPlaybackPlatform({
+      type: 'Acquisition',
+      modalities: ['pophys', 'behavior-videos'],
+      data: { _project_name: 'Allen Brain Observatory - Visual Coding Ophys' },
+    })).toBe('visual_coding_ophys');
   });
 });
 

@@ -9,6 +9,7 @@ vi.mock('zarrita', async (importOriginal) => {
 import {
   bciTraceTime,
   bciUnit,
+  indexBciCachedRois,
   loadBciPophysMeta,
   loadBciRoiMask,
   loadBciRoiTrace,
@@ -83,5 +84,12 @@ describe('BCI pophys NWB adapter', () => {
     const meta = { traceStart: 0, frameRate: 50 };
     expect(bciTraceTime(meta, 0, 1543.5)).toBe(-1543.5);
     expect(bciTraceTime(meta, 15435, 1543.5)).toBe(-1234.8);
+  });
+
+  it('maps cached ROI ids to trace columns even when ids are not contiguous', () => {
+    expect(indexBciCachedRois({ roiIds: [10, 42, 99] }, [
+      { id: 42, contour: [[1, 1]] },
+      { id: 123, contour: [[2, 2]] },
+    ])).toEqual([{ id: 42, contour: [[1, 1]], index: 1 }]);
   });
 });

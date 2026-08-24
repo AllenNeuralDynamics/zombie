@@ -61,11 +61,12 @@ export function openBciBehaviorNwb(behaviorBase) {
  * The wide dF/F array and the dense masks remain lazy.
  */
 export async function loadBciPophysMeta(root, { signal } = {}) {
-  const [dff, startingTime, roiIds, isSoma, somaProbability, dendriteProbability, mask] =
+  const [dff, startingTime, roiIds, roiTableIds, isSoma, somaProbability, dendriteProbability, mask] =
     await Promise.all([
       openArray(root, `${DFF_GROUP}/data`),
       openArray(root, `${DFF_GROUP}/starting_time`),
       readOptional(root, `${DFF_GROUP}/rois`, { signal }),
+      readOptional(root, `${ROI_GROUP}/id`, { signal }),
       readOptional(root, `${ROI_GROUP}/is_soma`, { signal }),
       readOptional(root, `${ROI_GROUP}/soma_probability`, { signal }),
       readOptional(root, `${ROI_GROUP}/dendrite_probability`, { signal }),
@@ -78,8 +79,9 @@ export async function loadBciPophysMeta(root, { signal } = {}) {
   if (!(rate > 0)) throw new Error('BCI dF/F array has no positive sampling rate');
 
   const nRoi = Number(dff.shape?.[1] ?? roiIds?.values?.length ?? 0);
-  const ids = roiIds?.values?.length
-    ? roiIds.values.map(Number)
+  const idValues = roiIds?.values?.length ? roiIds.values : roiTableIds?.values;
+  const ids = idValues?.length
+    ? idValues.map(Number)
     : Array.from({ length: nRoi }, (_, i) => i);
   const optionalValues = { isSoma, somaProbability, dendriteProbability };
   const fields = Object.fromEntries(OPTIONAL_ROI_FIELDS.map(([, key]) => [
@@ -138,4 +140,11 @@ export function bciUnit(meta, index) {
     dendriteProbability: meta.dendriteProbability?.[i] != null
       ? Number(meta.dendriteProbability[i]) : null,
   };
+}
+
+/** Map cached contour ids to their dF/F column indexes without assuming ids are contiguous. */
+export function indexBciCachedRois(meta, rois) {
+  return (rois ?? [])
+    .map((roi) => ({ ...roi, index: meta?.roiIds?.indexOf(Number(roi.id)) ?? -1 }))
+    .filter((roi) => roi.index >= 0);
 }
