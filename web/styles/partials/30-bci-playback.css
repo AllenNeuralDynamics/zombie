@@ -166,8 +166,7 @@
 
 .bci-pophys-session-plot,
 .bci-pophys-current-plot {
-  width: 520px;
-  max-width: 100%;
+  width: 100%;
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -182,8 +181,7 @@
 }
 
 .bci-pophys-viewer .pophys-psth-plot {
-  width: 520px;
-  max-width: 100%;
+  width: 100%;
   height: 180px;
   overflow-x: auto;
   overflow-y: hidden;

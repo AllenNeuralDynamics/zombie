@@ -29,6 +29,7 @@ const MASK_COLOR = [239, 68, 68];
 const SOMA_COLOR = '#3b82f6';
 const NONSOMA_COLOR = '#f59e0b';
 const PLOT_WIDTH = 520;
+const MIN_PLOT_WIDTH = 320;
 const SESSION_PLOT_HEIGHT = 100;
 const CURRENT_PLOT_HEIGHT = 220;
 const PSTH_PLOT_HEIGHT = 180;
@@ -161,6 +162,7 @@ export function createBciPophysViewer(coord, data) {
   const psthEl = q('.pophys-psth');
   const psthEventSel = q('.pophys-psth-event');
   const psthPlot = q('.pophys-psth-plot');
+  const tracePanel = q('.pophys-trace');
 
   const ctrl = new AbortController();
   let meta = null;
@@ -228,7 +230,8 @@ export function createBciPophysViewer(coord, data) {
 
   function renderTracePlots() {
     if (!selectedTrace || !meta) return;
-    const width = PLOT_WIDTH;
+    const availableWidth = tracePanel.getBoundingClientRect?.().width || tracePanel.clientWidth;
+    const width = Math.max(MIN_PLOT_WIDTH, availableWidth || PLOT_WIDTH);
     const sessionRows = decimate(selectedTrace, meta, data.sessionClockStart);
     const color = '#ef4444';
     const common = {
@@ -298,7 +301,8 @@ export function createBciPophysViewer(coord, data) {
       return;
     }
     psthEl.hidden = false;
-    const width = PLOT_WIDTH;
+    const availableWidth = tracePanel.getBoundingClientRect?.().width || tracePanel.clientWidth;
+    const width = Math.max(MIN_PLOT_WIDTH, availableWidth || PLOT_WIDTH);
     psthPlot.replaceChildren(buildPsthPlot(result.rows, {
       pre: -BCI_PSTH_PRE,
       post: BCI_PSTH_POST,
