@@ -789,7 +789,12 @@ function AuthorDetailSection({
   const currentSectionLevels = authorSectionLevels[selectedAuthor] || [];
 
   function getSectionLevel(sectionTitle) {
-    return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.level || 'None';
+    const level = currentSectionLevels.find((sl) => sl.section === sectionTitle)?.level;
+    if (!level || String(level).toLowerCase() === 'none') return 'None';
+    // Stored values are lowercase, but accepting the display-case values here
+    // keeps old drafts readable and ensures the controlled select stays in
+    // sync with the checkbox below.
+    return String(level).toLowerCase();
   }
   function getSectionDescription(sectionTitle) {
     return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.description || '';
@@ -883,10 +888,21 @@ function AuthorDetailSection({
         <h4 class="cv-subsection-heading">Section Contributions</h4>
         ${sections.map((sec) => {
           const level = getSectionLevel(sec.title);
+          const selected = level !== 'None';
           const description = getSectionDescription(sec.title);
           return html`
             <div key=${sec.id} class="cv-section-contrib-row">
-              <span class="cv-section-contrib-title">${sec.title}</span>
+              <label class="cv-section-contrib-check">
+                <input type="checkbox"
+                       aria-label=${selectedAuthor + ' contributed to ' + sec.title}
+                       checked=${selected}
+                       onChange=${() => onChange('sectionLevel', {
+                         section: sec.title,
+                         level: selected ? 'None' : 'equal',
+                         description,
+                       })} />
+                <span class="cv-section-contrib-title">${sec.title}</span>
+              </label>
               <select class="cv-section-contrib-level"
                       value=${level}
                       onChange=${(e) => onChange('sectionLevel', {

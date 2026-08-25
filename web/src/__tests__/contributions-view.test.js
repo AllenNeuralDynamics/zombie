@@ -1173,3 +1173,94 @@ describe('createContributionsView — author email', () => {
     expect(payload.contributors[0].author.email).toBe('alice.smith@allen.org');
   });
 });
+
+// ---------------------------------------------------------------------------
+// createContributionsView — per-author section editing
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — per-author section editing', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  const loaded = {
+    project_name: 'section-project',
+    sections: ['Introduction', 'Methods'],
+    contributors: [
+      {
+        author: { name: 'Alice Smith' },
+        credit_levels: [],
+        section_levels: [{ section: 'Methods', level: 'supporting' }],
+      },
+      {
+        author: { name: 'Bob Jones' },
+        credit_levels: [],
+        section_levels: [{ section: 'Introduction', level: 'equal' }],
+      },
+    ],
+  };
+
+  function mockFetch() {
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      if ((opts.method || 'GET') === 'POST') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ commit: 'abc1234567' }) });
+      }
+      if (url.includes('history=true')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => loaded });
+    });
+  }
+
+  async function flush() {
+    for (let i = 0; i < 15; i += 1) await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('lets the selected author toggle sections and saves only that author’s changes', async () => {
+    mockFetch();
+    const root = createContributionsView({ projectName: 'section-project' });
+    document.body.appendChild(root);
+    await flush();
+
+    const selector = root.querySelector('#cv-author-selector');
+    selector.value = 'Alice Smith';
+    selector.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    const introduction = root.querySelector(
+      'input[aria-label="Alice Smith contributed to Introduction"]',
+    );
+    const methods = root.querySelector(
+      'input[aria-label="Alice Smith contributed to Methods"]',
+    );
+    expect(introduction.checked).toBe(false);
+    expect(methods.checked).toBe(true);
+
+    introduction.click();
+    const methodsLevel = methods.closest('.cv-section-contrib-row').querySelector('select');
+    methodsLevel.value = 'lead';
+    methodsLevel.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+
+    root.querySelector('#cv-post-btn').click();
+    await flush();
+
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.contributors[0].section_levels).toEqual(expect.arrayContaining([
+      { section: 'Introduction', level: 'equal' },
+      { section: 'Methods', level: 'lead' },
+    ]));
+    expect(payload.contributors[0].section_levels).toHaveLength(2);
+    expect(payload.contributors[1].section_levels).toEqual([
+      { section: 'Introduction', level: 'equal' },
+    ]);
+  });
+});
