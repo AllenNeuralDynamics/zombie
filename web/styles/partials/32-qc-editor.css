@@ -1,0 +1,20 @@
+.qc-editor-host:empty { display: none; }
+.qc-editor { margin: var(--gap); padding: var(--gap); border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-card); }
+.qc-editor-readonly { color: var(--text-secondary); }
+.qc-editor h3, .qc-editor h4 { margin: 0 0 6px; }
+.qc-editor-heading { display: flex; justify-content: space-between; gap: var(--gap); align-items: flex-start; }
+.qc-editor-heading small, .qc-editor-fallback, .qc-editor small { color: var(--text-secondary); }
+.qc-editor-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap); margin: var(--gap) 0; }
+.qc-editor-metric { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--surface-border); border-radius: var(--radius); }
+.qc-editor-curation { border-left: 3px solid var(--accent-2); }
+.qc-editor-label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; }
+.qc-editor-value, .qc-editor-label textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 7px; color: var(--text-primary); background: var(--surface-bg); font: inherit; }
+.qc-editor-value { font-weight: 400; resize: vertical; }
+.qc-editor-status-label { display: flex; gap: 8px; align-items: center; color: var(--text-secondary); font-size: .9em; }
+.qc-editor-status-label select { padding: 4px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); }
+.qc-editor-field-error { color: var(--color-red); font-size: .85em; }
+.qc-editor-message { margin: 10px 0; padding: 8px; border-radius: var(--radius); background: var(--surface-bg); color: var(--text-secondary); white-space: pre-wrap; }
+.qc-editor-preview { margin-top: var(--gap); }
+.qc-editor-preview pre { max-height: 320px; overflow: auto; padding: 10px; background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); white-space: pre-wrap; }
+.qc-editor-secondary { border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 5px 10px; color: var(--text-primary); background: var(--surface-bg); cursor: pointer; }
+.qc-editor-secondary:disabled, .qc-editor .qc-edit-btn:disabled { opacity: .55; cursor: not-allowed; }
