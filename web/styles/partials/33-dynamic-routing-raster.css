@@ -15,10 +15,11 @@
 
 .dr-raster-visuals {
   display: grid;
-  grid-template-columns: minmax(300px, 1fr) minmax(0, 1.45fr);
-  align-items: start;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  align-items: stretch;
   gap: 1rem;
   width: 100%;
+  min-width: 0;
 }
 
 .dr-raster-brain {
@@ -29,6 +30,14 @@
   border: 1px solid var(--surface-border);
   border-radius: 8px;
   background: var(--surface-card);
+  display: flex;
+  min-width: 0;
+}
+
+.dr-raster-brain-viz {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
 }
 
 .dr-raster-brain-viz canvas {
@@ -147,7 +156,7 @@
 
 .dr-raster-raster {
   min-width: 0;
-  width: min(50vw, 980px);
+  width: 100%;
   max-width: 100%;
   overflow-x: auto;
   padding: 0.35rem 0 0.75rem;
@@ -170,7 +179,7 @@
   font-size: 0.8rem;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 720px) {
   .dr-raster-visuals { grid-template-columns: 1fr; }
   .dr-raster-raster { width: 100%; }
 }

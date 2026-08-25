@@ -44,6 +44,20 @@ function asString(value) {
   return String(value);
 }
 
+export function unitLocation(unit) {
+  return unit.location ?? unit.structure ?? unit.probeName ?? unit.deviceName ?? 'unknown location';
+}
+
+export function unitLocationKey(unit) {
+  return `${unit.experiment ?? 'experiment'}::${unitLocation(unit)}`;
+}
+
+export function filterUnitsByLocation(units, selectedLocationKey) {
+  return units.filter((unit) => (
+    !selectedLocationKey || unitLocationKey(unit) === selectedLocationKey
+  ));
+}
+
 function sqlString(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }

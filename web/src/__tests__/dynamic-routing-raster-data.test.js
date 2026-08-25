@@ -4,8 +4,11 @@ import {
   buildConditionPanels,
   buildRasterRows,
   classifyTrial,
+  filterUnitsByLocation,
   findNwbZarrPrefix,
   normalizeTrialRows,
+  unitLocation,
+  unitLocationKey,
 } from '../dynamic_routing_raster/data.js';
 
 describe('dynamic-routing raster condition adapter', () => {
@@ -61,5 +64,22 @@ describe('dynamic-routing raster asset helpers', () => {
     const xml = '<CommonPrefixes><Prefix>asset/session.nwb.zarr/</Prefix></CommonPrefixes>';
     expect(findNwbZarrPrefix(xml, 'asset')).toBe('asset/session.nwb.zarr/');
     expect(findNwbZarrPrefix(xml, 'other')).toBeNull();
+  });
+});
+
+describe('dynamic-routing raster location filtering', () => {
+  it('prefers anatomical location and filters units before the neuron selector', () => {
+    const units = [
+      { experiment: 'exp', location: 'VISp', structure: 'VISp', unitName: 'a' },
+      { experiment: 'exp', location: 'VISp', structure: 'VISp', unitName: 'b' },
+      { experiment: 'exp', location: 'MOp', structure: 'MOp', unitName: 'c' },
+    ];
+    expect(unitLocation(units[0])).toBe('VISp');
+    expect(filterUnitsByLocation(units, unitLocationKey(units[0]))).toEqual(units.slice(0, 2));
+  });
+
+  it('falls back to structure, then probe when location metadata is absent', () => {
+    expect(unitLocation({ structure: 'VISp', probeName: 'probeA' })).toBe('VISp');
+    expect(unitLocation({ probeName: 'probeA' })).toBe('probeA');
   });
 });

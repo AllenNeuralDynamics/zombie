@@ -57,7 +57,7 @@ export function createEphysUnitViz3D({ units = [], selectedKey = null } = {}) {
   const container = document.createElement('div');
   container.className = 'dr-raster-brain-viz';
   container.style.cssText =
-    'position:relative;width:100%;height:360px;background:var(--surface-bg,#fff);' +
+    'position:relative;width:100%;height:100%;min-height:0;background:var(--surface-bg,#fff);' +
     'border-radius:8px;overflow:hidden';
 
   const legendEl = document.createElement('div');
