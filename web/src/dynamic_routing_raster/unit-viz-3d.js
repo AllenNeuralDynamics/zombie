@@ -12,12 +12,15 @@ import {
   makeCCFMatrix,
   makeTemplateMatrix,
   loadBrainMesh,
+  STRUCTURE_COLORS,
   TARGET_X,
   TARGET_Y,
   TARGET_Z,
   cssHexToThree,
+  resolveCCFStructure,
 } from '../subject/brain-viz-3d.js';
 import { ITEM_COLORS } from '../subject/brain-viz.js';
+import { unitArea } from './data.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
 import { vizSceneBg, onVizThemeChange } from '../subject/viz-theme.js';
 
@@ -32,10 +35,12 @@ function finite(value) {
 
 function toCCFPosition(THREE_NS, unit, matrix) {
   if (!finite(unit.ccfAp) || !finite(unit.ccfDv) || !finite(unit.ccfMl)) return null;
+  // makeCCFMatrix expects the atlas volume order [AP, DV, ML]. The unit
+  // fields are named explicitly, so do not pass them in the UI/scene order.
   return new THREE_NS.Vector3(
-    Number(unit.ccfMl),
-    Number(unit.ccfDv),
     Number(unit.ccfAp),
+    Number(unit.ccfDv),
+    Number(unit.ccfMl),
   ).applyMatrix4(matrix);
 }
 
@@ -46,6 +51,12 @@ function probeName(unit) {
 function disposeUnitGroup(group) {
   for (const mesh of group.children) mesh.material?.dispose();
   group.clear();
+}
+
+function disposeStructureRecord(record) {
+  record.group.traverse((child) => child.geometry?.dispose());
+  record.material.dispose();
+  record.group.clear();
 }
 
 /**
@@ -139,11 +150,16 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
     scene.add(group);
   });
 
+  const structureGroup = new THREE.Group();
+  scene.add(structureGroup);
+  const structureMeshes = new Map();
+  const pendingStructureIds = new Set();
+
   const unitGroup = new THREE.Group();
   scene.add(unitGroup);
   const cubeGeometry = new THREE.BoxGeometry(UNIT_CUBE_MM, UNIT_CUBE_MM, UNIT_CUBE_MM);
 
-  function updateLegend(probeNames) {
+  function updateLegend(probeNames, structures) {
     legendEl.replaceChildren();
     for (const [index, name] of probeNames.entries()) {
       const row = document.createElement('div');
@@ -154,9 +170,83 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
       row.append(swatch, document.createTextNode(name));
       legendEl.appendChild(row);
     }
+    if (structures.length) {
+      const heading = document.createElement('div');
+      heading.className = 'dr-raster-brain-legend-title';
+      heading.textContent = 'Targeted areas';
+      legendEl.appendChild(heading);
+      for (const structure of structures) {
+        const row = document.createElement('div');
+        row.className = 'dr-raster-brain-legend-row';
+        const swatch = document.createElement('span');
+        swatch.className = 'dr-raster-brain-legend-swatch dr-raster-brain-area-swatch';
+        swatch.style.background = `rgb(${structure.rgb.join(', ')})`;
+        row.append(swatch, document.createTextNode(structure.acronym || structure.name));
+        legendEl.appendChild(row);
+      }
+    }
+  }
+
+  function targetedStructures() {
+    const structures = new Map();
+    for (const unit of state.units) {
+      const structure = resolveCCFStructure(unitArea(unit));
+      if (!structure?.id || !STRUCTURE_COLORS[String(structure.id)]) continue;
+      structures.set(String(structure.id), {
+        ...structure,
+        rgb: STRUCTURE_COLORS[String(structure.id)],
+      });
+    }
+    return structures;
+  }
+
+  function renderTargetedStructures() {
+    const structures = targetedStructures();
+    const ids = new Set(structures.keys());
+    for (const [id, record] of structureMeshes) {
+      if (ids.has(id)) continue;
+      structureGroup.remove(record.group);
+      disposeStructureRecord(record);
+      structureMeshes.delete(id);
+    }
+    for (const [id, structure] of structures) {
+      if (structureMeshes.has(id) || pendingStructureIds.has(id)) continue;
+      const rgb = STRUCTURE_COLORS[id];
+      const material = new THREE.MeshPhongMaterial({
+        color: new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255),
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        shininess: 30,
+      });
+      pendingStructureIds.add(id);
+      loadBrainMesh(loader, `${MESH_BASE}${id}_b5.obj`, (group) => {
+        pendingStructureIds.delete(id);
+        if (!targetedStructures().has(id)) {
+          group.traverse((child) => child.geometry?.dispose());
+          material.dispose();
+          return;
+        }
+        group.traverse((child) => {
+          if (!child.isMesh) return;
+          child.geometry.applyMatrix4(BRAIN_MATRIX);
+          child.material = material;
+          child.renderOrder = 2;
+        });
+        structureGroup.add(group);
+        structureMeshes.set(id, { group, material });
+      });
+    }
+    updateLegend(
+      [...new Set(state.units.map(probeName))].sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })),
+      [...structures.values()],
+    );
   }
 
   function render() {
+    renderTargetedStructures();
     disposeUnitGroup(unitGroup);
     const probeNames = [...new Set(state.units.map(probeName))].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true }));
@@ -164,8 +254,6 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
       name,
       cssHexToThree(ITEM_COLORS[index % ITEM_COLORS.length]),
     ]));
-    updateLegend(probeNames);
-
     let positioned = 0;
     for (const unit of state.units) {
       const position = toCCFPosition(THREE, unit, CCF_MATRIX);
@@ -223,6 +311,9 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
       mutationObserver.disconnect();
       disconnectTheme();
       disposeUnitGroup(unitGroup);
+      for (const record of structureMeshes.values()) disposeStructureRecord(record);
+      structureMeshes.clear();
+      structureGroup.clear();
       cubeGeometry.dispose();
       brainMaterial.dispose();
       renderer.dispose();

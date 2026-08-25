@@ -4,10 +4,12 @@ import * as Plot from '@observablehq/plot';
 import {
   buildConditionPanels,
   buildRasterRows,
-  filterUnitsByLocation,
+  filterUnits,
   loadRasterSession,
-  unitLocation,
-  unitLocationKey,
+  unitArea,
+  unitAreaKey,
+  unitProbeKey,
+  unitProbeName,
 } from './data.js';
 
 const DEFAULT_PRE = -1;
@@ -31,43 +33,63 @@ function sortUnits(units) {
 
 function unitLabel(unit) {
   const stats = [];
-  const structure = unit.structure ?? unit.location ?? 'unknown structure';
-  stats.push(structure);
+  stats.push(unitArea(unit));
   if (unit.decoderLabel) stats.push(unit.decoderLabel);
   if (Number.isFinite(unit.firingRate)) stats.push(`${unit.firingRate.toFixed(1)} Hz`);
   if (Number.isFinite(unit.numSpikes)) stats.push(`${unit.numSpikes.toLocaleString()} spikes`);
   return `${unit.unitName}${stats.length ? ` (${stats.join(', ')})` : ''}`;
 }
 
-function buildLocationOptions(select, units, selectedKey) {
-  const locations = new Map();
+function buildProbeOptions(select, units, selectedKey) {
+  const probes = new Map();
   for (const unit of units) {
-    const key = unitLocationKey(unit);
-    if (!locations.has(key)) {
-      locations.set(key, {
+    const key = unitProbeKey(unit);
+    if (!probes.has(key)) {
+      probes.set(key, {
         key,
-        label: `${unit.experiment ?? 'experiment'} / ${unitLocation(unit)}`,
+        label: `${unit.experiment ?? 'experiment'} / ${unitProbeName(unit)}`,
       });
     }
   }
-  const sorted = [...locations.values()].sort((a, b) =>
+  const sorted = [...probes.values()].sort((a, b) =>
     a.label.localeCompare(b.label, undefined, { numeric: true }));
   select.replaceChildren();
-  for (const location of sorted) {
+  for (const probe of sorted) {
     const option = document.createElement('option');
-    option.value = location.key;
-    option.textContent = location.label;
-    option.selected = location.key === selectedKey;
+    option.value = probe.key;
+    option.textContent = probe.label;
+    option.selected = probe.key === selectedKey;
     select.appendChild(option);
   }
-  const preferred = sorted.find((location) => location.key === selectedKey) ?? sorted[0] ?? null;
+  const preferred = sorted.find((probe) => probe.key === selectedKey) ?? sorted[0] ?? null;
   if (preferred) select.value = preferred.key;
   return { selected: preferred, count: sorted.length };
 }
 
-function buildUnitOptions(select, units, selectedKey, selectedLocationKey) {
+function buildAreaOptions(select, units, selectedKey) {
+  const areas = new Map();
+  for (const unit of units) {
+    const key = unitAreaKey(unit);
+    if (!areas.has(key)) areas.set(key, { key, label: unitArea(unit) });
+  }
+  const sorted = [...areas.values()].sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, { numeric: true }));
   select.replaceChildren();
-  const sorted = sortUnits(filterUnitsByLocation(units, selectedLocationKey));
+  for (const area of sorted) {
+    const option = document.createElement('option');
+    option.value = area.key;
+    option.textContent = area.label;
+    option.selected = area.key === selectedKey;
+    select.appendChild(option);
+  }
+  const preferred = sorted.find((area) => area.key === selectedKey) ?? sorted[0] ?? null;
+  if (preferred) select.value = preferred.key;
+  return { selected: preferred, count: sorted.length };
+}
+
+function buildUnitOptions(select, units, selectedKey, probeKey, areaKey) {
+  select.replaceChildren();
+  const sorted = sortUnits(filterUnits(units, { probeKey, areaKey }));
   for (const unit of sorted) {
     const option = document.createElement('option');
     option.value = unit.key;
@@ -185,10 +207,13 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     <div class="dr-raster-layout">
       <section class="dr-raster-top-row">
         <section class="dr-raster-controls" aria-label="Raster controls">
-          <label>Location
-            <select class="dr-raster-location" disabled><option>Loading locations…</option></select>
+          <label>Probe
+            <select class="dr-raster-probe" disabled><option>Loading probes…</option></select>
           </label>
-          <label>Neuron
+          <label>Area
+            <select class="dr-raster-area" disabled><option>Loading areas…</option></select>
+          </label>
+          <label>Unit
             <select class="dr-raster-unit" disabled><option>Loading units…</option></select>
           </label>
           <label>Pre (s)
@@ -209,7 +234,8 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     </div>
   `;
 
-  const locationSelect = container.querySelector('.dr-raster-location');
+  const probeSelect = container.querySelector('.dr-raster-probe');
+  const areaSelect = container.querySelector('.dr-raster-area');
   const unitSelect = container.querySelector('.dr-raster-unit');
   const preInput = container.querySelector('.dr-raster-pre');
   const postInput = container.querySelector('.dr-raster-post');
@@ -248,7 +274,8 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
 
   function syncUnitControls(
     preferredUnitKey = currentUnit?.key ?? null,
-    preferredLocationKey = locationSelect.value,
+    preferredProbeKey = probeSelect.value,
+    requestedAreaKey = areaSelect.value,
   ) {
     const units = availableUnits();
     const sorted = sortUnits(units);
@@ -256,19 +283,33 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
       ?? sorted.find((unit) => unit.qc)
       ?? sorted[0]
       ?? null;
-    const locations = buildLocationOptions(
-      locationSelect,
+    const probes = buildProbeOptions(
+      probeSelect,
       units,
-      units.some((unit) => unitLocationKey(unit) === preferredLocationKey)
-        ? preferredLocationKey
-        : preferredUnit ? unitLocationKey(preferredUnit) : null,
+      units.some((unit) => unitProbeKey(unit) === preferredProbeKey)
+        ? preferredProbeKey
+        : preferredUnit ? unitProbeKey(preferredUnit) : null,
     );
-    locationSelect.disabled = !locations.selected;
+    probeSelect.disabled = !probes.selected;
+    const probeUnits = filterUnits(units, { probeKey: probeSelect.value });
+    const preferredAreaKey = preferredUnit
+      && unitProbeKey(preferredUnit) === probeSelect.value
+      ? unitAreaKey(preferredUnit)
+      : null;
+    const areas = buildAreaOptions(
+      areaSelect,
+      probeUnits,
+      probeUnits.some((unit) => unitAreaKey(unit) === requestedAreaKey)
+        ? requestedAreaKey
+        : preferredAreaKey,
+    );
+    areaSelect.disabled = !areas.selected;
     currentUnit = buildUnitOptions(
       unitSelect,
       units,
       preferredUnit?.key ?? null,
-      locationSelect.value,
+      probeSelect.value,
+      areaSelect.value,
     );
     unitSelect.disabled = !currentUnit;
     brainViz?.setUnits(units);
@@ -336,7 +377,8 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     const asset = String(assetName ?? '').trim();
     if (!asset) { setStatus('No acquisition asset is available.', true); return; }
     unitSelect.disabled = true;
-    locationSelect.disabled = true;
+    probeSelect.disabled = true;
+    areaSelect.disabled = true;
     rasterMount.replaceChildren();
     setStatus(`Loading trials and unit catalog for ${asset}…`);
     try {
@@ -354,8 +396,13 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     }
   }
 
-  locationSelect.addEventListener('change', () => {
-    syncUnitControls(null, locationSelect.value);
+  probeSelect.addEventListener('change', () => {
+    syncUnitControls(null, probeSelect.value, null);
+    renderSelectedUnit();
+  });
+
+  areaSelect.addEventListener('change', () => {
+    syncUnitControls(null, probeSelect.value, areaSelect.value);
     renderSelectedUnit();
   });
 

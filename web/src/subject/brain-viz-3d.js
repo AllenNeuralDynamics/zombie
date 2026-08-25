@@ -17,7 +17,7 @@
  *   three.x = ML,   three.y = -Depth,   three.z = AP
  *
  * CCF → three.js (µm → mm):
- *   x = (ccf_ML  - 5700) / 1000
+ *   x = (5700    - ccf_ML) / 1000
  *   y = (332     - ccf_DV) / 1000
  *   z = (5400    - ccf_AP) / 1000
  */
@@ -62,6 +62,30 @@ export const STRUCTURE_COLORS = Object.fromEntries(
   structuresData.map(s => [String(s.id), s.rgb_triplet]).filter(([, v]) => v),
 );
 
+const STRUCTURES_BY_ID = new Map(structuresData.map((structure) => [
+  String(structure.id), structure,
+]));
+const STRUCTURES_BY_ACRONYM = new Map(structuresData
+  .filter((structure) => structure.acronym)
+  .map((structure) => [String(structure.acronym).toLowerCase(), structure]));
+const STRUCTURES_BY_NAME = new Map(structuresData
+  .filter((structure) => structure.name)
+  .map((structure) => [String(structure.name).toLowerCase(), structure]));
+
+/** Resolve a CCF structure id from an acronym, name, or numeric id. */
+export function resolveCCFStructure(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  return STRUCTURES_BY_ID.get(text)
+    ?? STRUCTURES_BY_ACRONYM.get(normalized)
+    ?? STRUCTURES_BY_NAME.get(normalized)
+    ?? [...STRUCTURES_BY_ACRONYM.entries()]
+      .sort(([a], [b]) => b.length - a.length)
+      .find(([acronym]) => normalized.startsWith(acronym))?.[1]
+    ?? null;
+}
+
 /** Convert a CSS hex color string like '#FF6B6B' to a three.js hex number. */
 export function cssHexToThree(cssHex) {
   return parseInt(cssHex.replace('#', ''), 16);
@@ -73,11 +97,11 @@ export function cssHexToThree(cssHex) {
 export const TARGET_X = 0, TARGET_Y = -3.668, TARGET_Z = -1.2;
 
 // ── CCF → three.js affine matrix (µm → mm, origin = Bregma) ─────────────
-//  row-major: [ x_out = (ccf_z - 5700)/1000, y_out = (332 - ccf_y)/1000,
+//  row-major: [ x_out = (5700 - ccf_z)/1000, y_out = (332 - ccf_y)/1000,
 //               z_out = (5400 - ccf_x)/1000 ]
 export function makeCCFMatrix(THREE) {
   return new THREE.Matrix4().set(
-     0,        0,     1/1000, -5.7,
+     0,        0,    -1/1000,  5.7,
      0,    -1/1000,   0,       0.332,
     -1/1000,  0,      0,       5.4,
      0,        0,     0,       1,

@@ -44,17 +44,26 @@ function asString(value) {
   return String(value);
 }
 
-export function unitLocation(unit) {
-  return unit.location ?? unit.structure ?? unit.probeName ?? unit.deviceName ?? 'unknown location';
+export function unitProbeName(unit) {
+  return unit.probeName ?? unit.deviceName ?? 'unknown probe';
 }
 
-export function unitLocationKey(unit) {
-  return `${unit.experiment ?? 'experiment'}::${unitLocation(unit)}`;
+export function unitProbeKey(unit) {
+  return `${unit.experiment ?? 'experiment'}::${unitProbeName(unit)}`;
 }
 
-export function filterUnitsByLocation(units, selectedLocationKey) {
+export function unitArea(unit) {
+  return unit.structure ?? unit.location ?? 'unknown area';
+}
+
+export function unitAreaKey(unit) {
+  return `${unit.experiment ?? 'experiment'}::${unitArea(unit)}`;
+}
+
+export function filterUnits(units, { probeKey = null, areaKey = null } = {}) {
   return units.filter((unit) => (
-    !selectedLocationKey || unitLocationKey(unit) === selectedLocationKey
+    (!probeKey || unitProbeKey(unit) === probeKey)
+    && (!areaKey || unitAreaKey(unit) === areaKey)
   ));
 }
 

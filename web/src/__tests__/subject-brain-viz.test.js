@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as THREE from 'three';
 import {
   BREGMA_LAMBDA_DISTANCE_MM,
   BREGMA_PIXEL,
@@ -15,6 +16,7 @@ import {
   calculateImageBounds,
   mmToCanvas,
 } from '../subject/brain-viz.js';
+import { makeCCFMatrix } from '../subject/brain-viz-3d.js';
 
 // ---------------------------------------------------------------------------
 // calculateImageBounds
@@ -94,5 +96,25 @@ describe('mmToCanvas', () => {
     const [px, py] = mmToCanvas(0, -2.5, bounds, W, H);
     expect(px).toBeCloseTo(W / 2);
     expect(py).toBeCloseTo(H / 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CCF 3D orientation
+// ---------------------------------------------------------------------------
+
+describe('makeCCFMatrix', () => {
+  const matrix = makeCCFMatrix(THREE);
+
+  it('maps small CCF ML values to the positive scene X side', () => {
+    const position = new THREE.Vector3(4625, 5100, 2900).applyMatrix4(matrix);
+    expect(position.x).toBeCloseTo(2.8);
+  });
+
+  it('keeps CCF bregma at the scene origin', () => {
+    const position = new THREE.Vector3(5400, 332, 5700).applyMatrix4(matrix);
+    expect(position.x).toBeCloseTo(0);
+    expect(position.y).toBeCloseTo(0);
+    expect(position.z).toBeCloseTo(0);
   });
 });
