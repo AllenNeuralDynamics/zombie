@@ -26,7 +26,8 @@ const TRIAL_COLUMNS = [
 
 const UNIT_COLUMNS = [
   'unit_id', 'device_name', 'is_qc_pass', 'decoder_label',
-  'firing_rate', 'num_spikes', 'structure',
+  'firing_rate', 'num_spikes', 'structure', 'location',
+  'electrode_group_name', 'ccf_ap', 'ccf_dv', 'ccf_ml',
 ];
 
 const _nwbBaseCache = new Map();
@@ -217,12 +218,19 @@ async function readRawUnits(root, signal) {
     index,
     unitName: asString(columns.unit_id?.[index]) ?? `unit-${index}`,
     deviceName: asString(columns.device_name?.[index]) ?? 'unknown device',
+    probeName: asString(columns.electrode_group_name?.[index])
+      ?? asString(columns.device_name?.[index])
+      ?? 'unknown probe',
     experiment: 'raw NWB-Zarr',
     qc: !!columns.is_qc_pass?.[index],
     decoderLabel: asString(columns.decoder_label?.[index]),
     firingRate: toNumber(columns.firing_rate?.[index]),
     numSpikes: toNumber(columns.num_spikes?.[index]),
     structure: asString(columns.structure?.[index]),
+    location: asString(columns.location?.[index]),
+    ccfAp: toNumber(columns.ccf_ap?.[index]),
+    ccfDv: toNumber(columns.ccf_dv?.[index]),
+    ccfMl: toNumber(columns.ccf_ml?.[index]),
     start: index === 0 ? 0 : ends[index - 1],
     stop: ends[index],
   }));
@@ -282,6 +290,11 @@ async function tryLoadCache(coord, asset, signal) {
       firingRate: toNumber(unit.firing_rate),
       numSpikes: toNumber(unit.num_spikes),
       structure: asString(unit.structure),
+      location: null,
+      probeName: asString(unit.device_name),
+      ccfAp: null,
+      ccfDv: null,
+      ccfMl: null,
       depth: toNumber(unit.depth),
     })),
   };

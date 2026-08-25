@@ -26,12 +26,18 @@ function sortUnits(units) {
   });
 }
 
+function probeLabel(unit) {
+  return unit.probeName ?? unit.deviceName ?? 'device';
+}
+
 function deviceKey(unit) {
-  return `${unit.experiment ?? 'experiment'}::${unit.deviceName ?? 'device'}`;
+  return `${unit.experiment ?? 'experiment'}::${probeLabel(unit)}`;
 }
 
 function unitLabel(unit) {
   const stats = [];
+  const structure = unit.structure ?? unit.location ?? 'unknown structure';
+  stats.push(structure);
   if (unit.decoderLabel) stats.push(unit.decoderLabel);
   if (Number.isFinite(unit.firingRate)) stats.push(`${unit.firingRate.toFixed(1)} Hz`);
   if (Number.isFinite(unit.numSpikes)) stats.push(`${unit.numSpikes.toLocaleString()} spikes`);
@@ -45,7 +51,7 @@ function buildProbeOptions(select, units, selectedKey) {
     if (!probes.has(key)) {
       probes.set(key, {
         key,
-        label: `${unit.experiment ?? 'experiment'} / ${unit.deviceName ?? 'device'}`,
+        label: `${unit.experiment ?? 'experiment'} / ${probeLabel(unit)}`,
       });
     }
   }
@@ -124,7 +130,7 @@ function makePlot(trials, spikes, pre, post, includeCatch) {
   const n = Math.max(1, rowOffset);
   return Plot.plot({
     width: 980,
-    height: Math.max(300, Math.min(735, 85 + n * 1.25)),
+    height: Math.max(220, Math.min(560, 70 + n)),
     marginLeft: 178,
     marginRight: 18,
     marginTop: 18,
@@ -184,7 +190,7 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
 
   container.innerHTML = `
     <div class="dr-raster-layout">
-      <aside class="dr-raster-settings">
+      <section class="dr-raster-top-row">
         <section class="dr-raster-controls" aria-label="Raster controls">
           <label class="dr-raster-probe-control">Probe / shank
             <select class="dr-raster-probe" disabled><option>Loading probes…</option></select>
@@ -198,11 +204,15 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
           <label>Post (s)
             <input class="dr-raster-post" type="number" step="0.25" value="${DEFAULT_POST}" />
           </label>
+          <label class="dr-raster-check"><input class="dr-raster-qc" type="checkbox" checked /> QC pass only</label>
           <label class="dr-raster-check"><input class="dr-raster-catch" type="checkbox" /> Show catch trials</label>
         </section>
         <p class="dr-raster-status" role="status">Loading the selected asset…</p>
-      </aside>
-      <section class="dr-raster-raster" aria-live="polite"></section>
+      </section>
+      <div class="dr-raster-visuals">
+        <section class="dr-raster-brain" aria-label="Ecephys unit locations"></section>
+        <section class="dr-raster-raster" aria-live="polite"></section>
+      </div>
     </div>
   `;
 
@@ -211,14 +221,72 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   const unitSelect = container.querySelector('.dr-raster-unit');
   const preInput = container.querySelector('.dr-raster-pre');
   const postInput = container.querySelector('.dr-raster-post');
+  const qcInput = container.querySelector('.dr-raster-qc');
   const catchInput = container.querySelector('.dr-raster-catch');
   const status = container.querySelector('.dr-raster-status');
+  const brainMount = container.querySelector('.dr-raster-brain');
   const rasterMount = container.querySelector('.dr-raster-raster');
+  let brainViz = null;
+  let brainInitPromise = null;
 
   function setStatus(message, error = false) {
     status.textContent = message;
     status.hidden = !message;
     status.classList.toggle('is-error', error);
+  }
+
+  function availableUnits() {
+    return currentSession?.units.filter((unit) => !qcInput.checked || unit.qc) ?? [];
+  }
+
+  function syncUnitControls(preferredUnitKey = currentUnit?.key ?? null, preferredProbeKey = probeSelect.value) {
+    const units = availableUnits();
+    const sorted = sortUnits(units);
+    const preferredUnit = units.find((unit) => unit.key === preferredUnitKey)
+      ?? sorted.find((unit) => unit.qc)
+      ?? sorted[0]
+      ?? null;
+    const probes = buildProbeOptions(
+      probeSelect,
+      units,
+      units.some((unit) => deviceKey(unit) === preferredProbeKey)
+        ? preferredProbeKey
+        : preferredUnit ? deviceKey(preferredUnit) : null,
+    );
+    probeControl.hidden = probes.count < 2;
+    probeSelect.disabled = !probes.selected;
+    currentUnit = buildUnitOptions(
+      unitSelect,
+      units,
+      preferredUnit?.key ?? null,
+      probeSelect.value,
+    );
+    unitSelect.disabled = !currentUnit;
+    brainViz?.setUnits(units);
+    brainViz?.setSelectedUnit(currentUnit?.key ?? null);
+    return units;
+  }
+
+  async function ensureBrainViz(units) {
+    if (brainViz) {
+      brainViz.setUnits(units);
+      brainViz.setSelectedUnit(currentUnit?.key ?? null);
+      return;
+    }
+    if (!brainInitPromise) {
+      brainInitPromise = import('./unit-viz-3d.js')
+        .then(({ createEphysUnitViz3D }) => {
+          brainViz = createEphysUnitViz3D({
+            units: availableUnits(),
+            selectedKey: currentUnit?.key ?? null,
+          });
+          brainMount.replaceChildren(brainViz);
+        })
+        .catch((error) => {
+          console.error('[dynamic-routing-raster] 3D unit viewer failed', error);
+        });
+    }
+    await brainInitPromise;
   }
 
   async function renderSelectedUnit() {
@@ -263,23 +331,8 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     setStatus(`Loading trials and unit catalog for ${asset}…`);
     try {
       currentSession = await loadRasterSession(coord, asset);
-      const preferredUnit = sortUnits(currentSession.units).find((unit) => unit.qc)
-        ?? sortUnits(currentSession.units)[0]
-        ?? null;
-      const probes = buildProbeOptions(
-        probeSelect,
-        currentSession.units,
-        preferredUnit ? deviceKey(preferredUnit) : null,
-      );
-      probeControl.hidden = probes.count < 2;
-      probeSelect.disabled = !probes.selected;
-      currentUnit = buildUnitOptions(
-        unitSelect,
-        currentSession.units,
-        preferredUnit?.key ?? null,
-        probeSelect.value,
-      );
-      unitSelect.disabled = !currentUnit;
+      const units = syncUnitControls(null, null);
+      await ensureBrainViz(units);
       if (!currentUnit) {
         setStatus('The asset loaded, but no units were available.', true);
       } else {
@@ -292,13 +345,20 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   }
 
   probeSelect.addEventListener('change', () => {
-    currentUnit = buildUnitOptions(unitSelect, currentSession?.units ?? [], null, probeSelect.value);
-    unitSelect.disabled = !currentUnit;
+    syncUnitControls(null, probeSelect.value);
     renderSelectedUnit();
+  });
+
+  qcInput.addEventListener('change', () => {
+    const units = syncUnitControls();
+    brainViz?.setUnits(units);
+    if (currentUnit) renderSelectedUnit();
+    else setStatus('No units match the current QC filter.', true);
   });
 
   unitSelect.addEventListener('change', () => {
     currentUnit = currentSession?.units.find((unit) => unit.key === unitSelect.value) ?? null;
+    brainViz?.setSelectedUnit(currentUnit?.key ?? null);
     renderSelectedUnit();
   });
   preInput.addEventListener('change', () => renderSelectedUnit());
