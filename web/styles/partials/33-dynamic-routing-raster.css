@@ -1,0 +1,115 @@
+.dynamic-routing-raster-view {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+}
+
+.dr-raster-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  gap: 1rem;
+}
+
+.dr-raster-settings {
+  min-width: 0;
+}
+
+.dr-raster-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+  padding: 0.7rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.dr-raster-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.dr-raster-controls input,
+.dr-raster-controls select,
+.dr-raster-controls button {
+  min-height: 2rem;
+  box-sizing: border-box;
+  border: 1px solid var(--surface-border);
+  border-radius: 5px;
+  background: var(--surface-1, var(--surface-card));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.8rem;
+  text-transform: none;
+}
+
+.dr-raster-controls input,
+.dr-raster-controls select {
+  padding: 0.25rem 0.4rem;
+}
+
+.dr-raster-controls select {
+  width: 100%;
+  min-width: 0;
+}
+
+.dr-raster-controls input[type="number"] {
+  width: 100%;
+}
+
+.dr-raster-check {
+  flex-direction: row !important;
+  align-items: center;
+  min-height: 2rem;
+  text-transform: none !important;
+}
+
+.dr-raster-check input {
+  min-height: auto;
+}
+
+.dr-raster-status {
+  min-height: 1.2rem;
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.dr-raster-status.is-error {
+  color: var(--color-error, #b91c1c);
+}
+
+.dr-raster-raster {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0.35rem 0 0.75rem;
+}
+
+.dr-raster-raster svg {
+  display: block;
+  width: 100%;
+  min-width: 760px;
+  height: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.dr-raster-empty {
+  min-height: 120px;
+  margin: 1rem 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .dr-raster-layout { grid-template-columns: 1fr; }
+  .dr-raster-settings { max-width: 560px; }
+}

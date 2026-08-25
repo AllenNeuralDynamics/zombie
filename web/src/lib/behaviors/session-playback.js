@@ -61,6 +61,12 @@ export function detectPlaybackPlatform(event) {
   return null;
 }
 
+/** True only for Dynamic Routing acquisitions that include ecephys data. */
+export function isDynamicRoutingEcephys(event) {
+  return detectPlaybackPlatform(event) === 'dynamic_routing'
+    && (event?.modalities ?? []).some((modality) => /ecephys/i.test(String(modality)));
+}
+
 /** Derive a Dynamic Routing session id ("<subject>_<YYYY-MM-DD>") from an event. */
 function drSessionId(event, subjectId) {
   const sid = subjectId ?? event.data?.subject_id ?? null;
@@ -192,6 +198,7 @@ export function createSessionPlayback(event, context = {}) {
   const canFiber = !!(subjectId && rawAssetName && hasFiberModality);
   const hasEcephysModality = modalities.some((m) => /ecephys/i.test(String(m)));
   const canEcephys = !!(subjectId && rawAssetName && hasEcephysModality);
+  const canDynamicRoutingRaster = isDynamicRoutingEcephys(event) && canEcephys;
   const hasPophysModality = modalities.some((m) => /pophys/i.test(String(m)));
   // BCI has a separate behavior-NWB-backed player. Do not append the legacy
   // pophys panel as well; its NWB-Zarr assumptions do not match these assets.
@@ -241,6 +248,21 @@ export function createSessionPlayback(event, context = {}) {
         ephysMount.appendChild(ephysEl);
       })
       .catch((err) => { console.error('[playback] ecephys load failed', err); });
+  }
+
+  if (canDynamicRoutingRaster) {
+    const rasterMount = document.createElement('div');
+    rasterMount.className = 'session-playback-modality';
+    wrapper.appendChild(rasterMount);
+    modalityMounts.push(rasterMount);
+    import('../../dynamic_routing_raster/view.js')
+      .then(({ createDynamicRoutingRasterSection }) => {
+        const hr = document.createElement('hr');
+        hr.className = 'session-playback-sep';
+        rasterMount.appendChild(hr);
+        rasterMount.appendChild(createDynamicRoutingRasterSection(coord, rawAssetName));
+      })
+      .catch((err) => { console.error('[playback] dynamic routing raster load failed', err); });
   }
 
   if (canFiber) {
