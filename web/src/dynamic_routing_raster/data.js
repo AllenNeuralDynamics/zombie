@@ -30,6 +30,14 @@ const UNIT_COLUMNS = [
   'electrode_group_name', 'ccf_ap', 'ccf_dv', 'ccf_ml',
 ];
 
+// The SWDB overview only needs the small location catalog, not trial data or
+// ragged spike times. Keeping this list separate avoids pulling unrelated unit
+// metrics when several acquisitions are shown together.
+const UNIT_LOCATION_COLUMNS = [
+  'unit_id', 'device_name', 'structure', 'location', 'electrode_group_name',
+  'ccf_ap', 'ccf_dv', 'ccf_ml',
+];
+
 const _nwbBaseCache = new Map();
 const _cacheFiles = new Map();
 
@@ -260,6 +268,30 @@ async function readRawUnits(root, signal) {
   return { units, spikeArray };
 }
 
+async function readRawUnitLocations(root, signal) {
+  const entries = await Promise.all(UNIT_LOCATION_COLUMNS.map(async (column) => {
+    const { chunk } = await openArray(root, `units/${column}`, { signal });
+    return [column, Array.from(chunk.data)];
+  }));
+  if (signal?.aborted) throw new Error('aborted');
+  const columns = Object.fromEntries(entries);
+  const n = columns.unit_id?.length ?? 0;
+  return Array.from({ length: n }, (_, index) => ({
+    key: `raw:${index}`,
+    index,
+    unitName: asString(columns.unit_id?.[index]) ?? `unit-${index}`,
+    deviceName: asString(columns.device_name?.[index]) ?? 'unknown device',
+    probeName: asString(columns.electrode_group_name?.[index])
+      ?? asString(columns.device_name?.[index])
+      ?? 'unknown probe',
+    structure: asString(columns.structure?.[index]),
+    location: asString(columns.location?.[index]),
+    ccfAp: toNumber(columns.ccf_ap?.[index]),
+    ccfDv: toNumber(columns.ccf_dv?.[index]),
+    ccfMl: toNumber(columns.ccf_ml?.[index]),
+  }));
+}
+
 async function readRawSpikes(spikeArray, unit, signal) {
   const start = Math.max(0, Math.floor(Number(unit.start) || 0));
   const stop = Math.max(start, Math.floor(Number(unit.stop) || start));
@@ -335,6 +367,25 @@ async function readCachedSpikes(coord, source, unit, signal) {
   `);
   if (signal?.aborted) throw new Error('aborted');
   return Float64Array.from(rows, (row) => Number(row.spike_time)).filter(Number.isFinite);
+}
+
+/**
+ * Load only the CCF unit-location catalog for one public Dynamic Routing asset.
+ *
+ * This is intentionally separate from loadRasterSession: the SWDB overview
+ * needs locations from every acquisition, but does not need trials or spikes.
+ * The public SWDB files are derived ecephys NWB-Zarr assets, so their unit
+ * coordinate arrays can be read directly without opening the merged HDF5 NWB.
+ *
+ * @param {string} asset - Public ecephys asset name.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {Promise<object[]>}
+ */
+export async function loadRasterUnitLocations(asset, { signal } = {}) {
+  const key = assertRasterAssetName(asset);
+  const base = await resolveNwbZarrBase(key, { signal });
+  const root = zarr.root(new zarr.FetchStore(base));
+  return readRawUnitLocations(root, signal);
 }
 
 /**

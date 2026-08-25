@@ -48,6 +48,26 @@ function probeName(unit) {
   return unit.probeName ?? unit.deviceName ?? 'unknown probe';
 }
 
+function colorGroupKey(unit, colorBy) {
+  if (colorBy === 'acquisition') {
+    return unit.acquisition ?? unit.assetName ?? unit.experiment ?? 'unknown acquisition';
+  }
+  return probeName(unit);
+}
+
+function colorGroupLabel(unit, colorBy) {
+  return colorBy === 'acquisition'
+    ? unit.acquisitionLabel ?? colorGroupKey(unit, colorBy)
+    : colorGroupKey(unit, colorBy);
+}
+
+function colorForIndex(index) {
+  if (index < ITEM_COLORS.length) return cssHexToThree(ITEM_COLORS[index]);
+  // Keep acquisition colors distinct when an overview contains more groups
+  // than the standard subject palette has entries.
+  return new THREE.Color().setHSL((index * 0.61803398875) % 1, 0.72, 0.56).getHex();
+}
+
 function disposeUnitGroup(group) {
   for (const mesh of group.children) mesh.material?.dispose();
   group.clear();
@@ -64,9 +84,15 @@ function disposeStructureRecord(record) {
  * setSelectedUnit so the raster's controls can update it without rebuilding
  * the WebGL scene.
  */
-export function createEphysUnitViz3D({ units = [], selectedKey = null } = {}) {
+export function createEphysUnitViz3D({
+  units = [],
+  selectedKey = null,
+  colorBy = 'probe',
+  showStructures = true,
+  className = 'dr-raster-brain-viz',
+} = {}) {
   const container = document.createElement('div');
-  container.className = 'dr-raster-brain-viz';
+  container.className = className;
   container.style.cssText =
     'position:relative;width:100%;height:100%;min-height:0;background:var(--surface-bg,#fff);' +
     'border-radius:8px;overflow:hidden';
@@ -91,7 +117,7 @@ export function createEphysUnitViz3D({ units = [], selectedKey = null } = {}) {
     renderUnits();
   };
 
-  _initUnitViz(container, legendEl, statusEl, state)
+  _initUnitViz(container, legendEl, statusEl, state, { colorBy, showStructures })
     .then((render) => {
       renderUnits = render;
       renderUnits();
@@ -104,7 +130,7 @@ export function createEphysUnitViz3D({ units = [], selectedKey = null } = {}) {
   return container;
 }
 
-async function _initUnitViz(container, legendEl, statusEl, state) {
+async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, showStructures }) {
   const CCF_MATRIX = makeCCFMatrix(THREE);
   const BRAIN_MATRIX = makeTemplateMatrix(THREE);
   const scene = new THREE.Scene();
@@ -159,15 +185,15 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
   scene.add(unitGroup);
   const cubeGeometry = new THREE.BoxGeometry(UNIT_CUBE_MM, UNIT_CUBE_MM, UNIT_CUBE_MM);
 
-  function updateLegend(probeNames, structures) {
+  function updateLegend(colorGroups, structures) {
     legendEl.replaceChildren();
-    for (const [index, name] of probeNames.entries()) {
+    for (const [index, group] of colorGroups.entries()) {
       const row = document.createElement('div');
       row.className = 'dr-raster-brain-legend-row';
       const swatch = document.createElement('span');
       swatch.className = 'dr-raster-brain-legend-swatch';
-      swatch.style.background = ITEM_COLORS[index % ITEM_COLORS.length];
-      row.append(swatch, document.createTextNode(name));
+      swatch.style.background = `#${colorForIndex(index).toString(16).padStart(6, '0')}`;
+      row.append(swatch, document.createTextNode(group.label));
       legendEl.appendChild(row);
     }
     if (structures.length) {
@@ -189,6 +215,7 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
 
   function targetedStructures() {
     const structures = new Map();
+    if (!showStructures) return structures;
     for (const unit of state.units) {
       const structure = resolveCCFStructure(unitArea(unit));
       if (!structure?.id || !STRUCTURE_COLORS[String(structure.id)]) continue;
@@ -238,39 +265,61 @@ async function _initUnitViz(container, legendEl, statusEl, state) {
         structureMeshes.set(id, { group, material });
       });
     }
-    updateLegend(
-      [...new Set(state.units.map(probeName))].sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })),
-      [...structures.values()],
-    );
   }
 
   function render() {
     renderTargetedStructures();
     disposeUnitGroup(unitGroup);
-    const probeNames = [...new Set(state.units.map(probeName))].sort((a, b) =>
-      a.localeCompare(b, undefined, { numeric: true }));
-    const colors = new Map(probeNames.map((name, index) => [
-      name,
-      cssHexToThree(ITEM_COLORS[index % ITEM_COLORS.length]),
+    const colorGroups = [...new Map(state.units.map((unit) => {
+      const key = colorGroupKey(unit, colorBy);
+      return [key, { key, label: colorGroupLabel(unit, colorBy) }];
+    })).values()].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+    const colors = new Map(colorGroups.map((group, index) => [
+      group.key,
+      colorForIndex(index),
     ]));
-    let positioned = 0;
+    const positionedByGroup = new Map();
     for (const unit of state.units) {
       const position = toCCFPosition(THREE, unit, CCF_MATRIX);
       if (!position) continue;
-      const baseColor = colors.get(probeName(unit)) ?? 0x00ccff;
-      const selected = unit.key === state.selectedKey;
-      const mesh = new THREE.Mesh(
-        cubeGeometry,
-        new THREE.MeshPhongMaterial({ color: selected ? SELECTED_COLOR : baseColor }),
-      );
-      mesh.position.copy(position);
-      mesh.scale.setScalar(selected ? SELECTED_CUBE_SCALE : 1);
-      mesh.userData.baseColor = baseColor;
-      mesh.userData.unitKey = unit.key;
-      unitGroup.add(mesh);
-      positioned += 1;
+      const groupKey = colorGroupKey(unit, colorBy);
+      if (!positionedByGroup.has(groupKey)) positionedByGroup.set(groupKey, []);
+      positionedByGroup.get(groupKey).push({ unit, position });
     }
+
+    const instanceMatrix = new THREE.Matrix4();
+    for (const [groupKey, entries] of positionedByGroup) {
+      const baseColor = colors.get(groupKey) ?? 0x00ccff;
+      const regular = entries.filter(({ unit }) => unit.key !== state.selectedKey);
+      if (regular.length) {
+        const mesh = new THREE.InstancedMesh(
+          cubeGeometry,
+          new THREE.MeshPhongMaterial({ color: baseColor }),
+          regular.length,
+        );
+        regular.forEach(({ position }, index) => {
+          instanceMatrix.makeTranslation(position.x, position.y, position.z);
+          mesh.setMatrixAt(index, instanceMatrix);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        unitGroup.add(mesh);
+      }
+
+      for (const { unit, position } of entries) {
+        if (unit.key !== state.selectedKey) continue;
+        const mesh = new THREE.Mesh(
+          cubeGeometry,
+          new THREE.MeshPhongMaterial({ color: SELECTED_COLOR }),
+        );
+        mesh.position.copy(position);
+        mesh.scale.setScalar(SELECTED_CUBE_SCALE);
+        mesh.userData.baseColor = baseColor;
+        mesh.userData.unitKey = unit.key;
+        unitGroup.add(mesh);
+      }
+    }
+    updateLegend(colorGroups, [...targetedStructures().values()]);
+    const positioned = [...positionedByGroup.values()].reduce((sum, group) => sum + group.length, 0);
     statusEl.textContent = positioned ? '' : 'No CCF unit locations available';
     statusEl.hidden = Boolean(positioned);
   }

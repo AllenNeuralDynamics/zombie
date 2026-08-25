@@ -14,7 +14,12 @@
 
 import { escHtml } from '../lib/utils.js';
 import { buildAssetsTable } from '../lib/assets-table.js';
-import { loadSessions, loadSwdbDatasetAssets, loadSwdbDatasetSummaries } from './data.js';
+import {
+  loadSessions,
+  loadSwdbDatasetAssets,
+  loadSwdbDatasetSummaries,
+  loadSwdbDynamicRoutingUnits,
+} from './data.js';
 import { datasetInfo, setInfo, summariseSets } from './sets.js';
 import { createSetTimeline } from './timeline.js';
 import { createSwdbBehaviorView } from './behavior-view.js';
@@ -44,6 +49,8 @@ export function createSwdbSetView(coord, metadata) {
 
   const historySection = buildSection('Set history', true);
   const viewerSection = buildSection('Session viewer', true);
+  const neuronOverview = setId === 'dynamic-routing' ? buildNeuronOverview() : null;
+  if (neuronOverview) root.appendChild(neuronOverview.element);
   root.appendChild(historySection.details);
   root.appendChild(viewerSection.details);
 
@@ -87,11 +94,13 @@ export function createSwdbSetView(coord, metadata) {
         header.innerHTML = `<h1>${escHtml(setInfo(setId).title)}</h1>`;
         historySection.body.innerHTML =
           `<div class="swdb-panel-status swdb-panel-status--error">No cached assets for set "${escHtml(setId)}".</div>`;
+        neuronOverview?.load([]);
         return;
       }
 
       sessionsById = new Map(set.rows.map((r) => [r.asset_name, r]));
       header.replaceChildren(buildHeader(set));
+      neuronOverview?.load(set.rows);
 
       timeline = createSetTimeline(set.rows, { onSelect: selectAsset });
       historySection.body.replaceChildren(timeline, buildSessionTable(set.rows, selectAsset));
@@ -125,6 +134,11 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   header.className = 'swdb-set-header';
   root.appendChild(header);
 
+  const neuronOverview = datasetName === 'swdb_2026_dynamic_routing'
+    ? buildNeuronOverview()
+    : null;
+  if (neuronOverview) root.appendChild(neuronOverview.element);
+
   const assetsSection = buildSection('Assets', true);
   root.appendChild(assetsSection.details);
   assetsSection.body.innerHTML = '<div class="swdb-panel-status">Loading assets…</div>';
@@ -137,9 +151,14 @@ function createDatasetDetailView(coord, metadata, datasetName) {
         header.innerHTML = `<h1>${escHtml(datasetInfo(datasetName).title)}</h1>`;
         assetsSection.body.innerHTML =
           `<div class="swdb-panel-status swdb-panel-status--error">No cached SWDB dataset named "${escHtml(datasetName)}".</div>`;
+        neuronOverview?.load([]);
         return;
       }
 
+      // The published dataset table is the source of truth for this page. Do
+      // not make the optional session catalog a prerequisite: some cache
+      // versions publish the dataset membership and its asset metadata without
+      // publishing platform_swdb_sessions yet.
       const { assets, sourceMap } = await loadSwdbDatasetAssets(coord, metadata, datasetName);
 
       const info = datasetInfo(summary.name);
@@ -154,6 +173,13 @@ function createDatasetDetailView(coord, metadata, datasetName) {
             : ''}
         </div>
       `;
+      neuronOverview?.load(assets.map((asset) => ({
+        asset_name: asset.name,
+        subject_id: asset.subject_id,
+        session_date: asset.acquisition_start_time
+          ? String(asset.acquisition_start_time).slice(0, 10)
+          : null,
+      })));
       if (assets.length > 0) {
         assetsSection.body.replaceChildren(buildAssetsTable(assets, sourceMap));
       } else {
@@ -210,6 +236,87 @@ function buildSection(title, open) {
   details.appendChild(summary);
   details.appendChild(body);
   return { details, body };
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Routing neuron overview
+// ---------------------------------------------------------------------------
+
+function buildNeuronOverview() {
+  const section = document.createElement('section');
+  section.className = 'swdb-neuron-overview';
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'All neuron locations';
+  section.appendChild(heading);
+
+  const caption = document.createElement('p');
+  caption.className = 'swdb-panel-caption';
+  caption.textContent =
+    'Sorted units across the Dynamic Routing acquisitions. Colors identify the acquisition; '
+    + 'the brain surface is the root CCF mesh.';
+  section.appendChild(caption);
+
+  const mount = document.createElement('div');
+  mount.className = 'swdb-neuron-viz-mount';
+  mount.innerHTML = '<div class="swdb-panel-status">Loading neuron locations…</div>';
+  section.appendChild(mount);
+
+  const status = document.createElement('p');
+  status.className = 'swdb-neuron-viz-status swdb-panel-caption';
+  status.hidden = true;
+  section.appendChild(status);
+
+  let controller = null;
+  let viewer = null;
+
+  return {
+    element: section,
+    async load(rows) {
+      controller?.abort();
+      controller = new AbortController();
+      viewer = null;
+      mount.innerHTML = '<div class="swdb-panel-status">Loading neuron locations…</div>';
+      status.hidden = true;
+      try {
+        const result = await loadSwdbDynamicRoutingUnits(rows, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        if (result.units.length === 0) {
+          mount.innerHTML = '<div class="swdb-panel-status">No CCF neuron locations are available.</div>';
+          if (result.failedAssets.length) {
+            status.textContent = `Could not read ${result.failedAssets.length} acquisition${result.failedAssets.length === 1 ? '' : 's'}.`;
+            status.hidden = false;
+          }
+          return;
+        }
+
+        const { createEphysUnitViz3D } = await import('../dynamic_routing_raster/unit-viz-3d.js');
+        if (controller.signal.aborted) return;
+        viewer = createEphysUnitViz3D({
+          units: result.units,
+          colorBy: 'acquisition',
+          showStructures: false,
+          className: 'swdb-neuron-viz',
+        });
+        mount.replaceChildren(viewer);
+        const acquisitions = new Set(result.units.map((unit) => unit.acquisition)).size;
+        const failureNote = result.failedAssets.length
+          ? ` ${result.failedAssets.length} acquisition${result.failedAssets.length === 1 ? '' : 's'} could not be read.`
+          : '';
+        status.textContent = `${result.units.length.toLocaleString()} neuron locations from `
+          + `${acquisitions} acquisition${acquisitions === 1 ? '' : 's'}.${failureNote}`;
+        status.hidden = false;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        mount.innerHTML = '<div class="swdb-panel-status swdb-panel-status--error">Could not load neuron locations.</div>';
+        console.error('[SWDB] neuron overview load failed', error);
+      }
+    },
+    dispose() {
+      controller?.abort();
+      viewer = null;
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

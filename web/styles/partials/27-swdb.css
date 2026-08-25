@@ -65,6 +65,42 @@
   width: 100%;
 }
 
+.swdb-neuron-overview {
+  margin-bottom: 1.5rem;
+}
+
+.swdb-neuron-overview h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.swdb-neuron-viz-mount {
+  height: min(58vw, 560px);
+  min-height: 360px;
+  overflow: hidden;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.swdb-neuron-viz {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.swdb-neuron-viz canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.swdb-neuron-viz-status {
+  margin: 0.4rem 0 0;
+}
+
 .asset-overview-histogram-interactive .modality-legend {
   margin-bottom: 0.25rem;
 }

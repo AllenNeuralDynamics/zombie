@@ -22,6 +22,7 @@ import { getResolvedVersion, quoteIdentifier } from '../lib/metadata.js';
 import { queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
 import { fetchAssetsWithSources } from '../lib/assets-table.js';
+import { loadRasterUnitLocations } from '../dynamic_routing_raster/data.js';
 
 /** Registry names of the SWDB cache tables. */
 export const SWDB_TABLES = {
@@ -151,6 +152,48 @@ export async function loadSessions(coord) {
     coord,
     `SELECT * FROM read_parquet(${sqlStr(sessionsUrl())}) ORDER BY set_id, session_date`,
   );
+}
+
+/**
+ * Load the CCF unit locations for every acquisition in a SWDB set.
+ *
+ * Dynamic Routing SWDB assets are public ecephys NWB-Zarr derivatives. Their
+ * small `/units` coordinate arrays are read directly; the merged SWDB HDF5
+ * files themselves never need to be opened in the browser.
+ *
+ * @param {object[]} sessionRows - Rows from platform_swdb_sessions.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {Promise<{units: object[], failedAssets: object[]}>}
+ */
+export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) {
+  const rows = [...(sessionRows ?? [])]
+    .filter((row) => row.asset_name)
+    .sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name)));
+  if (rows.length === 0) return { units: [], failedAssets: [] };
+
+  const results = await Promise.allSettled(rows.map(async (row) => {
+    const locations = await loadRasterUnitLocations(row.asset_name, { signal });
+    const acquisitionLabel = [row.session_date, row.subject_id]
+      .filter((value) => value != null && value !== '')
+      .join(' · ') || row.asset_name;
+    return locations
+      .filter((unit) => [unit.ccfAp, unit.ccfDv, unit.ccfMl].every(Number.isFinite))
+      .map((unit) => ({
+        ...unit,
+        key: `swdb:${row.asset_name}:${unit.key}`,
+        acquisition: row.asset_name,
+        acquisitionLabel,
+      }));
+  }));
+  if (signal?.aborted) throw new Error('aborted');
+
+  const units = [];
+  const failedAssets = [];
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') units.push(...result.value);
+    else failedAssets.push({ assetName: rows[index].asset_name, error: result.reason });
+  });
+  return { units, failedAssets };
 }
 
 /**
