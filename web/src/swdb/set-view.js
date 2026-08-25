@@ -250,13 +250,6 @@ function buildNeuronOverview() {
   heading.textContent = 'All neuron locations';
   section.appendChild(heading);
 
-  const caption = document.createElement('p');
-  caption.className = 'swdb-panel-caption';
-  caption.textContent =
-    'Sorted units across the Dynamic Routing acquisitions. Colors identify the acquisition; '
-    + 'the brain surface is the root CCF mesh.';
-  section.appendChild(caption);
-
   const mount = document.createElement('div');
   mount.className = 'swdb-neuron-viz-mount';
   mount.innerHTML = '<div class="swdb-panel-status">Loading neuron locations…</div>';

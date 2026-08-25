@@ -25,6 +25,11 @@ proxy routes, all on port 8000.
 Reach for Preact when a page has more than ~3 interdependent state variables or
 re-renders cause visible DOM flicker.
 
+**UI copy and descriptions:**
+- Keep interface text purposeful and concise. Do not add boilerplate captions,
+  helper text, tooltips, `title` attributes, or descriptions to every element
+  just because it was created.
+
 ## How Data Works
 
 `web/src/lib/bootstrap.js:bootstrap(createView, opts)` is the standard page
