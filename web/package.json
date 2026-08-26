@@ -15,6 +15,7 @@
     "lint": "eslint src --ext .js"
   },
   "dependencies": {
+    "@azure/msal-browser": "^4.26.0",
     "@uwdata/vgplot": "^0.11.0",
     "@xyflow/react": "^12.11.1",
     "dagre": "^0.8.5",

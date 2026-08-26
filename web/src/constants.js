@@ -93,6 +93,19 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
  */
 export const QC_PORTAL_BASE = 'https://qc.allenneuraldynamics.org';
 
+// Opt-in Entra QC editor. These are public identifiers, never secrets.
+export const QC_API_BASE = import.meta.env.VITE_QC_API_BASE || QC_PORTAL_BASE;
+export const QC_SPA_CLIENT_ID = import.meta.env.VITE_QC_SPA_CLIENT_ID ||
+  'a625f758-ee73-4fc0-8a4b-b7467f33d68c';
+export const QC_SPA_TENANT_ID = import.meta.env.VITE_QC_SPA_TENANT_ID ||
+  '32669cd6-737f-4b39-8bdd-d6951120d3fc';
+export const QC_AUTH_REDIRECT_URI = import.meta.env.VITE_QC_AUTH_REDIRECT_URI ||
+  `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}/auth/callback`;
+// Local Vite sessions should be immediately testable; production remains
+// opt-in, and an explicit false always disables the editor.
+export const QC_SPA_EDITOR_ENABLED = import.meta.env.VITE_QC_SPA_EDITOR_ENABLED === 'true' ||
+  (import.meta.env.DEV && import.meta.env.VITE_QC_SPA_EDITOR_ENABLED !== 'false');
+
 // ---------------------------------------------------------------------------
 // Layout / plot defaults
 // ---------------------------------------------------------------------------

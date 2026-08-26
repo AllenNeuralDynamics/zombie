@@ -1,8 +1,9 @@
 import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
 import { renderMetrics } from './metrics.js';
+import { mountQcEditor } from './editor.js';
 
-export function createQCView(record, rawS3Loc = '') {
+export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const parsed = parseQCRecord(record);
   const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
 
@@ -10,6 +11,11 @@ export function createQCView(record, rawS3Loc = '') {
 
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages);
   root.appendChild(header);
+
+  const editor = document.createElement('div');
+  editor.className = 'qc-editor-host';
+  root.appendChild(editor);
+  mountQcEditor(editor, record, { onReload });
 
   if (notes) {
     const notesEl = document.createElement('div');
@@ -66,7 +72,7 @@ function buildHeader(name, projectName, codeOceanId, modalities, stages) {
 
   const editBtn = document.createElement('button');
   editBtn.className = 'qc-edit-btn';
-  editBtn.textContent = 'Edit';
+  editBtn.textContent = 'Open QC Portal';
   editBtn.addEventListener('click', () => {
     window.open(`https://qc.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`, '_blank');
   });

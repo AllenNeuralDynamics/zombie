@@ -13,13 +13,16 @@ async function init() {
     return;
   }
 
-  app.innerHTML = '<p class="qc-loading">Loading QC data…</p>';
+  await loadRecord(app, assetName);
+}
+
+async function loadRecord(app, assetName, { replaceOnStart = true, throwOnFailure = false } = {}) {
+  if (replaceOnStart) app.innerHTML = '<p class="qc-loading">Loading QC data…</p>';
 
   try {
     const records = await queryDocDb({ name: assetName }, { limit: 1 });
     if (!records.length) {
-      renderMessage(app, 'qc-error', `Asset "${assetName}" not found in DocDB.`);
-      return;
+      throw new Error(`Asset "${assetName}" not found in DocDB.`);
     }
 
     // Look up raw (source) asset S3 location so ephys GUI URLs can be fully resolved.
@@ -44,10 +47,13 @@ async function init() {
       history.replaceState({}, '', u);
     }
 
-    app.innerHTML = '';
-    app.appendChild(createQCView(records[0], rawS3Loc));
+    const nextView = createQCView(records[0], rawS3Loc, {
+      onReload: () => loadRecord(app, assetName, { replaceOnStart: false, throwOnFailure: true }),
+    });
+    app.replaceChildren(nextView);
   } catch (err) {
-    renderMessage(app, 'qc-error', `Failed to load: ${err?.message ?? err}`);
+    if (replaceOnStart) renderMessage(app, 'qc-error', `Failed to load: ${err?.message ?? err}`);
+    if (throwOnFailure) throw err;
   }
 }
 

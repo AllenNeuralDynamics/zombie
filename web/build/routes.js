@@ -82,6 +82,7 @@ export const ROUTES = [
     route: '/quality_control', html: 'quality_control.html', inputKey: 'quality_control',
     header: { sub: 'quality control' }, nav: { group: 'dashboards', label: 'Quality Control' },
   }),
+  page({ route: '/auth/callback', html: 'auth/callback.html', inputKey: 'auth_callback' }),
   page({
     route: '/contributions', html: 'contributions.html', inputKey: 'contributions',
     header: { sub: 'contributions' }, nav: { group: 'dashboards', label: 'Contributions' },
