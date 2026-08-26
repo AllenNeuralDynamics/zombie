@@ -27,6 +27,8 @@ const EVENT_STREAMS = [
 const PSTH_PRE = 2;
 const PSTH_POST = 4;
 const PSTH_BINS = 80;
+const ACTIVITY_MARGIN_LEFT = 150;
+const ACTIVITY_MARGIN_BOTTOM = 42;
 
 /**
  * Join co-registration rows to transcriptomic cell annotations.
@@ -269,9 +271,10 @@ function buildActivityPlot(heatmap, width, timeDomain = null) {
   return Plot.plot({
     width: Math.max(520, width || 760),
     height: Math.max(260, heatmap.cellTypes.length * 18 + 70),
-    marginLeft: 150,
-    marginBottom: 42,
+    marginLeft: ACTIVITY_MARGIN_LEFT,
+    marginBottom: ACTIVITY_MARGIN_BOTTOM,
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: '10px' },
+    // Task zoom only changes x. Keep the cell-type y domain fixed.
     x: { label: 'session time (s)', domain: xDomain },
     y: {
       label: 'cell type',
@@ -341,6 +344,13 @@ export function createVisualLearningActivityView(coord, { onSelect = null } = {}
   activityMount.className = 'swdb-visual-learning-activity-heatmap';
   const psthMount = document.createElement('div');
   psthMount.className = 'swdb-visual-learning-activity-psth';
+  const activityChart = document.createElement('div');
+  activityChart.className = 'swdb-visual-learning-activity-chart';
+  const activityPlayhead = document.createElement('div');
+  activityPlayhead.className = 'swdb-visual-learning-activity-playhead';
+  activityPlayhead.hidden = true;
+  activityChart.appendChild(activityPlayhead);
+  activityMount.appendChild(activityChart);
   section.append(activityMount, psthMount);
 
   let assetsByName = new Map();
@@ -349,14 +359,40 @@ export function createVisualLearningActivityView(coord, { onSelect = null } = {}
   let currentData = null;
   let currentHeatmap = null;
   let timeDomain = null;
+  let currentTime = null;
   let controller = null;
 
+  function updateActivityPlayhead() {
+    const plot = activityChart.querySelector('svg');
+    const domain = currentHeatmap
+      ? normaliseActivityTimeDomain(timeDomain, currentHeatmap.minTime, currentHeatmap.maxTime)
+      : null;
+    const time = Number(currentTime);
+    if (!plot || !domain || !Number.isFinite(time) || time < domain[0] || time > domain[1]) {
+      activityPlayhead.hidden = true;
+      return;
+    }
+    const width = Number(plot.getAttribute('width')) || plot.clientWidth || activityChart.clientWidth;
+    const innerWidth = width - ACTIVITY_MARGIN_LEFT;
+    if (!(innerWidth > 0) || !(domain[1] > domain[0])) {
+      activityPlayhead.hidden = true;
+      return;
+    }
+    const fraction = (time - domain[0]) / (domain[1] - domain[0]);
+    activityPlayhead.style.left = `${ACTIVITY_MARGIN_LEFT + fraction * innerWidth}px`;
+    activityPlayhead.style.height = `${Math.max(0, (Number(plot.getAttribute('height')) || 0) - ACTIVITY_MARGIN_BOTTOM)}px`;
+    activityPlayhead.hidden = false;
+  }
+
   function renderActivity() {
-    activityMount.replaceChildren();
+    activityChart.replaceChildren();
     const plot = currentHeatmap
       ? buildActivityPlot(currentHeatmap, section.clientWidth, timeDomain)
       : null;
-    if (plot) activityMount.appendChild(plot);
+    if (plot) activityChart.appendChild(plot);
+    activityChart.appendChild(activityPlayhead);
+    if (!activityMount.contains(activityChart)) activityMount.appendChild(activityChart);
+    updateActivityPlayhead();
   }
 
   function renderPsth() {
@@ -378,6 +414,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null } = {}
     controller = new AbortController();
     currentData = null;
     currentHeatmap = null;
+    currentTime = null;
     activityMount.replaceChildren();
     psthMount.replaceChildren();
     eventSelect.replaceChildren();
@@ -466,6 +503,10 @@ export function createVisualLearningActivityView(coord, { onSelect = null } = {}
     setTimeDomain(domain) {
       timeDomain = domain;
       if (currentHeatmap) renderActivity();
+    },
+    setCurrentTime(time) {
+      currentTime = Number.isFinite(Number(time)) ? Number(time) : null;
+      updateActivityPlayhead();
     },
     dispose() {
       controller?.abort();

@@ -19,7 +19,7 @@ function sourceNamesForAsset(asset, sourceMap) {
 /** Build the Visual Learning task playback panel. */
 export function createVisualLearningTaskPlayback(
   coord,
-  { onSelect = null, onTimeDomainChange = null } = {},
+  { onSelect = null, onTimeDomainChange = null, onTimeChange = null } = {},
 ) {
   const section = document.createElement('section');
   section.className = 'swdb-visual-learning-playback';
@@ -89,6 +89,7 @@ export function createVisualLearningTaskPlayback(
         acquisitionType: session.session_type ?? '',
         location: source.location ?? null,
         onTimeDomainChange: (domain) => onTimeDomainChange?.(domain, session),
+        onTimeChange: (time) => onTimeChange?.(time, session),
       });
       currentPlayer = player;
       mount.replaceChildren(player);
@@ -133,4 +134,3 @@ export function createVisualLearningTaskPlayback(
     },
   };
 }
-

@@ -42,7 +42,8 @@ describe('Visual Learning task playback', () => {
 
   it('resolves the task asset and forwards event-plot zoom to the page', async () => {
     const onTimeDomainChange = vi.fn();
-    const playback = createVisualLearningTaskPlayback({}, { onTimeDomainChange });
+    const onTimeChange = vi.fn();
+    const playback = createVisualLearningTaskPlayback({}, { onTimeDomainChange, onTimeChange });
     document.body.appendChild(playback.element);
     playback.load([session], { 'processed-asset': ['raw-task'] });
 
@@ -57,6 +58,7 @@ describe('Visual Learning task playback', () => {
     const player = playback.element.querySelector('.mock-task-player');
     player.options.onTimeDomainChange([12, 34]);
     expect(onTimeDomainChange).toHaveBeenCalledWith([12, 34], session);
+    player.options.onTimeChange(20);
+    expect(onTimeChange).toHaveBeenCalledWith(20, session);
   });
 });
-

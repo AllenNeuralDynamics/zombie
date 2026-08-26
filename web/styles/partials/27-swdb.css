@@ -233,7 +233,7 @@
 
 .swdb-visual-learning-activity {
   margin-bottom: 1.5rem;
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .swdb-visual-learning-activity-heading {
@@ -285,6 +285,27 @@
   border: 1px solid var(--surface-border);
   border-radius: 8px;
   background: var(--surface-card);
+  overflow: hidden;
+}
+
+.swdb-visual-learning-activity-chart {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+}
+
+.swdb-visual-learning-activity-playhead {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  border-left: 2px solid var(--color-red, #ef4444);
+  transform: translateX(-1px);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.swdb-visual-learning-activity-playhead[hidden] {
+  display: none;
 }
 
 .swdb-visual-learning-activity-psth {

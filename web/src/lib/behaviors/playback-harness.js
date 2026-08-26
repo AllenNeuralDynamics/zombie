@@ -129,6 +129,7 @@ export function createPlaybackHarness(config = {}) {
    * @param {string|null}      [opts.stageLabel]   - Caption above the canvas.
    * @param {HTMLElement|null} [opts.stageOverlay] - Abs-positioned canvas overlay.
    * @param {(el:HTMLElement, t:number)=>void|null} [opts.trialInfo] - Readout updater.
+   * @param {(t:number, anim:object)=>void|null} [opts.onFrame] - Per-frame time callback.
    * @param {(anim:object, dir:number)=>void|null}  [opts.onStep]    - Prev/next handler.
    * @param {(canvas:HTMLCanvasElement, duration:number)=>void|null} [opts.scrubBg]
    * @param {{base:string, t0?:number|null, cameras?:string[], signal?:AbortSignal}|null} [opts.videos]
@@ -138,7 +139,7 @@ export function createPlaybackHarness(config = {}) {
     const {
       header = {}, animation: anim, plot = null, stageLabel = null,
       stageOverlay = null, trialInfo = null, onStep = null, scrubBg = null,
-      videos = null,
+      videos = null, onFrame = null,
     } = opts;
 
     const bodyEl       = q('.pb-body');
@@ -228,6 +229,7 @@ export function createPlaybackHarness(config = {}) {
       updatePlayhead?.(t);
       placePlayhead(t);
       trialInfo?.(trialInfoEl, t);
+      onFrame?.(t, anim);
     };
 
     anim.setSpeed(speedSteps[defaultSpeedIdx] ?? 1);

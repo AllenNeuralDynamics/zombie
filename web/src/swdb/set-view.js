@@ -150,6 +150,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
     visualLearningPlayback = createVisualLearningTaskPlayback(coord, {
       onSelect: (session) => visualLearningActivity?.select(session, { notify: false }),
       onTimeDomainChange: (domain) => visualLearningActivity?.setTimeDomain(domain),
+      onTimeChange: (time) => visualLearningActivity?.setCurrentTime(time),
     });
   }
   const visualLearningOverview = datasetName === 'swdb_2026_visual_learning'

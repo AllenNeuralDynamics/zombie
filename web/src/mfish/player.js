@@ -37,6 +37,8 @@ const DEFAULT_SPEED_IDX = 0;
  * @param {string} [opts.location]         - Raw asset S3 location (for videos).
  * @param {(domain:[number,number]) => void} [opts.onTimeDomainChange] - Called
  *   when the task event plot's zoom window changes.
+ * @param {(time:number) => void} [opts.onTimeChange] - Called as playback time
+ *   advances or is scrubbed.
  * @param {'gratings'|'images'} [opts.stageMode] - Rendering mode override for
  *   stages whose NWB uses the generic stimulus_presentations table.
  * @param {boolean} [opts.loadStimulusTemplates] - Set false for stages such as
@@ -117,6 +119,7 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
           setOnScrub: plot.setOnScrub,
         },
         trialInfo: (el, t) => _updateReadout(el, data, t, stageMode),
+        onFrame: (t) => opts.onTimeChange?.(t),
         videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
       });
     } catch (err) {
