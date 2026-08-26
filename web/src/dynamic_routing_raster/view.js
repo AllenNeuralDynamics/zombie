@@ -2,8 +2,6 @@
 
 import * as Plot from '@observablehq/plot';
 import {
-  buildConditionPanels,
-  buildRasterRows,
   filterUnits,
   loadRasterSession,
   unitArea,
@@ -12,8 +10,19 @@ import {
   unitProbeName,
 } from './data.js';
 
-const DEFAULT_PRE = -1;
-const DEFAULT_POST = 2;
+const DEFAULT_PRE = -1.5;
+const DEFAULT_POST = 1;
+
+const RASTER_COLUMNS = [
+  { condition: 'visual_target', label: 'VIS+' },
+  { condition: 'auditory_target', label: 'AUD+' },
+  { condition: 'visual_nontarget', label: 'VIS-' },
+  { condition: 'auditory_nontarget', label: 'AUD-' },
+];
+const CONTEXTS = ['vis', 'aud'];
+const CONTEXT_COLORS = { vis: '#dceedd', aud: '#fff0d5' };
+const PSTH_COLORS = { vis: '#6b7280', aud: '#f59e0b' };
+const PSTH_BINS = 60;
 
 function finite(value, fallback) {
   if (value == null || value === '') return fallback;
@@ -103,88 +112,283 @@ function buildUnitOptions(select, units, selectedKey, probeKey, areaKey) {
   return preferred;
 }
 
-function makePlot(trials, spikes, pre, post, includeCatch) {
-  const panels = buildConditionPanels(trials, { includeCatch });
-  const rows = [];
-  const groups = [];
-  let rowOffset = 0;
-  for (const panel of panels) {
-    const start = rowOffset;
-    rows.push(...buildRasterRows(spikes, panel.trials, pre, post, rowOffset));
-    rowOffset += panel.trials.length;
-    groups.push({
-      ...panel,
-      start,
-      end: rowOffset - 1,
-      midpoint: start + Math.max(0, panel.trials.length - 1) / 2,
-    });
+function lowerBound(values, target) {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (values[mid] < target) lo = mid + 1;
+    else hi = mid;
   }
-  const sections = [];
-  for (const group of groups) {
-    const key = group.context ?? 'catch';
-    const previous = sections.at(-1);
-    if (previous?.key === key) {
-      previous.end = group.end;
-      previous.midpoint = (previous.start + previous.end) / 2;
-    } else {
-      sections.push({
-        key,
-        label: key === 'vis' ? 'VIS context' : key === 'aud' ? 'AUD context' : 'Catch trials',
-        start: group.start,
-        end: group.end,
-        midpoint: group.midpoint,
-      });
+  return lo;
+}
+
+function buildBlockRowSpans(trials) {
+  const spans = [];
+  if (!trials.length) return spans;
+
+  let start = 0;
+  let block = trials[0].block;
+  let context = trials[0].context;
+  const finish = (end) => {
+    spans.push({
+      y1: start - 0.5,
+      y2: end + 0.5,
+      midpoint: (start + end) / 2,
+      context: CONTEXTS.includes(context) ? context : null,
+      label: CONTEXTS.includes(context) ? context : 'catch',
+    });
+  };
+
+  for (let row = 1; row < trials.length; row++) {
+    const trial = trials[row];
+    if (trial.block === block && trial.context === context) continue;
+    finish(row - 1);
+    start = row;
+    block = trial.block;
+    context = trial.context;
+  }
+  finish(trials.length - 1);
+  return spans;
+}
+
+function buildColumnRasterRows(spikeTimes, trials, pre, post, rowIndex) {
+  const rows = [];
+  const times = Array.from(spikeTimes ?? [], Number).filter(Number.isFinite);
+  for (const trial of trials) {
+    if (!Number.isFinite(trial.stimStart)) continue;
+    const row = rowIndex.get(trial);
+    if (!Number.isFinite(row)) continue;
+    const lo = trial.stimStart + pre;
+    const hi = trial.stimStart + post;
+    for (let index = lowerBound(times, lo); index < times.length; index++) {
+      const spike = times[index];
+      if (spike > hi) break;
+      rows.push({ relative: spike - trial.stimStart, row });
     }
   }
-  const groupTicks = new Map(groups.map((group) => [
-    group.midpoint,
-    group.label.split(' · ').at(-1),
-  ]));
-  const groupBoundaries = groups.slice(1).map((group) => group.start - 0.5);
-  const sectionBoundaries = sections.slice(1).map((section) => section.start - 0.5);
-  const n = Math.max(1, rowOffset);
-  return Plot.plot({
-    width: 980,
-    height: Math.max(220, Math.min(560, 70 + n)),
-    marginLeft: 178,
-    marginRight: 18,
-    marginTop: 18,
-    marginBottom: 30,
-    x: { domain: [pre, post], label: 'time from stimulus onset (s)', ticks: 5, grid: true },
-    y: {
-      domain: [-0.5, Math.max(0.5, n - 0.5)],
-      label: 'stimulus type',
-      reverse: true,
-      ticks: groups.map((group) => group.midpoint),
-      tickFormat: (value) => groupTicks.get(value) ?? '',
-    },
-    marks: [
-      Plot.ruleX([0], { stroke: '#111827', strokeWidth: 1.2 }),
-      Plot.ruleY(groupBoundaries, { stroke: '#cbd5e1', strokeWidth: 0.8 }),
-      Plot.ruleY(sectionBoundaries, { stroke: '#475569', strokeWidth: 1.5 }),
-      Plot.textY(sections, {
+  return rows;
+}
+
+function buildPsthSeries(spikeTimes, trials, condition, pre, post) {
+  const conditionTrials = trials.filter((trial) => trial.condition === condition);
+  const binWidth = (post - pre) / PSTH_BINS;
+  const grouped = new Map(CONTEXTS.map((context) => [context, {
+    nTrials: 0,
+    sums: new Array(PSTH_BINS).fill(0),
+    squares: new Array(PSTH_BINS).fill(0),
+  }]));
+  const times = Array.from(spikeTimes ?? [], Number).filter(Number.isFinite);
+
+  for (const trial of conditionTrials) {
+    const group = grouped.get(trial.context);
+    if (!group || !Number.isFinite(trial.stimStart)) continue;
+    group.nTrials += 1;
+    const counts = new Array(PSTH_BINS).fill(0);
+    const lo = trial.stimStart + pre;
+    const hi = trial.stimStart + post;
+    for (let index = lowerBound(times, lo); index < times.length; index++) {
+      const spike = times[index];
+      if (spike > hi) break;
+      const bin = Math.floor((spike - trial.stimStart - pre) / binWidth);
+      if (bin >= 0 && bin < PSTH_BINS) counts[bin] += 1;
+    }
+    for (let bin = 0; bin < PSTH_BINS; bin++) {
+      group.sums[bin] += counts[bin];
+      group.squares[bin] += counts[bin] * counts[bin];
+    }
+  }
+
+  return CONTEXTS.flatMap((context) => {
+    const group = grouped.get(context);
+    if (!group?.nTrials) return [];
+    return group.sums.map((sum, bin) => {
+      const meanCount = sum / group.nTrials;
+      const variance = Math.max(
+        0,
+        group.squares[bin] / group.nTrials - meanCount * meanCount,
+      );
+      const mean = meanCount / binWidth;
+      const sem = Math.sqrt(variance / group.nTrials) / binWidth;
+      return {
+        t: pre + (bin + 0.5) * binWidth,
+        mean,
+        lo: Math.max(0, mean - sem),
+        hi: mean + sem,
+        context,
+      };
+    });
+  });
+}
+
+function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980) {
+  const visibleTrials = trials.filter((trial) => includeCatch || trial.condition !== 'catch');
+  // Each condition gets its own compact trial stack. Keeping these stacks
+  // independent avoids reserving blank rows for trials shown in another
+  // column, while block boundaries still follow the original trial order.
+  const columnTrials = RASTER_COLUMNS.map(({ condition }) =>
+    visibleTrials.filter((trial) => trial.condition === condition));
+  const maxColumnRows = Math.max(1, ...columnTrials.map((rows) => rows.length));
+  const rasterHeight = Math.max(260, Math.min(760, 65 + maxColumnRows * 3));
+  const plotGap = 8;
+  const columnWidth = Math.max(160, Math.floor((availableWidth - plotGap * 3) / 4));
+  const columnPsths = RASTER_COLUMNS.map(({ condition }) =>
+    buildPsthSeries(spikes, visibleTrials, condition, pre, post));
+  const maxPsth = Math.max(
+    0,
+    ...columnPsths.flat().map((point) => point.hi).filter(Number.isFinite),
+  );
+  const psthYMax = maxPsth > 0 ? maxPsth * 1.1 : 1;
+  const durations = visibleTrials
+    .map((trial) => trial.stimStop - trial.stimStart)
+    .filter((duration) => Number.isFinite(duration) && duration > 0);
+  const stimulusDuration = durations.length
+    ? durations.sort((a, b) => a - b)[Math.floor(durations.length / 2)]
+    : 1;
+  const stimulusStart = Math.max(pre, 0);
+  const stimulusEnd = Math.min(post, stimulusStart + stimulusDuration);
+
+  const figure = document.createElement('div');
+  figure.className = 'dr-raster-figure';
+  const grid = document.createElement('div');
+  grid.className = 'dr-raster-column-grid';
+  figure.appendChild(grid);
+
+  for (let columnIndex = 0; columnIndex < RASTER_COLUMNS.length; columnIndex++) {
+    const { condition, label } = RASTER_COLUMNS[columnIndex];
+    const trialsForColumn = columnTrials[columnIndex];
+    const rowIndex = new Map(trialsForColumn.map((trial, row) => [trial, row]));
+    const blockSpans = buildBlockRowSpans(trialsForColumn);
+    const n = Math.max(1, trialsForColumn.length);
+    const yDomain = [-0.5, Math.max(0.5, n - 0.5)];
+    const blockBoundaries = blockSpans.slice(1).map((span) => span.y1);
+    const column = document.createElement('section');
+    column.className = 'dr-raster-column';
+    column.setAttribute('aria-label', `${label} raster and PSTH`);
+
+    const heading = document.createElement('h4');
+    heading.className = 'dr-raster-column-title';
+    heading.textContent = label;
+    column.appendChild(heading);
+
+    const rasterRows = buildColumnRasterRows(
+      spikes,
+      trialsForColumn,
+      pre,
+      post,
+      rowIndex,
+    );
+    const rasterMarks = [
+      Plot.rect(blockSpans, {
+        x1: pre,
+        x2: post,
+        y1: 'y1',
+        y2: 'y2',
+        fill: (span) => CONTEXT_COLORS[span.context] ?? '#f3f4f6',
+        fillOpacity: 0.65,
+        stroke: 'none',
+      }),
+    ];
+    if (stimulusEnd > stimulusStart) {
+      rasterMarks.push(Plot.rect([{
+        x1: stimulusStart,
+        x2: stimulusEnd,
+        y1: yDomain[0],
+        y2: yDomain[1],
+      }], {
+        x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2',
+        fill: '#d9eff9', fillOpacity: 0.65, stroke: 'none',
+      }));
+    }
+    rasterMarks.push(
+      Plot.ruleY(blockBoundaries, { stroke: '#8b8f94', strokeWidth: 1 }),
+      Plot.ruleX([0], { stroke: '#6b7280', strokeWidth: 1.1 }),
+      Plot.ruleX(rasterRows, {
+        x: 'relative',
+        y1: (row) => row.row - 0.36,
+        y2: (row) => row.row + 0.36,
+        stroke: '#727272',
+        strokeWidth: 0.9,
+      }),
+    );
+    if (columnIndex === 0) {
+      rasterMarks.push(Plot.textY(blockSpans, {
         y: 'midpoint',
         text: 'label',
         frameAnchor: 'left',
-        rotate: -90,
-        dx: -125,
-        textAnchor: 'middle',
-        lineAnchor: 'middle',
-        fill: '#475569',
+        dx: -8,
+        textAnchor: 'end',
+        fill: (span) => PSTH_COLORS[span.context] ?? '#6b7280',
         stroke: 'none',
-        fontWeight: 700,
-        fontSize: 10,
-      }),
-      Plot.ruleX(rows, {
-        x: 'relative',
-        y1: (d) => d.row - 0.35,
-        y2: (d) => d.row + 0.35,
-        stroke: '#000',
-        strokeWidth: 1,
-      }),
-    ],
-    style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
-  });
+        fontWeight: 600,
+      }));
+    }
+    const rasterPlot = Plot.plot({
+      width: columnWidth,
+      height: rasterHeight,
+      // Reserve the same y-axis gutter in every column so the time scales
+      // and stimulus-onset lines remain visually aligned across conditions.
+      marginLeft: 62,
+      marginRight: 6,
+      marginTop: 2,
+      marginBottom: 2,
+      x: { domain: [pre, post], axis: null },
+      y: {
+        domain: yDomain,
+        reverse: true,
+        axis: columnIndex === 0 ? 'left' : null,
+        ticks: blockSpans.map((span) => span.midpoint),
+        tickFormat: () => '',
+        label: columnIndex === 0 ? 'Trials ↓' : null,
+      },
+      marks: rasterMarks,
+      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+    });
+    rasterPlot.classList.add('dr-raster-raster-plot');
+    column.appendChild(rasterPlot);
+
+    const psthMarks = [];
+    for (const context of CONTEXTS) {
+      const series = columnPsths[columnIndex].filter((point) => point.context === context);
+      if (!series.length) continue;
+      psthMarks.push(
+        Plot.areaY(series, {
+          x: 't', y1: 'lo', y2: 'hi',
+          fill: PSTH_COLORS[context], fillOpacity: 0.16,
+        }),
+        Plot.lineY(series, {
+          x: 't', y: 'mean',
+          stroke: PSTH_COLORS[context], strokeWidth: 1.8,
+        }),
+      );
+    }
+    psthMarks.push(Plot.ruleX([0], { stroke: '#6b7280', strokeWidth: 1.1 }));
+    const psthPlot = Plot.plot({
+      width: columnWidth,
+      height: 170,
+      marginLeft: 62,
+      marginRight: 6,
+      marginTop: 4,
+      marginBottom: 42,
+      x: {
+        domain: [pre, post],
+        label: 'Time after stimulus onset (s)',
+        ticks: 3,
+      },
+      y: {
+        domain: [0, psthYMax],
+        axis: columnIndex === 0 ? 'left' : null,
+        grid: true,
+        label: columnIndex === 0 ? 'Hz' : null,
+      },
+      marks: psthMarks,
+      style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
+    });
+    psthPlot.classList.add('dr-raster-psth-plot');
+    column.appendChild(psthPlot);
+    grid.appendChild(column);
+  }
+  return figure;
 }
 
 /**
@@ -248,12 +452,12 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   let brainInitPromise = null;
 
   function syncBrainHeight() {
-    const plot = rasterMount.querySelector('svg');
-    if (!plot) return;
+    const figure = rasterMount.querySelector('.dr-raster-figure');
+    if (!figure) return;
     const rasterStyles = getComputedStyle(rasterMount);
     const verticalPadding = parseFloat(rasterStyles.paddingTop || 0)
       + parseFloat(rasterStyles.paddingBottom || 0);
-    const height = plot.getBoundingClientRect().height + verticalPadding;
+    const height = figure.getBoundingClientRect().height + verticalPadding;
     if (height > 0) brainMount.style.height = `${Math.ceil(height)}px`;
   }
 
@@ -348,19 +552,26 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     const post = Math.max(pre + 0.25, finite(postInput.value, DEFAULT_POST));
     preInput.value = String(pre);
     postInput.value = String(post);
-    setStatus(`Loading spikes for ${currentUnit.deviceName} · ${currentUnit.unitName}…`);
     try {
       const spikes = await currentSession.loadSpikes(currentUnit, { signal: spikeController.signal });
       if (localGeneration !== generation) return;
-      const panels = buildConditionPanels(currentSession.trials, { includeCatch: catchInput.checked });
-      if (!panels.length) {
+      const hasConditions = currentSession.trials.some((trial) => (
+        RASTER_COLUMNS.some(({ condition }) => trial.condition === condition)
+        && (catchInput.checked || trial.condition !== 'catch')
+      ));
+      if (!hasConditions) {
         const empty = document.createElement('p');
         empty.className = 'dr-raster-empty';
         empty.textContent = 'No trial conditions are available.';
         rasterMount.replaceChildren(empty);
       } else {
         rasterMount.replaceChildren(makePlot(
-          currentSession.trials, spikes, pre, post, catchInput.checked,
+          currentSession.trials,
+          spikes,
+          pre,
+          post,
+          catchInput.checked,
+          Math.max(760, rasterMount.clientWidth || 980),
         ));
       }
       syncBrainHeight();
