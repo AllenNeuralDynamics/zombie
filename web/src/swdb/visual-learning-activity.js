@@ -13,12 +13,10 @@ import {
   loadVisualLearningCellTypes,
   loadVisualLearningCoreg,
   loadVisualLearningProgression,
+  resolveVisualLearningPlaybackSource,
 } from './data.js';
 
-const TRACE_SERIES = [
-  { key: 'events', label: 'Events' },
-  { key: 'dff', label: 'dF/F' },
-];
+const TRACE_SERIES_KEY = 'dff';
 
 const EVENT_STREAMS = [
   { key: 'changes', label: 'Stimulus changes' },
@@ -191,7 +189,13 @@ export function computeVisualLearningPsths(
 }
 
 function sourceNameForAsset(asset, sourceMap) {
-  return sourceMap?.[asset.name]?.find(Boolean) ?? asset.name;
+  return sourceNamesForAsset(asset, sourceMap).find(Boolean) ?? asset.name;
+}
+
+function sourceNamesForAsset(asset, sourceMap) {
+  return sourceMap?.[asset.name]
+    ?? sourceMap?.[asset.asset_name]
+    ?? [];
 }
 
 function sessionKeyFromAsset(name) {
@@ -242,19 +246,33 @@ function expandPackedTrace(trace) {
   return { cellType: trace.cellType, timestamps: trace.timestamps, values };
 }
 
-function buildActivityPlot(heatmap, width) {
+/** Keep an externally supplied task zoom inside the trace time range. */
+export function normaliseActivityTimeDomain(domain, minTime, maxTime) {
+  const full = [Number(minTime), Number(maxTime)];
+  if (!Number.isFinite(full[0]) || !Number.isFinite(full[1]) || full[1] <= full[0]) return null;
+  const t0 = Number(domain?.[0]);
+  const t1 = Number(domain?.[1]);
+  if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return full;
+  const start = Math.max(full[0], Math.min(full[1], t0));
+  const stop = Math.max(full[0], Math.min(full[1], t1));
+  return stop > start ? [start, stop] : full;
+}
+
+function buildActivityPlot(heatmap, width, timeDomain = null) {
   if (!heatmap.rows.length) return null;
   const values = heatmap.rows.map((row) => row.activity).filter(Number.isFinite);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const domain = min === max ? [min - 1, max + 1] : [min, max];
+  const xDomain = normaliseActivityTimeDomain(timeDomain, heatmap.minTime, heatmap.maxTime)
+    ?? [heatmap.minTime, heatmap.maxTime];
   return Plot.plot({
     width: Math.max(520, width || 760),
     height: Math.max(260, heatmap.cellTypes.length * 18 + 70),
     marginLeft: 150,
     marginBottom: 42,
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: '10px' },
-    x: { label: 'session time (s)' },
+    x: { label: 'session time (s)', domain: xDomain },
     y: {
       label: 'cell type',
       domain: [0, heatmap.cellTypes.length],
@@ -291,7 +309,7 @@ function buildPsthPlot(rows, width) {
 }
 
 /** Build the dataset-level Visual Learning activity panels. */
-export function createVisualLearningActivityView(coord) {
+export function createVisualLearningActivityView(coord, { onSelect = null } = {}) {
   const section = document.createElement('section');
   section.className = 'swdb-visual-learning-activity';
 
@@ -307,18 +325,11 @@ export function createVisualLearningActivityView(coord) {
   sessionLabel.textContent = 'Session';
   const sessionSelect = document.createElement('select');
   sessionLabel.appendChild(sessionSelect);
-  const seriesLabel = document.createElement('label');
-  seriesLabel.textContent = 'Signal';
-  const seriesSelect = document.createElement('select');
-  seriesSelect.innerHTML = TRACE_SERIES.map((series) => (
-    '<option value="' + series.key + '">' + series.label + '</option>'
-  )).join('');
-  seriesLabel.appendChild(seriesSelect);
   const eventLabel = document.createElement('label');
-  eventLabel.textContent = 'Event';
+  eventLabel.textContent = 'PSTH event';
   const eventSelect = document.createElement('select');
   eventLabel.appendChild(eventSelect);
-  controls.append(sessionLabel, seriesLabel, eventLabel);
+  controls.append(sessionLabel, eventLabel);
   heading.appendChild(controls);
   section.appendChild(heading);
 
@@ -336,7 +347,17 @@ export function createVisualLearningActivityView(coord) {
   let sourceMap = {};
   let currentSession = null;
   let currentData = null;
+  let currentHeatmap = null;
+  let timeDomain = null;
   let controller = null;
+
+  function renderActivity() {
+    activityMount.replaceChildren();
+    const plot = currentHeatmap
+      ? buildActivityPlot(currentHeatmap, section.clientWidth, timeDomain)
+      : null;
+    if (plot) activityMount.appendChild(plot);
+  }
 
   function renderPsth() {
     const stream = currentData?.eventStreams?.find((candidate) => candidate.key === eventSelect.value);
@@ -346,32 +367,46 @@ export function createVisualLearningActivityView(coord) {
     if (plot) psthMount.appendChild(plot);
   }
 
-  async function select(sessionOrName) {
+  async function select(sessionOrName, { notify = true } = {}) {
     const session = typeof sessionOrName === 'string' ? assetsByName.get(sessionOrName) : sessionOrName;
     if (!session?.asset_name || !session.subject_id) return;
     currentSession = session;
     sessionSelect.value = session.asset_name;
+    timeDomain = null;
+    if (notify) onSelect?.(session);
     controller?.abort();
     controller = new AbortController();
     currentData = null;
+    currentHeatmap = null;
     activityMount.replaceChildren();
     psthMount.replaceChildren();
     eventSelect.replaceChildren();
     status.textContent = 'Loading ' + session.asset_name + '…';
     try {
-      const rawName = sourceNameForAsset(session, sourceMap);
       const sessionKey = sessionKeyFromAsset(session.asset_name);
+      const taskSource = await resolveVisualLearningPlaybackSource(
+        coord,
+        sourceNamesForAsset(session, sourceMap),
+        { signal: controller.signal },
+      ).catch((error) => {
+        if (controller.signal.aborted) throw error;
+        return null;
+      });
+      if (controller.signal.aborted) return;
+      const rawName = taskSource?.name ?? sourceNameForAsset(session, sourceMap);
       const [cellRows, coregRows, behavior] = await Promise.all([
         loadVisualLearningCellTypes(coord, session.subject_id),
         loadVisualLearningCoreg(coord, session.subject_id, sessionKey),
-        loadBehaviorEvents(coord, rawName, { signal: controller.signal }).catch(() => null),
+        rawName
+          ? loadBehaviorEvents(coord, rawName, { signal: controller.signal }).catch(() => null)
+          : Promise.resolve(null),
       ]);
       if (controller.signal.aborted) return;
       const result = await readSessionTraces(
         session,
         cellRows,
         coregRows,
-        seriesSelect.value,
+        TRACE_SERIES_KEY,
         controller.signal,
       );
       if (controller.signal.aborted) return;
@@ -380,9 +415,8 @@ export function createVisualLearningActivityView(coord) {
         return;
       }
       const heatmap = aggregateActivityByCellType(result.traces);
-      activityMount.replaceChildren();
-      const activityPlot = buildActivityPlot(heatmap, section.clientWidth);
-      if (activityPlot) activityMount.appendChild(activityPlot);
+      currentHeatmap = heatmap;
+      renderActivity();
       const eventStreams = EVENT_STREAMS
         .map((stream) => ({ ...stream, times: behavior?.[stream.key] ?? [] }))
         .filter((stream) => stream.times?.length);
@@ -406,7 +440,6 @@ export function createVisualLearningActivityView(coord) {
   }
 
   sessionSelect.addEventListener('change', () => select(sessionSelect.value));
-  seriesSelect.addEventListener('change', () => { if (currentSession) select(currentSession); });
   eventSelect.addEventListener('change', renderPsth);
 
   return {
@@ -426,11 +459,14 @@ export function createVisualLearningActivityView(coord) {
         return option;
       }));
       sessionSelect.disabled = sessions.length === 0;
-      seriesSelect.disabled = sessions.length === 0;
       eventSelect.disabled = true;
       if (!sessions.length) status.textContent = 'No Visual Learning sessions are available.';
     },
     select,
+    setTimeDomain(domain) {
+      timeDomain = domain;
+      if (currentHeatmap) renderActivity();
+    },
     dispose() {
       controller?.abort();
     },

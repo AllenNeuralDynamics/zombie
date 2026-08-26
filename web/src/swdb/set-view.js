@@ -27,6 +27,7 @@ import { createSwdbEyeView } from './eye-view.js';
 import { createSwdbPerformanceView } from './performance-view.js';
 import { createVisualLearningActivityView } from './visual-learning-activity.js';
 import { createVisualLearningOverview } from './visual-learning-overview.js';
+import { createVisualLearningTaskPlayback } from './visual-learning-playback.js';
 
 /**
  * Build the SWDB set page.
@@ -125,8 +126,9 @@ export function createSwdbSetView(coord, metadata) {
 /**
  * Lightweight detail landing page for a published SWDB metadata dataset.
  *
- * Per-asset playback belongs to the canonical `/view` page, so this route
- * keeps the dataset-level overview and links each asset there.
+ * Visual Learning is the exception to the usual dataset landing page: its
+ * task playback and cell activity panels are coordinated here because their
+ * time axes are part of the same exploration.
  */
 function createDatasetDetailView(coord, metadata, datasetName) {
   const root = document.createElement('div');
@@ -138,16 +140,29 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   const neuronOverview = datasetName === 'swdb_2026_dynamic_routing'
     ? buildNeuronOverview()
     : null;
-  const visualLearningActivity = datasetName === 'swdb_2026_visual_learning'
-    ? createVisualLearningActivityView(coord)
-    : null;
+  let visualLearningActivity = null;
+  let visualLearningPlayback = null;
+  const visualLearning = datasetName === 'swdb_2026_visual_learning';
+  if (visualLearning) {
+    visualLearningActivity = createVisualLearningActivityView(coord, {
+      onSelect: (session) => visualLearningPlayback?.select(session, { notify: false }),
+    });
+    visualLearningPlayback = createVisualLearningTaskPlayback(coord, {
+      onSelect: (session) => visualLearningActivity?.select(session, { notify: false }),
+      onTimeDomainChange: (domain) => visualLearningActivity?.setTimeDomain(domain),
+    });
+  }
   const visualLearningOverview = datasetName === 'swdb_2026_visual_learning'
     ? createVisualLearningOverview(coord, {
-      onSelect: (session) => visualLearningActivity?.select(session),
+      onSelect: (session) => {
+        visualLearningPlayback?.select(session, { notify: false });
+        visualLearningActivity?.select(session, { notify: false });
+      },
     })
     : null;
   if (neuronOverview) root.appendChild(neuronOverview.element);
   if (visualLearningOverview) root.appendChild(visualLearningOverview.element);
+  if (visualLearningPlayback) root.appendChild(visualLearningPlayback.element);
   if (visualLearningActivity) root.appendChild(visualLearningActivity.element);
 
   const assetsSection = buildSection('Assets', true);
@@ -163,6 +178,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
         assetsSection.body.innerHTML =
           `<div class="swdb-panel-status swdb-panel-status--error">No cached SWDB dataset named "${escHtml(datasetName)}".</div>`;
         neuronOverview?.load([]);
+        visualLearningPlayback?.load([]);
         visualLearningActivity?.load([]);
         return;
       }
@@ -197,6 +213,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
           : null,
       })));
       visualLearningOverview?.load(assets);
+      visualLearningPlayback?.load(assets, sourceMap);
       visualLearningActivity?.load(assets, sourceMap);
       if (assets.length > 0) {
         assetsSection.body.replaceChildren(buildAssetsTable(assets, sourceMap));

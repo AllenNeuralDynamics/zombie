@@ -4,6 +4,7 @@ import {
   aggregateActivityByCellType,
   computeVisualLearningPsths,
   joinVisualLearningCells,
+  normaliseActivityTimeDomain,
 } from '../swdb/visual-learning-activity.js';
 
 describe('Visual Learning cell-type activity transforms', () => {
@@ -43,5 +44,11 @@ describe('Visual Learning cell-type activity transforms', () => {
     expect(rows).toHaveLength(6);
     expect(new Set(rows.map((row) => row.cell_type))).toEqual(new Set(['Exc-1', 'Pvalb-1']));
     expect(rows.every((row) => row.n === 1 && Number.isFinite(row.mean))).toBe(true);
+  });
+
+  it('clips the task playback zoom window to the cell trace time range', () => {
+    expect(normaliseActivityTimeDomain([10, 40], 0, 30)).toEqual([10, 30]);
+    expect(normaliseActivityTimeDomain([-5, 8], 0, 30)).toEqual([0, 8]);
+    expect(normaliseActivityTimeDomain(null, 0, 30)).toEqual([0, 30]);
   });
 });

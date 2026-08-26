@@ -35,6 +35,8 @@ const DEFAULT_SPEED_IDX = 0;
  * @param {object} [opts]
  * @param {string} [opts.acquisitionType] - Shown in the header row.
  * @param {string} [opts.location]         - Raw asset S3 location (for videos).
+ * @param {(domain:[number,number]) => void} [opts.onTimeDomainChange] - Called
+ *   when the task event plot's zoom window changes.
  * @param {'gratings'|'images'} [opts.stageMode] - Rendering mode override for
  *   stages whose NWB uses the generic stimulus_presentations table.
  * @param {boolean} [opts.loadStimulusTemplates] - Set false for stages such as
@@ -96,7 +98,9 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
         templateLoader,
         stageMode,
       });
-      const plot = createMfishEventPlot(data);
+      const plot = createMfishEventPlot(data, {
+        onDomainChange: opts.onTimeDomainChange,
+      });
       activeAnim = anim;
       activePlot = plot;
 

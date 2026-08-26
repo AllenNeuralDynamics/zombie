@@ -10,7 +10,8 @@
  * (the running wheel is incidental to the task).
  *
  * Public API mirrors dynamic_routing/event-plot.js:
- *   createMfishEventPlot(data) → { element, updatePlayhead, setOnScrub, dispose }
+ *   createMfishEventPlot(data) → { element, updatePlayhead, setOnScrub,
+ *   setOnDomainChange, setDomain, dispose }
  */
 
 import * as Plot from '@observablehq/plot';
@@ -32,7 +33,7 @@ const ROWS = {
 };
 const Y_DOMAIN = [0, 1];
 
-export function createMfishEventPlot(data) {
+export function createMfishEventPlot(data, { onDomainChange = null } = {}) {
   const { stimuli, changes, running, rewards, licks, sessionEndS } = data;
   const isGratingStage = (data.stageMode ?? data.variant) === 'gratings';
 
@@ -129,6 +130,7 @@ export function createMfishEventPlot(data) {
     renderOverview,
     renderMain,
   });
+  if (onDomainChange) bz.setOnDomainChange(onDomainChange);
 
   // Row labels in the main gutter.
   const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
@@ -150,6 +152,8 @@ export function createMfishEventPlot(data) {
     element: bz.element,
     updatePlayhead: bz.updatePlayhead,
     setOnScrub: bz.setOnScrub,
+    setOnDomainChange: bz.setOnDomainChange,
+    setDomain: bz.setDomain,
     dispose: bz.dispose,
   };
 }
