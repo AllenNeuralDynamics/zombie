@@ -34,11 +34,16 @@ const Y_DOMAIN = [0, 1];
 
 export function createMfishEventPlot(data) {
   const { stimuli, changes, running, rewards, licks, sessionEndS } = data;
+  const isGratingStage = (data.stageMode ?? data.variant) === 'gratings';
 
   // -- Data shaping ------------------------------------------------------
   const stimBands = stimuli
     .filter((s) => !s.omitted)
-    .map((s) => ({ x1: s.t, x2: Math.max(s.tEnd, s.t + 0.05), ori: s.ori }));
+    .map((s) => ({
+      x1: s.t,
+      x2: Math.max(s.tEnd, s.t + 0.05),
+      ori: isGratingStage ? s.ori : null,
+    }));
   const changeRows = Array.from(changes, (t) => ({ t }));
   const rewardRows = Array.from(rewards, (t) => ({ t }));
   const lickRows = licks ? Array.from(licks, (t) => ({ t })) : [];

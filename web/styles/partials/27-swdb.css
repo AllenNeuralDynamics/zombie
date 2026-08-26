@@ -101,6 +101,162 @@
   margin: 0.4rem 0 0;
 }
 
+/* ---- Visual Learning progression -------------------------------------- */
+
+.swdb-visual-learning-overview {
+  margin-bottom: 1.5rem;
+}
+
+.swdb-visual-learning-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.45rem;
+}
+
+.swdb-visual-learning-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.swdb-visual-learning-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  margin-bottom: 0.6rem;
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+}
+
+.swdb-visual-learning-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.swdb-visual-learning-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.swdb-visual-learning-mount {
+  overflow-x: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.swdb-visual-learning-chart-shell {
+  min-width: 660px;
+  padding: 0.7rem 0.8rem 0.85rem;
+}
+
+.swdb-visual-learning-chart {
+  display: grid;
+  align-items: center;
+  gap: 0.22rem 0.12rem;
+  min-width: 0;
+}
+
+.swdb-visual-learning-axis-label,
+.swdb-visual-learning-axis-tick {
+  min-height: 1rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-visual-learning-axis-label {
+  padding-left: 0.15rem;
+}
+
+.swdb-visual-learning-axis-tick {
+  border-left: 1px solid var(--surface-border);
+  padding-left: 0.18rem;
+}
+
+.swdb-visual-learning-subject {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0 0.45rem 0 0.15rem;
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.swdb-visual-learning-subject a {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swdb-visual-learning-subject span {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.swdb-visual-learning-cell {
+  display: block;
+  min-width: 0;
+  height: 1.35rem;
+  border-right: 1px solid color-mix(in srgb, var(--surface-card) 70%, transparent);
+  border-radius: 1px;
+  transition: filter 0.12s ease, transform 0.12s ease;
+}
+
+.swdb-visual-learning-cell:hover,
+.swdb-visual-learning-cell:focus-visible {
+  filter: brightness(0.82) saturate(1.15);
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+  transform: scaleY(1.12);
+  z-index: 1;
+}
+
+.swdb-visual-learning-cell--selected {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 1px;
+  transform: scaleY(1.12);
+  z-index: 1;
+}
+
+.swdb-visual-learning-cell--empty {
+  background: var(--surface-bg);
+  border-right-color: transparent;
+}
+
+.swdb-visual-learning-playback {
+  margin-bottom: 1.5rem;
+}
+
+.swdb-visual-learning-playback-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.45rem;
+}
+
+.swdb-visual-learning-playback-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.swdb-visual-learning-playback-selection {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.swdb-visual-learning-playback-mount {
+  min-height: 2.5rem;
+}
+
 .asset-overview-histogram-interactive .modality-legend {
   margin-bottom: 0.25rem;
 }

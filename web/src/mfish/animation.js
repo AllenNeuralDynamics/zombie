@@ -7,7 +7,8 @@
  * changes over the session:
  *
  *   - a gabor/grating patch is shown above the mouse, rotated to the current
- *     orientation (0 / 90 / 180 / 270°);
+ *     orientation (0 / 90 / 180 / 270°), or the matching NWB stimulus image
+ *     is loaded on demand for image stages;
  *   - each orientation change briefly pulses the patch;
  *   - auto-rewards drop a water droplet under the spout;
  *   - licks dart a tongue up toward the spout;
@@ -86,13 +87,14 @@ export class MfishAnimation {
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {object} data    from loadMfishSession
-   * @param {object} sprites { mouse, gabor, droplet }
+   * @param {object} sprites { mouse, gabor, droplet, templateLoader, stageMode }
    */
   constructor(canvas, data, sprites = {}) {
     this.canvas  = canvas;
     this.ctx     = canvas.getContext('2d');
     this.data    = data;
     this.sprites = sprites;
+    this.stageMode = sprites.stageMode ?? data.stageMode ?? data.variant;
     this.duration = data.sessionEndS;
 
     canvas.width  = CW;
@@ -104,6 +106,8 @@ export class MfishAnimation {
     this.onFrame = null;
 
     this._changeTimes = data.changes ?? new Float64Array();
+    this._templateCache = new Map();
+    this._disposed = false;
 
     this._rafId    = null;
     this._lastReal = null;
@@ -113,6 +117,7 @@ export class MfishAnimation {
   // ---- Public API -------------------------------------------------------
 
   play() {
+    if (this._disposed) return;
     if (this.playing) return;
     if (this.t >= this.duration) this.t = 0;
     this.playing   = true;
@@ -123,6 +128,11 @@ export class MfishAnimation {
   pause() {
     this.playing = false;
     if (this._rafId) { cancelAnimationFrame(this._rafId); this._rafId = null; }
+  }
+
+  dispose() {
+    this.pause();
+    this._disposed = true;
   }
 
   seekTo(t) {
@@ -179,6 +189,7 @@ export class MfishAnimation {
   }
 
   _render() {
+    if (this._disposed) return;
     const ctx = this.ctx;
     ctx.clearRect(0, 0, CW, CH);
 
@@ -212,7 +223,8 @@ export class MfishAnimation {
 
   _drawHeaderBanner(ctx) {
     const s = this._currentStim();
-    const color = s && s.ori != null ? oriColor(s.ori) : (s ? '#6366f1' : '#9ca3af');
+    const isGrating = this.stageMode === 'gratings';
+    const color = s && isGrating && s.ori != null ? oriColor(s.ori) : (s ? '#6366f1' : '#9ca3af');
     ctx.save();
     ctx.globalAlpha = 0.12;
     ctx.fillStyle = color;
@@ -224,14 +236,14 @@ export class MfishAnimation {
     ctx.textBaseline = 'middle';
     const txt = !s ? 'inter-stimulus (gray screen)'
       : s.omitted ? 'omitted flash'
-      : s.ori != null ? `grating ${s.ori}°`
+      : isGrating ? `grating ${s.ori ?? '—'}°`
       : `image ${s.label}`;
     ctx.fillText(txt, CW / 2, 13);
   }
 
   _drawStim(ctx, stim, change) {
-    const isGrating = stim.ori != null;
-    const color = isGrating ? oriColor(stim.ori) : '#6366f1';
+    const isGrating = this.stageMode === 'gratings';
+    const color = isGrating && stim.ori != null ? oriColor(stim.ori) : '#6366f1';
     const pulse = 1 + 0.12 * change;
 
     ctx.save();
@@ -254,19 +266,23 @@ export class MfishAnimation {
     ctx.arc(0, 0, STIM_AREA_R * pulse, 0, Math.PI * 2);
     ctx.clip();
     const sz = STIM_AREA_R * 2 * pulse;
+    const image = !isGrating ? this._getStimulusTemplate(stim.label) : null;
     if (isGrating && this.sprites.gabor) {
       ctx.rotate((stim.ori * Math.PI) / 180);
       ctx.drawImage(this.sprites.gabor, -sz / 2, -sz / 2, sz, sz);
+    } else if (image) {
+      ctx.drawImage(image, -sz / 2, -sz / 2, sz, sz);
     } else {
-      // Natural-image variant: no sprite available, so show a neutral patch
-      // with the image name (drawn after unclipping, below).
+      // Keep a useful placeholder while the selected image plane is loading,
+      // or when an older behavior derivative has no template pixels.
       ctx.fillStyle = isGrating ? color : '#e5e7eb';
       ctx.fillRect(-sz / 2, -sz / 2, sz, sz);
     }
     ctx.restore();
 
-    // Image label (natural-image variant).
-    if (!isGrating) {
+    // Image label (natural-image variant) remains the fallback for derivatives
+    // that do not carry a stimulus template stack.
+    if (!isGrating && !image) {
       ctx.fillStyle = '#374151';
       ctx.font = '600 12px system-ui, sans-serif';
       ctx.textAlign = 'center';
@@ -282,6 +298,34 @@ export class MfishAnimation {
     ctx.arc(0, 0, STIM_AREA_R * pulse + 3, 0, Math.PI * 2);
     ctx.stroke();
     ctx.restore();
+  }
+
+  _getStimulusTemplate(label) {
+    const key = String(label ?? '').trim();
+    const loader = this.sprites.templateLoader;
+    if (!key || !loader?.get) return null;
+
+    const cached = this._templateCache.get(key);
+    if (cached) return cached.status === 'ready' ? cached.image : null;
+
+    this._templateCache.set(key, { status: 'loading' });
+    Promise.resolve()
+      .then(() => loader.get(key))
+      .then((template) => {
+        if (this._disposed) return;
+        const image = template ? _templateToCanvas(template) : null;
+        this._templateCache.set(key, {
+          status: image ? 'ready' : 'missing',
+          image,
+        });
+        this._render();
+      })
+      .catch(() => {
+        if (this._disposed) return;
+        this._templateCache.set(key, { status: 'missing', image: null });
+        this._render();
+      });
+    return null;
   }
 
   _drawSpout(ctx) {
@@ -350,4 +394,75 @@ function _roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + rr);
   ctx.quadraticCurveTo(x, y, x + rr, y);
   ctx.closePath();
+}
+
+/** Convert one Zarr image plane into a small canvas for repeated drawing. */
+function _templateToCanvas(template) {
+  const values = template?.data;
+  const shape = Array.from(template?.shape ?? [], Number);
+  if (!values || shape.length < 2 || shape.some((size) => !(size > 0))) return null;
+
+  let height;
+  let width;
+  let channels = 1;
+  let channelFirst = false;
+  if (shape.length === 2) {
+    [height, width] = shape;
+  } else if (shape.length === 3 && shape[2] <= 4) {
+    [height, width, channels] = shape;
+  } else if (shape.length === 3 && shape[0] <= 4) {
+    [channels, height, width] = shape;
+    channelFirst = true;
+  } else {
+    return null;
+  }
+
+  const expected = height * width * channels;
+  if (values.length < expected) return null;
+  const maxValue = _templateMax(values, expected);
+  const scale = maxValue <= 1.01 ? 255 : 1;
+  const maxDimension = 256;
+  const factor = Math.min(1, maxDimension / Math.max(width, height));
+  const outWidth = Math.max(1, Math.round(width * factor));
+  const outHeight = Math.max(1, Math.round(height * factor));
+  const canvas = document.createElement('canvas');
+  canvas.width = outWidth;
+  canvas.height = outHeight;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  const image = context.createImageData(outWidth, outHeight);
+
+  for (let y = 0; y < outHeight; y++) {
+    const sourceY = Math.min(height - 1, Math.floor(y / factor));
+    for (let x = 0; x < outWidth; x++) {
+      const sourceX = Math.min(width - 1, Math.floor(x / factor));
+      const pixel = (y * outWidth + x) * 4;
+      const source = (sourceY * width + sourceX) * channels;
+      const read = (channel) => {
+        const offset = channelFirst
+          ? channel * height * width + sourceY * width + sourceX
+          : source + channel;
+        const value = Number(values[offset]);
+        return Number.isFinite(value) ? Math.max(0, Math.min(255, value * scale)) : 127;
+      };
+      const red = read(0);
+      const green = channels >= 3 ? read(1) : red;
+      const blue = channels >= 3 ? read(2) : red;
+      image.data[pixel] = red;
+      image.data[pixel + 1] = green;
+      image.data[pixel + 2] = blue;
+      image.data[pixel + 3] = channels === 4 ? read(3) : 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return canvas;
+}
+
+function _templateMax(values, length) {
+  let max = 0;
+  for (let i = 0; i < length; i++) {
+    const value = Number(values[i]);
+    if (Number.isFinite(value)) max = Math.max(max, Math.abs(value));
+  }
+  return max;
 }

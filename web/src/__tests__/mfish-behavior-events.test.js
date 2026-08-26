@@ -8,14 +8,24 @@ vi.mock('zarrita', () => ({
   },
   root: () => ({ resolve: (path) => path }),
   open: async (path) => path,
-  get: async (path) => {
+  get: async (path, selection) => {
     if (!arrays.has(path)) throw new Error(`missing fixture array: ${path}`);
-    return { data: arrays.get(path) };
+    const value = arrays.get(path);
+    if (Number.isInteger(selection?.[0])
+        && Array.isArray(value)
+        && Array.isArray(value[0])
+        && Array.isArray(value[0][0])) {
+      const plane = value[selection[0]];
+      return { data: plane, shape: [plane.length, plane[0]?.length ?? 0] };
+    }
+    return { data: value, shape: Array.isArray(value) ? [value.length] : [] };
   },
 }));
 
 const {
+  createStimulusTemplateLoader,
   findBehaviorNwbPrefix,
+  findStimulusTemplateGroups,
   loadBehaviorEventsFromUrl,
 } = await import('../mfish/behavior-events.js');
 
@@ -37,6 +47,35 @@ describe('mFISH behavior NWB discovery', () => {
       `<CommonPrefixes><Prefix>${asset}/raw-session.nwb/</Prefix></CommonPrefixes>`,
       asset,
     )).toBe(`${asset}/raw-session.nwb/`);
+  });
+
+  it('discovers a template group and reads only the requested image plane', async () => {
+    arrays.clear();
+    arrays.set('stimulus/templates/TestImageSet/control_description', ['im063', 'im077']);
+    arrays.set('stimulus/templates/TestImageSet/data', [
+      [[1, 2], [3, 4]],
+      [[5, 6], [7, 8]],
+    ]);
+    const xml = '<CommonPrefixes><Prefix>behavior.nwb.zarr/stimulus/templates/TestImageSet/</Prefix></CommonPrefixes>';
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      text: async () => xml,
+    }));
+    vi.stubGlobal('fetch', fetch);
+
+    try {
+      const baseUrl = 'https://example.test/behavior.nwb.zarr';
+      expect(findStimulusTemplateGroups(xml, baseUrl)).toEqual(['TestImageSet']);
+
+      const loader = createStimulusTemplateLoader(baseUrl);
+      const image = await loader.get('im077');
+      expect(image).toMatchObject({ shape: [2, 2], data: [[5, 6], [7, 8]] });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(await loader.get('im077')).toBe(image);
+      expect(await loader.get('not-in-stack')).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

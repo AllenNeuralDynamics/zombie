@@ -404,6 +404,67 @@ export async function loadSwdbDatasetAssets(coord, metadata, datasetName) {
 }
 
 /**
+ * Shape the canonical asset rows used by the Visual Learning progression
+ * chart. `fetchAssetsWithSources()` already selects
+ * `asset_basics.acquisition_type`, which is the training-stage label for this
+ * dataset.
+ *
+ * @param {object[]} assets - Canonical asset rows from loadSwdbDatasetAssets.
+ * @returns {object[]}
+ */
+export function loadVisualLearningProgression(assets) {
+  const rows = [...(assets ?? [])].filter((asset) => asset?.name);
+  return rows.map((asset) => {
+    const name = String(asset.name);
+    return {
+      asset_name: name,
+      subject_id: asset.subject_id ?? subjectIdFromAssetName(name),
+      session_date: asset.acquisition_start_time ?? null,
+      session_type: asset.acquisition_type ?? null,
+    };
+  });
+}
+
+function subjectIdFromAssetName(name) {
+  return String(name).match(/_(\d{4,})_\d{4}-\d{2}-\d{2}/)?.[1] ?? null;
+}
+
+/**
+ * Resolve the raw acquisition behind one published Visual Learning asset.
+ *
+ * The progression contains processed ophys assets, while the behavior NWB and
+ * behavior-camera videos belong to the raw acquisition. The canonical
+ * `source_data` join performed by `fetchAssetsWithSources()` gives the page
+ * the source names; this lookup supplies the source's location so the shared
+ * behavior player can resolve both the derived behavior NWB and its videos.
+ *
+ * @param {object} coord
+ * @param {string[]} sourceNames - Names from the selected asset's source map.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {Promise<object|null>}
+ */
+export async function resolveVisualLearningPlaybackSource(coord, sourceNames, { signal } = {}) {
+  const names = [...new Set((sourceNames ?? []).map(String).filter(Boolean))];
+  if (names.length === 0) return null;
+
+  await ensureTable(coord, 'asset_basics');
+  if (signal?.aborted) throw new Error('aborted');
+  const quotedNames = names.map(sqlStr).join(', ');
+  const rows = await queryRows(
+    coord,
+    `
+      SELECT name, location, data_level, subject_id, project_name,
+             acquisition_start_time::VARCHAR AS acquisition_start_time
+      FROM asset_basics
+      WHERE name IN (${quotedNames})
+      ORDER BY CASE WHEN data_level = 'derived' THEN 1 ELSE 0 END, name
+    `,
+  );
+  if (signal?.aborted) throw new Error('aborted');
+  return rows.find((row) => row.data_level !== 'derived') ?? rows[0] ?? null;
+}
+
+/**
  * Load every behavior trial for one asset.
  *
  * @param {object} coord

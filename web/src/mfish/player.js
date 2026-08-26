@@ -14,7 +14,7 @@
 
 import { createPlaybackHarness, fmtTime } from '../lib/behaviors/playback-harness.js';
 import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
-import { loadBehaviorEvents } from './behavior-events.js';
+import { createStimulusTemplateLoader, loadBehaviorEvents } from './behavior-events.js';
 import { findStimAt } from './nwb-loader.js';
 import {
   MfishAnimation,
@@ -35,6 +35,10 @@ const DEFAULT_SPEED_IDX = 0;
  * @param {object} [opts]
  * @param {string} [opts.acquisitionType] - Shown in the header row.
  * @param {string} [opts.location]         - Raw asset S3 location (for videos).
+ * @param {'gratings'|'images'} [opts.stageMode] - Rendering mode override for
+ *   stages whose NWB uses the generic stimulus_presentations table.
+ * @param {boolean} [opts.loadStimulusTemplates] - Set false for stages such as
+ *   natural movies, which do not use static image templates.
  * @returns {HTMLElement}
  */
 export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
@@ -47,6 +51,13 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
   root.classList.add('mfish-player', 'mfish-player--embedded');
 
   const ctrl = new AbortController();
+  let activeAnim = null;
+  let activePlot = null;
+  root._dispose = () => {
+    ctrl.abort();
+    activeAnim?.dispose?.();
+    activePlot?.dispose?.();
+  };
 
   (async () => {
     harness.setStatus(`Resolving behavior data for ${rawAssetName}…`);
@@ -64,14 +75,30 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
         return;
       }
       const ms = Math.round(performance.now() - t0);
-      const stimNoun = data.variant === 'images' ? 'image flashes' : 'gratings';
+      const stageMode = opts.stageMode ?? data.variant;
+      const isNaturalMovie = /(?:^|_)STAGE_1(?:_|$)/i.test(String(opts.acquisitionType ?? ''));
+      const templateLoader = stageMode === 'images'
+        && opts.loadStimulusTemplates !== false
+        && !isNaturalMovie
+        ? createStimulusTemplateLoader(data.baseUrl, { signal: ctrl.signal })
+        : null;
+      const stimNoun = stageMode === 'images' ? 'image flashes' : 'gratings';
       const lickTxt = data.counts.licks != null ? `${data.counts.licks} licks · ` : '';
       harness.setStatus(
         `${data.variant} · ${data.counts.stimuli} ${stimNoun} · ${data.counts.changes} changes · ` +
         `${data.counts.rewards} rewards · ${lickTxt}loaded in ${ms} ms`);
 
-      const anim = new MfishAnimation(harness.canvas, data, { mouse, gabor, droplet });
+      data.stageMode = stageMode;
+      const anim = new MfishAnimation(harness.canvas, data, {
+        mouse,
+        gabor,
+        droplet,
+        templateLoader,
+        stageMode,
+      });
       const plot = createMfishEventPlot(data);
+      activeAnim = anim;
+      activePlot = plot;
 
       harness.activate({
         header: {
@@ -85,7 +112,7 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
           updatePlayhead: plot.updatePlayhead,
           setOnScrub: plot.setOnScrub,
         },
-        trialInfo: (el, t) => _updateReadout(el, data, t),
+        trialInfo: (el, t) => _updateReadout(el, data, t, stageMode),
         videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
       });
     } catch (err) {
@@ -102,12 +129,12 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
 // Readout
 // ---------------------------------------------------------------------------
 
-function _updateReadout(el, data, t) {
+function _updateReadout(el, data, t, stageMode = data.stageMode ?? data.variant) {
   const si = findStimAt(data.stimuli, t);
   const s = si >= 0 ? data.stimuli[si] : null;
   const onNow = s && t >= s.t && t <= s.tEnd && !s.omitted;
   const stimTxt = !onNow ? 'gray (inter-stimulus)'
-    : s.ori != null ? `grating ${s.ori}°`
+    : stageMode === 'gratings' ? `grating ${s.ori ?? '—'}°`
     : `image ${s.label || ''}`;
   el.textContent = `${fmtTime(t)} · stimulus: ${stimTxt}`;
 }

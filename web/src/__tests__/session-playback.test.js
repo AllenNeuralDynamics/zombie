@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { isDynamicRoutingEcephys } from '../lib/behaviors/session-playback.js';
+import {
+  isDynamicRoutingEcephys,
+  isMfishProject,
+} from '../lib/behaviors/session-playback.js';
+
+describe('Visual Learning playback routing', () => {
+  it('recognizes mFISH and Visual Learning project-name variants', () => {
+    expect(isMfishProject('LearningmFISHTask1A')).toBe(true);
+    expect(isMfishProject('Visual Learning')).toBe(true);
+    expect(isMfishProject('Visual Coding Ophys')).toBe(false);
+  });
+});
 
 describe('Dynamic Routing ecephys Data-tab section eligibility', () => {
   it('matches Dynamic Routing acquisitions with ecephys', () => {

@@ -25,6 +25,7 @@ import { createSetTimeline } from './timeline.js';
 import { createSwdbBehaviorView } from './behavior-view.js';
 import { createSwdbEyeView } from './eye-view.js';
 import { createSwdbPerformanceView } from './performance-view.js';
+import { createVisualLearningOverview } from './visual-learning-overview.js';
 
 /**
  * Build the SWDB set page.
@@ -123,9 +124,8 @@ export function createSwdbSetView(coord, metadata) {
 /**
  * Lightweight detail landing page for a published SWDB metadata dataset.
  *
- * The richer per-asset viewer belongs on this route eventually; keeping the
- * link functional now gives each index card a useful destination even when
- * the cache only contains metadata tables.
+ * Per-asset playback belongs to the canonical `/view` page, so this route
+ * keeps the dataset-level overview and links each asset there.
  */
 function createDatasetDetailView(coord, metadata, datasetName) {
   const root = document.createElement('div');
@@ -137,7 +137,11 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   const neuronOverview = datasetName === 'swdb_2026_dynamic_routing'
     ? buildNeuronOverview()
     : null;
+  const visualLearningOverview = datasetName === 'swdb_2026_visual_learning'
+    ? createVisualLearningOverview(coord)
+    : null;
   if (neuronOverview) root.appendChild(neuronOverview.element);
+  if (visualLearningOverview) root.appendChild(visualLearningOverview.element);
 
   const assetsSection = buildSection('Assets', true);
   root.appendChild(assetsSection.details);
@@ -162,16 +166,20 @@ function createDatasetDetailView(coord, metadata, datasetName) {
       const { assets, sourceMap } = await loadSwdbDatasetAssets(coord, metadata, datasetName);
 
       const info = datasetInfo(summary.name);
-      header.innerHTML = `
-        <a class="swdb-back" href="/swdb">← All SWDB datasets</a>
-        <h1>${escHtml(info.title)}</h1>
+      const datasetSummary = datasetName === 'swdb_2026_visual_learning'
+        ? ''
+        : `
         <div class="swdb-set-summary">
           <span><strong>${summary.nAssets.toLocaleString()}</strong> assets</span>
           <span><strong>${summary.nSubjects.toLocaleString()}</strong> subjects</span>
           ${summary.firstDate && summary.lastDate
             ? `<span>${escHtml(`${summary.firstDate} → ${summary.lastDate}`)}</span>`
             : ''}
-        </div>
+        </div>`;
+      header.innerHTML = `
+        <a class="swdb-back" href="/swdb">← All SWDB datasets</a>
+        <h1>${escHtml(info.title)}</h1>
+        ${datasetSummary}
       `;
       neuronOverview?.load(assets.map((asset) => ({
         asset_name: asset.name,
@@ -180,6 +188,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
           ? String(asset.acquisition_start_time).slice(0, 10)
           : null,
       })));
+      visualLearningOverview?.load(assets);
       if (assets.length > 0) {
         assetsSection.body.replaceChildren(buildAssetsTable(assets, sourceMap));
       } else {

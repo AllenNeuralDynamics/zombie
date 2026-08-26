@@ -77,11 +77,35 @@ export function findBehaviorNwbPrefix(xml, assetKey) {
   return roots[0] ?? null;
 }
 
-function s3ListUrl(baseUrl) {
+function s3ListUrl(baseUrl, relativePrefix = '') {
   const u = new URL(baseUrl);
   const key = u.pathname.replace(/^\/+|\/+$/g, '');
-  return `${u.origin}/?list-type=2&prefix=${encodeURIComponent(`${key}/`)}`
+  const suffix = String(relativePrefix).replace(/^\/+|\/+$/g, '');
+  const prefix = suffix ? `${key}/${suffix}/` : `${key}/`;
+  return `${u.origin}/?list-type=2&prefix=${encodeURIComponent(prefix)}`
     + `&delimiter=${encodeURIComponent('/')}&max-keys=${S3_NWB_LIST_MAX_KEYS}`;
+}
+
+/**
+ * Extract stimulus-template group names from an S3 delimiter listing.
+ *
+ * The group is the image-set name (for example
+ * `Natural_Images_Lum_Matched_set_training_2017.07.14`). Keeping this
+ * discovery separate from the loader makes the browser-side template path
+ * testable without opening a Zarr store.
+ */
+export function findStimulusTemplateGroups(xml, baseUrl) {
+  const u = new URL(baseUrl);
+  const baseKey = u.pathname.replace(/^\/+|\/+$/g, '');
+  const marker = `${baseKey}/stimulus/templates/`;
+  return [...String(xml ?? '').matchAll(
+    /<CommonPrefixes>\s*<Prefix>([^<]+)<\/Prefix>\s*<\/CommonPrefixes>/g,
+  )]
+    .map((match) => xmlUnescape(match[1]))
+    .filter((key) => key.startsWith(marker))
+    .map((key) => key.slice(marker.length).replace(/\/$/, ''))
+    .filter(Boolean)
+    .sort();
 }
 
 /** Discover the behavior NWB root rather than relying on a filename guess. */
@@ -127,10 +151,33 @@ export async function resolveBehaviorNwb(coord, rawAssetName, { signal } = {}) {
 async function tryArray(root, path, signal) {
   try {
     const arr = await zarr.open(root.resolve(path), { kind: 'array' });
-    const chunk = await zarr.get(arr);
+    const chunk = await zarr.get(arr, null, { signal });
     if (signal?.aborted) throw new Error('aborted');
     return chunk.data;
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return null;
+  }
+}
+
+async function tryOpenArray(root, path, signal) {
+  try {
+    return await zarr.open(root.resolve(path), { kind: 'array' });
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return null;
+  }
+}
+
+async function tryArrayChunk(root, path, selection, signal) {
+  const array = await tryOpenArray(root, path, signal);
+  if (!array) return null;
+  try {
+    const chunk = await zarr.get(array, selection, { signal });
+    if (signal?.aborted) throw new Error('aborted');
+    return { data: chunk?.data ?? chunk, shape: chunk?.shape ?? array.shape ?? null };
+  } catch (error) {
+    if (signal?.aborted) throw error;
     return null;
   }
 }
@@ -186,6 +233,124 @@ export async function loadBehaviorEventsFromUrl(baseUrl, { signal } = {}) {
     : await _loadImages(root, signal);
 
   return { variant, baseUrl, ...out };
+}
+
+/**
+ * Create a lazy reader for the image templates associated with a behavior NWB.
+ *
+ * Template stacks can be tens of megabytes, so they must not be included in
+ * the initial event read. The first request lists the template groups and
+ * reads only the requested image plane; subsequent requests for the same
+ * image are served from the in-memory promise cache.
+ *
+ * The returned object is intentionally small so it can be passed through the
+ * shared mFISH player without making the playback harness aware of NWB.
+ *
+ * @param {string} baseUrl - Behavior NWB-Zarr root URL.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {{ get: (imageName: string) => Promise<object|null> }}
+ */
+export function createStimulusTemplateLoader(baseUrl, { signal } = {}) {
+  const root = zarr.root(new zarr.FetchStore(baseUrl));
+  const imageCache = new Map();
+  const groupCache = new Map();
+  let groupsPromise = null;
+
+  const discoverGroups = () => {
+    if (!groupsPromise) {
+      groupsPromise = (async () => {
+        const response = await fetch(s3ListUrl(baseUrl, 'stimulus/templates'), { signal });
+        if (!response.ok) throw new Error(`stimulus template listing failed (${response.status})`);
+        return findStimulusTemplateGroups(await response.text(), baseUrl);
+      })();
+    }
+    return groupsPromise;
+  };
+
+  const loadGroup = (group) => {
+    if (groupCache.has(group)) return groupCache.get(group);
+    const promise = (async () => {
+      const prefix = `stimulus/templates/${group}`;
+      const namesChunk = await firstArrayChunk(root, [
+        `${prefix}/control_description`,
+        `${prefix}/image_name`,
+        `${prefix}/image_names`,
+      ], signal);
+      if (!namesChunk) return null;
+      const names = Array.from(namesChunk.data ?? [], templateName);
+      if (!names.length) return null;
+      return { prefix, names };
+    })();
+    groupCache.set(group, promise);
+    return promise;
+  };
+
+  const loadImage = async (imageName) => {
+    if (signal?.aborted) throw new Error('aborted');
+    const target = templateName(imageName);
+    if (!target) return null;
+
+    for (const group of await discoverGroups()) {
+      const metadata = await loadGroup(group);
+      if (!metadata) continue;
+      const index = metadata.names.findIndex((name) => name === target);
+      if (index < 0) continue;
+
+      // Current Visual Behavior NWB-Zarr uses `data`; the other candidates
+      // cover older conversions that exposed the warped/unwarped arrays as
+      // nested groups. Prefer the display-ready warped data when available.
+      for (const path of [
+        `${metadata.prefix}/data`,
+        `${metadata.prefix}/warped`,
+        `${metadata.prefix}/warped/data`,
+        `${metadata.prefix}/unwarped`,
+        `${metadata.prefix}/unwarped/data`,
+      ]) {
+        const array = await tryOpenArray(root, path, signal);
+        if (!array) continue;
+        const rank = Array.isArray(array.shape) ? array.shape.length : 3;
+        if (rank < 2) continue;
+        const selection = [index, ...Array.from({ length: rank - 1 }, () => null)];
+        const chunk = await tryArrayChunk(root, path, selection, signal);
+        if (chunk) return chunk;
+      }
+    }
+    return null;
+  };
+
+  return {
+    get(imageName) {
+      const target = templateName(imageName);
+      if (!target) return Promise.resolve(null);
+      if (!imageCache.has(target)) {
+        const promise = loadImage(target).catch((error) => {
+          // Missing template groups, ACL/CORS failures, and older incomplete
+          // derivatives should leave the player usable with its label
+          // fallback. Aborts still need to stop the active playback load.
+          if (signal?.aborted) throw error;
+          return null;
+        });
+        imageCache.set(target, promise);
+      }
+      return imageCache.get(target);
+    },
+  };
+}
+
+async function firstArrayChunk(root, paths, signal) {
+  for (const path of paths) {
+    const chunk = await tryArrayChunk(root, path, null, signal);
+    if (chunk) return chunk;
+    if (signal?.aborted) throw new Error('aborted');
+  }
+  return null;
+}
+
+function templateName(value) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value.trim();
+  if (value instanceof Uint8Array) return new TextDecoder().decode(value).trim();
+  return String(value).trim();
 }
 
 // ---------------------------------------------------------------------------

@@ -37,6 +37,11 @@ export function isVisualCodingOphysProject(projectName) {
   return /visual\s*coding\s*ophys/i.test(String(projectName ?? ''));
 }
 
+/** Return true for Learning mFISH / Visual Learning project-name variants. */
+export function isMfishProject(projectName) {
+  return /mfish|visual\s*learning/i.test(String(projectName ?? ''));
+}
+
 /**
  * Determine which playback platform (if any) an acquisition event qualifies
  * for. Returns a platform key or null.
@@ -55,7 +60,7 @@ export function detectPlaybackPlatform(event) {
       && (event.modalities ?? []).some((modality) => /pophys|ophys/i.test(String(modality)))) {
     return 'visual_coding_ophys';
   }
-  if (/mfish/i.test(data._project_name ?? '') && (event.modalities ?? []).includes('behavior')) return 'mfish';
+  if (isMfishProject(data._project_name) && (event.modalities ?? []).includes('behavior')) return 'mfish';
   if (data._project_name === DR_PROJECT_NAME && (event.modalities ?? []).includes('behavior')) return 'dynamic_routing';
 
   return null;
