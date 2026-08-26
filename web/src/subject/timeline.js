@@ -106,7 +106,8 @@ export function buildTimelineSvgParts(events, totalWidth, totalHeight) {
  * @returns {HTMLElement}
  */
 export function createSubjectTimeline(events, opts = {}) {
-  const { onSelect, assetSources = null } = opts;
+  const { onSelect, assetSources: initialAssetSources = null } = opts;
+  let assetSources = toAssetSourceMap(initialAssetSources);
 
   const wrapper = document.createElement('div');
   wrapper.className = 'subject-timeline-wrapper';
@@ -336,6 +337,16 @@ export function createSubjectTimeline(events, opts = {}) {
     return true;
   };
 
+  // Canonical asset_basics/source_data is loaded after the DocDB timeline.
+  // Accepting it later lets a deep link to a newer derived asset resolve even
+  // when that child was not present in the initial DocDB response.
+  wrapper.setAssetSources = (nextSources) => {
+    const next = toAssetSourceMap(nextSources);
+    if (!next) return;
+    if (!assetSources) assetSources = new Map();
+    for (const [name, parents] of next) assetSources.set(name, parents);
+  };
+
   // ── Sync: scroll → window position/size ───────────────────────────────────
 
   function getWindowW() {
@@ -407,4 +418,11 @@ export function createSubjectTimeline(events, opts = {}) {
   }
 
   return wrapper;
+}
+
+function toAssetSourceMap(value) {
+  if (!value) return null;
+  if (value instanceof Map) return value;
+  if (typeof value !== 'object') return null;
+  return new Map(Object.entries(value));
 }

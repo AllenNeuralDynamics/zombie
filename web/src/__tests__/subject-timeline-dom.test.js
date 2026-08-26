@@ -141,6 +141,15 @@ describe('selectAcquisition — provenance', () => {
     expect(selectedName(tl)).toBe(1);
   });
 
+  it('can accept canonical provenance loaded after the timeline is built', () => {
+    const tl = createSubjectTimeline(V1DD_EVENTS);
+    container.appendChild(tl);
+    expect(tl.selectAcquisition(V1DD_FILTERED)).toBe(false);
+    tl.setAssetSources(new Map([[V1DD_FILTERED, [V1DD_ACQ]]]));
+    expect(tl.selectAcquisition(V1DD_FILTERED)).toBe(true);
+    expect(selectedName(tl)).toBe(1);
+  });
+
   it('reports programmatic selection to onSelect', () => {
     const calls = [];
     const tl = createSubjectTimeline(V1DD_EVENTS, {

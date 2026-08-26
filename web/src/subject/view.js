@@ -396,7 +396,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         root._pendingAcquisition = null;
         pendingHighlight = target;
         // Defer until the bubble strip has laid out.
-        requestAnimationFrame(() => timelineSvg.selectAcquisition?.(target));
+        requestAnimationFrame(() => {
+          if (timelineSvg.selectAcquisition?.(target)) pendingHighlight = null;
+        });
       }
     }
 
@@ -410,7 +412,7 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
     if (!hasProceduresFallback && coordinator) {
       _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSection, bundle.subject).then((result) => {
         if (!result) return;
-        const { tableEl, assets } = result;
+        const { tableEl, assets, sourceMap } = result;
         assetsTableEl = tableEl;
         if (pendingHighlight) assetsTableEl.goToAsset?.(pendingHighlight);
         // Report the most-recent asset's project to the combined view so it can
@@ -432,6 +434,12 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
               }
             }
           }
+        }
+        // Retry after canonical enrichment so the selected acquisition has the
+        // project/location fields needed by the shared playback dispatcher.
+        if (pendingHighlight) {
+          timelineSvg.setAssetSources?.(sourceMap);
+          if (timelineSvg.selectAcquisition?.(pendingHighlight)) pendingHighlight = null;
         }
       }).catch((err) => {
         console.error('[SubjectView] Asset fetch failed:', err);
@@ -473,7 +481,7 @@ async function _fetchAndRenderAssets(coordinator, subjectId, infoEl, assetsSecti
   assetsSection.innerHTML = '<h3>Assets</h3>';
   const tableEl = buildAssetsTable(assets, sourceMap);
   assetsSection.appendChild(tableEl);
-  return { tableEl, assets };
+  return { tableEl, assets, sourceMap };
 }
 
 function _renderAssetsError(container, err) {
