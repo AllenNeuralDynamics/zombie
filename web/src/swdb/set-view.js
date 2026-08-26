@@ -25,6 +25,7 @@ import { createSetTimeline } from './timeline.js';
 import { createSwdbBehaviorView } from './behavior-view.js';
 import { createSwdbEyeView } from './eye-view.js';
 import { createSwdbPerformanceView } from './performance-view.js';
+import { createVisualLearningActivityView } from './visual-learning-activity.js';
 import { createVisualLearningOverview } from './visual-learning-overview.js';
 
 /**
@@ -137,11 +138,17 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   const neuronOverview = datasetName === 'swdb_2026_dynamic_routing'
     ? buildNeuronOverview()
     : null;
+  const visualLearningActivity = datasetName === 'swdb_2026_visual_learning'
+    ? createVisualLearningActivityView(coord)
+    : null;
   const visualLearningOverview = datasetName === 'swdb_2026_visual_learning'
-    ? createVisualLearningOverview(coord)
+    ? createVisualLearningOverview(coord, {
+      onSelect: (session) => visualLearningActivity?.select(session),
+    })
     : null;
   if (neuronOverview) root.appendChild(neuronOverview.element);
   if (visualLearningOverview) root.appendChild(visualLearningOverview.element);
+  if (visualLearningActivity) root.appendChild(visualLearningActivity.element);
 
   const assetsSection = buildSection('Assets', true);
   root.appendChild(assetsSection.details);
@@ -156,6 +163,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
         assetsSection.body.innerHTML =
           `<div class="swdb-panel-status swdb-panel-status--error">No cached SWDB dataset named "${escHtml(datasetName)}".</div>`;
         neuronOverview?.load([]);
+        visualLearningActivity?.load([]);
         return;
       }
 
@@ -189,6 +197,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
           : null,
       })));
       visualLearningOverview?.load(assets);
+      visualLearningActivity?.load(assets, sourceMap);
       if (assets.length > 0) {
         assetsSection.body.replaceChildren(buildAssetsTable(assets, sourceMap));
       } else {

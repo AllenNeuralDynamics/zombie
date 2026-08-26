@@ -76,6 +76,21 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
   : '/metadata-viz';
 
 // ---------------------------------------------------------------------------
+// Verification graph API (see GRAPH-PLAN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Base URL for the aind-metadata-viz verification-graph REST API.
+ *
+ * Reads are anonymous and work cross-origin. Writes carry the ORCID session
+ * cookie, which the portal's wildcard CORS cannot do, so in production every
+ * call goes through the same-origin `/metadata-viz` nginx proxy instead.
+ */
+export const VERIFICATION_API_BASE = import.meta.env.DEV
+  ? 'https://metadata-portal.allenneuraldynamics.org'
+  : '/metadata-viz';
+
+// ---------------------------------------------------------------------------
 // QC portal metadata proposals API (see METADATA-AUTH.md in aind-qc-portal/dev)
 // ---------------------------------------------------------------------------
 

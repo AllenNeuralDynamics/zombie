@@ -109,6 +109,11 @@ export const ROUTES = [
     route: '/swdb/set', html: 'swdb/set.html', inputKey: 'swdb_set',
     header: { sub: 'SWDB set', active: '/swdb' },
   }),
+  page({
+    route: '/swdb/verification-graph', html: 'swdb/verification-graph.html',
+    inputKey: 'swdb_verification_graph',
+    header: { sub: 'SWDB verification graph', active: '/swdb' },
+  }),
 
   // ---- Contributions sub-pages (not directly nav-linked; highlight the
   // Dashboards ▸ Contributions entry via active: '/contributions') ----

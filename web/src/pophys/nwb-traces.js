@@ -1,12 +1,12 @@
 /**
  * pophys/nwb-traces.js — on-demand reads of calcium traces from a derived
- * pophys NWB (Zarr) on the public aind-open-data bucket.
+ * pophys NWB/Zarr on the public aind-open-data bucket.
  *
  * A whole plane's dF/F array is (n_frames × n_roi) and can be > 100 MB, so we
  * never load it whole. Instead we read:
  *   - the plane's `timestamps` once (shared by every ROI in that plane), and
- *   - a single ROI's trace column on demand (zarrita fetches only the chunks
- *     that intersect that column).
+ *   - one ROI or a compact ROI range on demand (zarrita fetches only the
+ *     chunks that intersect the requested columns).
  *
  * Trace columns are indexed by `roi_id` from the ROI cache (verified equal to
  * the RoiResponseSeries `rois` order == roi_table id).
@@ -36,13 +36,13 @@ export function findNwbZarrPrefix(xml, asset) {
     /<CommonPrefixes>\s*<Prefix>([^<]+)<\/Prefix>\s*<\/CommonPrefixes>/g,
   )]
     .map((m) => m[1])
-    .filter((key) => key.startsWith(prefix) && key.endsWith('.nwb.zarr/'))
-    .sort();
+    .filter((key) => key.startsWith(prefix) && (key.endsWith('.nwb.zarr/') || key.endsWith('.nwb/')))
+    .sort((a, b) => (a.endsWith('.nwb.zarr/') ? 0 : 1) - (b.endsWith('.nwb.zarr/') ? 0 : 1) || a.localeCompare(b));
   return roots[0] ?? null;
 }
 
 /**
- * Discover the NWB-Zarr root rather than assuming a particular inner filename.
+ * Discover the NWB/Zarr root rather than assuming a particular inner filename.
  * Asset prefixes currently contain names such as `<asset>.nwb.zarr` and
  * `<session>.nwb.zarr`; future pipeline naming changes should not require a
  * viewer release as long as the root remains an NWB-Zarr directory.
@@ -58,7 +58,7 @@ export async function resolvePophysNwbBase(asset, { signal } = {}) {
     const resp = await fetch(url, { signal });
     if (!resp.ok) throw new Error(`NWB-Zarr listing failed (${resp.status})`);
     const rootPrefix = findNwbZarrPrefix(await resp.text(), key);
-    if (!rootPrefix) throw new Error('No NWB-Zarr root found for this asset');
+    if (!rootPrefix) throw new Error('No NWB root found for this asset');
     return `${S3_BASE}/${rootPrefix.replace(/\/$/, '')}`;
   })();
   _nwbBaseCache.set(key, promise);
@@ -199,6 +199,36 @@ export async function loadRoiTrace(root, plane, roiId, series = 'dff', { signal 
   const chunk = await zarr.get(arr, [null, roiId]);
   if (signal?.aborted) throw new Error('aborted');
   return Float32Array.from(chunk.data, Number);
+}
+
+/**
+ * Read several ROI columns in one contiguous Zarr selection.
+ *
+ * Zarr selections are slices rather than arbitrary index lists. The returned
+ * `data` is row-major with shape `[nFrames, nColumns]`; callers use
+ * `roiIds[index]` to identify each packed column.
+ */
+export async function loadRoiTraces(root, plane, roiIds, series = 'dff', { signal } = {}) {
+  const ids = [...new Set((roiIds ?? []).map(Number))]
+    .filter((id) => Number.isInteger(id) && id >= 0)
+    .sort((a, b) => a - b);
+  if (ids.length === 0) return { roiIds: [], startRoi: 0, data: new Float32Array(), nFrames: 0, nColumns: 0 };
+
+  const layout = await resolvePlaneLayout(root, plane);
+  const key = layout.series.includes(series) ? series : 'dff';
+  const arr = await zarr.open(root.resolve(`${layout.groups[key](plane)}/data`), { kind: 'array' });
+  const startRoi = ids[0];
+  const stopRoi = ids.at(-1) + 1;
+  if (stopRoi > arr.shape[1]) throw new Error(`ROI ${stopRoi - 1} is outside plane "${plane}"`);
+  const chunk = await zarr.get(arr, [null, zarr.slice(startRoi, stopRoi)]);
+  if (signal?.aborted) throw new Error('aborted');
+  return {
+    roiIds: ids,
+    startRoi,
+    data: Float32Array.from(chunk.data, Number),
+    nFrames: chunk.shape[0],
+    nColumns: chunk.shape[1],
+  };
 }
 
 /** Parse "Structure: VISp Depth: 152" → { structure:'VISp', depthUm:152 }. */

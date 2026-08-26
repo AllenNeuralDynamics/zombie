@@ -6,9 +6,9 @@
  * dashboard plots into six small parquet tables. This module is the only place
  * that knows their URLs.
  *
- * Every table except the session catalog is partitioned by `asset_name`, and the
- * page always knows which asset it is showing, so each read targets one explicit
- * parquet URL. That deliberately avoids DuckDB-WASM's inability to glob
+ * SWDB session tables are partitioned by `asset_name`; Visual Learning lookup
+ * tables are partitioned by `subject_id`. The page always knows the relevant
+ * key, so each read targets one explicit parquet URL. That deliberately avoids DuckDB-WASM's inability to glob
  * virtual-hosted HTTPS URLs (the workaround `fib_traces` and `ecephys_spikes`
  * need), and parquet column pruning keeps the wide tables cheap: plotting pupil
  * area fetches two columns out of nineteen, not the whole file.
@@ -32,6 +32,8 @@ export const SWDB_TABLES = {
   events: 'platform_swdb_events',
   eye: 'platform_swdb_eye',
   running: 'platform_swdb_running',
+  visualLearningCellGene: 'platform_visual_learning_cell_gene',
+  visualLearningCoreg: 'platform_visual_learning_coreg',
 };
 
 /** Registry prefix for the published SWDB metadata datasets. */
@@ -51,6 +53,20 @@ export function sessionsUrl() {
 /** URL of one asset's partition of a partitioned SWDB table. */
 export function partitionUrl(table, assetName) {
   return `${_base()}/${table}/asset_name=${assetName}/data.pqt`;
+}
+
+/** Assert a subject id is safe to use as a cache partition key. */
+export function assertSubjectId(subjectId) {
+  if (!/^\d+$/.test(String(subjectId ?? ''))) {
+    throw new Error(`Invalid SWDB subject id: ${subjectId}`);
+  }
+  return String(subjectId);
+}
+
+/** URL of one subject's Visual Learning lookup-table partition. */
+export function subjectPartitionUrl(table, subjectId) {
+  const safeSubjectId = assertSubjectId(subjectId);
+  return `${_base()}/${table}/subject_id=${safeSubjectId}/data.pqt`;
 }
 
 function sqlStr(s) {
@@ -131,6 +147,18 @@ export function assertAssetName(assetName) {
 
 async function _readPartition(coord, table, assetName, { columns = '*', where = null, orderBy = null } = {}) {
   const url = partitionUrl(table, assertAssetName(assetName));
+  const sql = [
+    `SELECT ${columns} FROM read_parquet(${sqlStr(url)})`,
+    where ? `WHERE ${where}` : '',
+    orderBy ? `ORDER BY ${orderBy}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return queryRows(coord, sql);
+}
+
+async function _readSubjectPartition(coord, table, subjectId, { columns = '*', where = null, orderBy = null } = {}) {
+  const url = subjectPartitionUrl(table, subjectId);
   const sql = [
     `SELECT ${columns} FROM read_parquet(${sqlStr(url)})`,
     where ? `WHERE ${where}` : '',
@@ -462,6 +490,38 @@ export async function resolveVisualLearningPlaybackSource(coord, sourceNames, { 
   );
   if (signal?.aborted) throw new Error('aborted');
   return rows.find((row) => row.data_level !== 'derived') ?? rows[0] ?? null;
+}
+
+/**
+ * Load transcriptomic labels for one Visual Learning subject.
+ *
+ * Expression counts remain available in the cache for future analyses, but
+ * this viewer only requests the annotation columns needed to group traces.
+ */
+export async function loadVisualLearningCellTypes(coord, subjectId) {
+  return _readSubjectPartition(
+    coord,
+    SWDB_TABLES.visualLearningCellGene,
+    subjectId,
+    {
+      columns: 'cell_id, cell_class, cell_subclass, cell_type, cluster_id',
+      orderBy: 'cell_id',
+    },
+  );
+}
+
+/** Load imaging ROI-to-HCR registration rows for one Visual Learning session key. */
+export async function loadVisualLearningCoreg(coord, subjectId, sessionKey) {
+  return _readSubjectPartition(
+    coord,
+    SWDB_TABLES.visualLearningCoreg,
+    subjectId,
+    {
+      columns: 'session_name, plane_id, roi_id, hcr_id',
+      where: `session_key = ${sqlStr(sessionKey)} AND roi_id >= 0 AND hcr_id >= 0`,
+      orderBy: 'plane_id, roi_id',
+    },
+  );
 }
 
 /**
