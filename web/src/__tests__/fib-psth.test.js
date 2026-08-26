@@ -8,6 +8,7 @@ import {
   PSTH_GRID,
   PSTH_PRE,
   PSTH_POST,
+  buildPsthEventValues,
 } from '../fiber_photometry/fib-playback.js';
 
 function findAt(series, t) {
@@ -190,5 +191,18 @@ describe('computePsthSeries — event-triggered averaging', () => {
     const { allMean } = computePsthSeries(rows, 0.2);
     expect(findAt(allMean, -0.1).mean).toBeCloseTo(0, 6);
     expect(findAt(allMean, 1).mean).toBeCloseTo(3, 6);
+  });
+});
+
+describe('buildPsthEventValues', () => {
+  it('converts relative behavior events to hardware-clock SQL values', () => {
+    const values = buildPsthEventValues({
+      occurrences: [{ id: 7, t: 0.5 }, { id: 8, t: 2 }],
+    }, 100);
+    expect(values).toEqual(['(0, 100.5)', '(1, 102)']);
+  });
+
+  it('keeps session-relative events relative when no hardware origin exists', () => {
+    expect(buildPsthEventValues({ occurrences: [{ t: 3 }] })).toEqual(['(0, 3)']);
   });
 });

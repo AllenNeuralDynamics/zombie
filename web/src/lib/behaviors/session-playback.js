@@ -239,7 +239,13 @@ export function createSessionPlayback(event, context = {}) {
     modalityMounts.push(ephysMount);
     import('../../ecephys/ecephys-playback.js')
       .then(({ createEcephysPlayback }) => {
-        const ephysEl = createEcephysPlayback(coord, String(subjectId), rawAssetName, sonifierBridge);
+        const ephysEl = createEcephysPlayback(
+          coord,
+          String(subjectId),
+          rawAssetName,
+          sonifierBridge,
+          platform,
+        );
         if (hasPlayer) {
           const hr = document.createElement('hr');
           hr.className = 'session-playback-sep';
@@ -272,7 +278,9 @@ export function createSessionPlayback(event, context = {}) {
     modalityMounts.push(fiberMount);
     import('../../fiber_photometry/fib-playback.js')
       .then(({ createFibPlayback }) => {
-        const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName);
+        const fiberEl = createFibPlayback(coord, String(subjectId), rawAssetName, {
+          behaviorPlatform: platform,
+        });
         // Separate additional modalities (fiber, …) from the behavior player
         // above with a horizontal rule.
         if (hasPlayer || canEcephys) {

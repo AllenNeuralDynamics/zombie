@@ -65,6 +65,67 @@ const TIMESTAMP_KEYS = new Set([
   'odor_onset_time_s',
 ]);
 
+const VRF_EVENT_SPECS = [
+  { key: 'trial_start', label: 'Trial start', column: 'start_time' },
+  { key: 'odor_onset', label: 'Odor onset', column: 'odor_onset_time' },
+  { key: 'choice_cue', label: 'Choice cue', column: 'choice_cue_time' },
+  { key: 'reward_onset', label: 'Reward onset', column: 'reward_onset_time' },
+  { key: 'trial_stop', label: 'Trial stop', column: 'stop_time' },
+];
+
+function finite(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function assertAssetName(assetName) {
+  const value = String(assetName ?? '');
+  if (!/^[A-Za-z0-9_.:-]+$/.test(value)) {
+    throw new Error('Invalid VR-foraging asset name');
+  }
+  return value;
+}
+
+/**
+ * Normalize the VR trial timestamp arrays to the shared event-timing shape.
+ * `referenceTime` is the Harp timestamp corresponding to relative t=0.
+ */
+export function buildVrfEventTiming(columns) {
+  const starts = Array.from(columns?.start_time ?? [], finite).filter((v) => v != null);
+  const referenceTime = starts[0] ?? null;
+  const streams = VRF_EVENT_SPECS.map(({ key, label, column }) => {
+    const occurrences = [];
+    const values = columns?.[column] ?? [];
+    for (let i = 0; i < values.length; i++) {
+      const absolute = finite(values[i]);
+      if (absolute == null || referenceTime == null) continue;
+      occurrences.push({ id: i, t: absolute - referenceTime });
+    }
+    occurrences.sort((a, b) => a.t - b.t || a.id - b.id);
+    return { key, label, times: occurrences.map((event) => event.t), occurrences };
+  }).filter((stream) => stream.occurrences.length > 0);
+
+  return { source: 'vr_foraging', referenceTime, streams };
+}
+
+/**
+ * Load only the small VR trial timestamp arrays needed by event-aligned
+ * consumers. The full session loader remains responsible for playback traces.
+ */
+export async function loadVrfEventTiming(assetName, { signal } = {}) {
+  const baseUrl = `${S3_BASE}/${assertAssetName(assetName)}/behavior.nwb.zarr`;
+  const root = zarr.root(new zarr.FetchStore(baseUrl));
+  const entries = await Promise.all(
+    VRF_EVENT_SPECS.map(async ({ column }) => {
+      const arr = await zarr.open(root.resolve(`intervals/trials/${column}`), { kind: 'array' });
+      const chunk = await zarr.get(arr);
+      return [column, chunk.data];
+    }),
+  );
+  if (signal?.aborted) throw new Error('aborted');
+  return buildVrfEventTiming(Object.fromEntries(entries));
+}
+
 // ---------------------------------------------------------------------------
 // Public entry
 // ---------------------------------------------------------------------------
@@ -79,7 +140,7 @@ const TIMESTAMP_KEYS = new Set([
  * @returns {Promise<{sites:object[], traces:object}>}
  */
 export async function loadVrfSession(assetName, { signal } = {}) {
-  const baseUrl = `${S3_BASE}/${assetName}/behavior.nwb.zarr`;
+  const baseUrl = `${S3_BASE}/${assertAssetName(assetName)}/behavior.nwb.zarr`;
   const store = new zarr.FetchStore(baseUrl);
   const root = zarr.root(store);
 

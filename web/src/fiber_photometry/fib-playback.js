@@ -10,10 +10,12 @@
  *   subject_id, asset_name, fiber (int), channel (G/Iso/R),
  *   timestamp (hardware-clock seconds), "dff-bright_mc-iso-IRLS" (float32)
  *
- * Timing alignment for PSTH:
- *   session_start_hw = MIN(goCue_start_time_raw) from the trials table
- *   event_hw_time    = session_start_hw + <event>_time_in_session
- *   t_rel            = fiber.timestamp − event_hw_time
+ * Timing alignment for PSTH is supplied by lib/behaviors/event-timing.js:
+ *   event_hw_time = behavior_reference_time + event_time_in_session
+ *   t_rel         = fiber.timestamp − event_hw_time
+ *
+ * The reference/event pair is the same for every behavior source; only the
+ * source adapter knows whether it came from a cache table or behavior NWB.
  */
 
 import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
@@ -23,6 +25,7 @@ import { getResolvedVersion } from '../lib/metadata.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { FIBER_COLORS, fiberColorByName } from '../subject/brain-viz.js';
 import { createBaselineControls, buildPsthPlot as sharedPsthPlot } from '../lib/psth.js';
+import { chooseDefaultEventStream, loadBehaviorEventTiming } from '../lib/behaviors/event-timing.js';
 import * as Plot from '@observablehq/plot';
 
 // ---------------------------------------------------------------------------
@@ -53,20 +56,6 @@ export const PSTH_GRID = makeGrid();
 // the grid edges (matches the aind event_triggered_response "+/- dt" slice and
 // avoids the edge subset-bias artifact).
 const PSTH_EDGE_MARGIN = 0.25;
-
-// Map display label → trials column name. Ordered by within-trial progression.
-const PSTH_EVENTS = {
-  'Trial start':    'bonsai_start_time_in_session',
-  'Delay start':    'delay_start_time_in_session',
-  'Go cue':         'goCue_start_time_in_session',
-  'Choice':         'choice_time_in_session',
-  'Reward':         'reward_time_in_session',
-  'Reward outcome': 'reward_outcome_time_in_session',
-  'Trial stop':     'bonsai_stop_time_in_session',
-};
-
-// Event selected by default when the panel opens.
-const PSTH_DEFAULT_EVENT = 'Go cue';
 
 // Default pre-event baseline window (milliseconds) when baselining is enabled.
 const BASELINE_DEFAULT_MS = 200;
@@ -152,10 +141,6 @@ async function resolveFibDerivedName(coord, rawAssetName) {
   }
 }
 
-function trialsUrl(subjectId) {
-  return `${DATA_CACHE_PREFIX}/${FIB_VERSION()}/platform_dynamic_foraging_trials/subject_id=${esc(subjectId)}/data.pqt`;
-}
-
 function fibMetaUrl() {
   return `${DATA_CACHE_PREFIX}/${FIB_VERSION()}/platform_fib.pqt`;
 }
@@ -197,15 +182,6 @@ async function loadFiberMeta(coord, rawAssetName) {
     if (ch) entry.channels[ch] = r.intended_measurement;
   }
   return map;
-}
-
-/** Extract YYYY-MM-DD from an asset name like "behavior_777021_2025-07-21_…" */
-function sessionDate(rawAssetName) {
-  const parts = rawAssetName.split('_');
-  for (const p of parts) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(p)) return p;
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -312,43 +288,6 @@ async function loadTraces(coord, fibSrc, rawAssetName, fiberIdx, tRef = null) {
   return queryRows(coord, sql);
 }
 
-/** First-goCue hardware time, used as the shared behavior session-time origin. */
-async function loadSessionRef(coord, subjectId, rawAssetName) {
-  const date = sessionDate(rawAssetName);
-  if (!date) return null;
-  const tUrl = trialsUrl(subjectId);
-  try {
-    const rows = await queryRows(coord,
-      `SELECT MIN(goCue_start_time_raw) AS t_ref
-       FROM read_parquet('${tUrl}')
-       WHERE session_date = '${esc(date)}'`
-    );
-    const t = rows[0]?.t_ref;
-    return t == null ? null : Number(t);
-  } catch { return null; }
-}
-
-/**
- * Event times (one per trial) in behavior session-time, i.e. directly the
- * `<event>_in_session` column, for drawing vertical rules over the traces.
- */
-async function loadEventTimes(coord, subjectId, rawAssetName, eventCol) {
-  const tUrl = trialsUrl(subjectId);
-  const date = sessionDate(rawAssetName);
-  if (!date) return [];
-  const safeDate = esc(date);
-
-  const sql = `
-    SELECT CAST(tr.${eventCol} AS FLOAT) AS t
-    FROM read_parquet('${tUrl}') tr
-    WHERE tr.session_date = '${safeDate}'
-      AND tr.${eventCol} IS NOT NULL
-      AND NOT isnan(CAST(tr.${eventCol} AS DOUBLE))
-  `;
-  const rows = await queryRows(coord, sql);
-  return rows.map((r) => r.t);
-}
-
 function buildTracePlot(rows, eventTimes = [], width = 700, opts = {}) {
   const channels = CHANNEL_ORDER.filter((c) => rows.some((r) => r.channel === c));
   const { yDomain = undefined, height = 220, compact = false } = opts;
@@ -418,31 +357,30 @@ function sharedYDomain(rowsByFiber) {
 // PSTH
 // ---------------------------------------------------------------------------
 
-async function loadPsthData(coord, fibSrc, subjectId, rawAssetName, eventCol, fiberIdx, pre = PSTH_PRE, post = PSTH_POST) {
-  const tUrl   = trialsUrl(subjectId);
-  const date   = sessionDate(rawAssetName);
-  if (!date) return null;
+/**
+ * Build the FIB event-alignment query from the shared behavior timing
+ * contract. Event times are session-relative; a source with a hardware clock
+ * supplies `referenceTime` so the query can join directly to fiber timestamps.
+ */
+export function buildPsthEventValues(eventStream, referenceTime = null) {
+  const ref = Number(referenceTime);
+  return (eventStream?.occurrences ?? [])
+    .map((event, index) => {
+      const t = Number(event?.t);
+      if (!Number.isFinite(t)) return null;
+      const absolute = Number.isFinite(ref) ? ref + t : t;
+      return Number.isFinite(absolute) ? `(${index}, ${absolute})` : null;
+    })
+    .filter(Boolean);
+}
 
-  const prefix   = esc(rawAssetName);
-  const safeDate = esc(date);
+async function loadPsthData(coord, fibSrc, rawAssetName, eventStream, referenceTime, fiberIdx, pre = PSTH_PRE, post = PSTH_POST) {
+  const eventValues = buildPsthEventValues(eventStream, referenceTime);
+  if (!eventValues.length) return null;
+  const prefix = esc(rawAssetName);
 
-  // Align fiber timestamps to the trial event time using goCue_start_time_raw
-  // as the hardware-clock session reference:
-  //   event_hw_time = MIN(goCue_start_time_raw) + <eventCol>_in_session
   const sql = `
-    WITH ref AS (
-      SELECT MIN(goCue_start_time_raw) AS t_ref
-      FROM read_parquet('${tUrl}')
-      WHERE session_date = '${safeDate}'
-    ),
-    events AS (
-      SELECT CAST(trial AS INT) AS trial,
-             (SELECT t_ref FROM ref) + tr.${eventCol} AS ev_t
-      FROM read_parquet('${tUrl}') tr
-      WHERE tr.session_date = '${safeDate}'
-        AND tr.${eventCol} IS NOT NULL
-        AND NOT isnan(CAST(tr.${eventCol} AS DOUBLE))
-    ),
+    WITH events(trial, ev_t) AS (VALUES ${eventValues.join(', ')}),
     fib AS (
       SELECT timestamp, channel, "dff-bright_mc-iso-IRLS" AS v
       FROM read_parquet(${fibSrc})
@@ -636,9 +574,12 @@ function buildPsthCard(series, meta, borderColor, area, yDomain, width, baseline
  * @param {object} coord        - DuckDB coordinator
  * @param {string} subjectId    - Subject ID (numeric string)
  * @param {string} rawAssetName - Raw acquisition asset name (no _processed_ suffix)
+ * @param {object} [opts]
+ * @param {string|null} [opts.behaviorPlatform] - Platform selected for the
+ *   sibling behavior player (used to choose the timing adapter).
  * @returns {HTMLElement}
  */
-export function createFibPlayback(coord, subjectId, rawAssetName) {
+export function createFibPlayback(coord, subjectId, rawAssetName, opts = {}) {
   const section = document.createElement('section');
   section.className = 'fib-playback-section';
   section.innerHTML = '<p class="fib-loading">Checking for fiber data\u2026</p>';
@@ -677,14 +618,10 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     // Fetch the implant surgery in parallel (drives the 3D inset + colours).
     const surgeryPromise = loadSurgery(subjectId);
 
-    const eventOptions = Object.keys(PSTH_EVENTS)
-      .map(e => `<option${e === PSTH_DEFAULT_EVENT ? ' selected' : ''}>${e}</option>`)
-      .join('');
-
     section.innerHTML = `
       <div class="fib-controls">
         <label>Align to
-          <select class="psth-event-sel">${eventOptions}</select>
+          <select class="psth-event-sel" disabled><option>Loading events…</option></select>
         </label>
         <button type="button" class="fib-gear-btn" title="PSTH settings" aria-label="PSTH settings" aria-expanded="false">\u2699</button>
         <div class="fib-settings-popover" hidden>
@@ -796,7 +733,31 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
 
     const fibers    = [...new Set(combos.map(r => r.fiber))].sort((a, b) => a - b);
     const fiberMeta = await loadFiberMeta(coord, rawAssetName);
-    const tRef      = await loadSessionRef(coord, subjectId, rawAssetName);
+    let behaviorTiming = null;
+    try {
+      behaviorTiming = await loadBehaviorEventTiming(coord, {
+        subjectId,
+        rawAssetName,
+        platform: opts.behaviorPlatform,
+      });
+    } catch (err) {
+      console.warn('[fib-playback] behavior event timing unavailable', err);
+    }
+    const eventStreams = behaviorTiming?.streams ?? [];
+    const tRef = behaviorTiming?.referenceTime ?? null;
+    const defaultStream = chooseDefaultEventStream(eventStreams);
+
+    eventSel.innerHTML = '';
+    for (const stream of eventStreams) {
+      const option = document.createElement('option');
+      option.value = stream.key;
+      option.textContent = stream.label;
+      eventSel.appendChild(option);
+    }
+    if (defaultStream) {
+      eventSel.value = defaultStream.key;
+      eventSel.disabled = false;
+    }
 
     const areaFor = (idx) => {
       const info = fiberInfoMap.get(idx);
@@ -822,12 +783,10 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
       traceYDomain = sharedYDomain(traceCache);
     }
 
-    async function refreshTraces(eventCol) {
+    async function refreshTraces(eventStream) {
       try {
         await ensureTraces();
-        const eventTimes = eventCol
-          ? await loadEventTimes(coord, subjectId, rawAssetName, eventCol)
-          : [];
+        const eventTimes = eventStream?.times ?? [];
         const width = cellWidth(tracesEl);
         tracesEl.innerHTML = '';
         let any = false;
@@ -847,20 +806,8 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
       }
     }
 
-    // ---- PSTH: check trial availability ----
-    const date = sessionDate(rawAssetName);
-    let hasTrials = false;
-    if (date) {
-      try {
-        const tUrl = trialsUrl(subjectId);
-        const rows = await queryRows(coord,
-          `SELECT 1 FROM read_parquet('${tUrl}') WHERE session_date = '${esc(date)}' LIMIT 1`
-        );
-        hasTrials = rows.length > 0;
-      } catch { /* no trials parquet */ }
-    }
-
-    if (!hasTrials) {
+    // ---- PSTH: behavior timing is supplied by the shared adapter ----------
+    if (!eventStreams.length) {
       psthEl.innerHTML = '<p class="fib-no-data">No trial data available for PSTH.</p>';
       eventSel.disabled = true;
       baselineControls.setDisabled(true);
@@ -868,14 +815,23 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
       return;
     }
 
-    // Raw PSTH rows cached per event column (baseline is applied at render time).
+    // Raw PSTH rows cached per event stream (baseline is applied at render time).
     const psthRawCache = new Map();
-    async function loadPsthAll(eventCol) {
-      if (psthRawCache.has(eventCol)) return psthRawCache.get(eventCol);
+    async function loadPsthAll(eventStream) {
+      if (psthRawCache.has(eventStream.key)) return psthRawCache.get(eventStream.key);
       const results = await Promise.all(
-        fibers.map(f => loadPsthData(coord, fibSrc, subjectId, rawAssetName, eventCol, f, psthRange.pre, psthRange.post)),
+        fibers.map((f) => loadPsthData(
+          coord,
+          fibSrc,
+          rawAssetName,
+          eventStream,
+          behaviorTiming.referenceTime,
+          f,
+          psthRange.pre,
+          psthRange.post,
+        )),
       );
-      psthRawCache.set(eventCol, results);
+      psthRawCache.set(eventStream.key, results);
       return results;
     }
 
@@ -905,11 +861,11 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
     }
 
     async function refreshPsth() {
-      const eventCol = PSTH_EVENTS[eventSel.value];
-      refreshTraces(eventCol);
+      const eventStream = eventStreams.find((stream) => stream.key === eventSel.value) ?? defaultStream;
+      refreshTraces(eventStream);
       psthEl.innerHTML = '<p class="fib-loading">Loading PSTH\u2026</p>';
       try {
-        const results = await loadPsthAll(eventCol);
+        const results = await loadPsthAll(eventStream);
         renderPsth(results);
       } catch (err) {
         console.error('[fib-playback] psth error', err);
@@ -919,7 +875,7 @@ export function createFibPlayback(coord, subjectId, rawAssetName) {
 
     /** Re-render PSTH from cache when only the baseline changed (no reload). */
     function rerenderBaseline() {
-      const results = psthRawCache.get(PSTH_EVENTS[eventSel.value]);
+      const results = psthRawCache.get(eventSel.value);
       if (results) renderPsth(results);
     }
 

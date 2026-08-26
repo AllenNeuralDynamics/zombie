@@ -1,9 +1,9 @@
-import { DATA_CACHE_PREFIX, S3_BUCKET, S3_REGION } from '../constants.js';
+import { S3_BUCKET, S3_REGION } from '../constants.js';
 import { queryRows } from '../lib/arrow.js';
 import { escHtml } from '../lib/utils.js';
-import { ensureTable } from '../lib/registry.js';
 import { getResolvedVersion } from '../lib/metadata.js';
 import { createBaselineControls, baselineSeries, buildPsthPlot } from '../lib/psth.js';
+import { chooseDefaultEventStream, loadBehaviorEventTiming } from '../lib/behaviors/event-timing.js';
 import * as Plot from '@observablehq/plot';
 import { CLOCK } from './midi-config.js';
 import { createSonifier } from './midi-sonifier.js';
@@ -19,35 +19,7 @@ const PSTH_POST = 4;
 const PSTH_BINS = 120;
 const PSTH_BIN_WIDTH = (PSTH_POST - PSTH_PRE) / PSTH_BINS;
 
-const PSTH_EVENTS = {
-  'Trial start': 'start_time',
-  'Delay start': 'delay_start_time',
-  'Go cue': 'goCue_start_time',
-  'Reward outcome': 'reward_outcome_time',
-  'Trial stop': 'stop_time',
-};
-const PSTH_DEFAULT_EVENT = 'Go cue';
-
-const VR_EVENTS = {
-  'Trial start': 'start_time_s',
-  'Odor onset': 'odor_onset_time_s',
-  'Choice cue': 'choice_cue_time_s',
-  'Reward onset': 'reward_onset_time_s',
-  'Trial stop': 'stop_time_s',
-};
-const VR_DEFAULT_EVENT = 'Odor onset';
-
 function esc(s) { return String(s).replace(/'/g, "''"); }
-
-function sessionDate(rawAssetName) {
-  const m = String(rawAssetName).match(/\d{4}-\d{2}-\d{2}/);
-  return m ? m[0] : null;
-}
-
-function dfTrialsUrl(subjectId) {
-  return `${DATA_CACHE_PREFIX}/${getResolvedVersion()}/platform_dynamic_foraging_trials`
-    + `/subject_id=${esc(subjectId)}/data.pqt`;
-}
 
 const _spikeFileCache = new Map();
 
@@ -157,107 +129,15 @@ async function loadBinsByDepth(coord, spkUrl, unitsUrl, probe) {
   return { bins, lo, hi, dlo, dhi };
 }
 
-async function loadDfEventCounts(coord, subjectId, date) {
-  if (!date) return {};
-  const turl = dfTrialsUrl(subjectId);
-  let rows;
-  try {
-    rows = await queryRows(coord, `
-      SELECT
-        COUNT(start_time) AS "Trial start",
-        COUNT(delay_start_time) AS "Delay start",
-        COUNT(goCue_start_time) AS "Go cue",
-        COUNT(reward_outcome_time) AS "Reward outcome",
-        COUNT(stop_time) AS "Trial stop"
-      FROM read_parquet('${esc(turl)}')
-      WHERE session_date = '${esc(date)}'
-    `);
-  } catch {
-    return {};
-  }
-  const row = rows[0] ?? {};
-  const counts = {};
-  for (const label of Object.keys(PSTH_EVENTS)) {
-    const n = Number(row[label] ?? 0);
-    if (n > 0) counts[label] = n;
-  }
-  return counts;
-}
-
-async function loadAlignedPsth(coord, spkUrl, probe, subjectId, date, eventCol, unitName) {
-  const turl = dfTrialsUrl(subjectId);
+async function loadAlignedPsth(coord, spkUrl, probe, eventTimes, unitName) {
+  if (!eventTimes?.length) return [];
   const unitFilter = unitName ? ` AND unit_name = '${esc(unitName)}'` : '';
-  const rows = await queryRows(coord, `
-    WITH ev AS (
-      SELECT ${eventCol} AS t0
-      FROM read_parquet('${esc(turl)}')
-      WHERE session_date = '${esc(date)}' AND ${eventCol} IS NOT NULL
-    ),
-    sp AS (
-      SELECT spike_time
-      FROM read_parquet('${esc(spkUrl)}')
-      WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL${unitFilter}
-    )
-    SELECT CAST(FLOOR((sp.spike_time - ev.t0 - (${PSTH_PRE})) / ${PSTH_BIN_WIDTH}) AS INT) AS bin,
-           COUNT(*) AS n
-    FROM sp
-    JOIN ev ON sp.spike_time >= ev.t0 + (${PSTH_PRE})
-           AND sp.spike_time < ev.t0 + (${PSTH_POST})
-    GROUP BY bin
-  `);
-  return rows.map((r) => ({ bin: Number(r.bin), n: Number(r.n) }));
-}
-
-async function resolveVrfDerived(coord, rawAssetName) {
-  if (!rawAssetName) return null;
-  try {
-    await ensureTable(coord, 'source_data');
-    const safe = esc(rawAssetName);
-    const rows = await queryRows(coord, `
-      SELECT sd.name
-      FROM source_data sd
-      JOIN asset_basics ab ON ab.name = sd.name
-      WHERE ('; ' || replace(sd.source_data, ', ', '; ') || ';') LIKE '%; ${safe};%'
-        AND ab.acquisition_type = 'AindVrForaging'
-        AND ab.data_level = 'derived'
-        AND list_contains(ab.modalities, 'behavior')
-      ORDER BY ab.acquisition_start_time DESC
-      LIMIT 1
-    `);
-    return rows[0]?.name ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function loadVrEvents(coord, rawAssetName) {
-  const derived = await resolveVrfDerived(coord, rawAssetName);
-  if (!derived) return {};
-  let session;
-  try {
-    const { loadVrfSession } = await import('../vr_foraging/nwb-loader.js');
-    session = await loadVrfSession(derived);
-  } catch (err) {
-    console.error('[ecephys-playback] VRF load error', err);
-    return {};
-  }
-  const sites = session?.sites ?? [];
-  const events = {};
-  for (const [label, col] of Object.entries(VR_EVENTS)) {
-    const times = [];
-    for (const s of sites) {
-      const v = s[col];
-      if (v != null && Number.isFinite(v)) times.push(Number(v));
-    }
-    if (times.length) events[label] = times;
-  }
-  return events;
-}
-
-async function loadVrAlignedPsth(coord, spkUrl, probe, eventTimes, unitName) {
-  if (!eventTimes.length) return [];
-  const unitFilter = unitName ? ` AND unit_name = '${esc(unitName)}'` : '';
-  const values = eventTimes.map((t) => `(${Number(t)})`).join(', ');
+  const values = eventTimes
+    .map((time) => Number(time))
+    .filter((time) => Number.isFinite(time))
+    .map((time) => `(${time})`)
+    .join(', ');
+  if (!values) return [];
   const rows = await queryRows(coord, `
     WITH ev(t0) AS (VALUES ${values}),
     sp AS (
@@ -583,7 +463,13 @@ function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }
   };
 }
 
-export function createEcephysPlayback(coord, subjectId, rawAssetName, sonifierBridge = null) {
+export function createEcephysPlayback(
+  coord,
+  subjectId,
+  rawAssetName,
+  sonifierBridge = null,
+  behaviorPlatform = null,
+) {
   const section = document.createElement('section');
   section.className = 'ecephys-playback-section';
   section.innerHTML = '<p class="ecephys-loading">Checking for ecephys data\u2026</p>';
@@ -610,19 +496,19 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName, sonifierBr
       hasUnits = true;
     } catch { hasUnits = false; }
 
-    const date = sessionDate(rawAssetName);
-    const dfCounts = await loadDfEventCounts(coord, subjectId, date);
-    const dfEventLabels = Object.keys(PSTH_EVENTS).filter((l) => dfCounts[l] > 0);
-    const isDf = dfEventLabels.length > 0;
-
-    let vrEvents = {};
-    if (!isDf) vrEvents = await loadVrEvents(coord, rawAssetName);
-    const vrEventLabels = Object.keys(VR_EVENTS).filter((l) => (vrEvents[l]?.length ?? 0) > 0);
-    const isVr = !isDf && vrEventLabels.length > 0;
-
-    const eventLabels = isDf ? dfEventLabels : vrEventLabels;
-    const defaultEvent = isDf ? PSTH_DEFAULT_EVENT : VR_DEFAULT_EVENT;
-    const hasEvents = isDf || isVr;
+    let behaviorTiming = null;
+    try {
+      behaviorTiming = await loadBehaviorEventTiming(coord, {
+        subjectId,
+        rawAssetName,
+        platform: behaviorPlatform,
+      });
+    } catch (err) {
+      console.warn('[ecephys-playback] behavior event timing unavailable', err);
+    }
+    const eventStreams = behaviorTiming?.streams ?? [];
+    const defaultStream = chooseDefaultEventStream(eventStreams);
+    const hasEvents = eventStreams.length > 0;
 
     const probeOptions = probes
       .map((p) => `<option value="${esc(p.device_name)}">${esc(p.device_name)} `
@@ -632,8 +518,8 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName, sonifierBr
     const eventControl = hasEvents
       ? `<label>Align to
            <select class="ecephys-event-sel">${
-             eventLabels
-               .map((l) => `<option${l === defaultEvent ? ' selected' : ''}>${esc(l)}</option>`)
+             eventStreams
+               .map((stream) => `<option value="${esc(stream.key)}"${stream === defaultStream ? ' selected' : ''}>${esc(stream.label)}</option>`)
                .join('')
            }</select>
          </label>`
@@ -839,20 +725,15 @@ export function createEcephysPlayback(coord, subjectId, rawAssetName, sonifierBr
       const yLabel = unit ? 'Firing rate (Hz)' : 'Firing rate (Hz/unit)';
       const g = gen;
 
-      if (isDf || isVr) {
-        const label = eventSel.value;
+      if (hasEvents) {
+        const stream = eventStreams.find((candidate) => candidate.key === eventSel.value) ?? defaultStream;
+        const label = stream?.label ?? 'event';
         const divisor = unit ? 1 : nUnitsFor(probe);
         let bins;
         let nTrials;
         try {
-          if (isDf) {
-            nTrials = dfCounts[label] ?? 0;
-            bins = await loadAlignedPsth(coord, url, probe, subjectId, date, PSTH_EVENTS[label], unit);
-          } else {
-            const times = vrEvents[label] ?? [];
-            nTrials = times.length;
-            bins = await loadVrAlignedPsth(coord, url, probe, times, unit);
-          }
+          nTrials = stream?.occurrences?.length ?? 0;
+          bins = await loadAlignedPsth(coord, url, probe, stream?.times ?? [], unit);
         } catch (err) {
           console.error('[ecephys-playback] psth query error', err);
           if (g === gen) psthEl.innerHTML = '<p class="ecephys-no-data">Error loading PSTH.</p>';

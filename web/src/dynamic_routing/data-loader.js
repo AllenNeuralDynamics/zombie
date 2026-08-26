@@ -123,6 +123,7 @@ export async function loadDrSession(coord, { sessionId, signal } = {}) {
 
   return {
     sessionId,
+    sessionClockStart: t0,
     trials,
     blocks,
     stims,
