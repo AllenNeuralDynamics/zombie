@@ -107,3 +107,51 @@ describe('live session control', () => {
     await expect(apiWith(fetchImpl).steerJob('agent-1', 'x')).rejects.toMatchObject({ status: 409 });
   });
 });
+
+describe('job listing', () => {
+  it('asks only for the caller\'s active agent jobs', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    await apiWith(fetchImpl).jobs({ kind: 'agent', active: true });
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://portal/verification/jobs?kind=agent&active=true');
+  });
+
+  it('omits absent filters from the query string', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    await apiWith(fetchImpl).jobs();
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://portal/verification/jobs');
+  });
+
+  it('sends credentials so the session cookie scopes the list', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    await apiWith(fetchImpl).jobs({ kind: 'agent' });
+    expect(fetchImpl.mock.calls[0][1].credentials).toBe('include');
+  });
+
+  it('returns the job records', async () => {
+    const records = [{ job_id: 'agent-1', state: 'running' }];
+    const fetchImpl = vi.fn(async () => jsonResponse(records));
+    await expect(apiWith(fetchImpl).jobs({ active: true })).resolves.toEqual(records);
+  });
+});
+
+describe('credential scoping', () => {
+  it('still omits credentials on anonymous reads', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ nodes: [], edges: [] }));
+    const api = apiWith(fetchImpl);
+    await api.graph();
+    await api.job('agent-1');
+    for (const call of fetchImpl.mock.calls) {
+      expect(call[1].credentials).toBe('omit');
+    }
+  });
+
+  it('sends credentials on every write', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({}));
+    const api = apiWith(fetchImpl);
+    await api.cancelJob('agent-1');
+    await api.steerJob('agent-1', 'x');
+    for (const call of fetchImpl.mock.calls) {
+      expect(call[1].credentials).toBe('include');
+    }
+  });
+});

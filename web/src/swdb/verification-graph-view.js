@@ -44,7 +44,7 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
     filters: { verifiedOnly: false, status: '', query: '' },
     selectedId: new URLSearchParams(window.location.search).get('node'),
     user: null,
-    agentJobId: null,
+    agentJobId: new URLSearchParams(window.location.search).get('job'),
     agentTimer: null,
   };
 
@@ -68,10 +68,7 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
 
   function selectNode(nodeId) {
     state.selectedId = nodeId;
-    const params = new URLSearchParams(window.location.search);
-    if (nodeId) params.set('node', nodeId);
-    else params.delete('node');
-    window.history.replaceState({}, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`);
+    setUrlParam('node', nodeId);
     render();
     if (nodeId) renderDrawer(drawer, nodeId, api, state, () => refresh());
     else drawer.innerHTML = '<p class="vg-placeholder">Select a node to see the evidence behind it.</p>';
@@ -422,6 +419,14 @@ function pollJob(api, jobId, statusEl, onMutate) {
 // Agent panel
 // ---------------------------------------------------------------------------
 
+/** Set or clear one query-string parameter without disturbing the others. */
+function setUrlParam(key, value) {
+  const params = new URLSearchParams(window.location.search);
+  if (value) params.set(key, value);
+  else params.delete(key);
+  window.history.replaceState({}, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`);
+}
+
 function buildAgentPanel(state, api, onMutate) {
   const element = document.createElement('section');
   element.className = 'vg-agent';
@@ -473,10 +478,7 @@ function buildAgentPanel(state, api, onMutate) {
       status.textContent = 'Queueing…';
       try {
         const job = await api.createAgentJob(text);
-        state.agentJobId = job.job_id;
-        status.textContent = `Job ${job.job_id} queued.`;
-        setRunning(true);
-        pollAgentJob(api, state, status, transcript, onMutate, setRunning);
+        attach(job.job_id, `Job ${job.job_id} queued.`);
       } catch (error) {
         status.textContent = error.message;
       }
@@ -512,7 +514,39 @@ function buildAgentPanel(state, api, onMutate) {
       if (event.key === 'Enter') sendSteer();
     });
 
+    // Start polling a session and remember it in the URL, so a reload can
+    // pick the same one back up instead of losing the handle.
+    function attach(jobId, message) {
+      state.agentJobId = jobId;
+      setUrlParam('job', jobId);
+      status.textContent = message;
+      setRunning(true);
+      pollAgentJob(api, state, status, transcript, onMutate, setRunning);
+    }
+
+    // A refresh loses only the in-page handle: the session is a detached
+    // worker the server is still tracking. Ask whether one is still going and
+    // reattach to it, so Stop and Steer keep working across a reload.
+    async function reattach() {
+      let running = [];
+      try {
+        running = await api.jobs({ kind: 'agent', active: true });
+      } catch (_) {
+        return;
+      }
+      const fromUrl = running.find((job) => job.job_id === state.agentJobId);
+      const job = fromUrl ?? running[0];
+      if (!job) {
+        // Nothing running: drop a stale ?job= so a later reload stays clean.
+        state.agentJobId = null;
+        setUrlParam('job', null);
+        return;
+      }
+      attach(job.job_id, `Reattached to ${job.job_id} (${job.state}).`);
+    }
+
     setRunning(false);
+    reattach();
   }
 
   return {
@@ -543,6 +577,7 @@ function pollAgentJob(api, state, statusEl, transcriptEl, onMutate, setRunning) 
     }
     window.clearInterval(state.agentTimer);
     setRunning?.(false);
+    setUrlParam('job', null);
     if (job.state === 'failed') {
       statusEl.textContent = `Job failed: ${job.error ?? ''}`;
       return;

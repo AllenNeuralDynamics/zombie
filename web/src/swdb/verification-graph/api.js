@@ -6,9 +6,10 @@
  * wildcard `Access-Control-Allow-Origin` on a credentialed request, so asking
  * for the cookie would break cross-origin reads for no benefit.
  *
- * Writes carry the ORCID session cookie via `credentials: 'include'`, which
- * only works same-origin — in production that is the `/metadata-viz` nginx
- * proxy, in dev the portal host directly (where writes will fail CORS unless
+ * Writes, and the one authenticated read (`jobs`, which is scoped to the
+ * logged-in user), carry the ORCID session cookie via `credentials: 'include'`.
+ * That only works same-origin — in production that is the `/metadata-viz` nginx
+ * proxy, in dev the portal host directly (where they will fail CORS unless
  * the page is served from an `*.allenneuraldynamics.org` host).
  *
  * `fetchImpl` is injectable so the tests never touch the network.
@@ -39,9 +40,11 @@ export class VerificationApiError extends Error {
 export function createVerificationApi({ baseUrl = VERIFICATION_API_BASE, fetchImpl = null } = {}) {
   const doFetch = fetchImpl ?? ((...args) => fetch(...args));
 
-  async function request(path, { method = 'GET', body, raw = false, signal } = {}) {
-    // Only writes need the session cookie; see the module comment.
-    const credentials = method === 'GET' ? 'omit' : 'include';
+  async function request(path, { method = 'GET', body, raw = false, signal, authed = false } = {}) {
+    // Writes always need the session cookie, and so does an authenticated
+    // read; anonymous reads must omit it or wildcard CORS rejects them. See
+    // the module comment.
+    const credentials = authed || method !== 'GET' ? 'include' : 'omit';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
@@ -133,6 +136,15 @@ export function createVerificationApi({ baseUrl = VERIFICATION_API_BASE, fetchIm
     /** Poll one job's status. */
     job(jobId, { signal } = {}) {
       return request(`/jobs/${encodeURIComponent(jobId)}`, { signal });
+    },
+
+    /** List the caller's jobs. `active` keeps only ones still queued or running. */
+    jobs({ kind, active, signal } = {}) {
+      const params = new URLSearchParams();
+      if (kind) params.set('kind', kind);
+      if (active) params.set('active', 'true');
+      const query = params.toString();
+      return request(`/jobs${query ? `?${query}` : ''}`, { signal, authed: true });
     },
 
     /** Stop a running agent session. Work already in its outbox is still kept. */
