@@ -440,5 +440,8 @@
 }
 
 .vg-agent-transcript {
-  max-height: 14rem;
+  /* A steerable transcript needs room: tool calls and their results are
+     interleaved, so a short window scrolls past the useful part. */
+  max-height: 22rem;
+  line-height: 1.45;
 }
