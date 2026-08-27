@@ -439,15 +439,35 @@ function buildAgentPanel(state, api, onMutate) {
   function renderLoggedIn() {
     body.innerHTML = `
       <textarea class="vg-agent-input" rows="3" placeholder="e.g. Verify that 30% of CA3 units respond to vis1"></textarea>
-      <button type="button" class="vg-agent-send">Author nodes</button>
+      <div class="vg-agent-actions">
+        <button type="button" class="vg-agent-send">Author nodes</button>
+        <button type="button" class="vg-agent-stop" hidden>Stop</button>
+      </div>
+      <div class="vg-agent-steer" hidden>
+        <input type="text" class="vg-agent-steer-input" placeholder="Steer the running session…" aria-label="Steer the running session" />
+        <button type="button" class="vg-agent-steer-send">Send</button>
+      </div>
       <p class="vg-agent-status"></p>
       <pre class="vg-agent-transcript"></pre>`;
 
     const input = body.querySelector('.vg-agent-input');
     const status = body.querySelector('.vg-agent-status');
     const transcript = body.querySelector('.vg-agent-transcript');
+    const send = body.querySelector('.vg-agent-send');
+    const stop = body.querySelector('.vg-agent-stop');
+    const steer = body.querySelector('.vg-agent-steer');
+    const steerInput = body.querySelector('.vg-agent-steer-input');
 
-    body.querySelector('.vg-agent-send').addEventListener('click', async () => {
+    // The stop and steer controls only exist while a session is actually
+    // running; the backend rejects both once it has finished.
+    function setRunning(running) {
+      send.disabled = running;
+      stop.hidden = !running;
+      steer.hidden = !running;
+      if (!running) steerInput.value = '';
+    }
+
+    send.addEventListener('click', async () => {
       const text = input.value.trim();
       if (!text) return;
       status.textContent = 'Queueing…';
@@ -455,11 +475,44 @@ function buildAgentPanel(state, api, onMutate) {
         const job = await api.createAgentJob(text);
         state.agentJobId = job.job_id;
         status.textContent = `Job ${job.job_id} queued.`;
-        pollAgentJob(api, state, status, transcript, onMutate);
+        setRunning(true);
+        pollAgentJob(api, state, status, transcript, onMutate, setRunning);
       } catch (error) {
         status.textContent = error.message;
       }
     });
+
+    stop.addEventListener('click', async () => {
+      if (!state.agentJobId) return;
+      stop.disabled = true;
+      try {
+        await api.cancelJob(state.agentJobId);
+        status.textContent = 'Stopping… anything already written is still kept.';
+      } catch (error) {
+        status.textContent = error.message;
+      } finally {
+        stop.disabled = false;
+      }
+    });
+
+    async function sendSteer() {
+      const text = steerInput.value.trim();
+      if (!text || !state.agentJobId) return;
+      steerInput.value = '';
+      try {
+        await api.steerJob(state.agentJobId, text);
+        status.textContent = 'Sent — the session picks it up at its next turn.';
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    body.querySelector('.vg-agent-steer-send').addEventListener('click', sendSteer);
+    steerInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') sendSteer();
+    });
+
+    setRunning(false);
   }
 
   return {
@@ -471,7 +524,7 @@ function buildAgentPanel(state, api, onMutate) {
   };
 }
 
-function pollAgentJob(api, state, statusEl, transcriptEl, onMutate) {
+function pollAgentJob(api, state, statusEl, transcriptEl, onMutate, setRunning) {
   window.clearInterval(state.agentTimer);
   state.agentTimer = window.setInterval(async () => {
     let job;
@@ -480,19 +533,24 @@ function pollAgentJob(api, state, statusEl, transcriptEl, onMutate) {
     } catch (_) {
       return;
     }
+    // While the session runs the server reads the transcript off disk, so this
+    // shows the work as it happens rather than only at the end.
     transcriptEl.textContent = job.result?.transcript ?? job.transcript ?? '';
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
     if (job.state === 'queued' || job.state === 'running') {
-      statusEl.textContent = `Agent ${job.state}…`;
+      statusEl.textContent = job.cancelled ? 'Stopping…' : `Agent ${job.state}…`;
       return;
     }
     window.clearInterval(state.agentTimer);
+    setRunning?.(false);
     if (job.state === 'failed') {
       statusEl.textContent = `Job failed: ${job.error ?? ''}`;
       return;
     }
     const accepted = job.result?.accepted ?? [];
     const rejected = job.result?.rejected ?? [];
-    statusEl.textContent = `${accepted.length} node(s) proposed${rejected.length ? `, ${rejected.length} rejected` : ''}.`;
+    const stopped = job.result?.cancelled ? 'Stopped. ' : '';
+    statusEl.textContent = `${stopped}${accepted.length} node(s) proposed${rejected.length ? `, ${rejected.length} rejected` : ''}.`;
     onMutate();
   }, AGENT_POLL_MS);
 }

@@ -82,3 +82,28 @@ describe('createVerificationApi', () => {
     expect(error.status).toBe(0);
   });
 });
+
+describe('live session control', () => {
+  it('posts a cancel for a running job', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ cancelled: true, signalled: true }));
+    const result = await apiWith(fetchImpl).cancelJob('agent-1');
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe('http://portal/verification/jobs/agent-1/cancel');
+    expect(options.method).toBe('POST');
+    expect(options.credentials).toBe('include');
+    expect(result.signalled).toBe(true);
+  });
+
+  it('posts a steering message in the body', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ queued: true }));
+    await apiWith(fetchImpl).steerJob('agent-1', 'focus on CA3');
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe('http://portal/verification/jobs/agent-1/steer');
+    expect(JSON.parse(options.body)).toEqual({ message: 'focus on CA3' });
+  });
+
+  it('surfaces a 409 when the job is no longer running', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: 'not running' }, { ok: false, status: 409 }));
+    await expect(apiWith(fetchImpl).steerJob('agent-1', 'x')).rejects.toMatchObject({ status: 409 });
+  });
+});

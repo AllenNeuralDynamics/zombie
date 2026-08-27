@@ -134,5 +134,15 @@ export function createVerificationApi({ baseUrl = VERIFICATION_API_BASE, fetchIm
     job(jobId, { signal } = {}) {
       return request(`/jobs/${encodeURIComponent(jobId)}`, { signal });
     },
+
+    /** Stop a running agent session. Work already in its outbox is still kept. */
+    cancelJob(jobId) {
+      return request(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' });
+    },
+
+    /** Send a live instruction to a running session; applied at its next turn. */
+    steerJob(jobId, message) {
+      return request(`/jobs/${encodeURIComponent(jobId)}/steer`, { method: 'POST', body: { message } });
+    },
   };
 }

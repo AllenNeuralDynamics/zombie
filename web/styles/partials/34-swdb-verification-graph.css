@@ -407,3 +407,38 @@
 }
 
 .vg-agent-transcript:empty { display: none; }
+
+/* ---- Agent live controls ------------------------------------------------ */
+
+.vg-agent-actions,
+.vg-agent-steer {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.vg-agent-steer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: var(--surface-input);
+  color: var(--text-primary);
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+  font: inherit;
+}
+
+.vg-agent-stop {
+  border-color: var(--vg-status-failed);
+  color: var(--vg-status-failed);
+}
+
+.vg-agent button[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vg-agent-transcript {
+  max-height: 14rem;
+}
