@@ -75,4 +75,34 @@ describe('createVerificationApi', () => {
     expect(error).toBeInstanceOf(VerificationApiError);
     expect(error.status).toBe(0);
   });
+
+  it('lists jobs anonymously with no filters by default', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    await apiWith(fetchImpl).jobs();
+    const [url, options] = fetchImpl.mock.calls[0];
+    expect(url).toBe('http://portal/verification/jobs');
+    expect(options.credentials).toBe('omit');
+  });
+
+  it('forwards the jobs state and limit filters as query params', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse([]));
+    await apiWith(fetchImpl).jobs({ state: 'running', limit: 50 });
+    expect(fetchImpl.mock.calls[0][0]).toBe('http://portal/verification/jobs?state=running&limit=50');
+  });
+
+  it('posts a batch verify with explicit node ids', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ queued: [], skipped: [] }));
+    await apiWith(fetchImpl).verifyBatch({ nodeIds: ['stmt-a', 'stmt-b'] });
+    const [, options] = fetchImpl.mock.calls[0];
+    expect(options.method).toBe('POST');
+    expect(options.credentials).toBe('include');
+    expect(JSON.parse(options.body)).toEqual({ axis: 'reproducible', node_ids: ['stmt-a', 'stmt-b'] });
+  });
+
+  it('posts a batch verify targeting every eligible node by status, when node ids are omitted', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ queued: [], skipped: [] }));
+    await apiWith(fetchImpl).verifyBatch({ status: 'proposed', axis: 'reproducible' });
+    const [, options] = fetchImpl.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual({ axis: 'reproducible', status: 'proposed' });
+  });
 });

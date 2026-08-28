@@ -402,3 +402,103 @@
 .vg-actions button:hover { border-color: var(--accent); }
 
 .vg-action-status { color: var(--text-muted); font-size: 0.78rem; margin: 0.4rem 0 0; }
+
+/* ---- Jobs panel ---------------------------------------------------------- */
+
+.vg-jobs-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.vg-jobs-header h2 { font-size: 0.95rem; margin: 0; }
+
+.vg-jobs-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.vg-jobs-actions button,
+.vg-jobs-state {
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vg-jobs-actions button:hover { border-color: var(--accent); }
+.vg-jobs-actions button:disabled { opacity: 0.5; cursor: default; }
+
+.vg-jobs-status { color: var(--text-muted); font-size: 0.8rem; }
+
+.vg-jobs-table-wrap {
+  overflow-x: auto;
+  max-height: 20rem;
+  overflow-y: auto;
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  margin-top: 0.6rem;
+}
+
+.vg-jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.vg-jobs-table th,
+.vg-jobs-table td {
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--surface-border);
+  white-space: nowrap;
+}
+
+.vg-jobs-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+}
+
+.vg-jobs-result {
+  white-space: normal;
+  max-width: 26rem;
+  color: var(--text-muted);
+}
+
+.vg-jobs-node-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.vg-jobs-badge {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.vg-jobs-badge--queued  { color: var(--text-muted); }
+.vg-jobs-badge--running { border-color: var(--vg-status-stale);    color: var(--vg-status-stale); }
+.vg-jobs-badge--done    { border-color: var(--vg-status-verified); color: var(--vg-status-verified); }
+.vg-jobs-badge--failed  { border-color: var(--vg-status-failed);   color: var(--vg-status-failed); }

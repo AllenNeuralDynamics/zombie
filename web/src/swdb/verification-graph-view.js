@@ -62,7 +62,12 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
   layout.className = 'vg-layout';
   layout.append(graphEl, drawer);
 
-  root.append(toolbar.element, layout);
+  const jobsPanel = buildJobsPanel(api, state, {
+    onSelectNode: (nodeId) => selectNode(nodeId),
+    onGraphChange: () => refresh(),
+  });
+
+  root.append(toolbar.element, layout, jobsPanel.element);
 
   let mountGraph = null;
 
@@ -200,6 +205,135 @@ function buildToolbar(state, onChange, onAuthChange) {
         .join(' · ') || 'No statements yet';
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Jobs panel
+// ---------------------------------------------------------------------------
+
+/** One line of plain-language result summary for a job row. */
+function jobResultText(job) {
+  if (job.state === 'failed') return job.error ?? 'failed';
+  if (job.state === 'done' && job.result) {
+    if (job.result.passed === true) return 'passed';
+    if (job.result.passed === false) return `did not pass${job.result.note ? `: ${job.result.note}` : ''}`;
+    return job.result.note ?? '';
+  }
+  return '';
+}
+
+function jobRowMarkup(job) {
+  const nodeId = job.node_id ?? '';
+  return `
+    <tr class="vg-jobs-row vg-jobs-row--${escHtml(job.state)}">
+      <td><button type="button" class="vg-jobs-node-link" data-node-id="${escHtml(nodeId)}">${escHtml(nodeId)}</button></td>
+      <td>${escHtml(job.axis ?? '')}</td>
+      <td><span class="vg-jobs-badge vg-jobs-badge--${escHtml(job.state)}">${escHtml(job.state)}</span></td>
+      <td class="vg-jobs-result">${escHtml(jobResultText(job))}</td>
+      <td>${escHtml(job.created ?? '')}</td>
+      <td>${escHtml(job.finished ?? '')}</td>
+    </tr>`;
+}
+
+/**
+ * Build the bottom-of-page jobs panel: live status of every recent
+ * verification run, plus bulk actions to queue many at once.
+ *
+ * The per-job detail here is deliberately shallow (state, pass/fail, one
+ * error line) so a run of thousands is still scannable at a glance; the
+ * "Node" link jumps to that node's drawer for the full log and run history,
+ * which already exists there (see `wireRuns`).
+ */
+function buildJobsPanel(api, state, { onSelectNode, onGraphChange }) {
+  const element = document.createElement('section');
+  element.className = 'vg-jobs';
+  element.innerHTML = `
+    <header class="vg-jobs-header">
+      <h2>Verification jobs</h2>
+      <div class="vg-jobs-actions">
+        <button type="button" class="vg-verify-all">Verify all</button>
+        <button type="button" class="vg-verify-filtered">Verify filtered</button>
+        <select class="vg-jobs-state" aria-label="Filter jobs by state">
+          <option value="">All states</option>
+          <option value="queued">Queued</option>
+          <option value="running">Running</option>
+          <option value="done">Done</option>
+          <option value="failed">Failed</option>
+        </select>
+        <span class="vg-jobs-status"></span>
+      </div>
+    </header>
+    <div class="vg-jobs-table-wrap">
+      <table class="vg-jobs-table">
+        <thead>
+          <tr><th>Node</th><th>Axis</th><th>State</th><th>Result</th><th>Queued</th><th>Finished</th></tr>
+        </thead>
+        <tbody><tr><td colspan="6" class="vg-placeholder">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  `;
+
+  const statusEl = element.querySelector('.vg-jobs-status');
+  const stateFilter = element.querySelector('.vg-jobs-state');
+  const tbody = element.querySelector('tbody');
+  const verifyAllBtn = element.querySelector('.vg-verify-all');
+  const verifyFilteredBtn = element.querySelector('.vg-verify-filtered');
+
+  async function refreshJobs() {
+    let jobs;
+    try {
+      jobs = await api.jobs({ state: stateFilter.value || undefined, limit: 100 });
+    } catch (error) {
+      tbody.innerHTML = `<tr><td colspan="6" class="vg-error">Could not load jobs: ${escHtml(error.message)}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = jobs.length
+      ? jobs.map(jobRowMarkup).join('')
+      : '<tr><td colspan="6" class="vg-placeholder">No jobs yet.</td></tr>';
+    tbody.querySelectorAll('.vg-jobs-node-link').forEach((button) => {
+      button.addEventListener('click', () => onSelectNode?.(button.dataset.nodeId));
+    });
+    // A job that just finished may have changed a node's status - keep the
+    // graph's own badges honest rather than only the jobs table below it.
+    onGraphChange?.();
+  }
+
+  async function runBatch(button, request, describeTarget) {
+    if (!state.user) {
+      statusEl.textContent = 'Log in with ORCID to run verifications.';
+      return;
+    }
+    button.disabled = true;
+    statusEl.textContent = `Queuing ${describeTarget}…`;
+    try {
+      const result = await api.verifyBatch(request);
+      statusEl.textContent = `${result.queued.length} job(s) queued, ${result.skipped.length} skipped.`;
+      await refreshJobs();
+    } catch (error) {
+      statusEl.textContent = error.message;
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  stateFilter.addEventListener('change', refreshJobs);
+
+  verifyAllBtn.addEventListener('click', () => runBatch(verifyAllBtn, {}, 'every eligible node'));
+
+  verifyFilteredBtn.addEventListener('click', () => {
+    const filtered = filterSnapshot(state.snapshot, state.filters);
+    const nodeIds = filtered.nodes.filter((node) => node.kind === 'statement').map((node) => node.id);
+    if (!nodeIds.length) {
+      statusEl.textContent = 'No statements match the current filters.';
+      return;
+    }
+    runBatch(verifyFilteredBtn, { nodeIds }, `${nodeIds.length} filtered node(s)`);
+  });
+
+  refreshJobs();
+  const timer = window.setInterval(refreshJobs, JOB_POLL_MS);
+
+  return { element, stop: () => window.clearInterval(timer) };
 }
 
 // ---------------------------------------------------------------------------

@@ -134,5 +134,29 @@ export function createVerificationApi({ baseUrl = VERIFICATION_API_BASE, fetchIm
     job(jobId, { signal } = {}) {
       return request(`/jobs/${encodeURIComponent(jobId)}`, { signal });
     },
+
+    /** List recent verification jobs, newest first, optionally filtered by state. */
+    jobs({ state, limit, signal } = {}) {
+      const params = new URLSearchParams();
+      if (state) params.set('state', state);
+      if (limit) params.set('limit', String(limit));
+      const query = params.toString();
+      return request(`/jobs${query ? `?${query}` : ''}`, { signal });
+    },
+
+    /**
+     * Queue verification runs for many nodes at once.
+     *
+     * Pass `nodeIds` to target exactly those nodes, or omit it (optionally
+     * with `status`) to target every eligible node in the graph. Nodes with
+     * no code sidecar, or already queued/running for this axis, come back
+     * in the response's `skipped` list rather than being queued again.
+     */
+    verifyBatch({ nodeIds, axis = 'reproducible', status } = {}) {
+      const body = { axis };
+      if (nodeIds) body.node_ids = nodeIds;
+      if (status) body.status = status;
+      return request('/verify-batch', { method: 'POST', body });
+    },
   };
 }
