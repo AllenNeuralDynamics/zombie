@@ -279,6 +279,12 @@ function buildJobsPanel(api, state, { onSelectNode, onGraphChange }) {
   const verifyAllBtn = element.querySelector('.vg-verify-all');
   const verifyFilteredBtn = element.querySelector('.vg-verify-filtered');
 
+  // Only nodes whose jobs have actually finished can have a changed status -
+  // remembering which job ids were already terminal on the last poll lets a
+  // 3-second tick that changed nothing skip the graph/drawer refresh, instead
+  // of yanking the user's pan/zoom and any open drawer state every tick.
+  const seenTerminal = new Set();
+
   async function refreshJobs() {
     let jobs;
     try {
@@ -293,9 +299,18 @@ function buildJobsPanel(api, state, { onSelectNode, onGraphChange }) {
     tbody.querySelectorAll('.vg-jobs-node-link').forEach((button) => {
       button.addEventListener('click', () => onSelectNode?.(button.dataset.nodeId));
     });
+
+    let newlyFinished = false;
+    for (const job of jobs) {
+      if (job.state !== 'done' && job.state !== 'failed') continue;
+      if (seenTerminal.has(job.job_id)) continue;
+      seenTerminal.add(job.job_id);
+      newlyFinished = true;
+    }
     // A job that just finished may have changed a node's status - keep the
-    // graph's own badges honest rather than only the jobs table below it.
-    onGraphChange?.();
+    // graph's own badges honest, but only disturb the graph/drawer when that
+    // is actually true, not on every idle poll.
+    if (newlyFinished) onGraphChange?.();
   }
 
   async function runBatch(button, request, describeTarget) {
