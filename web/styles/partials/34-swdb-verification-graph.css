@@ -63,6 +63,30 @@
   font-size: 0.85rem;
 }
 
+.vg-toolbar-auth {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
+.vg-toolbar-user {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.vg-toolbar-auth button {
+  background: var(--surface-raised);
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.vg-toolbar-auth button:hover { border-color: var(--accent); }
+
 /* ---- Layout ------------------------------------------------------------- */
 
 .vg-layout {

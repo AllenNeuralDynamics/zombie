@@ -5,15 +5,19 @@
  * to the evidence, code and lower-level statements behind it, and where the
  * record is always explicit about which kinds of verification it has passed.
  *
- * The shell is vanilla DOM: toolbar, graph container, detail drawer, agent
- * panel. Only the graph itself is React (React Flow), lazy-imported through
+ * The shell is vanilla DOM: toolbar, graph container, detail drawer. Only the
+ * graph itself is React (React Flow), lazy-imported through
  * `verification-graph/mount.js` so React stays out of the default bundle.
+ *
+ * Nodes are authored by an agent running on the client's own machine (see the
+ * verification-graph skill), not from a panel on this page - this view is
+ * read/verify/approve only.
  *
  * Selection round-trips through `?node=` so a statement is linkable.
  */
 
 import { escHtml } from '../lib/utils.js';
-import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
+import { getCurrentUser, loginWithOrcid, logout } from '../lib/auth.js';
 import { createVerificationApi } from './verification-graph/api.js';
 import {
   AXES,
@@ -22,7 +26,8 @@ import {
   STATUS_LABEL,
   filterSnapshot,
   indexSnapshot,
-  statusCounts, chooseJobToShow } from './verification-graph/model.js';
+  statusCounts,
+} from './verification-graph/model.js';
 
 const JOB_POLL_MS = 3_000;
 
@@ -43,11 +48,9 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
     filters: { verifiedOnly: false, status: '', query: '' },
     selectedId: new URLSearchParams(window.location.search).get('node'),
     user: null,
-    agentJobId: new URLSearchParams(window.location.search).get('job'),
-    agentTimer: null,
   };
 
-  const toolbar = buildToolbar(state, () => render());
+  const toolbar = buildToolbar(state, () => render(), () => refreshDrawer());
   const graphEl = document.createElement('div');
   graphEl.className = 'vg-graph';
   graphEl.innerHTML = '<p class="vg-placeholder">Loading the graph…</p>';
@@ -55,13 +58,11 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
   const drawer = document.createElement('aside');
   drawer.className = 'vg-drawer';
 
-  const agentPanel = buildAgentPanel(state, api, () => refresh());
-
   const layout = document.createElement('div');
   layout.className = 'vg-layout';
   layout.append(graphEl, drawer);
 
-  root.append(toolbar.element, layout, agentPanel.element);
+  root.append(toolbar.element, layout);
 
   let mountGraph = null;
 
@@ -78,6 +79,11 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
     drawer.dataset.axis = axis;
   }
 
+  /** Re-render the open drawer's action buttons after the login state changes. */
+  function refreshDrawer() {
+    if (state.selectedId) renderDrawer(drawer, state.selectedId, api, state, () => refresh());
+  }
+
   async function render() {
     if (!state.snapshot) return;
     toolbar.update(state.snapshot);
@@ -85,7 +91,7 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
     if (filtered.nodes.length === 0) {
       graphEl.innerHTML = state.snapshot.nodes?.length
         ? '<p class="vg-placeholder">Nothing matches these filters.</p>'
-        : '<p class="vg-placeholder">The graph is empty. Ask the agent below for a claim to author the first nodes.</p>';
+        : '<p class="vg-placeholder">The graph is empty. Author the first nodes with a local agent (see the verification-graph skill).</p>';
       return;
     }
     if (!mountGraph) {
@@ -114,7 +120,8 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
 
   getCurrentUser().then((user) => {
     state.user = user;
-    agentPanel.update(user);
+    toolbar.updateUser(user);
+    refreshDrawer();
   });
 
   refresh();
@@ -125,7 +132,7 @@ export function createVerificationGraphView(coord, metadata, { api = createVerif
 // Toolbar
 // ---------------------------------------------------------------------------
 
-function buildToolbar(state, onChange) {
+function buildToolbar(state, onChange, onAuthChange) {
   const element = document.createElement('section');
   element.className = 'vg-toolbar';
   element.innerHTML = `
@@ -139,6 +146,7 @@ function buildToolbar(state, onChange) {
         <option value="failed">Failed</option>
       </select>
       <label class="vg-toggle"><input type="checkbox" class="vg-verified-only" /> Verified only</label>
+      <div class="vg-toolbar-auth"></div>
     </div>
     <p class="vg-counts"></p>
   `;
@@ -147,6 +155,7 @@ function buildToolbar(state, onChange) {
   const status = element.querySelector('.vg-status');
   const verifiedOnly = element.querySelector('.vg-verified-only');
   const counts = element.querySelector('.vg-counts');
+  const auth = element.querySelector('.vg-toolbar-auth');
 
   search.addEventListener('input', () => {
     state.filters.query = search.value;
@@ -162,8 +171,27 @@ function buildToolbar(state, onChange) {
     onChange();
   });
 
+  function renderAuth(user) {
+    if (!user) {
+      auth.innerHTML = '<button type="button" class="vg-login">Log in with ORCID</button>';
+      auth.querySelector('.vg-login').addEventListener('click', () => loginWithOrcid());
+      return;
+    }
+    auth.innerHTML = `
+      <span class="vg-toolbar-user">${escHtml(user.name || user.orcid)}</span>
+      <button type="button" class="vg-logout">Log out</button>`;
+    auth.querySelector('.vg-logout').addEventListener('click', () => {
+      logout(() => {
+        state.user = null;
+        renderAuth(null);
+        onAuthChange?.();
+      });
+    });
+  }
+
   return {
     element,
+    updateUser: renderAuth,
     update(snapshot) {
       const tally = statusCounts(snapshot);
       counts.textContent = Object.entries(tally)

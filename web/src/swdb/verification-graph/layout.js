@@ -1,12 +1,12 @@
 /**
  * verification-graph/layout.js — dagre layout for the verification graph.
  *
- * The graph is laid out **bottom-up by derivation depth**: entities and
- * relations and the statements resting directly on them sit at the bottom,
- * and each claim built on top of them sits one rank higher. That is the whole
- * visual argument of the page — verified foundations under the claims that
- * depend on them — so the layout is driven by `depth` from the snapshot, not
- * by dagre's own ranking of the mixed edge set.
+ * The graph is laid out **left-to-right by derivation depth**: entities and
+ * relations and the statements resting directly on them sit on the left, and
+ * each claim built on top of them sits one rank further right. That is the
+ * whole visual argument of the page — verified foundations behind the claims
+ * that depend on them — so the layout is driven by `depth` from the
+ * snapshot, not by dagre's own ranking of the mixed edge set.
  */
 
 import dagre from 'dagre';
@@ -29,14 +29,14 @@ export function sizeOf(node) {
 /**
  * Position every node, returning `Map<id, {x, y}>` of top-left corners.
  *
- * `depends_on` edges point from a claim down to its evidence, so they are fed
- * to dagre reversed (evidence → claim) with `rankdir: 'BT'`; the structural
- * triple edges are fed as-is so a statement sits above its own subject,
- * relation and object.
+ * `depends_on` edges point from a claim back to its evidence, so they are fed
+ * to dagre reversed (evidence → claim) with `rankdir: 'LR'`; the structural
+ * triple edges are fed as-is so a statement sits to the right of its own
+ * subject, relation and object.
  */
 export function computeLayout(snapshot) {
   const graph = new dagre.graphlib.Graph();
-  graph.setGraph({ rankdir: 'BT', nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 24, marginy: 24 });
+  graph.setGraph({ rankdir: 'LR', nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 24, marginy: 24 });
   graph.setDefaultEdgeLabel(() => ({}));
 
   const ids = new Set();
@@ -48,7 +48,7 @@ export function computeLayout(snapshot) {
 
   for (const edge of snapshot?.edges ?? []) {
     if (!ids.has(edge.source) || !ids.has(edge.target)) continue;
-    // Both edge families run evidence → claim, so dagre ranks foundations low.
+    // Both edge families run evidence → claim, so dagre ranks foundations left.
     graph.setEdge(edge.target, edge.source);
   }
 

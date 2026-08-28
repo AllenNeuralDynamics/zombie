@@ -36,7 +36,7 @@ export function StatementNode({ data }) {
       className={`vg-node vg-node--statement${selected ? ' is-selected' : ''}`}
       style={{ '--vg-node-status': statusVar(status) }}
     >
-      <Handle type="target" position={Position.Bottom} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} isConnectable={false} />
       <header className="vg-node-header">
         <span className="vg-node-status" title={`status: ${status}`} />
         <div className="vg-ticks">
@@ -49,7 +49,7 @@ export function StatementNode({ data }) {
       {downgraded ? (
         <p className="vg-node-note">{status} via a dependency</p>
       ) : null}
-      <Handle type="source" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} isConnectable={false} />
     </div>
   );
 }
@@ -59,10 +59,10 @@ export function EntityNode({ data }) {
   const { node, selected } = data;
   return (
     <div className={`vg-node vg-node--entity${selected ? ' is-selected' : ''}`}>
-      <Handle type="target" position={Position.Bottom} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} isConnectable={false} />
       <span className="vg-node-type">{node.entity_type}</span>
       <span className="vg-node-label">{node.label || node.id}</span>
-      <Handle type="source" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} isConnectable={false} />
     </div>
   );
 }
@@ -72,9 +72,9 @@ export function RelationNode({ data }) {
   const { node, selected } = data;
   return (
     <div className={`vg-node vg-node--relation${selected ? ' is-selected' : ''}`}>
-      <Handle type="target" position={Position.Bottom} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="target" position={Position.Left} style={HANDLE_STYLE} isConnectable={false} />
       <span className="vg-node-label">{node.label || node.id}</span>
-      <Handle type="source" position={Position.Top} style={HANDLE_STYLE} isConnectable={false} />
+      <Handle type="source" position={Position.Right} style={HANDLE_STYLE} isConnectable={false} />
     </div>
   );
 }

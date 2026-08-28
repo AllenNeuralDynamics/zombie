@@ -44,7 +44,7 @@ function Viewer({ snapshot, selectedId, onSelect, onSelectAxis }) {
     () =>
       (snapshot?.edges ?? []).map((edge) => ({
         id: edge.id,
-        // Drawn evidence → claim, matching the bottom-up layout.
+        // Drawn evidence → claim, matching the left-to-right layout.
         source: edge.target,
         target: edge.source,
         type: 'smoothstep',

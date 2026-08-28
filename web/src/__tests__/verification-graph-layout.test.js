@@ -1,8 +1,9 @@
 /**
  * verification-graph-layout.test.js — dagre layout for the verification graph.
  *
- * The page's whole visual argument is that verified foundations sit *under*
- * the claims built on them, so these assert the vertical ordering directly.
+ * The page's whole visual argument is that verified foundations sit *to the
+ * left of* the claims built on them, so these assert the horizontal ordering
+ * directly.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -49,16 +50,16 @@ describe('computeLayout', () => {
     }
   });
 
-  it('places a derived claim above the statement it depends on', () => {
+  it('places a derived claim to the right of the statement it depends on', () => {
     const positions = computeLayout(snapshot);
-    expect(positions.get('stmt-high').y).toBeLessThan(positions.get('stmt-low').y);
+    expect(positions.get('stmt-high').x).toBeGreaterThan(positions.get('stmt-low').x);
   });
 
-  it('places a statement above its own subject, relation and object', () => {
+  it('places a statement to the right of its own subject, relation and object', () => {
     const positions = computeLayout(snapshot);
-    const low = positions.get('stmt-low').y;
+    const low = positions.get('stmt-low').x;
     for (const id of ['ent-unit', 'rel-r', 'ent-stim']) {
-      expect(low).toBeLessThan(positions.get(id).y);
+      expect(low).toBeGreaterThan(positions.get(id).x);
     }
   });
 
