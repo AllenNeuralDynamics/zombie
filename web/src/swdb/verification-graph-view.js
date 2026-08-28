@@ -22,10 +22,9 @@ import {
   STATUS_LABEL,
   filterSnapshot,
   indexSnapshot,
-  statusCounts,
-} from './verification-graph/model.js';
+  statusCounts, chooseJobToShow } from './verification-graph/model.js';
 
-const AGENT_POLL_MS = 3_000;
+const JOB_POLL_MS = 3_000;
 
 /**
  * Build the verification graph page.
@@ -412,11 +411,11 @@ function pollJob(api, jobId, statusEl, onMutate) {
       ? `${job.result?.passed ? 'Passed' : 'Failed'}: ${job.result?.note ?? ''}`
       : `Job failed: ${job.error ?? ''}`;
     onMutate();
-  }, AGENT_POLL_MS);
+  }, JOB_POLL_MS);
 }
 
 // ---------------------------------------------------------------------------
-// Agent panel
+// Helpers
 // ---------------------------------------------------------------------------
 
 /** Set or clear one query-string parameter without disturbing the others. */
@@ -427,165 +426,3 @@ function setUrlParam(key, value) {
   window.history.replaceState({}, '', `${window.location.pathname}${params.toString() ? `?${params}` : ''}`);
 }
 
-function buildAgentPanel(state, api, onMutate) {
-  const element = document.createElement('section');
-  element.className = 'vg-agent';
-  element.innerHTML = `
-    <h2>Ask for a new statement</h2>
-    <div class="vg-agent-body"></div>
-  `;
-  const body = element.querySelector('.vg-agent-body');
-
-  function renderLoggedOut() {
-    body.innerHTML = '<p class="vg-placeholder">Log in with ORCID to ask the agent to author nodes.</p><button type="button" class="vg-login">Log in</button>';
-    body.querySelector('.vg-login').addEventListener('click', () => loginWithOrcid());
-  }
-
-  function renderLoggedIn() {
-    body.innerHTML = `
-      <textarea class="vg-agent-input" rows="3" placeholder="e.g. Verify that 30% of CA3 units respond to vis1"></textarea>
-      <div class="vg-agent-actions">
-        <button type="button" class="vg-agent-send">Author nodes</button>
-        <button type="button" class="vg-agent-stop" hidden>Stop</button>
-      </div>
-      <div class="vg-agent-steer" hidden>
-        <input type="text" class="vg-agent-steer-input" placeholder="Steer the running session…" aria-label="Steer the running session" />
-        <button type="button" class="vg-agent-steer-send">Send</button>
-      </div>
-      <p class="vg-agent-status"></p>
-      <pre class="vg-agent-transcript"></pre>`;
-
-    const input = body.querySelector('.vg-agent-input');
-    const status = body.querySelector('.vg-agent-status');
-    const transcript = body.querySelector('.vg-agent-transcript');
-    const send = body.querySelector('.vg-agent-send');
-    const stop = body.querySelector('.vg-agent-stop');
-    const steer = body.querySelector('.vg-agent-steer');
-    const steerInput = body.querySelector('.vg-agent-steer-input');
-
-    // The stop and steer controls only exist while a session is actually
-    // running; the backend rejects both once it has finished.
-    function setRunning(running) {
-      send.disabled = running;
-      stop.hidden = !running;
-      steer.hidden = !running;
-      if (!running) steerInput.value = '';
-    }
-
-    send.addEventListener('click', async () => {
-      const text = input.value.trim();
-      if (!text) return;
-      status.textContent = 'Queueing…';
-      try {
-        const job = await api.createAgentJob(text);
-        attach(job.job_id, `Job ${job.job_id} queued.`);
-      } catch (error) {
-        status.textContent = error.message;
-      }
-    });
-
-    stop.addEventListener('click', async () => {
-      if (!state.agentJobId) return;
-      stop.disabled = true;
-      try {
-        await api.cancelJob(state.agentJobId);
-        status.textContent = 'Stopping… anything already written is still kept.';
-      } catch (error) {
-        status.textContent = error.message;
-      } finally {
-        stop.disabled = false;
-      }
-    });
-
-    async function sendSteer() {
-      const text = steerInput.value.trim();
-      if (!text || !state.agentJobId) return;
-      steerInput.value = '';
-      try {
-        await api.steerJob(state.agentJobId, text);
-        status.textContent = 'Sent — the session picks it up at its next turn.';
-      } catch (error) {
-        status.textContent = error.message;
-      }
-    }
-
-    body.querySelector('.vg-agent-steer-send').addEventListener('click', sendSteer);
-    steerInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') sendSteer();
-    });
-
-    // Start polling a session and remember it in the URL, so a reload can
-    // pick the same one back up instead of losing the handle.
-    function attach(jobId, message) {
-      state.agentJobId = jobId;
-      setUrlParam('job', jobId);
-      status.textContent = message;
-      setRunning(true);
-      pollAgentJob(api, state, status, transcript, onMutate, setRunning);
-    }
-
-    // A refresh loses only the in-page handle: the session is a detached
-    // worker the server is still tracking. Ask whether one is still going and
-    // reattach to it, so Stop and Steer keep working across a reload.
-    async function reattach() {
-      let running = [];
-      try {
-        running = await api.jobs({ kind: 'agent', active: true });
-      } catch (_) {
-        return;
-      }
-      const fromUrl = running.find((job) => job.job_id === state.agentJobId);
-      const job = fromUrl ?? running[0];
-      if (!job) {
-        // Nothing running: drop a stale ?job= so a later reload stays clean.
-        state.agentJobId = null;
-        setUrlParam('job', null);
-        return;
-      }
-      attach(job.job_id, `Reattached to ${job.job_id} (${job.state}).`);
-    }
-
-    setRunning(false);
-    reattach();
-  }
-
-  return {
-    element,
-    update(user) {
-      if (user) renderLoggedIn();
-      else renderLoggedOut();
-    },
-  };
-}
-
-function pollAgentJob(api, state, statusEl, transcriptEl, onMutate, setRunning) {
-  window.clearInterval(state.agentTimer);
-  state.agentTimer = window.setInterval(async () => {
-    let job;
-    try {
-      job = await api.job(state.agentJobId);
-    } catch (_) {
-      return;
-    }
-    // While the session runs the server reads the transcript off disk, so this
-    // shows the work as it happens rather than only at the end.
-    transcriptEl.textContent = job.result?.transcript ?? job.transcript ?? '';
-    transcriptEl.scrollTop = transcriptEl.scrollHeight;
-    if (job.state === 'queued' || job.state === 'running') {
-      statusEl.textContent = job.cancelled ? 'Stopping…' : `Agent ${job.state}…`;
-      return;
-    }
-    window.clearInterval(state.agentTimer);
-    setRunning?.(false);
-    setUrlParam('job', null);
-    if (job.state === 'failed') {
-      statusEl.textContent = `Job failed: ${job.error ?? ''}`;
-      return;
-    }
-    const accepted = job.result?.accepted ?? [];
-    const rejected = job.result?.rejected ?? [];
-    const stopped = job.result?.cancelled ? 'Stopped. ' : '';
-    statusEl.textContent = `${stopped}${accepted.length} node(s) proposed${rejected.length ? `, ${rejected.length} rejected` : ''}.`;
-    onMutate();
-  }, AGENT_POLL_MS);
-}

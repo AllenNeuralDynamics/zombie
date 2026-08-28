@@ -267,8 +267,7 @@
 .vg-warn-inline { color: var(--vg-status-stale); }
 
 .vg-json,
-.vg-source,
-.vg-agent-transcript {
+.vg-source {
   background: var(--surface-raised);
   border-radius: 4px;
   padding: 0.5rem;
@@ -366,8 +365,7 @@
   margin-top: 0.9rem;
 }
 
-.vg-actions button,
-.vg-agent button {
+.vg-actions button {
   background: var(--surface-raised);
   border: 1px solid var(--surface-border);
   border-radius: 4px;
@@ -377,71 +375,6 @@
   cursor: pointer;
 }
 
-.vg-actions button:hover,
-.vg-agent button:hover { border-color: var(--accent); }
+.vg-actions button:hover { border-color: var(--accent); }
 
-.vg-action-status,
-.vg-agent-status { color: var(--text-muted); font-size: 0.78rem; margin: 0.4rem 0 0; }
-
-/* ---- Agent panel -------------------------------------------------------- */
-
-.vg-agent {
-  border: 1px solid var(--surface-border);
-  border-radius: 6px;
-  background: var(--surface-card);
-  padding: 0.85rem;
-}
-
-.vg-agent h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
-
-.vg-agent-input {
-  width: 100%;
-  box-sizing: border-box;
-  background: var(--surface-input);
-  color: var(--text-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: 4px;
-  padding: 0.4rem;
-  font: inherit;
-  margin-bottom: 0.5rem;
-}
-
-.vg-agent-transcript:empty { display: none; }
-
-/* ---- Agent live controls ------------------------------------------------ */
-
-.vg-agent-actions,
-.vg-agent-steer {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  margin-bottom: 0.4rem;
-}
-
-.vg-agent-steer-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  background: var(--surface-input);
-  color: var(--text-primary);
-  border: 1px solid var(--surface-border);
-  border-radius: 4px;
-  padding: 0.3rem 0.5rem;
-  font: inherit;
-}
-
-.vg-agent-stop {
-  border-color: var(--vg-status-failed);
-  color: var(--vg-status-failed);
-}
-
-.vg-agent button[disabled] {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.vg-agent-transcript {
-  /* A steerable transcript needs room: tool calls and their results are
-     interleaved, so a short window scrolls past the useful part. */
-  max-height: 22rem;
-  line-height: 1.45;
-}
+.vg-action-status { color: var(--text-muted); font-size: 0.78rem; margin: 0.4rem 0 0; }
