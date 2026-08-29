@@ -120,6 +120,14 @@ export function createVerificationApi({ baseUrl = VERIFICATION_API_BASE, fetchIm
       return request(`/nodes/${encodeURIComponent(nodeId)}/runs`, { signal });
     },
 
+    /** Fetch one run's full stdout/stderr log, by the `stamp` from `runs()`. */
+    runLog(nodeId, stamp, { signal } = {}) {
+      return request(
+        `/nodes/${encodeURIComponent(nodeId)}/runs/${encodeURIComponent(stamp)}/log`,
+        { raw: true, signal },
+      );
+    },
+
     /** Queue a verification run for one axis of a node. */
     verify(nodeId, axis) {
       return request(`/nodes/${encodeURIComponent(nodeId)}/verify`, { method: 'POST', body: { axis } });

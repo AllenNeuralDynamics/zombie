@@ -5,6 +5,14 @@
  * view. This wrapper only resolves the raw acquisition behind a processed
  * Visual Learning asset, exposes a dataset-level session picker, and forwards
  * the task event plot's time window to the cell-activity view.
+ *
+ * The per-cell-subclass activity row shown below Running inside the event
+ * plot is driven from outside: the ROI dF/F reads already happen in
+ * visual-learning-activity.js (it needs them for the cell-type heatmap), so
+ * this module just forwards whatever series it's handed to the player via
+ * `setSubclassActivity` rather than re-reading NWB traces itself. That call
+ * commonly arrives before the player has finished loading behavior data, so
+ * it's buffered here and re-applied once a player exists.
  */
 
 import { resolveVisualLearningPlaybackSource, loadVisualLearningProgression } from './data.js';
@@ -50,6 +58,7 @@ export function createVisualLearningTaskPlayback(
   let sourceMap = {};
   let controller = null;
   let currentPlayer = null;
+  let pendingSubclassActivity = null;
 
   function disposePlayer() {
     currentPlayer?._dispose?.();
@@ -67,6 +76,7 @@ export function createVisualLearningTaskPlayback(
     controller?.abort();
     controller = new AbortController();
     disposePlayer();
+    pendingSubclassActivity = null;
     mount.replaceChildren();
     const status = document.createElement('div');
     status.className = 'swdb-panel-status';
@@ -93,6 +103,7 @@ export function createVisualLearningTaskPlayback(
       });
       currentPlayer = player;
       mount.replaceChildren(player);
+      if (pendingSubclassActivity) player.setSubclassActivity(pendingSubclassActivity);
     } catch (error) {
       if (controller.signal.aborted) return;
       status.textContent = 'Could not load task playback: ' + error.message;
@@ -128,6 +139,11 @@ export function createVisualLearningTaskPlayback(
       }
     },
     select,
+    /** Forward the per-subclass activity series to the event plot's extra row. */
+    setSubclassActivity(series) {
+      pendingSubclassActivity = series;
+      currentPlayer?.setSubclassActivity(series);
+    },
     dispose() {
       controller?.abort();
       disposePlayer();

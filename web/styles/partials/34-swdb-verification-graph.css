@@ -377,7 +377,19 @@
 
 .vg-run-list li.is-pass .vg-run-axis { color: var(--vg-status-verified); }
 .vg-run-list li.is-fail .vg-run-axis { color: var(--vg-status-failed); }
-.vg-run-note, .vg-run-log { grid-column: 1 / -1; color: var(--text-muted); word-break: break-all; }
+.vg-run-note, .vg-run-log, .vg-run-log-btn { grid-column: 1 / -1; }
+.vg-run-note, .vg-run-log { color: var(--text-muted); word-break: break-all; }
+
+.vg-run-log-btn {
+  justify-self: start;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
 
 .vg-history { color: var(--text-muted); font-size: 0.72rem; }
 

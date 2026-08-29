@@ -493,18 +493,28 @@ export async function resolveVisualLearningPlaybackSource(coord, sourceNames, { 
 }
 
 /**
- * Load transcriptomic labels for one Visual Learning subject.
- *
- * Expression counts remain available in the cache for future analyses, but
- * this viewer only requests the annotation columns needed to group traces.
+ * HCR gene-probe channel columns in `platform_visual_learning_cell_gene`, in
+ * the order the cache writes them. Column names carry hyphens (e.g.
+ * `R1-488-GFP`) so they must be quoted in SQL and accessed with bracket
+ * notation on result rows.
  */
+export const VISUAL_LEARNING_GENE_COLUMNS = [
+  'R1-488-GFP', 'R1-561-Slc17a7', 'R2-488-Ndnf', 'R2-514-Hpse', 'R2-561-Pthlh',
+  'R2-594-Chat', 'R2-638-Tac1', 'R3-488-Calb1', 'R3-514-Mme', 'R3-561-Crh',
+  'R3-594-Reln', 'R3-638-Tac2', 'R4-488-Lamp5', 'R4-514-Calb2', 'R4-561-Pdyn',
+  'R4-594-Penk', 'R4-638-Gad2', 'R5-488-Npy', 'R5-514-Pvalb', 'R5-561-Cck',
+  'R5-594-Sst', 'R5-638-Vip',
+];
+
+/** Load transcriptomic labels and per-gene HCR expression counts for one Visual Learning subject. */
 export async function loadVisualLearningCellTypes(coord, subjectId) {
+  const geneColumns = VISUAL_LEARNING_GENE_COLUMNS.map((name) => `"${name}"`).join(', ');
   return _readSubjectPartition(
     coord,
     SWDB_TABLES.visualLearningCellGene,
     subjectId,
     {
-      columns: 'cell_id, cell_class, cell_subclass, cell_type, cluster_id',
+      columns: `cell_id, cell_class, cell_subclass, cell_type, cluster_id, total_counts, n_genes, ${geneColumns}`,
       orderBy: 'cell_id',
     },
   );

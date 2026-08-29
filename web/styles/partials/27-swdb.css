@@ -275,17 +275,37 @@
   font: inherit;
 }
 
+.swdb-visual-learning-activity-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.swdb-visual-learning-activity-column {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
 .swdb-visual-learning-activity-heatmap,
+.swdb-visual-learning-activity-gene,
 .swdb-visual-learning-activity-psth {
   overflow-x: auto;
 }
 
-.swdb-visual-learning-activity-heatmap {
+.swdb-visual-learning-activity-heatmap,
+.swdb-visual-learning-activity-gene {
   min-height: 5rem;
   border: 1px solid var(--surface-border);
   border-radius: 8px;
   background: var(--surface-card);
   overflow: hidden;
+}
+
+.swdb-visual-learning-activity-subheading {
+  margin: 0.8rem 0 0.45rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .swdb-visual-learning-activity-chart {

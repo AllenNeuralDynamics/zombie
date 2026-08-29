@@ -52,6 +52,15 @@ describe('createVerificationApi', () => {
     expect(fetchImpl.mock.calls[0][0]).toContain('code?path=analysis.py');
   });
 
+  it('fetches one run log as raw text, keyed by stamp', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, text: async () => '--- analysis ---\nboom' }));
+    const log = await apiWith(fetchImpl).runLog('stmt-a', '2026-08-28T21-13-57.285942Z');
+    expect(log).toContain('boom');
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      'http://portal/verification/nodes/stmt-a/runs/2026-08-28T21-13-57.285942Z/log',
+    );
+  });
+
   it('posts a verify request with the axis in the body', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ job_id: 'verify-1' }));
     const job = await apiWith(fetchImpl).verify('stmt-a', 'reproducible');

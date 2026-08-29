@@ -57,10 +57,16 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
   const ctrl = new AbortController();
   let activeAnim = null;
   let activePlot = null;
+  let pendingSubclassActivity = null;
   root._dispose = () => {
     ctrl.abort();
     activeAnim?.dispose?.();
     activePlot?.dispose?.();
+  };
+  /** Add/replace the per-cell-subclass activity row once the event plot exists. */
+  root.setSubclassActivity = (series) => {
+    pendingSubclassActivity = series;
+    activePlot?.setSubclassActivity?.(series);
   };
 
   (async () => {
@@ -102,6 +108,7 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
       });
       const plot = createMfishEventPlot(data, {
         onDomainChange: opts.onTimeDomainChange,
+        subclassActivity: pendingSubclassActivity,
       });
       activeAnim = anim;
       activePlot = plot;

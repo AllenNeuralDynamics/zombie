@@ -36,6 +36,7 @@ describe('Visual Learning task playback', () => {
       player.rawName = rawName;
       player.options = opts;
       player._dispose = vi.fn();
+      player.setSubclassActivity = vi.fn();
       return player;
     });
   });
@@ -60,5 +61,37 @@ describe('Visual Learning task playback', () => {
     expect(onTimeDomainChange).toHaveBeenCalledWith([12, 34], session);
     player.options.onTimeChange(20);
     expect(onTimeChange).toHaveBeenCalledWith(20, session);
+  });
+
+  it('forwards a subclass activity series to the player once it exists', async () => {
+    const playback = createVisualLearningTaskPlayback({}, {});
+    document.body.appendChild(playback.element);
+    playback.load([session], { 'processed-asset': ['raw-task'] });
+    await playback.select(session, { notify: false });
+
+    const series = {
+      rows: [{ cell_subclass: 'Pvalb', t: 0, activity: 0.1 }],
+      subclasses: ['Pvalb'],
+      minTime: 0,
+      maxTime: 1,
+    };
+    playback.setSubclassActivity(series);
+
+    const player = playback.element.querySelector('.mock-task-player');
+    expect(player.setSubclassActivity).toHaveBeenCalledWith(series);
+  });
+
+  it('buffers a subclass activity series set before the player is ready', async () => {
+    const playback = createVisualLearningTaskPlayback({}, {});
+    document.body.appendChild(playback.element);
+    playback.load([session], { 'processed-asset': ['raw-task'] });
+
+    const series = { rows: [], subclasses: [], minTime: 0, maxTime: 0 };
+    const selectPromise = playback.select(session, { notify: false });
+    playback.setSubclassActivity(series);
+    await selectPromise;
+
+    const player = playback.element.querySelector('.mock-task-player');
+    expect(player.setSubclassActivity).toHaveBeenCalledWith(series);
   });
 });

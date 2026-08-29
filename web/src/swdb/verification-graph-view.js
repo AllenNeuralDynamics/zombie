@@ -526,14 +526,34 @@ async function wireRuns(drawer, nodeId, api) {
   }
   body.innerHTML = runs.length
     ? `<ul class="vg-run-list">${runs
-        .map((run) => `<li class="${run.passed ? 'is-pass' : 'is-fail'}">
+        .map((run, index) => `<li class="${run.passed ? 'is-pass' : 'is-fail'}">
             <span class="vg-run-axis">${escHtml(run.axis ?? '')}</span>
             <span class="vg-run-when">${escHtml(run.ran_at ?? '')}</span>
             <span class="vg-run-note">${escHtml(run.note ?? '')}</span>
-            <code class="vg-run-log">${escHtml(run.log ?? '')}</code>
+            ${run.stamp
+              ? `<button type="button" class="vg-run-log-btn" data-index="${index}">View full log</button>`
+              : ''}
+            <pre class="vg-run-log vg-source" hidden></pre>
           </li>`)
         .join('')}</ul>`
     : '<p class="vg-placeholder">Never run.</p>';
+
+  body.querySelectorAll('.vg-run-log-btn').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const run = runs[Number(button.dataset.index)];
+      const pre = button.nextElementSibling;
+      pre.hidden = false;
+      pre.textContent = 'Loading…';
+      button.disabled = true;
+      try {
+        pre.textContent = await api.runLog(nodeId, run.stamp);
+      } catch (error) {
+        pre.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function wireActions(drawer, nodeId, api, state, onMutate) {

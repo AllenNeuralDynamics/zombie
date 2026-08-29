@@ -146,6 +146,7 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   if (visualLearning) {
     visualLearningActivity = createVisualLearningActivityView(coord, {
       onSelect: (session) => visualLearningPlayback?.select(session, { notify: false }),
+      onSubclassActivity: (series) => visualLearningPlayback?.setSubclassActivity(series),
     });
     visualLearningPlayback = createVisualLearningTaskPlayback(coord, {
       onSelect: (session) => visualLearningActivity?.select(session, { notify: false }),
