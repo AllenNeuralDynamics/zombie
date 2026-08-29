@@ -28,7 +28,8 @@ const EVENT_STREAMS = [
 const PSTH_PRE = 2;
 const PSTH_POST = 4;
 const PSTH_BINS = 80;
-const ACTIVITY_MARGIN_LEFT = 150;
+// Wide enough for "CellType-1 (n=999)" row labels at the plot's 10px font.
+const ACTIVITY_MARGIN_LEFT = 175;
 // Shared by the activity heatmap and the gene-expression heatmap so their
 // cell-type rows land on the same pixel offsets and read as one aligned pair.
 const ACTIVITY_MARGIN_BOTTOM = 84;
@@ -194,14 +195,20 @@ export function aggregateActivityBySubclassSeries(traces, { sampleHz = 10, maxBi
  * Aggregate per-cell HCR gene-probe counts into a mean-expression-by-cell-type
  * matrix, one row per (cell type, gene) pair.
  *
- * @param {object[]} cellRows - rows from `loadVisualLearningCellTypes`.
- * @returns {{rows: object[], cellTypes: string[], genes: string[]}}
+ * Callers should pass only the cells actually contributing to whatever
+ * physiology view this is being compared against (e.g. the ROI-matched,
+ * successfully-traced cells for the current session) — the returned
+ * `cellCounts` is the per-type "n" and is meant to line up with that
+ * companion view's own cell counts by construction, not by coincidence.
+ *
+ * @param {object[]} cellRows - rows from `loadVisualLearningCellTypes`, pre-filtered by the caller.
+ * @returns {{rows: object[], cellTypes: string[], genes: string[], cellCounts: Map<string, number>}}
  */
 export function aggregateGeneExpressionByCellType(cellRows) {
   const genes = VISUAL_LEARNING_GENE_COLUMNS;
   const cellTypes = [...new Set((cellRows ?? []).map((row) => String(row.cell_type ?? 'unassigned')))]
     .sort((a, b) => a.localeCompare(b));
-  if (!cellTypes.length) return { rows: [], cellTypes: [], genes };
+  if (!cellTypes.length) return { rows: [], cellTypes: [], genes, cellCounts: new Map() };
   const typeIndex = new Map(cellTypes.map((type, index) => [type, index]));
   const sums = cellTypes.map(() => new Float64Array(genes.length));
   const counts = new Uint32Array(cellTypes.length);
@@ -226,7 +233,8 @@ export function aggregateGeneExpressionByCellType(cellRows) {
       });
     });
   });
-  return { rows, cellTypes, genes };
+  const cellCounts = new Map(cellTypes.map((type, index) => [type, counts[index]]));
+  return { rows, cellTypes, genes, cellCounts };
 }
 
 /**
@@ -335,6 +343,7 @@ async function readSessionTraces(session, cellRows, coregRows, series, signal) {
       const column = row.roiId - packed.startRoi;
       if (column < 0 || column >= nColumns) continue;
       traces.push({
+        cellId: row.cellId,
         cellType: row.cellType,
         cellSubclass: row.cellSubclass,
         timestamps,
@@ -354,6 +363,7 @@ function expandPackedTrace(trace) {
     values[index] = trace.values[index * nColumns + trace.valueOffset];
   }
   return {
+    cellId: trace.cellId,
     cellType: trace.cellType,
     cellSubclass: trace.cellSubclass,
     timestamps: trace.timestamps,
@@ -373,7 +383,14 @@ export function normaliseActivityTimeDomain(domain, minTime, maxTime) {
   return stop > start ? [start, stop] : full;
 }
 
-function buildActivityPlot(heatmap, width, timeDomain = null) {
+/** "Exc-1" → "Exc-1 (n=42)" using a shared per-type cell count, so both
+ *  heatmaps' row labels come from the exact same source of truth. */
+function cellTypeTickLabel(type, cellCounts) {
+  const n = cellCounts?.get(type);
+  return n != null ? `${type} (n=${n})` : type ?? '';
+}
+
+function buildActivityPlot(heatmap, width, timeDomain = null, cellCounts = null) {
   if (!heatmap.rows.length) return null;
   const values = heatmap.rows.map((row) => row.activity).filter(Number.isFinite);
   const min = Math.min(...values);
@@ -394,7 +411,7 @@ function buildActivityPlot(heatmap, width, timeDomain = null) {
       domain: [0, heatmap.cellTypes.length],
       reverse: true,
       ticks: heatmap.cellTypes.map((_, index) => index + 0.5),
-      tickFormat: (value) => heatmap.cellTypes[Math.floor(value)] ?? '',
+      tickFormat: (value) => cellTypeTickLabel(heatmap.cellTypes[Math.floor(value)], cellCounts),
     },
     color: { scheme: 'RdBu', domain, pivot: 0, legend: true, label: 'activity' },
     marks: [Plot.rect(heatmap.rows, {
@@ -419,7 +436,12 @@ function buildGeneExpressionPlot(geneExpression, width) {
     // here or the two heatmaps' cell-type rows will land in opposite order.
     // padding: 0 matches the continuous scale's even division so rows line
     // up pixel-for-pixel between the two heatmaps.
-    y: { label: 'cell type', domain: geneExpression.cellTypes, padding: 0 },
+    y: {
+      label: 'cell type',
+      domain: geneExpression.cellTypes,
+      padding: 0,
+      tickFormat: (type) => cellTypeTickLabel(type, geneExpression.cellCounts),
+    },
     color: { scheme: 'YlGnBu', domain: [0, max], legend: true, label: 'mean HCR counts' },
     marks: [Plot.cell(geneExpression.rows, {
       x: 'gene', y: 'cell_type', fill: 'mean_expression', inset: 0.5,
@@ -519,6 +541,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
   let currentData = null;
   let currentHeatmap = null;
   let currentCellTypeOrder = [];
+  let currentCellCounts = new Map();
   let timeDomain = null;
   let currentTime = null;
   let controller = null;
@@ -548,7 +571,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
   function renderActivity() {
     activityChart.replaceChildren();
     const plot = currentHeatmap
-      ? buildActivityPlot(currentHeatmap, activityColumn.clientWidth, timeDomain)
+      ? buildActivityPlot(currentHeatmap, activityColumn.clientWidth, timeDomain, currentCellCounts)
       : null;
     if (plot) activityChart.appendChild(plot);
     activityChart.appendChild(activityPlayhead);
@@ -556,9 +579,10 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
     updateActivityPlayhead();
   }
 
-  function renderGeneExpression(cellRows) {
-    const geneExpression = aggregateGeneExpressionByCellType(cellRows);
+  function renderGeneExpression(matchedCellRows) {
+    const geneExpression = aggregateGeneExpressionByCellType(matchedCellRows);
     currentCellTypeOrder = geneExpression.cellTypes;
+    currentCellCounts = geneExpression.cellCounts;
     geneMount.replaceChildren();
     const plot = buildGeneExpressionPlot(geneExpression, geneColumn.clientWidth);
     if (plot) geneMount.appendChild(plot);
@@ -583,6 +607,8 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
     controller = new AbortController();
     currentData = null;
     currentHeatmap = null;
+    currentCellTypeOrder = [];
+    currentCellCounts = new Map();
     currentTime = null;
     activityMount.replaceChildren();
     geneMount.replaceChildren();
@@ -610,7 +636,6 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
           : Promise.resolve(null),
       ]);
       if (controller.signal.aborted) return;
-      renderGeneExpression(cellRows);
       const result = await readSessionTraces(
         session,
         cellRows,
@@ -619,9 +644,15 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
         controller.signal,
       );
       if (controller.signal.aborted) return;
+      // Gene expression is aggregated over exactly the cells that made it into
+      // the physiology traces below — the same ROI-matched, successfully-read
+      // population — so the two heatmaps' per-type "n" agree by construction
+      // instead of needing to be reconciled after the fact.
+      const matchedCellIds = new Set(result.traces.map((trace) => trace.cellId));
+      const matchedCellRows = (cellRows ?? []).filter((row) => matchedCellIds.has(String(row.cell_id)));
+      renderGeneExpression(matchedCellRows);
       if (!result.traces.length) {
-        status.textContent = 'No registered cell-type traces are available for this session '
-          + '(gene expression is unaffected — it does not require ROI registration).';
+        status.textContent = 'No registered cell-type traces are available for this session.';
         onSubclassActivity?.(aggregateActivityBySubclassSeries([]));
         return;
       }
@@ -641,10 +672,8 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
       }));
       eventSelect.disabled = eventStreams.length === 0;
       renderPsth();
-      const matchedTypeCount = new Set(result.traces.map((trace) => trace.cellType || 'unassigned')).size;
       status.textContent = result.matched.toLocaleString() + ' registered cells across '
-        + result.planes + ' planes · ' + matchedTypeCount + ' of ' + currentCellTypeOrder.length
-        + ' annotated cell types have session traces';
+        + result.planes + ' planes · ' + currentCellTypeOrder.length + ' cell types';
       if (!eventStreams.length) status.textContent += ' · no task events available for PSTHs';
     } catch (error) {
       if (controller.signal.aborted) return;

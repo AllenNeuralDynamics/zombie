@@ -94,6 +94,8 @@ describe('Visual Learning cell-type activity transforms', () => {
     expect(result.rows).toHaveLength(2 * VISUAL_LEARNING_GENE_COLUMNS.length);
     expect(result.rows.find((row) => row.cell_type === 'Exc-1' && row.gene === geneA).mean_expression).toBe(3);
     expect(result.rows.find((row) => row.cell_type === 'Pvalb-1' && row.gene === geneB).mean_expression).toBe(6);
+    expect(result.cellCounts.get('Exc-1')).toBe(2);
+    expect(result.cellCounts.get('Pvalb-1')).toBe(1);
   });
 
   it('clips the task playback zoom window to the cell trace time range', () => {
