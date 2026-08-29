@@ -6,6 +6,7 @@ import {
   aggregateGeneExpressionByCellType,
   computeVisualLearningPsths,
   joinVisualLearningCells,
+  matchedCellIdsFromTraces,
   normaliseActivityTimeDomain,
 } from '../swdb/visual-learning-activity.js';
 import { VISUAL_LEARNING_GENE_COLUMNS } from '../swdb/data.js';
@@ -45,8 +46,19 @@ describe('Visual Learning cell-type activity transforms', () => {
     ], [2], { pre: 1, post: 2, bins: 3 });
 
     expect(rows).toHaveLength(6);
-    expect(new Set(rows.map((row) => row.cell_type))).toEqual(new Set(['Exc-1', 'Pvalb-1']));
-    expect(rows.every((row) => row.n === 1 && Number.isFinite(row.mean))).toBe(true);
+    expect(new Set(rows.map((row) => row.group))).toEqual(new Set(['Exc-1', 'Pvalb-1']));
+    expect(rows.every((row) => row.n === 1 && Number.isFinite(row.mean) && Number.isFinite(row.t))).toBe(true);
+  });
+
+  it('groups PSTH rows by a custom accessor, e.g. cell subclass instead of cell type', () => {
+    const rows = computeVisualLearningPsths([
+      { cellType: 'Exc-1', cellSubclass: 'Sst', timestamps: [0, 1, 2, 3, 4, 5], values: [0, 1, 2, 3, 4, 5] },
+      { cellType: 'Pvalb-1', cellSubclass: 'Sst', timestamps: [0, 1, 2, 3, 4, 5], values: [5, 4, 3, 2, 1, 0] },
+    ], [2], { pre: 1, post: 2, bins: 3, groupBy: (trace) => trace.cellSubclass });
+
+    // Both traces share a subclass, so they should merge into one group
+    // instead of the two groups a cell-type grouping would produce.
+    expect(new Set(rows.map((row) => row.group))).toEqual(new Set(['Sst']));
   });
 
   it('aggregates traces into a mean dF/F time series per cell subclass', () => {
@@ -96,6 +108,31 @@ describe('Visual Learning cell-type activity transforms', () => {
     expect(result.rows.find((row) => row.cell_type === 'Pvalb-1' && row.gene === geneB).mean_expression).toBe(6);
     expect(result.cellCounts.get('Exc-1')).toBe(2);
     expect(result.cellCounts.get('Pvalb-1')).toBe(1);
+  });
+
+  it('restricts gene-expression cell counts to cells that made it into the physiology traces', () => {
+    // Cell 2 is annotated but, e.g., its ROI fell outside this session's
+    // packed trace range — it must not inflate the gene-expression "n".
+    const cellRows = [
+      { cell_id: '1', cell_type: 'Exc-1' },
+      { cell_id: '2', cell_type: 'Exc-1' },
+      { cell_id: '3', cell_type: 'Pvalb-1' },
+    ];
+    const traces = [
+      { cellId: '1', cellType: 'Exc-1', timestamps: [0, 1], values: [1, 1] },
+      { cellId: '3', cellType: 'Pvalb-1', timestamps: [0, 1], values: [1, 1] },
+    ];
+
+    const matchedIds = matchedCellIdsFromTraces(traces);
+    const matchedRows = cellRows.filter((row) => matchedIds.has(row.cell_id));
+    const geneExpression = aggregateGeneExpressionByCellType(matchedRows);
+    const activityCellTypes = new Set(traces.map((trace) => trace.cellType));
+
+    expect(geneExpression.cellCounts.get('Exc-1')).toBe(1);
+    expect(geneExpression.cellCounts.get('Pvalb-1')).toBe(1);
+    // Same population underlies both plots, so their cell-type sets agree
+    // without either side hard-coding the other's counts.
+    expect(new Set(geneExpression.cellTypes)).toEqual(activityCellTypes);
   });
 
   it('clips the task playback zoom window to the cell trace time range', () => {

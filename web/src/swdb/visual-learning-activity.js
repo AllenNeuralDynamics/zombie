@@ -9,6 +9,7 @@
 import * as Plot from '@observablehq/plot';
 import { loadBehaviorEvents } from '../mfish/behavior-events.js';
 import { loadPlaneTimestamps, loadRoiTraces, openPophysNwb } from '../pophys/nwb-traces.js';
+import { baselineSeries, createBaselineControls, PSTH_BASELINE_DEFAULT_MS } from '../lib/psth.js';
 import {
   loadVisualLearningCellTypes,
   loadVisualLearningCoreg,
@@ -192,14 +193,27 @@ export function aggregateActivityBySubclassSeries(traces, { sampleHz = 10, maxBi
 }
 
 /**
+ * Distinct cell IDs represented in a set of expanded dF/F traces — i.e. cells
+ * that are both ROI-matched (via `joinVisualLearningCells`) and had a
+ * readable trace column in this session's NWB-Zarr.
+ *
+ * @param {{cellId: string}[]} traces
+ * @returns {Set<string>}
+ */
+export function matchedCellIdsFromTraces(traces) {
+  return new Set((traces ?? []).map((trace) => trace.cellId));
+}
+
+/**
  * Aggregate per-cell HCR gene-probe counts into a mean-expression-by-cell-type
  * matrix, one row per (cell type, gene) pair.
  *
  * Callers should pass only the cells actually contributing to whatever
  * physiology view this is being compared against (e.g. the ROI-matched,
- * successfully-traced cells for the current session) — the returned
- * `cellCounts` is the per-type "n" and is meant to line up with that
- * companion view's own cell counts by construction, not by coincidence.
+ * successfully-traced cells for the current session — see
+ * `matchedCellIdsFromTraces`) — the returned `cellCounts` is the per-type "n"
+ * and is meant to line up with that companion view's own cell counts by
+ * construction, not by coincidence.
  *
  * @param {object[]} cellRows - rows from `loadVisualLearningCellTypes`, pre-filtered by the caller.
  * @returns {{rows: object[], cellTypes: string[], genes: string[], cellCounts: Map<string, number>}}
@@ -238,16 +252,18 @@ export function aggregateGeneExpressionByCellType(cellRows) {
 }
 
 /**
- * Compute event-triggered averages for every cell type.
+ * Compute event-triggered averages, grouped by whatever `groupBy` returns for
+ * each trace (cell type by default; the caller can pass `(t) => t.cellSubclass`
+ * for the coarser subtype grouping).
  *
- * @param {{cellType: string, timestamps: ArrayLike<number>, values: ArrayLike<number>}[]} traces
+ * @param {{cellType: string, cellSubclass: string, timestamps: ArrayLike<number>, values: ArrayLike<number>}[]} traces
  * @param {ArrayLike<number>} eventTimes
- * @returns {object[]}
+ * @returns {{group: string, t: number, mean: number, lo: number, hi: number, n: number}[]}
  */
 export function computeVisualLearningPsths(
   traces,
   eventTimes,
-  { pre = PSTH_PRE, post = PSTH_POST, bins = PSTH_BINS } = {},
+  { pre = PSTH_PRE, post = PSTH_POST, bins = PSTH_BINS, groupBy = (trace) => trace.cellType } = {},
 ) {
   const window = pre + post;
   if (!(window > 0) || bins < 2 || !(eventTimes?.length)) return [];
@@ -259,15 +275,15 @@ export function computeVisualLearningPsths(
     const start = Number(trace.timestamps[0]);
     const dt = (Number(trace.timestamps[n - 1]) - start) / (n - 1);
     if (!(dt > 0)) continue;
-    const type = trace.cellType || 'unassigned';
-    if (!groups.has(type)) {
-      groups.set(type, {
+    const group = groupBy(trace) || 'unassigned';
+    if (!groups.has(group)) {
+      groups.set(group, {
         sum: new Float64Array(bins),
         sumSq: new Float64Array(bins),
         count: new Uint32Array(bins),
       });
     }
-    const group = groups.get(type);
+    const stats = groups.get(group);
     for (const event of eventTimes) {
       const eventTime = Number(event);
       if (!Number.isFinite(eventTime)) continue;
@@ -277,24 +293,24 @@ export function computeVisualLearningPsths(
         if (sample < 0 || sample >= n) continue;
         const value = Number(trace.values[sample]);
         if (!Number.isFinite(value)) continue;
-        group.sum[bin] += value;
-        group.sumSq[bin] += value * value;
-        group.count[bin] += 1;
+        stats.sum[bin] += value;
+        stats.sumSq[bin] += value * value;
+        stats.count[bin] += 1;
       }
     }
   }
 
   const rows = [];
-  for (const [cellType, group] of groups) {
+  for (const [group, stats] of groups) {
     for (let bin = 0; bin < bins; bin += 1) {
-      const count = group.count[bin];
+      const count = stats.count[bin];
       if (!count) continue;
-      const mean = group.sum[bin] / count;
-      const variance = Math.max(0, group.sumSq[bin] / count - mean * mean);
+      const mean = stats.sum[bin] / count;
+      const variance = Math.max(0, stats.sumSq[bin] / count - mean * mean);
       const sem = Math.sqrt(variance / count);
       rows.push({
-        cell_type: cellType,
-        lag: -pre + (bin + 0.5) * binWidth,
+        group,
+        t: -pre + (bin + 0.5) * binWidth,
         mean,
         lo: mean - sem,
         hi: mean + sem,
@@ -449,10 +465,28 @@ function buildGeneExpressionPlot(geneExpression, width) {
   });
 }
 
-function buildPsthPlot(rows, width) {
+function buildPsthPlot(rows, width, { groupLabel = 'cell type', eventLabel = '', baselineSec = 0 } = {}) {
   if (!rows.length) return null;
-  const cellTypes = [...new Set(rows.map((row) => row.cell_type))]
-    .sort((a, b) => a.localeCompare(b));
+  const groups = [...new Set(rows.map((row) => row.group))].sort((a, b) => a.localeCompare(b));
+  const marks = [];
+  if (baselineSec > 0) {
+    const values = rows.flatMap((row) => [row.mean, row.lo, row.hi]).filter(Number.isFinite);
+    const yMin = Math.min(0, ...values);
+    const yMax = Math.max(0, ...values);
+    marks.push(Plot.rect([{}], { x1: -baselineSec, x2: 0, y1: yMin, y2: yMax, fill: '#888', fillOpacity: 0.18 }));
+  }
+  marks.push(
+    Plot.ruleX([0], { stroke: '#ef4444' }),
+    Plot.ruleY([0], { stroke: '#9ca3af', strokeOpacity: 0.6 }),
+    Plot.areaY(rows, { x: 't', y1: 'lo', y2: 'hi', fill: 'group', fillOpacity: 0.12 }),
+    Plot.lineY(rows, { x: 't', y: 'mean', stroke: 'group', strokeWidth: 1.2 }),
+  );
+  if (eventLabel) {
+    marks.push(Plot.text([{ t: 0 }], {
+      x: 't', text: () => eventLabel, frameAnchor: 'bottom', dy: -4,
+      fill: '#ef4444', fontSize: 10, fontWeight: 600,
+    }));
+  }
   return Plot.plot({
     width: Math.max(520, width || 760),
     height: 320,
@@ -460,14 +494,9 @@ function buildPsthPlot(rows, width) {
     marginBottom: 42,
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: '10px' },
     x: { label: 'time from event (s)', domain: [-PSTH_PRE, PSTH_POST] },
-    y: { label: 'activity', grid: true },
-    color: { domain: cellTypes, scheme: 'turbo', legend: true, label: 'cell type' },
-    marks: [
-      Plot.ruleX([0], { stroke: '#ef4444' }),
-      Plot.ruleY([0], { stroke: '#9ca3af', strokeOpacity: 0.6 }),
-      Plot.areaY(rows, { x: 'lag', y1: 'lo', y2: 'hi', fill: 'cell_type', fillOpacity: 0.12 }),
-      Plot.lineY(rows, { x: 'lag', y: 'mean', stroke: 'cell_type', strokeWidth: 1.2 }),
-    ],
+    y: { label: 'activity (dF/F)', grid: true },
+    color: { domain: groups, scheme: 'turbo', legend: true, label: groupLabel },
+    marks,
   });
 }
 
@@ -488,11 +517,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
   sessionLabel.textContent = 'Session';
   const sessionSelect = document.createElement('select');
   sessionLabel.appendChild(sessionSelect);
-  const eventLabel = document.createElement('label');
-  eventLabel.textContent = 'PSTH event';
-  const eventSelect = document.createElement('select');
-  eventLabel.appendChild(eventSelect);
-  controls.append(sessionLabel, eventLabel);
+  controls.append(sessionLabel);
   heading.appendChild(controls);
   section.appendChild(heading);
 
@@ -524,6 +549,28 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
 
   cellTypeRow.append(activityColumn, geneColumn);
 
+  const psthHeading = document.createElement('h3');
+  psthHeading.className = 'swdb-visual-learning-activity-subheading';
+  psthHeading.textContent = 'Peri-event activity (PSTH)';
+
+  const psthControls = document.createElement('div');
+  psthControls.className = 'swdb-visual-learning-activity-controls';
+  const eventFieldLabel = document.createElement('label');
+  eventFieldLabel.textContent = 'Align to';
+  const eventSelect = document.createElement('select');
+  eventFieldLabel.appendChild(eventSelect);
+  const subtypeLabel = document.createElement('label');
+  const subtypeCheckbox = document.createElement('input');
+  subtypeCheckbox.type = 'checkbox';
+  subtypeCheckbox.checked = true;
+  subtypeLabel.append(subtypeCheckbox, document.createTextNode(' Group by subtype'));
+  const baselineControls = createBaselineControls({
+    defaultMs: PSTH_BASELINE_DEFAULT_MS,
+    defaultOn: true,
+    onChange: () => renderPsth(),
+  });
+  psthControls.append(eventFieldLabel, subtypeLabel, baselineControls.element);
+
   const psthMount = document.createElement('div');
   psthMount.className = 'swdb-visual-learning-activity-psth';
   const activityChart = document.createElement('div');
@@ -533,7 +580,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
   activityPlayhead.hidden = true;
   activityChart.appendChild(activityPlayhead);
   activityMount.appendChild(activityChart);
-  section.append(cellTypeRow, psthMount);
+  section.append(cellTypeRow, psthHeading, psthControls, psthMount);
 
   let assetsByName = new Map();
   let sourceMap = {};
@@ -590,9 +637,17 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
 
   function renderPsth() {
     const stream = currentData?.eventStreams?.find((candidate) => candidate.key === eventSelect.value);
-    const rows = stream ? computeVisualLearningPsths(currentData.traces, stream.times) : [];
+    const useSubtype = subtypeCheckbox.checked;
+    const groupBy = useSubtype ? (trace) => trace.cellSubclass : (trace) => trace.cellType;
+    const rawRows = stream ? computeVisualLearningPsths(currentData.traces, stream.times, { groupBy }) : [];
+    const baselineSec = baselineControls.getBaselineSec();
+    const rows = baselineSeries(rawRows, baselineSec, { colorKey: 'group' });
     psthMount.replaceChildren();
-    const plot = buildPsthPlot(rows, section.clientWidth);
+    const plot = buildPsthPlot(rows, section.clientWidth, {
+      groupLabel: useSubtype ? 'cell subtype' : 'cell type',
+      eventLabel: stream?.label ?? '',
+      baselineSec,
+    });
     if (plot) psthMount.appendChild(plot);
   }
 
@@ -648,7 +703,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
       // the physiology traces below — the same ROI-matched, successfully-read
       // population — so the two heatmaps' per-type "n" agree by construction
       // instead of needing to be reconciled after the fact.
-      const matchedCellIds = new Set(result.traces.map((trace) => trace.cellId));
+      const matchedCellIds = matchedCellIdsFromTraces(result.traces);
       const matchedCellRows = (cellRows ?? []).filter((row) => matchedCellIds.has(String(row.cell_id)));
       renderGeneExpression(matchedCellRows);
       if (!result.traces.length) {
@@ -684,6 +739,7 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
 
   sessionSelect.addEventListener('change', () => select(sessionSelect.value));
   eventSelect.addEventListener('change', renderPsth);
+  subtypeCheckbox.addEventListener('change', renderPsth);
 
   return {
     element: section,
