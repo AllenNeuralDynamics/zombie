@@ -29,6 +29,15 @@ const UNIT_CUBE_MM = 0.07;
 const SELECTED_CUBE_SCALE = 2.8;
 const SELECTED_COLOR = cssHexToThree('#ef2929');
 
+// Default cube-scale range for activity replay (a unit at rate 0 draws at
+// ACTIVITY_MIN_SCALE; a unit at or above the reference rate draws at the
+// current max-scale, see setActivityMaxScale()). ACTIVITY_MAX_SCALE is the
+// starting value only -- exported so a caller's slider can default to it
+// without duplicating the number.
+export const ACTIVITY_MIN_SCALE = 0.6;
+export const ACTIVITY_MAX_SCALE = 5;
+const ACTIVITY_GAMMA = 0.6;
+
 function finite(value) {
   return Number.isFinite(Number(value));
 }
@@ -80,6 +89,36 @@ function disposeStructureRecord(record) {
 }
 
 /**
+ * Sample one unit's activity series at time `t` with linear interpolation.
+ * `series.times` must be sorted ascending. Returns 0 outside the series' range
+ * (no data recorded) rather than extrapolating.
+ */
+function sampleActivity(series, t) {
+  const { times, rates } = series;
+  const n = times.length;
+  if (n === 0 || t < times[0] || t > times[n - 1]) return 0;
+  let lo = 0;
+  let hi = n - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo === 0 || times[lo] === t) return rates[lo];
+  const i0 = lo - 1;
+  const span = times[lo] - times[i0];
+  const frac = span > 0 ? (t - times[i0]) / span : 0;
+  return rates[i0] + (rates[lo] - rates[i0]) * frac;
+}
+
+/** Map a firing rate to a cube-scale multiplier, normalized against `refRate`. */
+function scaleForRate(rate, refRate, maxScale) {
+  if (!(refRate > 0)) return ACTIVITY_MIN_SCALE;
+  const normalized = Math.min(1, Math.max(0, rate / refRate));
+  return ACTIVITY_MIN_SCALE + (maxScale - ACTIVITY_MIN_SCALE) * normalized ** ACTIVITY_GAMMA;
+}
+
+/**
  * Create a 3D CCF view. The returned element exposes setUnits and
  * setSelectedUnit so the raster's controls can update it without rebuilding
  * the WebGL scene.
@@ -105,8 +144,12 @@ export function createEphysUnitViz3D({
   statusEl.className = 'dr-raster-brain-status';
   container.appendChild(statusEl);
 
-  const state = { units: [...units], selectedKey };
+  // Activity replay is off by default: state.activity is null until
+  // setActivityData() supplies a per-unit {times, rates} lookup, and every unit
+  // draws at its normal fixed size. See sampleActivity()/scaleForRate() above.
+  const state = { units: [...units], selectedKey, activity: null, activityT: 0 };
   let renderUnits = () => {};
+  let applyActivity = () => {};
 
   container.setUnits = (nextUnits) => {
     state.units = [...(nextUnits ?? [])];
@@ -116,10 +159,50 @@ export function createEphysUnitViz3D({
     state.selectedKey = nextKey ?? null;
     renderUnits();
   };
+  /**
+   * Enable per-unit activity scaling. `byKey` maps a unit's `key` (the same key
+   * used in the `units` array passed to setUnits/createEphysUnitViz3D) to
+   * `{times, rates}` (ascending-sorted seconds + Hz). `refRate` is the
+   * max-firing cutoff: a unit at or above this rate draws at the largest cube;
+   * omit it to use the 99th percentile of every supplied rate so one outlier
+   * burst doesn't wash out the whole scale. `maxScale` is the starting
+   * cube-scale multiplier at refRate. Both can be adjusted afterward with
+   * setActivityRefRate()/setActivityMaxScale() without reloading data.
+   * Returns the resolved {refRate, maxScale} so a caller's sliders can start
+   * at whatever value was actually applied (e.g. the auto-computed refRate).
+   */
+  container.setActivityData = (byKey, { refRate, maxScale = ACTIVITY_MAX_SCALE } = {}) => {
+    const resolvedRefRate = refRate ?? _percentileRate(byKey, 0.99);
+    state.activity = { byKey, refRate: resolvedRefRate, maxScale };
+    renderUnits();
+    return { refRate: resolvedRefRate, maxScale };
+  };
+  container.clearActivityData = () => {
+    state.activity = null;
+    renderUnits();
+  };
+  /** Scrub the activity clock to `t` seconds; cheap per-frame instance update, no rebuild. */
+  container.setActivityTime = (t) => {
+    state.activityT = t;
+    applyActivity();
+  };
+  /** Adjust the cube-scale multiplier at refRate; cheap per-instance update, no rebuild. */
+  container.setActivityMaxScale = (maxScale) => {
+    if (!state.activity) return;
+    state.activity.maxScale = maxScale;
+    applyActivity();
+  };
+  /** Adjust the max-firing cutoff (Hz) that saturates to the largest cube; cheap, no rebuild. */
+  container.setActivityRefRate = (refRate) => {
+    if (!state.activity) return;
+    state.activity.refRate = refRate;
+    applyActivity();
+  };
 
   _initUnitViz(container, legendEl, statusEl, state, { colorBy, showStructures })
-    .then((render) => {
+    .then(({ render, applyActivityFrame }) => {
       renderUnits = render;
+      applyActivity = applyActivityFrame;
       renderUnits();
     })
     .catch((error) => {
@@ -128,6 +211,17 @@ export function createEphysUnitViz3D({
     });
 
   return container;
+}
+
+/** 99th-percentile rate across every unit's series, used as the default activity reference. */
+function _percentileRate(byKey, p) {
+  const all = [];
+  for (const series of byKey.values()) {
+    for (const rate of series.rates) if (rate > 0) all.push(rate);
+  }
+  if (all.length === 0) return 1;
+  all.sort((a, b) => a - b);
+  return all[Math.min(all.length - 1, Math.floor(all.length * p))];
 }
 
 async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, showStructures }) {
@@ -184,6 +278,31 @@ async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, sho
   const unitGroup = new THREE.Group();
   scene.add(unitGroup);
   const cubeGeometry = new THREE.BoxGeometry(UNIT_CUBE_MM, UNIT_CUBE_MM, UNIT_CUBE_MM);
+
+  // Per-instance records for the regular (non-selected) units in the most recent
+  // render(), so applyActivityFrame() can rescale every cube in place on the
+  // playback clock's tick without rebuilding any InstancedMesh.
+  let unitRecords = [];
+  const instanceScratch = new THREE.Matrix4();
+
+  function activityScaleFor(unit) {
+    if (!state.activity) return 1;
+    const series = state.activity.byKey.get(unit.key);
+    if (!series) return ACTIVITY_MIN_SCALE;
+    return scaleForRate(sampleActivity(series, state.activityT), state.activity.refRate, state.activity.maxScale);
+  }
+
+  function applyActivityFrame() {
+    if (!state.activity) return;
+    const touched = new Set();
+    for (const record of unitRecords) {
+      const scale = activityScaleFor(record.unit);
+      instanceScratch.makeScale(scale, scale, scale).setPosition(record.position);
+      record.mesh.setMatrixAt(record.index, instanceScratch);
+      touched.add(record.mesh);
+    }
+    for (const mesh of touched) mesh.instanceMatrix.needsUpdate = true;
+  }
 
   function updateLegend(colorGroups, structures) {
     legendEl.replaceChildren();
@@ -288,6 +407,7 @@ async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, sho
     }
 
     const instanceMatrix = new THREE.Matrix4();
+    unitRecords = [];
     for (const [groupKey, entries] of positionedByGroup) {
       const baseColor = colors.get(groupKey) ?? 0x00ccff;
       const regular = entries.filter(({ unit }) => unit.key !== state.selectedKey);
@@ -297,9 +417,11 @@ async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, sho
           new THREE.MeshPhongMaterial({ color: baseColor }),
           regular.length,
         );
-        regular.forEach(({ position }, index) => {
-          instanceMatrix.makeTranslation(position.x, position.y, position.z);
+        regular.forEach(({ unit, position }, index) => {
+          const scale = activityScaleFor(unit);
+          instanceMatrix.makeScale(scale, scale, scale).setPosition(position);
           mesh.setMatrixAt(index, instanceMatrix);
+          if (state.activity) unitRecords.push({ unit, mesh, index, position });
         });
         mesh.instanceMatrix.needsUpdate = true;
         unitGroup.add(mesh);
@@ -370,5 +492,5 @@ async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, sho
   });
   mutationObserver.observe(document.body, { childList: true, subtree: true });
 
-  return render;
+  return { render, applyActivityFrame };
 }

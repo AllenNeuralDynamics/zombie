@@ -28,6 +28,14 @@ import { createSwdbPerformanceView } from './performance-view.js';
 import { createVisualLearningActivityView } from './visual-learning-activity.js';
 import { createVisualLearningOverview } from './visual-learning-overview.js';
 import { createVisualLearningTaskPlayback } from './visual-learning-playback.js';
+import { loadVisualCodingNeuropixelsUnits } from '../visual_coding_neuropixels/data.js';
+import { createDrSwitchReplay } from './dr-switch-replay.js';
+
+/** Published SWDB datasets that publish per-unit CCF locations, mapped to their loader. */
+const NEURON_OVERVIEW_LOADERS = {
+  swdb_2026_dynamic_routing: loadSwdbDynamicRoutingUnits,
+  swdb_2026_visual_coding_neuropixels: loadVisualCodingNeuropixelsUnits,
+};
 
 /**
  * Build the SWDB set page.
@@ -52,7 +60,7 @@ export function createSwdbSetView(coord, metadata) {
 
   const historySection = buildSection('Set history', true);
   const viewerSection = buildSection('Session viewer', true);
-  const neuronOverview = setId === 'dynamic-routing' ? buildNeuronOverview() : null;
+  const neuronOverview = setId === 'dynamic-routing' ? buildNeuronOverview(coord) : null;
   if (neuronOverview) root.appendChild(neuronOverview.element);
   root.appendChild(historySection.details);
   root.appendChild(viewerSection.details);
@@ -137,8 +145,11 @@ function createDatasetDetailView(coord, metadata, datasetName) {
   header.className = 'swdb-set-header';
   root.appendChild(header);
 
-  const neuronOverview = datasetName === 'swdb_2026_dynamic_routing'
-    ? buildNeuronOverview()
+  const neuronOverviewLoader = NEURON_OVERVIEW_LOADERS[datasetName];
+  const neuronOverview = neuronOverviewLoader
+    ? buildNeuronOverview(coord, neuronOverviewLoader, {
+      replay: datasetName === 'swdb_2026_dynamic_routing',
+    })
     : null;
   let visualLearningActivity = null;
   let visualLearningPlayback = null;
@@ -276,10 +287,19 @@ function buildSection(title, open) {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic Routing neuron overview
+// Neuron overview (CCF unit locations across every acquisition in a set)
 // ---------------------------------------------------------------------------
 
-function buildNeuronOverview() {
+/**
+ * @param {object} coord - Mosaic/DuckDB coordinator, threaded into loadUnits.
+ * @param {(rows: object[], opts: { coord?: object, signal?: AbortSignal }) =>
+ *   Promise<{units: object[], failedAssets: object[]}>} [loadUnits]
+ * @param {{ replay?: boolean }} [options] - `replay: true` adds the Dynamic
+ *   Routing block-switch activity control bar (see dr-switch-replay.js) below
+ *   the 3D view. Only meaningful for datasets covered by
+ *   `platform_swdb_dr_switch`.
+ */
+function buildNeuronOverview(coord, loadUnits = loadSwdbDynamicRoutingUnits, { replay = false } = {}) {
   const section = document.createElement('section');
   section.className = 'swdb-neuron-overview';
 
@@ -297,6 +317,9 @@ function buildNeuronOverview() {
   status.hidden = true;
   section.appendChild(status);
 
+  const switchReplay = replay ? createDrSwitchReplay(coord) : null;
+  if (switchReplay) section.appendChild(switchReplay.element);
+
   let controller = null;
   let viewer = null;
 
@@ -306,10 +329,11 @@ function buildNeuronOverview() {
       controller?.abort();
       controller = new AbortController();
       viewer = null;
+      switchReplay?.reset();
       mount.innerHTML = '<div class="swdb-panel-status">Loading neuron locations…</div>';
       status.hidden = true;
       try {
-        const result = await loadSwdbDynamicRoutingUnits(rows, { signal: controller.signal });
+        const result = await loadUnits(rows, { coord, signal: controller.signal });
         if (controller.signal.aborted) return;
         if (result.units.length === 0) {
           mount.innerHTML = '<div class="swdb-panel-status">No CCF neuron locations are available.</div>';
@@ -329,6 +353,7 @@ function buildNeuronOverview() {
           className: 'swdb-neuron-viz',
         });
         mount.replaceChildren(viewer);
+        switchReplay?.attach(viewer, result.units);
         const acquisitions = new Set(result.units.map((unit) => unit.acquisition)).size;
         const failureNote = result.failedAssets.length
           ? ` ${result.failedAssets.length} acquisition${result.failedAssets.length === 1 ? '' : 's'} could not be read.`
@@ -345,6 +370,7 @@ function buildNeuronOverview() {
     dispose() {
       controller?.abort();
       viewer = null;
+      switchReplay?.dispose();
     },
   };
 }

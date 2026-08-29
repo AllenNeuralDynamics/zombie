@@ -34,7 +34,23 @@ export const SWDB_TABLES = {
   running: 'platform_swdb_running',
   visualLearningCellGene: 'platform_visual_learning_cell_gene',
   visualLearningCoreg: 'platform_visual_learning_coreg',
+  drSwitch: 'platform_swdb_dr_switch',
+  drSwitchMarkers: 'platform_swdb_dr_switch_markers',
 };
+
+/** Block-switch directions carried by `platform_swdb_dr_switch`. */
+export const DR_SWITCH_DIRECTIONS = ['vis_to_aud', 'aud_to_vis'];
+
+/**
+ * Number of block-switch trials in the shared template x-axis (see
+ * `platform_swdb_dr_switch.py`): 2 trials ending the outgoing block, the
+ * switch trial itself, and 2 trials starting the incoming block. Every trial
+ * is time-warped onto one unit-width slot, so the axis always runs 0..5
+ * regardless of any session's real trial durations.
+ */
+export const DR_SWITCH_N_TRIALS = 5;
+/** Template x-position of the switch trial's own slot boundary (0 = trial -2 starts). */
+export const DR_SWITCH_TRIAL_OFFSET_ZERO_SLOT = 2;
 
 /** Registry prefix for the published SWDB metadata datasets. */
 export const SWDB_DATASET_PREFIX = 'swdb_';
@@ -183,24 +199,30 @@ export async function loadSessions(coord) {
 }
 
 /**
- * Load the CCF unit locations for every acquisition in a SWDB set.
+ * Load the CCF unit locations for every acquisition in a SWDB set/dataset,
+ * given a per-asset location loader.
  *
- * Dynamic Routing SWDB assets are public ecephys NWB-Zarr derivatives. Their
- * small `/units` coordinate arrays are read directly; the merged SWDB HDF5
- * files themselves never need to be opened in the browser.
+ * Shared by Dynamic Routing and Visual Coding Neuropixels: both publish one
+ * ecephys NWB-Zarr derived asset per row and only differ in the underlying
+ * `units/` schema, so each dataset brings its own `loadAssetLocations` (e.g.
+ * {@link loadRasterUnitLocations} or the Visual Coding Neuropixels adapter)
+ * while this function handles the shared fan-out, CCF filtering, and
+ * acquisition labeling.
  *
- * @param {object[]} sessionRows - Rows from platform_swdb_sessions.
+ * @param {object[]} sessionRows - Rows carrying at least `asset_name`.
+ * @param {(assetName: string, opts: { signal?: AbortSignal }) => Promise<object[]>} loadAssetLocations
+ * @param {string} keyPrefix - Namespaces the returned `unit.key` per caller.
  * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<{units: object[], failedAssets: object[]}>}
  */
-export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) {
+export async function loadSwdbUnitLocations(sessionRows, loadAssetLocations, keyPrefix, { signal } = {}) {
   const rows = [...(sessionRows ?? [])]
     .filter((row) => row.asset_name)
     .sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name)));
   if (rows.length === 0) return { units: [], failedAssets: [] };
 
   const results = await Promise.allSettled(rows.map(async (row) => {
-    const locations = await loadRasterUnitLocations(row.asset_name, { signal });
+    const locations = await loadAssetLocations(row.asset_name, { signal });
     const acquisitionLabel = [row.session_date, row.subject_id]
       .filter((value) => value != null && value !== '')
       .join(' · ') || row.asset_name;
@@ -208,7 +230,7 @@ export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) 
       .filter((unit) => [unit.ccfAp, unit.ccfDv, unit.ccfMl].every(Number.isFinite))
       .map((unit) => ({
         ...unit,
-        key: `swdb:${row.asset_name}:${unit.key}`,
+        key: `${keyPrefix}:${row.asset_name}:${unit.key}`,
         acquisition: row.asset_name,
         acquisitionLabel,
       }));
@@ -222,6 +244,76 @@ export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) 
     else failedAssets.push({ assetName: rows[index].asset_name, error: result.reason });
   });
   return { units, failedAssets };
+}
+
+/**
+ * Load the CCF unit locations for every acquisition in a Dynamic Routing
+ * SWDB set. Dynamic Routing SWDB assets are public ecephys NWB-Zarr
+ * derivatives; their small `/units` coordinate arrays are read directly, so
+ * the merged SWDB HDF5 files themselves never need to be opened in the
+ * browser.
+ *
+ * @param {object[]} sessionRows - Rows from platform_swdb_sessions.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {Promise<{units: object[], failedAssets: object[]}>}
+ */
+export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) {
+  return loadSwdbUnitLocations(sessionRows, loadRasterUnitLocations, 'swdb', { signal });
+}
+
+/**
+ * Load per-unit block-switch activity for one direction ('vis_to_aud' or
+ * 'aud_to_vis'): each QC-passing unit's own average firing-rate time course
+ * across its session's 5 block-switch trials, each linearly time-warped onto
+ * its own unit-width slot of a shared template (`template_x` 0..5, where every
+ * integer is a real trial boundary and 2 is the switch trial's own onset) and
+ * averaged across every switch instance of that type in the biodata-cache
+ * builder. Warping (rather than aligning by raw seconds) is what makes
+ * averaging across instances with different real trial durations meaningful --
+ * see `platform_swdb_dr_switch.py`.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {string} direction - One of DR_SWITCH_DIRECTIONS.
+ * @returns {Promise<object[]>} rows of { asset_name, unit_id, template_x, mean_rate_hz }
+ */
+export async function loadSwdbDrSwitchActivity(coord, direction) {
+  const url = `${_base()}/${SWDB_TABLES.drSwitch}.pqt`;
+  return queryRows(
+    coord,
+    `
+      SELECT asset_name, unit_id, template_x, mean_rate_hz
+      FROM read_parquet(${sqlStr(url)})
+      WHERE direction = ${sqlStr(direction)}
+      ORDER BY asset_name, unit_id, template_x
+    `,
+  );
+}
+
+/**
+ * Load the representative trial-event template positions for one block-switch
+ * direction: one row per trial offset (-2..+2, 0 = the switch trial), giving
+ * the median template-x position (see loadSwdbDrSwitchActivity) of that
+ * trial's stimulus onset/offset and, where they occurred, response and reward.
+ * A viewer plots these on the same template axis as the activity so the trial
+ * markers and the data share one frame of reference.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {string} direction - One of DR_SWITCH_DIRECTIONS.
+ * @returns {Promise<object[]>} rows of { trial_offset, stim_on_x, stim_off_x,
+ *   response_x, response_frac, reward_x, reward_frac, n_instances }
+ */
+export async function loadSwdbDrSwitchMarkers(coord, direction) {
+  const url = `${_base()}/${SWDB_TABLES.drSwitchMarkers}.pqt`;
+  return queryRows(
+    coord,
+    `
+      SELECT trial_offset, stim_on_x, stim_off_x, response_x, response_frac,
+             reward_x, reward_frac, n_instances
+      FROM read_parquet(${sqlStr(url)})
+      WHERE direction = ${sqlStr(direction)}
+      ORDER BY trial_offset
+    `,
+  );
 }
 
 /**

@@ -101,6 +101,122 @@
   margin: 0.4rem 0 0;
 }
 
+/* ---- Block-switch activity replay -------------------------------------- */
+
+.swdb-dr-switch-replay {
+  margin-top: 0.6rem;
+}
+
+.swdb-dr-switch-toggle {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border, var(--surface-border));
+  border-radius: 4px;
+  background: var(--input-bg, var(--surface-bg));
+  color: var(--text, var(--text-primary));
+  cursor: pointer;
+}
+
+.swdb-dr-switch-toggle:hover {
+  background: var(--hover-bg, var(--surface-card));
+}
+
+.swdb-dr-switch-body {
+  margin-top: 0.5rem;
+}
+
+.swdb-dr-switch-replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.swdb-dr-switch-replay-direction {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.swdb-dr-switch-play {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border: 1px solid var(--border, var(--surface-border));
+  border-radius: 4px;
+  background: var(--input-bg, var(--surface-bg));
+  color: var(--text, var(--text-primary));
+  cursor: pointer;
+}
+
+.swdb-dr-switch-play:hover:not(:disabled) {
+  background: var(--hover-bg, var(--surface-card));
+}
+
+.swdb-dr-switch-play:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.swdb-dr-switch-size-label {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--text-secondary, var(--text));
+}
+
+.swdb-dr-switch-size,
+.swdb-dr-switch-cutoff {
+  flex: 0 1 110px;
+  min-width: 70px;
+}
+
+.swdb-dr-switch-size-value,
+.swdb-dr-switch-cutoff-value {
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5em;
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.swdb-dr-switch-plot-mount {
+  margin-top: 0.4rem;
+}
+
+.swdb-dr-switch-plot {
+  position: relative;
+  width: 100%;
+}
+
+.swdb-dr-switch-plot svg {
+  display: block;
+}
+
+.swdb-dr-switch-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text));
+  margin-bottom: 0.15rem;
+}
+
+.swdb-dr-switch-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.swdb-dr-switch-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 3px;
+  border-radius: 1px;
+}
+
+.swdb-dr-switch-status {
+  margin: 0.35rem 0 0;
+}
+
 /* ---- Visual Learning progression -------------------------------------- */
 
 .swdb-visual-learning-overview {
