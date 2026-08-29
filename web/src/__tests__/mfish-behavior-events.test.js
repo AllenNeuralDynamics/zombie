@@ -105,6 +105,33 @@ describe('mFISH image-stage behavior parser', () => {
     expect(data.counts).toMatchObject({ stimuli: 2, changes: 1, rewards: 1, licks: 2 });
   });
 
+  it('decimates running speed to a fixed ~10 Hz rate, not a fixed total-point budget', async () => {
+    arrays.clear();
+    arrays.set('intervals/stimulus_presentations/start_time', [100, 100.75]);
+    arrays.set('intervals/stimulus_presentations/stop_time', [100.25, 101]);
+    arrays.set('intervals/stimulus_presentations/image_name', ['im063', 'im077']);
+    arrays.set('intervals/stimulus_presentations/is_change', [0, 1]);
+    arrays.set('intervals/stimulus_presentations/omitted', [0, 0]);
+    arrays.set('intervals/trials/change_time', [100.75]);
+    arrays.set('intervals/trials/reward_time', [101]);
+    arrays.set('processing/behavior/licks/timestamps', [100.2, 100.8]);
+
+    // A long (50 min), densely-sampled (100 Hz) running trace. The old fixed
+    // 3000-point budget would collapse this to ~1 Hz; the fix should hold
+    // output resolution near 10 Hz regardless of how long the session is.
+    const spanS = 3000;
+    const nativeHz = 100;
+    const n = spanS * nativeHz;
+    arrays.set('processing/running/speed/timestamps', Array.from({ length: n }, (_, i) => i / nativeHz));
+    arrays.set('processing/running/speed/data', Array.from({ length: n }, () => 0));
+
+    const data = await loadBehaviorEventsFromUrl('https://example.test/behavior.nwb.zarr');
+    const outputHz = data.running.t.length / spanS;
+
+    expect(outputHz).toBeGreaterThan(5);
+    expect(outputHz).toBeLessThanOrEqual(11);
+  });
+
   it('does not turn an unrecognized NWB layout into a fake one-second session', async () => {
     arrays.clear();
     await expect(loadBehaviorEventsFromUrl('https://example.test/behavior.nwb.zarr'))
