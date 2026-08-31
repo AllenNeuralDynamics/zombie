@@ -38,7 +38,12 @@ import * as zarr from 'zarrita';
 import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
 import { resolveLatestDerived } from '../lib/raw-to-derived.js';
 
-const RUNNING_MAX_POINTS = 3000;
+// Running speed is decimated for display at a fixed rate rather than a fixed
+// total point budget, so resolution stays constant (comparable to the ~10 Hz
+// dF/F trace it's plotted alongside) regardless of session length. The old
+// fixed-3000-point budget worked out to ~1 Hz for a typical ~50 min session.
+const RUNNING_TARGET_HZ = 10;
+const RUNNING_MAX_POINTS = 200_000; // safety ceiling, not the normal control
 const S3_NWB_LIST_MAX_KEYS = 1000;
 const nwbBaseCache = new Map();
 
@@ -195,7 +200,10 @@ function parseOri(name) {
 
 function downsample(times, vals) {
   const n = Math.min(times.length, vals.length);
-  const step = Math.max(1, Math.floor(n / RUNNING_MAX_POINTS));
+  if (n === 0) return { t: new Float64Array(), v: new Float64Array() };
+  const span = Math.max(Number(times[n - 1]) - Number(times[0]), 1e-9);
+  const targetPoints = Math.min(RUNNING_MAX_POINTS, Math.max(1, Math.round(span * RUNNING_TARGET_HZ)));
+  const step = Math.max(1, Math.floor(n / targetPoints));
   const t = [], v = [];
   for (let i = 0; i < n; i += step) {
     const ti = Number(times[i]), vi = Number(vals[i]);

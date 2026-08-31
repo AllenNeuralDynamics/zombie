@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../lib/arrow.js', () => ({ queryRows: vi.fn() }));
 vi.mock('../lib/registry.js', () => ({ ensureTable: vi.fn() }));
+vi.mock('../lib/metadata.js', () => ({ getResolvedVersion: () => 'bdc-v0.39' }));
 
 import { queryRows } from '../lib/arrow.js';
 import {
+  loadVisualLearningCellTypes,
+  loadVisualLearningCoreg,
   loadVisualLearningProgression,
   resolveVisualLearningPlaybackSource,
 } from '../swdb/data.js';
@@ -48,6 +51,34 @@ describe('resolveVisualLearningPlaybackSource', () => {
   it('returns no source when the selected asset has no source names', async () => {
     queryRows.mockClear();
     await expect(resolveVisualLearningPlaybackSource({}, [])).resolves.toBeNull();
+    expect(queryRows).not.toHaveBeenCalled();
+  });
+});
+
+describe('Visual Learning lookup loaders', () => {
+  it('selects annotation and gene-expression columns from the cell-gene partition', async () => {
+    queryRows.mockResolvedValue([{ cell_id: '3', cell_type: 'Exc-1' }]);
+    await expect(loadVisualLearningCellTypes({}, '782149')).resolves.toEqual([
+      { cell_id: '3', cell_type: 'Exc-1' },
+    ]);
+    expect(queryRows.mock.calls.at(-1)[1]).toContain(
+      'cell_id, cell_class, cell_subclass, cell_type, cluster_id, total_counts, n_genes',
+    );
+    expect(queryRows.mock.calls.at(-1)[1]).toContain('"R1-488-GFP"');
+    expect(queryRows.mock.calls.at(-1)[1]).toContain('"R5-638-Vip"');
+    expect(queryRows.mock.calls.at(-1)[1]).toContain('subject_id=782149');
+  });
+
+  it('filters co-registration rows to a selected session key', async () => {
+    queryRows.mockResolvedValue([]);
+    await loadVisualLearningCoreg({}, '782149', "782149_2025-03-28");
+    expect(queryRows.mock.calls.at(-1)[1]).toContain("session_key = '782149_2025-03-28'");
+    expect(queryRows.mock.calls.at(-1)[1]).toContain('roi_id >= 0 AND hcr_id >= 0');
+  });
+
+  it('rejects an unsafe subject before querying', async () => {
+    queryRows.mockClear();
+    await expect(loadVisualLearningCellTypes({}, '782149/other')).rejects.toThrow(/Invalid SWDB subject id/);
     expect(queryRows).not.toHaveBeenCalled();
   });
 });

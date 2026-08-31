@@ -35,6 +35,10 @@ const DEFAULT_SPEED_IDX = 0;
  * @param {object} [opts]
  * @param {string} [opts.acquisitionType] - Shown in the header row.
  * @param {string} [opts.location]         - Raw asset S3 location (for videos).
+ * @param {(domain:[number,number]) => void} [opts.onTimeDomainChange] - Called
+ *   when the task event plot's zoom window changes.
+ * @param {(time:number) => void} [opts.onTimeChange] - Called as playback time
+ *   advances or is scrubbed.
  * @param {'gratings'|'images'} [opts.stageMode] - Rendering mode override for
  *   stages whose NWB uses the generic stimulus_presentations table.
  * @param {boolean} [opts.loadStimulusTemplates] - Set false for stages such as
@@ -53,10 +57,16 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
   const ctrl = new AbortController();
   let activeAnim = null;
   let activePlot = null;
+  let pendingSubclassActivity = null;
   root._dispose = () => {
     ctrl.abort();
     activeAnim?.dispose?.();
     activePlot?.dispose?.();
+  };
+  /** Add/replace the per-cell-subclass activity row once the event plot exists. */
+  root.setSubclassActivity = (series) => {
+    pendingSubclassActivity = series;
+    activePlot?.setSubclassActivity?.(series);
   };
 
   (async () => {
@@ -96,7 +106,10 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
         templateLoader,
         stageMode,
       });
-      const plot = createMfishEventPlot(data);
+      const plot = createMfishEventPlot(data, {
+        onDomainChange: opts.onTimeDomainChange,
+        subclassActivity: pendingSubclassActivity,
+      });
       activeAnim = anim;
       activePlot = plot;
 
@@ -113,6 +126,7 @@ export function createMfishSessionPlayback(coord, rawAssetName, opts = {}) {
           setOnScrub: plot.setOnScrub,
         },
         trialInfo: (el, t) => _updateReadout(el, data, t, stageMode),
+        onFrame: (t) => opts.onTimeChange?.(t),
         videos: { base: s3LocationToHttps(opts.location), t0: null, signal: ctrl.signal },
       });
     } catch (err) {

@@ -6,9 +6,9 @@
  * dashboard plots into six small parquet tables. This module is the only place
  * that knows their URLs.
  *
- * Every table except the session catalog is partitioned by `asset_name`, and the
- * page always knows which asset it is showing, so each read targets one explicit
- * parquet URL. That deliberately avoids DuckDB-WASM's inability to glob
+ * SWDB session tables are partitioned by `asset_name`; Visual Learning lookup
+ * tables are partitioned by `subject_id`. The page always knows the relevant
+ * key, so each read targets one explicit parquet URL. That deliberately avoids DuckDB-WASM's inability to glob
  * virtual-hosted HTTPS URLs (the workaround `fib_traces` and `ecephys_spikes`
  * need), and parquet column pruning keeps the wide tables cheap: plotting pupil
  * area fetches two columns out of nineteen, not the whole file.
@@ -32,7 +32,25 @@ export const SWDB_TABLES = {
   events: 'platform_swdb_events',
   eye: 'platform_swdb_eye',
   running: 'platform_swdb_running',
+  visualLearningCellGene: 'platform_visual_learning_cell_gene',
+  visualLearningCoreg: 'platform_visual_learning_coreg',
+  drSwitch: 'platform_swdb_dr_switch',
+  drSwitchMarkers: 'platform_swdb_dr_switch_markers',
 };
+
+/** Block-switch directions carried by `platform_swdb_dr_switch`. */
+export const DR_SWITCH_DIRECTIONS = ['vis_to_aud', 'aud_to_vis'];
+
+/**
+ * Number of block-switch trials in the shared template x-axis (see
+ * `platform_swdb_dr_switch.py`): 2 trials ending the outgoing block, the
+ * switch trial itself, and 2 trials starting the incoming block. Every trial
+ * is time-warped onto one unit-width slot, so the axis always runs 0..5
+ * regardless of any session's real trial durations.
+ */
+export const DR_SWITCH_N_TRIALS = 5;
+/** Template x-position of the switch trial's own slot boundary (0 = trial -2 starts). */
+export const DR_SWITCH_TRIAL_OFFSET_ZERO_SLOT = 2;
 
 /** Registry prefix for the published SWDB metadata datasets. */
 export const SWDB_DATASET_PREFIX = 'swdb_';
@@ -51,6 +69,20 @@ export function sessionsUrl() {
 /** URL of one asset's partition of a partitioned SWDB table. */
 export function partitionUrl(table, assetName) {
   return `${_base()}/${table}/asset_name=${assetName}/data.pqt`;
+}
+
+/** Assert a subject id is safe to use as a cache partition key. */
+export function assertSubjectId(subjectId) {
+  if (!/^\d+$/.test(String(subjectId ?? ''))) {
+    throw new Error(`Invalid SWDB subject id: ${subjectId}`);
+  }
+  return String(subjectId);
+}
+
+/** URL of one subject's Visual Learning lookup-table partition. */
+export function subjectPartitionUrl(table, subjectId) {
+  const safeSubjectId = assertSubjectId(subjectId);
+  return `${_base()}/${table}/subject_id=${safeSubjectId}/data.pqt`;
 }
 
 function sqlStr(s) {
@@ -141,6 +173,18 @@ async function _readPartition(coord, table, assetName, { columns = '*', where = 
   return queryRows(coord, sql);
 }
 
+async function _readSubjectPartition(coord, table, subjectId, { columns = '*', where = null, orderBy = null } = {}) {
+  const url = subjectPartitionUrl(table, subjectId);
+  const sql = [
+    `SELECT ${columns} FROM read_parquet(${sqlStr(url)})`,
+    where ? `WHERE ${where}` : '',
+    orderBy ? `ORDER BY ${orderBy}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return queryRows(coord, sql);
+}
+
 /**
  * Load the session catalog: one row per curated asset across every set.
  *
@@ -155,24 +199,30 @@ export async function loadSessions(coord) {
 }
 
 /**
- * Load the CCF unit locations for every acquisition in a SWDB set.
+ * Load the CCF unit locations for every acquisition in a SWDB set/dataset,
+ * given a per-asset location loader.
  *
- * Dynamic Routing SWDB assets are public ecephys NWB-Zarr derivatives. Their
- * small `/units` coordinate arrays are read directly; the merged SWDB HDF5
- * files themselves never need to be opened in the browser.
+ * Shared by Dynamic Routing and Visual Coding Neuropixels: both publish one
+ * ecephys NWB-Zarr derived asset per row and only differ in the underlying
+ * `units/` schema, so each dataset brings its own `loadAssetLocations` (e.g.
+ * {@link loadRasterUnitLocations} or the Visual Coding Neuropixels adapter)
+ * while this function handles the shared fan-out, CCF filtering, and
+ * acquisition labeling.
  *
- * @param {object[]} sessionRows - Rows from platform_swdb_sessions.
+ * @param {object[]} sessionRows - Rows carrying at least `asset_name`.
+ * @param {(assetName: string, opts: { signal?: AbortSignal }) => Promise<object[]>} loadAssetLocations
+ * @param {string} keyPrefix - Namespaces the returned `unit.key` per caller.
  * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<{units: object[], failedAssets: object[]}>}
  */
-export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) {
+export async function loadSwdbUnitLocations(sessionRows, loadAssetLocations, keyPrefix, { signal } = {}) {
   const rows = [...(sessionRows ?? [])]
     .filter((row) => row.asset_name)
     .sort((a, b) => String(a.asset_name).localeCompare(String(b.asset_name)));
   if (rows.length === 0) return { units: [], failedAssets: [] };
 
   const results = await Promise.allSettled(rows.map(async (row) => {
-    const locations = await loadRasterUnitLocations(row.asset_name, { signal });
+    const locations = await loadAssetLocations(row.asset_name, { signal });
     const acquisitionLabel = [row.session_date, row.subject_id]
       .filter((value) => value != null && value !== '')
       .join(' · ') || row.asset_name;
@@ -180,7 +230,7 @@ export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) 
       .filter((unit) => [unit.ccfAp, unit.ccfDv, unit.ccfMl].every(Number.isFinite))
       .map((unit) => ({
         ...unit,
-        key: `swdb:${row.asset_name}:${unit.key}`,
+        key: `${keyPrefix}:${row.asset_name}:${unit.key}`,
         acquisition: row.asset_name,
         acquisitionLabel,
       }));
@@ -194,6 +244,76 @@ export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) 
     else failedAssets.push({ assetName: rows[index].asset_name, error: result.reason });
   });
   return { units, failedAssets };
+}
+
+/**
+ * Load the CCF unit locations for every acquisition in a Dynamic Routing
+ * SWDB set. Dynamic Routing SWDB assets are public ecephys NWB-Zarr
+ * derivatives; their small `/units` coordinate arrays are read directly, so
+ * the merged SWDB HDF5 files themselves never need to be opened in the
+ * browser.
+ *
+ * @param {object[]} sessionRows - Rows from platform_swdb_sessions.
+ * @param {{ signal?: AbortSignal }} [options]
+ * @returns {Promise<{units: object[], failedAssets: object[]}>}
+ */
+export async function loadSwdbDynamicRoutingUnits(sessionRows, { signal } = {}) {
+  return loadSwdbUnitLocations(sessionRows, loadRasterUnitLocations, 'swdb', { signal });
+}
+
+/**
+ * Load per-unit block-switch activity for one direction ('vis_to_aud' or
+ * 'aud_to_vis'): each QC-passing unit's own average firing-rate time course
+ * across its session's 5 block-switch trials, each linearly time-warped onto
+ * its own unit-width slot of a shared template (`template_x` 0..5, where every
+ * integer is a real trial boundary and 2 is the switch trial's own onset) and
+ * averaged across every switch instance of that type in the biodata-cache
+ * builder. Warping (rather than aligning by raw seconds) is what makes
+ * averaging across instances with different real trial durations meaningful --
+ * see `platform_swdb_dr_switch.py`.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {string} direction - One of DR_SWITCH_DIRECTIONS.
+ * @returns {Promise<object[]>} rows of { asset_name, unit_id, template_x, mean_rate_hz }
+ */
+export async function loadSwdbDrSwitchActivity(coord, direction) {
+  const url = `${_base()}/${SWDB_TABLES.drSwitch}.pqt`;
+  return queryRows(
+    coord,
+    `
+      SELECT asset_name, unit_id, template_x, mean_rate_hz
+      FROM read_parquet(${sqlStr(url)})
+      WHERE direction = ${sqlStr(direction)}
+      ORDER BY asset_name, unit_id, template_x
+    `,
+  );
+}
+
+/**
+ * Load the representative trial-event template positions for one block-switch
+ * direction: one row per trial offset (-2..+2, 0 = the switch trial), giving
+ * the median template-x position (see loadSwdbDrSwitchActivity) of that
+ * trial's stimulus onset/offset and, where they occurred, response and reward.
+ * A viewer plots these on the same template axis as the activity so the trial
+ * markers and the data share one frame of reference.
+ *
+ * @param {object} coord - Mosaic/DuckDB coordinator.
+ * @param {string} direction - One of DR_SWITCH_DIRECTIONS.
+ * @returns {Promise<object[]>} rows of { trial_offset, stim_on_x, stim_off_x,
+ *   response_x, response_frac, reward_x, reward_frac, n_instances }
+ */
+export async function loadSwdbDrSwitchMarkers(coord, direction) {
+  const url = `${_base()}/${SWDB_TABLES.drSwitchMarkers}.pqt`;
+  return queryRows(
+    coord,
+    `
+      SELECT trial_offset, stim_on_x, stim_off_x, response_x, response_frac,
+             reward_x, reward_frac, n_instances
+      FROM read_parquet(${sqlStr(url)})
+      WHERE direction = ${sqlStr(direction)}
+      ORDER BY trial_offset
+    `,
+  );
 }
 
 /**
@@ -462,6 +582,48 @@ export async function resolveVisualLearningPlaybackSource(coord, sourceNames, { 
   );
   if (signal?.aborted) throw new Error('aborted');
   return rows.find((row) => row.data_level !== 'derived') ?? rows[0] ?? null;
+}
+
+/**
+ * HCR gene-probe channel columns in `platform_visual_learning_cell_gene`, in
+ * the order the cache writes them. Column names carry hyphens (e.g.
+ * `R1-488-GFP`) so they must be quoted in SQL and accessed with bracket
+ * notation on result rows.
+ */
+export const VISUAL_LEARNING_GENE_COLUMNS = [
+  'R1-488-GFP', 'R1-561-Slc17a7', 'R2-488-Ndnf', 'R2-514-Hpse', 'R2-561-Pthlh',
+  'R2-594-Chat', 'R2-638-Tac1', 'R3-488-Calb1', 'R3-514-Mme', 'R3-561-Crh',
+  'R3-594-Reln', 'R3-638-Tac2', 'R4-488-Lamp5', 'R4-514-Calb2', 'R4-561-Pdyn',
+  'R4-594-Penk', 'R4-638-Gad2', 'R5-488-Npy', 'R5-514-Pvalb', 'R5-561-Cck',
+  'R5-594-Sst', 'R5-638-Vip',
+];
+
+/** Load transcriptomic labels and per-gene HCR expression counts for one Visual Learning subject. */
+export async function loadVisualLearningCellTypes(coord, subjectId) {
+  const geneColumns = VISUAL_LEARNING_GENE_COLUMNS.map((name) => `"${name}"`).join(', ');
+  return _readSubjectPartition(
+    coord,
+    SWDB_TABLES.visualLearningCellGene,
+    subjectId,
+    {
+      columns: `cell_id, cell_class, cell_subclass, cell_type, cluster_id, total_counts, n_genes, ${geneColumns}`,
+      orderBy: 'cell_id',
+    },
+  );
+}
+
+/** Load imaging ROI-to-HCR registration rows for one Visual Learning session key. */
+export async function loadVisualLearningCoreg(coord, subjectId, sessionKey) {
+  return _readSubjectPartition(
+    coord,
+    SWDB_TABLES.visualLearningCoreg,
+    subjectId,
+    {
+      columns: 'session_name, plane_id, roi_id, hcr_id',
+      where: `session_key = ${sqlStr(sessionKey)} AND roi_id >= 0 AND hcr_id >= 0`,
+      orderBy: 'plane_id, roi_id',
+    },
+  );
 }
 
 /**

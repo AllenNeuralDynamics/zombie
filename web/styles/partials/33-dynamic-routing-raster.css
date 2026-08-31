@@ -15,7 +15,7 @@
 
 .dr-raster-visuals {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+  grid-template-columns: minmax(240px, 0.65fr) minmax(0, 2fr);
   align-items: stretch;
   gap: 1rem;
   width: 100%;
@@ -173,14 +173,44 @@
   padding: 0.35rem 0 0.75rem;
 }
 
-.dr-raster-raster svg {
+.dr-raster-figure {
+  min-width: 760px;
+  overflow-x: auto;
+  padding: 0.5rem 0.25rem 0.25rem;
+  border: 1px solid var(--surface-border);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.dr-raster-column-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 760px;
+}
+
+.dr-raster-column {
+  min-width: 0;
+}
+
+.dr-raster-column-title {
+  margin: 0 0 0.2rem;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.dr-raster-raster-plot,
+.dr-raster-psth-plot {
   display: block;
   width: 100%;
   min-width: 0;
   height: auto;
-  border: 1px solid var(--surface-border);
-  border-radius: 8px;
-  background: var(--surface-card);
+}
+
+.dr-raster-psth-plot {
+  margin-top: 0.2rem;
 }
 
 .dr-raster-empty {

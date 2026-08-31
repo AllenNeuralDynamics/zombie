@@ -16,6 +16,8 @@ vi.mock('../lib/metadata.js', () => ({ getResolvedVersion: () => 'bdc-v0.39' }))
 const {
   sessionsUrl,
   partitionUrl,
+  subjectPartitionUrl,
+  assertSubjectId,
   assertAssetName,
   SWDB_TABLES,
   listSwdbDatasets,
@@ -43,6 +45,18 @@ describe('swdb cache urls', () => {
 
   it('accepts a well-formed asset name', () => {
     expect(assertAssetName(ASSET)).toBe(ASSET);
+  });
+
+  it('builds subject-partitioned Visual Learning urls', () => {
+    expect(subjectPartitionUrl(SWDB_TABLES.visualLearningCellGene, '782149')).toBe(
+      'https://allen-data-views.s3.us-west-2.amazonaws.com/data-asset-cache/bdc-v0.39'
+        + '/platform_visual_learning_cell_gene/subject_id=782149/data.pqt',
+    );
+    expect(assertSubjectId('782149')).toBe('782149');
+  });
+
+  it.each(['782149/other', 'subject', '', null])('rejects unsafe subject id %s', (bad) => {
+    expect(() => assertSubjectId(bad)).toThrow(/Invalid SWDB subject id/);
   });
 
   it.each([

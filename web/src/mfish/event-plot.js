@@ -9,8 +9,17 @@
  * (coloured by orientation for gratings), and a de-emphasized running trace
  * (the running wheel is incidental to the task).
  *
+ * An optional cell-subclass mean-activity row can be added below Running via
+ * `setSubclassActivity` (or the `subclassActivity` constructor option) — used
+ * by the Visual Learning SWDB page once its dF/F reads resolve, which happen
+ * after this plot is already built. It lives in negative y-space below the
+ * fixed five rows, so every other caller of createMfishEventPlot (e.g. the
+ * subject-timeline Event Details panel) that never supplies it renders
+ * pixel-identically to before.
+ *
  * Public API mirrors dynamic_routing/event-plot.js:
- *   createMfishEventPlot(data) → { element, updatePlayhead, setOnScrub, dispose }
+ *   createMfishEventPlot(data) → { element, updatePlayhead, setOnScrub,
+ *   setOnDomainChange, setDomain, setSubclassActivity, dispose }
  */
 
 import * as Plot from '@observablehq/plot';
@@ -32,7 +41,21 @@ const ROWS = {
 };
 const Y_DOMAIN = [0, 1];
 
-export function createMfishEventPlot(data) {
+// Extra row for per-cell-subclass mean activity, below Running in negative
+// y-space (so the fixed rows above never need to be renumbered).
+const SUBCLASS_ROW_GAP = 0.10;
+const SUBCLASS_ROW_HEIGHT = 0.32;
+const SUBCLASS_ROW = {
+  lo: -(SUBCLASS_ROW_GAP + SUBCLASS_ROW_HEIGHT),
+  hi: -SUBCLASS_ROW_GAP,
+  label: 'Cell activity',
+};
+const SUBCLASS_PALETTE = [
+  '#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f',
+  '#edc948', '#b07aa1', '#ff9da7', '#9c755f', '#bab0ac',
+];
+
+export function createMfishEventPlot(data, { onDomainChange = null, subclassActivity = null } = {}) {
   const { stimuli, changes, running, rewards, licks, sessionEndS } = data;
   const isGratingStage = (data.stageMode ?? data.variant) === 'gratings';
 
@@ -64,6 +87,44 @@ export function createMfishEventPlot(data) {
 
   const hasLicks = lickRows.length > 0;
 
+  // -- Optional cell-subclass activity row --------------------------------
+  let currentSubclassActivity = subclassActivity;
+  let subclasses = [];
+  let subclassColor = new Map();
+  let subclassLineRows = [];
+  let yDomain = Y_DOMAIN;
+  let plotHeight = PLOT_HEIGHT;
+
+  function recomputeSubclassLayout() {
+    const rows = currentSubclassActivity?.rows ?? [];
+    subclasses = (currentSubclassActivity?.subclasses ?? [])
+      .filter((subclass) => rows.some((row) => row.cell_subclass === subclass));
+    subclassColor = new Map(subclasses.map((subclass, index) => [subclass, SUBCLASS_PALETTE[index % SUBCLASS_PALETTE.length]]));
+    subclassLineRows = [];
+    if (subclasses.length) {
+      const bySubclass = new Map(subclasses.map((subclass) => [subclass, []]));
+      for (const row of rows) bySubclass.get(row.cell_subclass)?.push(row);
+      for (const [subclass, subclassRows] of bySubclass) {
+        if (!subclassRows.length) continue;
+        let lo = Infinity, hi = -Infinity;
+        for (const row of subclassRows) {
+          if (row.activity < lo) lo = row.activity;
+          if (row.activity > hi) hi = row.activity;
+        }
+        const span = (hi - lo) || 1;
+        for (const row of subclassRows) {
+          const y = SUBCLASS_ROW.lo + ((row.activity - lo) / span) * (SUBCLASS_ROW.hi - SUBCLASS_ROW.lo);
+          subclassLineRows.push({ t: row.t, y, subclass });
+        }
+      }
+    }
+    yDomain = subclasses.length ? [SUBCLASS_ROW.lo, Y_DOMAIN[1]] : Y_DOMAIN;
+    const domainSpanRatio = (yDomain[1] - yDomain[0]) / (Y_DOMAIN[1] - Y_DOMAIN[0]);
+    const innerHBase = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
+    plotHeight = subclasses.length ? MARGIN.top + MARGIN.bottom + innerHBase * domainSpanRatio : PLOT_HEIGHT;
+  }
+  recomputeSubclassLayout();
+
   // -- Overview marks (bands + change ticks) -----------------------------
   const renderOverview = (holder, w) => {
     const plot = Plot.plot({
@@ -93,7 +154,7 @@ export function createMfishEventPlot(data) {
         fill: (d) => (d.ori != null ? oriColor(d.ori) : '#6366f1'), fillOpacity: 0.6, stroke: 'none',
       }),
       // Change onsets (faint full-height for cross-row alignment + a solid row tick).
-      Plot.ruleX(changeRows, { x: 't', y1: Y_DOMAIN[0], y2: Y_DOMAIN[1], stroke: ROWS.change.color, strokeOpacity: 0.12, strokeWidth: 0.8 }),
+      Plot.ruleX(changeRows, { x: 't', y1: yDomain[0], y2: yDomain[1], stroke: ROWS.change.color, strokeOpacity: 0.12, strokeWidth: 0.8 }),
       Plot.ruleX(changeRows, { x: 't', y1: ROWS.change.lo, y2: ROWS.change.hi, stroke: ROWS.change.color, strokeWidth: 1 }),
       // Rewards.
       Plot.ruleX(rewardRows, { x: 't', y1: ROWS.reward.lo, y2: ROWS.reward.hi, stroke: ROWS.reward.color, strokeWidth: 1.2 }),
@@ -103,9 +164,13 @@ export function createMfishEventPlot(data) {
     if (hasLicks) {
       marks.push(Plot.ruleX(lickRows, { x: 't', y1: ROWS.lick.lo, y2: ROWS.lick.hi, stroke: ROWS.lick.color, strokeOpacity: 0.5, strokeWidth: 0.5 }));
     }
-    const plot = Plot.plot({
+    if (subclasses.length) {
+      marks.push(Plot.ruleY([SUBCLASS_ROW.hi], { stroke: '#d1d5db', strokeOpacity: 0.5, strokeWidth: 0.5 }));
+      marks.push(Plot.line(subclassLineRows, { x: 't', y: 'y', z: 'subclass', stroke: 'subclass', strokeWidth: 1 }));
+    }
+    const plotConfig = {
       width: w,
-      height: PLOT_HEIGHT,
+      height: plotHeight,
       marginLeft: MARGIN.left,
       marginRight: MARGIN.right,
       marginTop: MARGIN.top,
@@ -113,9 +178,13 @@ export function createMfishEventPlot(data) {
       style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px' },
       clip: true,
       x: { label: 'time (s) →', domain: [t0, t1], grid: false },
-      y: { axis: null, domain: Y_DOMAIN },
+      y: { axis: null, domain: yDomain },
       marks,
-    });
+    };
+    if (subclasses.length) {
+      plotConfig.color = { domain: subclasses, range: subclasses.map((subclass) => subclassColor.get(subclass)) };
+    }
+    const plot = Plot.plot(plotConfig);
     holder.replaceChildren(plot);
   };
 
@@ -129,27 +198,73 @@ export function createMfishEventPlot(data) {
     renderOverview,
     renderMain,
   });
+  if (onDomainChange) bz.setOnDomainChange(onDomainChange);
 
-  // Row labels in the main gutter.
-  const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const yToPx = (y) => MARGIN.top + (1 - y) * innerH;
-  for (const key of ['reward', 'lick', 'change', 'stim', 'running']) {
-    if (key === 'lick' && !hasLicks) continue;
-    const r = ROWS[key];
-    const el = document.createElement('div');
-    el.textContent = r.label;
-    Object.assign(el.style, {
-      position: 'absolute', left: '0', width: `${MARGIN.left - 8}px`, textAlign: 'right',
-      top: `${yToPx((r.lo + r.hi) / 2) - 7}px`,
-      fontSize: '10px', color: r.color, pointerEvents: 'none', fontWeight: '600',
-    });
-    bz.mainWrap.appendChild(el);
+  // Row labels (+ a compact subclass color key) in the main gutter. Rebuilt
+  // in full whenever the subclass row appears/disappears, since every fixed
+  // row's pixel offset shifts along with the taller/shorter plot height.
+  let rowLabelEls = [];
+  function renderRowLabels() {
+    rowLabelEls.forEach((el) => el.remove());
+    rowLabelEls = [];
+    const innerH = plotHeight - MARGIN.top - MARGIN.bottom;
+    const yToPx = (y) => MARGIN.top + ((yDomain[1] - y) / (yDomain[1] - yDomain[0])) * innerH;
+    for (const key of ['reward', 'lick', 'change', 'stim', 'running']) {
+      if (key === 'lick' && !hasLicks) continue;
+      const r = ROWS[key];
+      const el = document.createElement('div');
+      el.textContent = r.label;
+      Object.assign(el.style, {
+        position: 'absolute', left: '0', width: `${MARGIN.left - 8}px`, textAlign: 'right',
+        top: `${yToPx((r.lo + r.hi) / 2) - 7}px`,
+        fontSize: '10px', color: r.color, pointerEvents: 'none', fontWeight: '600',
+      });
+      bz.mainWrap.appendChild(el);
+      rowLabelEls.push(el);
+    }
+    if (subclasses.length) {
+      const label = document.createElement('div');
+      label.textContent = SUBCLASS_ROW.label;
+      Object.assign(label.style, {
+        position: 'absolute', left: '0', width: `${MARGIN.left - 8}px`, textAlign: 'right',
+        top: `${yToPx(SUBCLASS_ROW.hi) - 7}px`,
+        fontSize: '10px', color: '#4b5563', pointerEvents: 'none', fontWeight: '600',
+      });
+      bz.mainWrap.appendChild(label);
+      rowLabelEls.push(label);
+
+      const legend = document.createElement('div');
+      Object.assign(legend.style, {
+        position: 'absolute', left: `${MARGIN.left}px`, right: `${MARGIN.right}px`,
+        top: `${yToPx(SUBCLASS_ROW.hi) - 7}px`,
+        display: 'flex', flexWrap: 'wrap', gap: '0.5rem', pointerEvents: 'none', fontSize: '9px',
+      });
+      subclasses.forEach((subclass) => {
+        const swatch = document.createElement('span');
+        swatch.textContent = subclass;
+        swatch.style.color = subclassColor.get(subclass);
+        swatch.style.fontWeight = '600';
+        legend.appendChild(swatch);
+      });
+      bz.mainWrap.appendChild(legend);
+      rowLabelEls.push(legend);
+    }
   }
+  renderRowLabels();
 
   return {
     element: bz.element,
     updatePlayhead: bz.updatePlayhead,
     setOnScrub: bz.setOnScrub,
+    setOnDomainChange: bz.setOnDomainChange,
+    setDomain: bz.setDomain,
+    /** Add/replace the per-cell-subclass mean-activity row below Running. */
+    setSubclassActivity(series) {
+      currentSubclassActivity = series;
+      recomputeSubclassLayout();
+      renderRowLabels();
+      bz.redrawMain();
+    },
     dispose: bz.dispose,
   };
 }

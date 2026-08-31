@@ -17,6 +17,7 @@
  *   container.appendChild(bz.element);
  *   bz.mainWrap;               // for absolutely-positioned row labels
  *   bz.setOnScrub((t) => …);   // click/drag to seek
+ *   bz.setOnDomainChange(([t0, t1]) => …); // brush zoom/pan notifications
  *   bz.updatePlayhead(t);      // move the playhead
  *   bz.dispose();
  */
@@ -114,6 +115,7 @@ export function createBrushOverview(config) {
   let innerWidth = 0;
   let overviewInnerWidth = 0;
   let scrubCb = null;
+  let domainCb = null;
   let lastT = 0;
   let lastW = 0;
   let brushT0 = 0;
@@ -242,12 +244,14 @@ export function createBrushOverview(config) {
     overviewInteract.style.cursor = 'crosshair';
     _updateBrushVisual();
     _rebuildMain(lastW);
+    domainCb?.([brushT0, brushT1]);
   });
 
   overviewInteract.addEventListener('dblclick', () => {
     brushT0 = 0; brushT1 = end;
     _updateBrushVisual();
     _rebuildMain(lastW);
+    domainCb?.([brushT0, brushT1]);
   });
 
   // ---- Scrub (click / drag to seek on the main panel) ------------------
@@ -288,6 +292,18 @@ export function createBrushOverview(config) {
     overviewWrap,
     updatePlayhead(t) { lastT = t; _placePlayhead(); _placeOverviewPlayhead(); },
     setOnScrub(cb) { scrubCb = cb; },
+    setOnDomainChange(cb) { domainCb = cb; },
+    setDomain(domain, { notify = false } = {}) {
+      const t0 = Number(domain?.[0]);
+      const t1 = Number(domain?.[1]);
+      if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 <= t0) return;
+      brushT0 = Math.max(0, Math.min(end, t0));
+      brushT1 = Math.max(0, Math.min(end, t1));
+      if (brushT1 <= brushT0) { brushT0 = 0; brushT1 = end; }
+      _updateBrushVisual();
+      if (lastW) _rebuildMain(lastW);
+      if (notify) domainCb?.([brushT0, brushT1]);
+    },
     /** Force a main-panel redraw at the current width/zoom (e.g. after an
      *  external state change like an axis-mode toggle). */
     redrawMain() { if (lastW) _rebuildMain(lastW); },

@@ -11,6 +11,7 @@ import {
   findNwbZarrPrefix,
   loadPlaneTimestamps,
   loadRoiTrace,
+  loadRoiTraces,
   resolvePlaneLayout,
   resolvePophysNwbBase,
 } from '../pophys/nwb-traces.js';
@@ -32,6 +33,12 @@ describe('pophys NWB-Zarr discovery', () => {
     const xml = `<CommonPrefixes><Prefix>${asset}/409828_2018-12-13_15-10-05.nwb.zarr/</Prefix></CommonPrefixes>`;
 
     expect(findNwbZarrPrefix(xml, asset)).toBe(`${asset}/409828_2018-12-13_15-10-05.nwb.zarr/`);
+  });
+
+  it('accepts a true HDF5 NWB root alongside NWB-Zarr roots', () => {
+    const asset = 'multiplane-ophys_782149_2025-03-28_processed';
+    const xml = `<CommonPrefixes><Prefix>${asset}/${asset}.nwb/</Prefix></CommonPrefixes>`;
+    expect(findNwbZarrPrefix(xml, asset)).toBe(`${asset}/${asset}.nwb/`);
   });
 
   it('lists an asset prefix once and caches the resolved base URL', async () => {
@@ -132,6 +139,23 @@ describe('pophys NWB trace layouts', () => {
     const root = fakeRoot(LEGACY_ARRAYS);
     await loadPlaneTimestamps(root, LEGACY_PLANE);
     expect(opened).toContain(`processing/${LEGACY_PLANE}/dff/timestamps`);
+  });
+
+  it('reads a contiguous range for several ROI columns', async () => {
+    const root = fakeRoot(MODERN_ARRAYS);
+    zarr.open.mockImplementation(async (loc) => {
+      opened.push(loc.path);
+      if (!loc._root._present.has(loc.path)) throw new Error(`no such array: ${loc.path}`);
+      return { path: loc.path, shape: loc.path.endsWith('/data') ? [3, 5] : [3] };
+    });
+    zarr.get.mockResolvedValue({ data: [1, 2, 3, 4, 5, 6], shape: [3, 2] });
+    const out = await loadRoiTraces(root, MODERN_PLANE, [2, 3], 'events');
+    expect(out).toMatchObject({ roiIds: [2, 3], startRoi: 2, nFrames: 3, nColumns: 2 });
+    expect(out.data).toEqual(Float32Array.from([1, 2, 3, 4, 5, 6]));
+    expect(zarr.get).toHaveBeenLastCalledWith(
+      { path: `processing/${MODERN_PLANE}/event_timeseries/data`, shape: [3, 5] },
+      [null, { start: 2, stop: 4, step: null }],
+    );
   });
 
   it('falls back to dff when the requested series is absent in this layout', async () => {
