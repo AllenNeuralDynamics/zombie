@@ -5,6 +5,11 @@ FROM --platform=linux/amd64 node:20-slim AS web-builder
 
 WORKDIR /web
 
+ARG VITE_QC_SPA_CLIENT_ID=a625f758-ee73-4fc0-8a4b-b7467f33d68c
+ARG VITE_QC_SPA_TENANT_ID=32669cd6-737f-4b39-8bdd-d6951120d3fc
+ENV VITE_QC_SPA_CLIENT_ID=${VITE_QC_SPA_CLIENT_ID} \
+    VITE_QC_SPA_TENANT_ID=${VITE_QC_SPA_TENANT_ID}
+
 # Install dependencies first for better layer caching.
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
