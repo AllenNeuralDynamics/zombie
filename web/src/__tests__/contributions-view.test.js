@@ -25,6 +25,7 @@ import {
   extractAuthors,
   initMatrix,
   formatAuthorForLatex,
+  activeCreditCategories,
   generateLatex,
   toEndpointPayload,
   fromEndpointPayload,
@@ -284,16 +285,31 @@ describe('generateLatex', () => {
     expect(generateLatex(rows)).toContain('A. Smith*');
   });
 
-  it('includes each CReDIT category in the column list', () => {
-    const tex = generateLatex(baseRows);
+  it('includes each active CReDIT category in the column list', () => {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    for (const cat of CREDIT_CATEGORIES) rows[0][cat] = 'Equal';
+    const tex = generateLatex(rows);
     for (const cat of CREDIT_CATEGORIES) {
       // `&` is escaped to `\&` for LaTeX output.
       expect(tex).toContain(cat.replace(/&/g, '\\&'));
     }
   });
 
+  it('omits columns with no contributions', () => {
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[0].Software = 'Equal';
+    const tex = generateLatex(rows);
+
+    expect(activeCreditCategories(rows)).toEqual(['Software']);
+    expect(tex).toContain('        Software,');
+    expect(tex).not.toContain('        Conceptualization,');
+    expect(tex).toContain('{\\mid}');
+  });
+
   it('escapes & as \\& in category labels', () => {
-    const tex = generateLatex(baseRows);
+    const rows = initMatrix(['Alice Smith']);
+    rows[0]['Writing – review & editing'] = 'Equal';
+    const tex = generateLatex(rows);
     expect(tex).toContain('Writing – review \\& editing');
     // No bare, unescaped ampersand should remain.
     expect(tex).not.toMatch(/[^\\]& editing/);
@@ -306,10 +322,11 @@ describe('generateLatex', () => {
   });
 
   it('uses 0 for None contributions in heatmap', () => {
-    const rows = initMatrix(['Alice Smith']);
-    // All None by default → all zeros
+    const rows = initMatrix(['Alice Smith', 'Bob Jones']);
+    rows[1].Software = 'Equal';
     const tex = generateLatex(rows);
-    expect(tex).toContain('{0,0,0,0,0,0,0,0,0,0,0,0,0,0}');
+    expect(tex).toContain('{0}');
+    expect(tex).toContain('{\\mid}');
   });
 
   it('uses \\lo for Supporting contributions', () => {
@@ -770,6 +787,12 @@ describe('display paths honour showLevels', () => {
     rows[1].publication_order = 1;
     const { texts } = drawPng(rows, {});
     expect(texts.indexOf('Bob Jones')).toBeLessThan(texts.indexOf('Alice Smith'));
+  });
+
+  it('PNG includes only roles with contributions', () => {
+    const { texts } = drawPng(rowsWithLevels(), {});
+    expect(texts).toContain('Software');
+    expect(texts).not.toContain('Conceptualization');
   });
 });
 

@@ -46,6 +46,10 @@ function chipLabels(container) {
   return [...container.querySelectorAll('.ae-chip')].map((c) => c.textContent);
 }
 
+function matrixRoleLabels(container) {
+  return [...container.querySelectorAll('.ae-matrix-role-col-label')].map((label) => label.textContent);
+}
+
 beforeEach(() => {
   document.body.innerHTML = '';
 });
@@ -121,5 +125,30 @@ describe('author levels default', () => {
     createPreview(container, withLevels, {});
     expect(container.querySelector('.ae-toggle-track.ae-toggle-on')).toBeNull();
     expect(container.querySelectorAll('.ae-level-group-sep').length).toBe(0);
+  });
+});
+
+describe('compact credit columns', () => {
+  const authors = [
+    author('Alice Smith', {
+      credit_levels: [{ role: 'Software', level: 'equal' }],
+    }),
+    author('Bob Jones'),
+  ];
+
+  it('omits roles with no contributions when requested', () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    createPreview(c, authors, { compactColumns: true });
+
+    expect(matrixRoleLabels(c)).toEqual(['Software']);
+  });
+
+  it('keeps all roles by default for the read-only preview', () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    createPreview(c, authors);
+
+    expect(matrixRoleLabels(c)).toHaveLength(14);
   });
 });

@@ -143,6 +143,23 @@ export function formatAuthorForLatex(name, isFirst) {
 }
 
 /**
+ * Credit roles that have at least one contribution in the matrix.
+ *
+ * Empty roles are still part of the editor's input model, but they make the
+ * generated matrices needlessly wide. Keep this display-only filtering in one
+ * place so the LaTeX and PNG outputs use the same columns.
+ */
+export function activeCreditCategories(rows) {
+  return CREDIT_CATEGORIES.filter((cat) =>
+    (rows || []).some((row) => {
+      const level = row?.[cat];
+      return level != null && String(level).trim() !== ''
+        && String(level).toLowerCase() !== 'none';
+    }),
+  );
+}
+
+/**
  * TikZ source for the contribution matrix. Like every other display path this
  * obeys the project settings: with `showLevels` off the heatmap is a flat
  * yes/no rather than shaded by a level the reader is not being shown, and rows
@@ -151,11 +168,12 @@ export function formatAuthorForLatex(name, isFirst) {
 export function generateLatex(rows, settings = {}) {
   const showLevels = (settings.showLevels ?? true) && (settings.allowLevels ?? true);
   rows = orderRowsForPublication(rows);
+  const activeCategories = activeCreditCategories(rows);
 
   const colLines = [
     '    % column labels',
     '    \\foreach \\a [count=\\n] in {',
-    ...CREDIT_CATEGORIES.map((c) => `        ${escapeLatex(c)},`),
+    ...activeCategories.map((c) => `        ${escapeLatex(c)},`),
     '    } {',
     '        \\node[col header] at (\\n,0) {\\a};',
     '    }',
@@ -171,7 +189,7 @@ export function generateLatex(rows, settings = {}) {
   const heatmapLines = [
     '    \\foreach \\y [count=\\n] in {',
     ...rows.map((row) => {
-      const values = CREDIT_CATEGORIES.map((cat) => {
+      const values = activeCategories.map((cat) => {
         const level = row[cat];
         if (!level || level === 'None') return 0;
         return showLevels ? (LATEX_LEVEL_VALUES[level] ?? 0) : LATEX_LEVEL_VALUES.Equal;
@@ -452,9 +470,7 @@ export function generateMatrixCanvas(rows, settings = {}) {
   const FONT_HDR    = '500 11.5px Inter, system-ui, sans-serif';
   const FONT_LEGEND = '600 11.5px Inter, system-ui, sans-serif';
 
-  const activeRoles = CREDIT_CATEGORIES.filter((cat) =>
-    rows.some((row) => row[cat] && row[cat] !== 'None'),
-  );
+  const activeRoles = activeCreditCategories(rows);
 
   // Only the tiers this project offers, labelled the way the project labels
   // them — and nothing at all when levels aren't being shown.
@@ -1242,7 +1258,7 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
   useEffect(() => {
     if (containerRef.current) {
       createPreview(containerRef.current, authors,
-        { showSections, showLevels, showTimeline, allowLead, allowLevels });
+        { showSections, showLevels, showTimeline, allowLead, allowLevels, compactColumns: true });
     }
   }, [authors, showSections, showLevels, showTimeline, allowLead, allowLevels]);
 

@@ -545,6 +545,7 @@ export function createPreview(container, authors, options = {}) {
   const showSections = options.showSections ?? false;
   const showLevels = options.showLevels ?? true;
   const showTimeline = options.showTimeline ?? false;
+  const compactColumns = options.compactColumns ?? false;
   // Which level tiers this project offers, and how they're labelled — the
   // legends and tooltips must never advertise a tier authors can't be given.
   const levelTiers = enabledLevels({
@@ -644,6 +645,13 @@ export function createPreview(container, authors, options = {}) {
 
   /** CRediT matrix — TRANSPOSED: authors as rows, roles as columns */
   function buildMatrixTab(sorted) {
+    const matrixRoles = compactColumns
+      ? CREDIT_ROLES.filter((role) => authors.some((author) => {
+        const level = findCreditLevel(author, role);
+        return level != null && String(level).trim() !== ''
+          && String(level).toLowerCase() !== 'none';
+      }))
+      : CREDIT_ROLES;
     const centering = el('div', { style: { display: 'flex', justifyContent: 'center' } });
     const outer = el('div', { style: { display: 'inline-flex', flexDirection: 'row', alignItems: 'center' } });
     centering.appendChild(outer);
@@ -655,7 +663,7 @@ export function createPreview(container, authors, options = {}) {
     const thead = el('thead');
     const headerRow = el('tr');
     headerRow.appendChild(el('th', { className: 'ae-matrix-corner-cell' }));
-    for (const role of CREDIT_ROLES) {
+    for (const role of matrixRoles) {
       const th = el('th', { className: 'ae-matrix-role-col-th' });
       const inner = el('div', { className: 'ae-matrix-role-col-header' });
       inner.appendChild(el('span', { className: 'ae-matrix-role-col-label' }, role));
@@ -681,7 +689,7 @@ export function createPreview(container, authors, options = {}) {
       row.appendChild(tdAuthor);
 
       // Role cells
-      for (const role of CREDIT_ROLES) {
+      for (const role of matrixRoles) {
         const level = findCreditLevel(author, role);
         const td = el('td', { className: 'ae-matrix-cell' });
         if (level) {
