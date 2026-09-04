@@ -11,7 +11,6 @@
 @import './partials/02-chrome-nav.css';
 @import './partials/03-assets-view.css';
 @import './partials/04-layout.css';
-@import './partials/05-explorer.css';
 @import './partials/06-contributions-core.css';
 @import './partials/07-theme-darkmode.css';
 @import './partials/08-sessions-qc-project.css';
@@ -40,4 +39,3 @@
 @import './partials/31-visual-coding-ophys.css';
 @import './partials/32-qc-editor.css';
 @import './partials/33-dynamic-routing-raster.css';
-@import './partials/34-swdb-verification-graph.css';

@@ -7,6 +7,7 @@
     "start": "concurrently --names docdb,vite --prefix-colors magenta,yellow \"npm:docdb\" \"npm:dev\"",
     "dev": "vite",
     "build": "vite build",
+    "build:dev": "ZOMBIE_EXPERIMENTAL=1 vite build",
     "preview": "vite preview",
     "docdb": "../.venv/bin/python docdb_proxy.py",
     "test": "vitest run",

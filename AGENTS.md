@@ -76,6 +76,32 @@ nginx (`deploy/nginx.conf`) resolves ordinary routes generically: `/foo` →
 `foo.html`, else 404 (no SPA fallback). Explicit nginx blocks exist **only**
 for proxy routes, legacy redirects (`/subject`, `/project` → `/view`), and `/`.
 
+## Release Channels
+
+Work lands on `dev`; `main` is cut from it on a release cycle. Each `ROUTES`
+entry carries `stability`:
+
+- `stable` (the default) — ships on both channels.
+- `experimental` — built and linked **only** on the dev channel. Mark a page
+  experimental while its data source, URL contract or UI is still expected to
+  change under users.
+
+`vite.config.js` filters the manifest through `selectRoutes()` once and uses
+the result for **both** `rollupOptions.input` and the nav passed to
+`renderHeader()`, so an omitted page is also unlinked from every page that
+does ship. nginx has no SPA fallback, so an omitted page simply 404s in
+production — there is nothing else to configure.
+
+The dev server (`npm run dev`) always serves everything. `npm run build`
+produces the stable bundle; `npm run build:dev` (or `ZOMBIE_EXPERIMENTAL=1`)
+produces the dev-channel bundle. The Dockerfile takes the same flag as a
+build-arg, defaulting to off, and `.github/workflows/publish_dev.yml` passes
+`ZOMBIE_EXPERIMENTAL=1`. The default is deliberately the safe direction: a
+missed flag under-ships rather than leaking an unfinished page to production.
+
+Currently experimental: `/analysis-framework`, `/size`, `/swdb`, `/swdb/set`,
+`/timeline`.
+
 ## Adding a New Page — Checklist
 
 1. `web/src/<page>/view.js` — export a view factory returning the root element.
@@ -83,9 +109,10 @@ for proxy routes, legacy redirects (`/subject`, `/project` → `/view`), and `/`
 3. `web/<page>.html` — copy an existing page; keep `<!--THEME_INIT-->` in
    `<head>` and the `<!--APP_HEADER-->` placeholder; point `<script>` at the entry.
 4. **Add one entry to `web/build/routes.js`** (`route`, `html`, `inputKey`,
-   optional `header`/`nav`). This is the only wiring step — build input, nav,
-   and nginx routing all derive from it. No nginx edit needed if the route
-   matches the HTML filename.
+   optional `header`/`nav`/`stability`). This is the only wiring step — build
+   input, nav, and nginx routing all derive from it. No nginx edit needed if
+   the route matches the HTML filename. New pages should normally start as
+   `stability: 'experimental'`.
 5. Add styles as a new `web/styles/partials/NN-*.css` and `@import` it in
    `web/styles/app.css`.
 
@@ -130,6 +157,8 @@ every `await`. See `subject/view.js`.
 
 ## SWDB Dashboard (`/swdb`, `/swdb/set`)
 
+Experimental — dev channel only (see Release Channels).
+
 A deliberately **isolated** dashboard for small curated sets of *merged NWB*
 assets (behavior + DLC eye tracking + RF mapping + optotagging + units in one
 file). All of its code lives under `web/src/swdb/` — keep it there; only reuse
@@ -160,11 +189,13 @@ the adapter shifts to "first trial at zero" on read.
 
 ## Plotting
 
-**Never hand-roll SVG for charts.** Pick the tool by data source:
-- **Static / pre-aggregated (plain JS array):** `@observablehq/plot` directly —
-  vgplot's array wrappers break on columnar mismatch.
-- **Live DuckDB with cross-filtering:** `@uwdata/vgplot` + `from(table, {
-  filterBy })` — see `web/src/explorer/time-view.js`.
+**Never hand-roll SVG for charts.** Query DuckDB, convert to plain rows with
+`arrowTableToRows()`, then plot with `@observablehq/plot`. Do not pass Arrow
+tables to vgplot's array wrappers — they break on columnar mismatch.
+
+`@uwdata/vgplot` is imported only for the DuckDB-WASM engine (`coordinator`,
+`wasmConnector`); no page uses its `from(table, { filterBy })` cross-filtering
+marks any more.
 
 ```js
 import * as Plot from '@observablehq/plot';

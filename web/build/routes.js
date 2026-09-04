@@ -13,6 +13,14 @@
  * intentionally differs from the HTML filename, proxy endpoints, and legacy
  * redirects remain explicit Nginx concerns.
  *
+ * ## Release channels
+ *
+ * The portal ships on two channels: `dev` builds from the `dev` branch, and
+ * production builds from `main` on a release cycle. `stability` decides which
+ * channel a page appears on — see {@link selectRoutes}. Because nginx has no
+ * SPA fallback, a page left out of the build simply 404s in production; there
+ * is nothing else to configure.
+ *
  * Fields:
  *   route        Canonical clean URL path served by Nginx (e.g. '/search').
  *   html         HTML source path, relative to the `web/` root.
@@ -27,10 +35,23 @@
  *   nav          `{ group, label }` if the page is linked from the shared
  *                nav (`group` is 'top', 'platforms', or 'dashboards'), else
  *                `null`. Order in this array is the display order.
+ *   stability    'stable' (default) — ships on every channel — or
+ *                'experimental', which builds and links only on the dev
+ *                channel. Mark a page experimental while its data source,
+ *                URL contract or UI is still expected to change under users.
  */
 
-function page({ route, html, inputKey, header = null, customHeader = false, nav = null }) {
-  return { route, html, inputKey, header, customHeader, nav };
+/** Legal values for a route's `stability` field. */
+export const STABILITY_LEVELS = ['stable', 'experimental'];
+
+function page({
+  route, html, inputKey, header = null, customHeader = false, nav = null,
+  stability = 'stable',
+}) {
+  if (!STABILITY_LEVELS.includes(stability)) {
+    throw new Error(`routes.js: unknown stability "${stability}" for ${html}`);
+  }
+  return { route, html, inputKey, header, customHeader, nav, stability };
 }
 
 export const ROUTES = [
@@ -87,21 +108,27 @@ export const ROUTES = [
     route: '/contributions', html: 'contributions.html', inputKey: 'contributions',
     header: { sub: 'contributions' }, nav: { group: 'dashboards', label: 'Contributions' },
   }),
+
+  // ---- Experimental dashboards: dev channel only ----
   page({
     route: '/analysis-framework', html: 'analysis-framework.html', inputKey: 'analysis_framework',
     header: { sub: 'analysis framework' }, nav: { group: 'dashboards', label: 'Analysis Framework' },
+    stability: 'experimental',
   }),
   page({
     route: '/size', html: 'size.html', inputKey: 'size',
     header: { sub: 'storage sizes' }, nav: { group: 'dashboards', label: 'Storage Sizes' },
+    stability: 'experimental',
   }),
   page({
     route: '/swdb', html: 'swdb.html', inputKey: 'swdb',
     header: { sub: 'SWDB data sets' }, nav: { group: 'dashboards', label: 'SWDB' },
+    stability: 'experimental',
   }),
   page({
     route: '/timeline', html: 'timeline.html', inputKey: 'timeline',
     header: { sub: 'asset timeline' }, nav: { group: 'dashboards', label: 'Time to portal' },
+    stability: 'experimental',
   }),
 
   // ---- SWDB sub-page (linked from the cards, not the nav; highlight the
@@ -109,11 +136,7 @@ export const ROUTES = [
   page({
     route: '/swdb/set', html: 'swdb/set.html', inputKey: 'swdb_set',
     header: { sub: 'SWDB set', active: '/swdb' },
-  }),
-  page({
-    route: '/swdb/verification-graph', html: 'swdb/verification-graph.html',
-    inputKey: 'swdb_verification_graph',
-    header: { sub: 'SWDB verification graph', active: '/swdb' },
+    stability: 'experimental',
   }),
 
   // ---- Contributions sub-pages (not directly nav-linked; highlight the
@@ -157,12 +180,7 @@ export const ROUTES = [
     route: '/coordinate-system-builder', html: 'coordinate-system-builder.html',
     inputKey: 'coordinate_system_builder',
   }),
-
-  // ---- Orphan/dev pages: not linked anywhere, built and routed generically
-  // for documentation/consistency, but with no standard header ----
-  page({ route: '/explore', html: 'explore.html', inputKey: 'explore', header: { sub: 'explorer' } }),
   page({ route: '/tables', html: 'tables.html', inputKey: 'tables' }),
-  page({ route: '/probe-transform-debug', html: 'probe-transform-debug.html', inputKey: 'probe_transform_debug' }),
 ];
 
 function assertUnique(field) {
@@ -181,17 +199,34 @@ assertUnique('html');
 assertUnique('inputKey');
 
 /**
+ * The routes a given release channel ships.
+ *
+ * @param {{ includeExperimental?: boolean }} [options]
+ * @returns {typeof ROUTES}
+ */
+export function selectRoutes({ includeExperimental = false } = {}) {
+  return includeExperimental ? ROUTES : ROUTES.filter((r) => r.stability === 'stable');
+}
+
+/**
  * Per-page header config, keyed by HTML source path (relative to `web/`),
  * for every route that uses the shared `<!--APP_HEADER-->` placeholder.
+ *
+ * Covers every route regardless of channel — excluded pages are never asked
+ * for, because Vite only transforms the HTML files it was given as inputs.
  */
 export const PAGES = Object.fromEntries(
   ROUTES.filter((r) => r.header).map((r) => [r.html, r.header]),
 );
 
-function navGroup(name) {
-  return ROUTES.filter((r) => r.nav?.group === name).map((r) => [r.route, r.nav.label]);
+/**
+ * Nav link groups for a channel's route list, in manifest order.
+ *
+ * @param {typeof ROUTES} [routes] Defaults to every route (dev channel).
+ * @returns {{ top: [string, string][], platforms: ..., dashboards: ... }}
+ */
+export function navGroups(routes = ROUTES) {
+  const group = (name) =>
+    routes.filter((r) => r.nav?.group === name).map((r) => [r.route, r.nav.label]);
+  return { top: group('top'), platforms: group('platforms'), dashboards: group('dashboards') };
 }
-
-export const TOP_LINKS = navGroup('top');
-export const PLATFORMS = navGroup('platforms');
-export const DASHBOARDS = navGroup('dashboards');

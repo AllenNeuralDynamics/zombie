@@ -8,9 +8,17 @@ WORKDIR /web
 ARG VITE_QC_SPA_CLIENT_ID=a625f758-ee73-4fc0-8a4b-b7467f33d68c
 ARG VITE_QC_SPA_TENANT_ID=32669cd6-737f-4b39-8bdd-d6951120d3fc
 ARG VITE_QC_SPA_EDITOR_ENABLED=true
+
+# Release channel: 0 builds only the pages marked stable in web/build/routes.js
+# (production, from main); the dev workflow passes 1 to also build the
+# experimental pages. Defaulting to 0 means a missed build-arg under-ships
+# rather than leaking an unfinished page into production.
+ARG ZOMBIE_EXPERIMENTAL=0
+
 ENV VITE_QC_SPA_CLIENT_ID=${VITE_QC_SPA_CLIENT_ID} \
     VITE_QC_SPA_TENANT_ID=${VITE_QC_SPA_TENANT_ID} \
-    VITE_QC_SPA_EDITOR_ENABLED=${VITE_QC_SPA_EDITOR_ENABLED}
+    VITE_QC_SPA_EDITOR_ENABLED=${VITE_QC_SPA_EDITOR_ENABLED} \
+    ZOMBIE_EXPERIMENTAL=${ZOMBIE_EXPERIMENTAL}
 
 # Install dependencies first for better layer caching.
 COPY web/package.json web/package-lock.json ./

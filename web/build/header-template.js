@@ -8,7 +8,9 @@
  * only the brand subtitle and which link/dropdown is marked active.
  *
  * Nav structure and per-page header config both come from the route manifest
- * (`./routes.js`) — this module only contains rendering logic.
+ * (`./routes.js`) — this module only contains rendering logic. The caller
+ * passes the channel's route list so that an experimental page dropped from
+ * the build is also dropped from the nav of the pages that do ship.
  *
  * names.html is intentionally NOT in `PAGES` — it uses a reduced custom nav
  * (see its `customHeader` entry in routes.js).
@@ -16,7 +18,7 @@
  * @module
  */
 
-import { PAGES, TOP_LINKS, PLATFORMS, DASHBOARDS } from './routes.js';
+import { PAGES, ROUTES, navGroups } from './routes.js';
 
 export { PAGES };
 
@@ -43,10 +45,12 @@ function dropdown(label, items, active) {
  * Render the full <header> block for a page.
  *
  * @param {{ sub: string, active?: string|null }} page
+ * @param {typeof ROUTES} [routes] Routes this channel ships; defaults to all.
  * @returns {string} HTML for the header (no leading indent on the first line;
  *   the `<!--APP_HEADER-->` placeholder supplies it).
  */
-export function renderHeader({ sub, active = null }) {
+export function renderHeader({ sub, active = null }, routes = ROUTES) {
+  const { top, platforms, dashboards } = navGroups(routes);
   return [
     '<header class="app-header">',
     '      <a href="/search" class="app-header-brand">',
@@ -57,9 +61,9 @@ export function renderHeader({ sub, active = null }) {
     '        </div>',
     '      </a>',
     '      <nav class="app-nav" aria-label="Main navigation">',
-    ...TOP_LINKS.map(([href, label]) => navLink(href, label, active, '        ')),
-    dropdown('Platforms', PLATFORMS, active),
-    dropdown('Dashboards', DASHBOARDS, active),
+    ...top.map(([href, label]) => navLink(href, label, active, '        ')),
+    dropdown('Platforms', platforms, active),
+    dropdown('Dashboards', dashboards, active),
     '        <button id="theme-toggle" class="theme-toggle-btn" aria-label="Toggle dark/light mode"></button>',
     '      </nav>',
     '    </header>',

@@ -25,6 +25,10 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/allenneuraldynamics/zombie:dev
+          # The dev channel also builds the pages marked experimental in
+          # web/build/routes.js; the main/production build omits them.
+          build-args: |
+            ZOMBIE_EXPERIMENTAL=1
   update_ecs_service :
     runs-on: ubuntu-latest
     needs: publish_image
