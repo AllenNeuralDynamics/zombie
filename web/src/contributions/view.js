@@ -15,7 +15,13 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
-import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels, getLastName } from './credit-helpers.js';
+import {
+  CREDIT_ROLES,
+  LEVEL_LABELS,
+  enabledLevels,
+  activeContributionLevels,
+  getLastName,
+} from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
 
 // ---------------------------------------------------------------------------
@@ -473,8 +479,14 @@ export function generateMatrixCanvas(rows, settings = {}) {
   const activeRoles = activeCreditCategories(rows);
 
   // Only the tiers this project offers, labelled the way the project labels
-  // them — and nothing at all when levels aren't being shown.
-  const legendItems = showLevels ? enabledLevels({ allowLevels, allowLead }) : [];
+  // them — and nothing at all when levels aren't being shown. Do not include
+  // a tier that is enabled but absent from the matrix cells.
+  const legendItems = showLevels
+    ? activeContributionLevels(
+      activeRoles.flatMap((role) => rows.map((row) => row[role])),
+      { allowLevels, allowLead },
+    )
+    : [];
 
   const gridW   = activeRoles.length * CELL;
   const gridH   = rows.length * CELL;

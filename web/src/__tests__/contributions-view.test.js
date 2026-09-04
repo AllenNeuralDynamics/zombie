@@ -755,8 +755,14 @@ describe('display paths honour showLevels', () => {
 
   it('PNG shades cells by level and draws a legend when levels are shown', () => {
     const { cells, legend } = drawPng(rowsWithLevels(), { showLevels: true });
-    expect(legend).toEqual(['Lead', '++', '+']);
+    expect(legend).toEqual(['Lead', '+']);
     expect(new Set(cells.map((c) => c.fillStyle)).size).toBe(2);
+  });
+
+  it('PNG omits enabled but unused tiers from the legend', () => {
+    const rows = initMatrix(['Alice Smith']);
+    rows[0]['Software'] = 'Supporting';
+    expect(drawPng(rows, { showLevels: true }).legend).toEqual(['+']);
   });
 
   it('PNG uses one flat tone and no legend when levels are hidden', () => {
@@ -773,7 +779,7 @@ describe('display paths honour showLevels', () => {
   });
 
   it('PNG omits Lead from the legend when Lead is not allowed', () => {
-    expect(drawPng(rowsWithLevels(), { allowLead: false }).legend).toEqual(['++', '+']);
+    expect(drawPng(rowsWithLevels(), { allowLead: false }).legend).toEqual(['+']);
   });
 
   it('PNG reclaims the legend gutter when there is no legend', () => {

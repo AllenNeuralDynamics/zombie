@@ -44,6 +44,24 @@ export function enabledLevels({ allowLevels = true, allowLead = true } = {}) {
   return allowLead ? ['lead', 'equal', 'supporting'] : ['equal', 'supporting'];
 }
 
+/**
+ * The enabled contribution tiers that are actually present in a display.
+ * Keep legends tied to rendered data rather than showing every tier a project
+ * could use.
+ *
+ * @param {Array<unknown>} levels
+ * @param {{allowLevels?: boolean, allowLead?: boolean}} [settings]
+ * @returns {Array<'lead'|'equal'|'supporting'>}
+ */
+export function activeContributionLevels(levels, settings = {}) {
+  const present = new Set(
+    (levels || [])
+      .filter((level) => level != null)
+      .map((level) => String(level).trim().toLowerCase()),
+  );
+  return enabledLevels(settings).filter((level) => present.has(level));
+}
+
 /** Full definitions and examples for each CRediT role, sourced from credit.niso.org (CC-BY 4.0). */
 export const CREDIT_ROLE_DESCRIPTIONS = {
   'Conceptualization': {

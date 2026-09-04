@@ -8,6 +8,7 @@ import {
   authorColor,
   CREDIT_ROLES,
   ROLE_GROUP,
+  activeContributionLevels,
 } from '../contributions/credit-helpers.js';
 
 describe('hashStr', () => {
@@ -57,6 +58,21 @@ describe('CREDIT_ROLES', () => {
     expect(CREDIT_ROLES).toContain('Conceptualization');
     expect(CREDIT_ROLES).toContain('Software');
     expect(CREDIT_ROLES).toContain('Visualization');
+  });
+});
+
+describe('activeContributionLevels', () => {
+  it('keeps only enabled tiers that are present in the data', () => {
+    expect(activeContributionLevels(['Supporting', 'equal'])).toEqual(['equal', 'supporting']);
+  });
+
+  it('does not advertise Lead when no contribution uses it', () => {
+    expect(activeContributionLevels(['Equal', 'Supporting'])).toEqual(['equal', 'supporting']);
+  });
+
+  it('still respects project settings', () => {
+    expect(activeContributionLevels(['Lead', 'Equal'], { allowLead: false })).toEqual(['equal']);
+    expect(activeContributionLevels(['Lead'], { allowLevels: false })).toEqual([]);
   });
 });
 

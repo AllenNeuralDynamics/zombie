@@ -26,7 +26,7 @@ import {
   getFirstName,
   normalizeRole,
   LEVEL_LABELS,
-  enabledLevels,
+  activeContributionLevels,
 } from './credit-helpers.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -546,13 +546,23 @@ export function createPreview(container, authors, options = {}) {
   const showLevels = options.showLevels ?? true;
   const showTimeline = options.showTimeline ?? false;
   const compactColumns = options.compactColumns ?? false;
-  // Which level tiers this project offers, and how they're labelled — the
-  // legends and tooltips must never advertise a tier authors can't be given.
-  const levelTiers = enabledLevels({
+  const levelSettings = {
     allowLevels: options.allowLevels ?? true,
     allowLead: options.allowLead ?? true,
-  });
+  };
+  // Only advertise tiers that are both allowed and represented in the data.
+  const levelTiers = activeContributionLevels(
+    (authors || []).flatMap((author) => (author.credit_levels || []).map((credit) => credit.level)),
+    levelSettings,
+  );
   const levelLabel = (level) => LEVEL_LABELS[String(level).toLowerCase()] || level;
+
+  function levelsForRole(roleName) {
+    return activeContributionLevels(
+      (authors || []).map((author) => findCreditLevel(author, roleName)),
+      levelSettings,
+    );
+  }
 
   // Remove previous widget if any
   const prev = container.querySelector('.ae-widget');
@@ -726,6 +736,7 @@ export function createPreview(container, authors, options = {}) {
   function buildAuthorListTab() {
     const activeAuthors = authors;
     const isCreditSort = sortKey.startsWith('credit:');
+    const sortLevelTiers = isCreditSort ? levelsForRole(sortKey.slice(7)) : [];
     const resorted = sortAuthors(activeAuthors, sortKey);
     const wrap = el('div', { className: 'ae-author-list-tab' });
 
@@ -817,7 +828,7 @@ export function createPreview(container, authors, options = {}) {
     if (sortKey === 'publication-order') sortDesc = 'As listed in the publication';
     else if (sortKey === 'most-roles') sortDesc = 'By number of CRediT roles';
     else if (isCreditSort) {
-      const chain = (showLevels && levelTiers.length ? levelTiers.map(levelLabel) : []).concat('none');
+      const chain = (showLevels && sortLevelTiers.length ? sortLevelTiers.map(levelLabel) : []).concat('none');
       sortDesc = `By "${sortKey.slice(7)}" — ${chain.join(' → ')}`;
     }
     sortBar.appendChild(el('p', { className: 'ae-sort-desc' }, `Sorted: ${sortDesc}`));
@@ -954,11 +965,11 @@ export function createPreview(container, authors, options = {}) {
       byline.appendChild(affDiv);
     }
 
-    if (isCreditSort && showLevels && levelTiers.length) {
+    if (isCreditSort && showLevels && sortLevelTiers.length) {
       const legend = el('span', { className: 'ae-legend' });
-      levelTiers.forEach((tier, i) => {
+      sortLevelTiers.forEach((tier, i) => {
         legend.appendChild(el('span', { className: `ae-legend-dot ae-dot-${tier}` }));
-        legend.appendChild(document.createTextNode(levelLabel(tier) + (i < levelTiers.length - 1 ? ' ' : '')));
+        legend.appendChild(document.createTextNode(levelLabel(tier) + (i < sortLevelTiers.length - 1 ? ' ' : '')));
       });
       byline.appendChild(legend);
     }
@@ -1179,6 +1190,9 @@ export function createPreview(container, authors, options = {}) {
     }
     // Feedback link — right-aligned in the tab row
     // ── Help tooltip (question mark) ──────────────────────────────────────
+    const selectedRoleTiers = sortKey.startsWith('credit:')
+      ? levelsForRole(sortKey.slice(7))
+      : levelTiers;
     const TAB_HELP = {
       matrix: {
         title: 'CRediT Matrix',
@@ -1193,7 +1207,7 @@ export function createPreview(container, authors, options = {}) {
       authors: {
         title: 'Sorted List',
         body: 'Use the sort chips to reorder alphabetically, by a specific CRediT role, or by who has the most roles. Authors with '
-          + `a ${levelTiers.length ? levelLabel(levelTiers[0]) : 'top-level'} contribution to the selected role float to the top. Turn on the Author Levels toggle to split the author list by first, middle, and senior author designation.`,
+          + `a ${selectedRoleTiers.length ? levelLabel(selectedRoleTiers[0]) : 'top-level'} contribution to the selected role float to the top. Turn on the Author Levels toggle to split the author list by first, middle, and senior author designation.`,
       },
       profiles: {
         title: 'Profiles',

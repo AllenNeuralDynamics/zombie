@@ -50,6 +50,10 @@ function matrixRoleLabels(container) {
   return [...container.querySelectorAll('.ae-matrix-role-col-label')].map((label) => label.textContent);
 }
 
+function matrixLegendLabels(container) {
+  return [...container.querySelectorAll('.ae-matrix-legend .ae-legend-word')].map((label) => label.textContent);
+}
+
 beforeEach(() => {
   document.body.innerHTML = '';
 });
@@ -150,5 +154,25 @@ describe('compact credit columns', () => {
     createPreview(c, authors);
 
     expect(matrixRoleLabels(c)).toHaveLength(14);
+  });
+});
+
+describe('contribution-level legends', () => {
+  it('omits unused tiers from the preview matrix legend', () => {
+    const c = document.createElement('div');
+    document.body.appendChild(c);
+    createPreview(c, [author('Alice Smith')]);
+
+    expect(matrixLegendLabels(c)).toEqual(['++']);
+  });
+
+  it('omits unused tiers from the selected-role sorted-list legend', () => {
+    const c = renderList([author('Alice Smith')]);
+    c.querySelector('.ae-credit-wrap > .ae-chip').click();
+    [...c.querySelectorAll('.ae-credit-item')]
+      .find((item) => item.textContent.includes('Software'))
+      .click();
+
+    expect(c.querySelector('.ae-legend')?.textContent).toBe('++');
   });
 });
