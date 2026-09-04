@@ -1010,6 +1010,57 @@ describe('createContributionsView — projectName auto-load', () => {
 });
 
 // ---------------------------------------------------------------------------
+// createContributionsView — last project admin protection
+// ---------------------------------------------------------------------------
+
+/**
+ * @vitest-environment happy-dom
+ */
+describe('createContributionsView — last project admin protection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  const loaded = {
+    project_name: 'admin-project',
+    contributors: [
+      { author: { name: 'Alice Admin' }, is_admin: true, credit_levels: [] },
+      { author: { name: 'Bob Member' }, is_admin: false, credit_levels: [] },
+    ],
+  };
+
+  async function flush() {
+    for (let i = 0; i < 15; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  it('disables the last admin checkbox and author removal button', async () => {
+    global.fetch = vi.fn().mockImplementation((url) => {
+      if (url.includes('history=true')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [] });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => loaded });
+    });
+
+    const root = createContributionsView({ projectName: 'admin-project', isAdmin: true });
+    document.body.appendChild(root);
+    await flush();
+    root.querySelector('#cv-settings-toggle').click();
+    await flush();
+
+    const adminControls = [...root.querySelectorAll('.cv-admins-list input[type="checkbox"]')];
+    expect(adminControls[0].checked).toBe(true);
+    expect(adminControls[0].disabled).toBe(true);
+    expect(adminControls[1].disabled).toBe(false);
+
+    const removeButtons = [...root.querySelectorAll('#cv-authors-tbody .cv-x-btn')];
+    expect(removeButtons[0].disabled).toBe(true);
+    expect(removeButtons[1].disabled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // createContributionsView — new project (isNew) auto-create
 // ---------------------------------------------------------------------------
 
