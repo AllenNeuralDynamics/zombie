@@ -9,6 +9,7 @@ import { CLOCK } from './midi-config.js';
 import { createSonifier } from './midi-sonifier.js';
 import { createSpikeRasterView } from './spike-raster-view.js';
 import { openMidiModal } from './midi-modal.js';
+import { createVirtualEcephysSource } from './virtual-data.js';
 
 const TIME_BINS = 250;
 const DEPTH_BINS = 120;
@@ -21,14 +22,16 @@ const PSTH_BIN_WIDTH = (PSTH_POST - PSTH_PRE) / PSTH_BINS;
 
 function esc(s) { return String(s).replace(/'/g, "''"); }
 
-const _spikeFileCache = new Map();
+const _cacheFileCache = new Map();
 
-async function resolveSpikeFile(rawAssetName) {
+async function resolveCacheFile(rawAssetName, tableName) {
   const key = String(rawAssetName);
-  if (_spikeFileCache.has(key)) return _spikeFileCache.get(key);
+  if (!/^[A-Za-z0-9_.-]+$/.test(key)) return null;
+  const cacheKey = `${tableName}:${key}`;
+  if (_cacheFileCache.has(cacheKey)) return _cacheFileCache.get(cacheKey);
   const p = (async () => {
     const prefix =
-      `data-asset-cache/${getResolvedVersion()}/platform_ecephys_spikes/asset_name=${key}`;
+      `data-asset-cache/${getResolvedVersion()}/${tableName}/asset_name=${key}`;
     const listUrl =
       `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/` +
       `?list-type=2&prefix=${encodeURIComponent(prefix)}&max-keys=1000`;
@@ -45,11 +48,21 @@ async function resolveSpikeFile(rawAssetName) {
     const latest = keys[keys.length - 1];
     return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${latest}`;
   })();
-  _spikeFileCache.set(key, p);
+  _cacheFileCache.set(cacheKey, p);
   return p;
 }
 
-async function loadProbes(coord, url) {
+async function resolveSpikeFile(rawAssetName) {
+  return resolveCacheFile(rawAssetName, 'platform_ecephys_spikes');
+}
+
+async function resolveUnitsFile(rawAssetName) {
+  return resolveCacheFile(rawAssetName, 'platform_ecephys_units');
+}
+
+async function loadProbes(coord, source) {
+  if (source.kind === 'virtual') return source.loadProbes();
+  const url = source.spikesUrl;
   return queryRows(coord,
     `SELECT device_name,
             COUNT(DISTINCT unit_name) AS nunits,
@@ -61,7 +74,9 @@ async function loadProbes(coord, url) {
   );
 }
 
-async function loadBins(coord, url, probe) {
+async function loadBins(coord, source, probe) {
+  if (source.kind === 'virtual') return source.loadBins(probe);
+  const url = source.spikesUrl;
   const src = esc(url);
   const p = esc(probe);
   const rows = await queryRows(coord, `
@@ -97,7 +112,10 @@ async function loadBins(coord, url, probe) {
   return { bins, lo, hi };
 }
 
-async function loadBinsByDepth(coord, spkUrl, unitsUrl, probe) {
+async function loadBinsByDepth(coord, source, probe) {
+  if (source.kind === 'virtual') return source.loadBinsByDepth(probe);
+  const spkUrl = source.spikesUrl;
+  const unitsUrl = source.unitsUrl;
   const rows = await queryRows(coord, `
     WITH s AS (
       SELECT sp.spike_time AS t, u.depth AS depth
@@ -129,7 +147,9 @@ async function loadBinsByDepth(coord, spkUrl, unitsUrl, probe) {
   return { bins, lo, hi, dlo, dhi };
 }
 
-async function loadAlignedPsth(coord, spkUrl, probe, eventTimes, unitName) {
+async function loadAlignedPsth(coord, source, probe, eventTimes, unitName) {
+  if (source.kind === 'virtual') return source.loadAlignedPsth(probe, eventTimes, unitName);
+  const spkUrl = source.spikesUrl;
   if (!eventTimes?.length) return [];
   const unitFilter = unitName ? ` AND unit_name = '${esc(unitName)}'` : '';
   const values = eventTimes
@@ -155,11 +175,9 @@ async function loadAlignedPsth(coord, spkUrl, probe, eventTimes, unitName) {
   return rows.map((r) => ({ bin: Number(r.bin), n: Number(r.n) }));
 }
 
-function unitsUrlFrom(spikeUrl) {
-  return spikeUrl.replace('/platform_ecephys_spikes/', '/platform_ecephys_units/');
-}
-
-async function loadUnitsMeta(coord, unitsUrl, probe) {
+async function loadUnitsMeta(coord, source, probe) {
+  if (source.kind === 'virtual') return source.loadUnitsMeta(probe);
+  const unitsUrl = source.unitsUrl;
   return queryRows(coord, `
     SELECT unit_name, decoder_label, default_qc,
            firing_rate, snr, num_spikes, presence_ratio,
@@ -170,7 +188,9 @@ async function loadUnitsMeta(coord, unitsUrl, probe) {
   `);
 }
 
-async function loadUnitSessionPsth(coord, spkUrl, probe, unitName, lo, hi) {
+async function loadUnitSessionPsth(coord, source, probe, unitName, lo, hi) {
+  if (source.kind === 'virtual') return source.loadUnitSessionPsth(probe, unitName, lo, hi);
+  const spkUrl = source.spikesUrl;
   const binWidth = (hi - lo) / TIME_BINS;
   if (!(binWidth > 0)) return [];
   const rows = await queryRows(coord, `
@@ -362,7 +382,7 @@ function unitColor(i, n) {
  * on Apply loads the mapped units' spike trains and drives the sonifier + the
  * unit-lane raster view off the shared transport clock.
  */
-function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }) {
+function setupSonifier({ section, coord, getSource, probeSel, bridge }) {
   const midiBtn = section.querySelector('.ecephys-midi-btn');
   if (!midiBtn) return;
 
@@ -376,7 +396,7 @@ function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }
   };
 
   // Only reveal the button once a corridor transport exists to sync to.
-  bridge.onReady(() => { midiBtn.hidden = false; });
+  bridge.onReady(() => { midiBtn.hidden = !getSource().hasUnits; });
 
   async function startSonification({ units, timbre }) {
     const probe = probeSel.value;
@@ -384,12 +404,15 @@ function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }
     if (!names.length) return;
     let rows;
     try {
-      rows = await queryRows(coord, `
-        SELECT unit_name, spike_time
-        FROM read_parquet('${esc(spikesUrl)}')
-        WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL
-          AND unit_name IN (${names.map((n) => `'${esc(n)}'`).join(', ')})
-        ORDER BY unit_name, spike_time`);
+      const source = getSource();
+      rows = source.kind === 'virtual'
+        ? await source.loadSonificationSpikes(probe, units)
+        : await queryRows(coord, `
+          SELECT unit_name, spike_time
+          FROM read_parquet('${esc(source.spikesUrl)}')
+          WHERE device_name = '${esc(probe)}' AND spike_time IS NOT NULL
+            AND unit_name IN (${names.map((n) => `'${esc(n)}'`).join(', ')})
+          ORDER BY unit_name, spike_time`);
     } catch (err) {
       console.error('[midi] spike load failed', err);
       return;
@@ -455,8 +478,10 @@ function setupSonifier({ section, coord, spikesUrl, unitsUrl, probeSel, bridge }
   }
 
   midiBtn.onclick = () => {
+    const source = getSource();
     openMidiModal({
-      coord, unitsUrl, probe: probeSel.value,
+      coord, unitsUrl: source.unitsUrl, probe: probeSel.value,
+      loadCandidates: source.kind === 'virtual' ? source.loadMidiCandidates : null,
       onPreview: (note, tb) => { const s = ensureSonifier(); s.setEnabled(true); s.preview(note, tb); },
       onApply: (mapping) => { startSonification(mapping); },
     });
@@ -475,12 +500,33 @@ export function createEcephysPlayback(
   section.innerHTML = '<p class="ecephys-loading">Checking for ecephys data\u2026</p>';
 
   (async () => {
-    const url = await resolveSpikeFile(rawAssetName);
-    if (!url) { section.remove(); return; }
+    const [url, unitsUrl, virtualSource] = await Promise.all([
+      resolveSpikeFile(rawAssetName),
+      resolveUnitsFile(rawAssetName),
+      createVirtualEcephysSource(rawAssetName).catch((err) => {
+        console.warn('[ecephys-playback] virtual source unavailable', err);
+        return null;
+      }),
+    ]);
+    const sources = [];
+    if (url) {
+      const parquetSource = {
+        id: 'parquet', kind: 'parquet', label: 'Parquet', spikesUrl: url,
+        unitsUrl, hasUnits: Boolean(unitsUrl),
+      };
+      sources.push(parquetSource);
+    }
+    if (virtualSource) sources.push(virtualSource);
+    if (sources.length === 0) { section.remove(); return; }
+
+    const requestedSource = new URLSearchParams(window.location.search).get('ecephys-source');
+    let activeSource = sources.find((source) => source.kind === requestedSource)
+      ?? sources.find((source) => source.kind === 'virtual')
+      ?? sources[0];
 
     let probes = [];
     try {
-      probes = await loadProbes(coord, url);
+      probes = await loadProbes(coord, activeSource);
     } catch (err) {
       console.error('[ecephys-playback] probe query error', err);
       section.remove();
@@ -489,12 +535,7 @@ export function createEcephysPlayback(
     probes = probes.filter((p) => p.device_name != null && Number(p.nunits) > 0);
     if (probes.length === 0) { section.remove(); return; }
 
-    const unitsUrl = unitsUrlFrom(url);
-    let hasUnits = false;
-    try {
-      await queryRows(coord, `SELECT 1 FROM read_parquet('${esc(unitsUrl)}') LIMIT 1`);
-      hasUnits = true;
-    } catch { hasUnits = false; }
+    let hasUnits = activeSource.hasUnits;
 
     let behaviorTiming = null;
     try {
@@ -509,6 +550,14 @@ export function createEcephysPlayback(
     const eventStreams = behaviorTiming?.streams ?? [];
     const defaultStream = chooseDefaultEventStream(eventStreams);
     const hasEvents = eventStreams.length > 0;
+
+    const sourceControl = sources.length > 1
+      ? `<label>Data
+           <select class="ecephys-source-sel">${sources
+             .map((source) => `<option value="${esc(source.kind)}"${source === activeSource ? ' selected' : ''}>${esc(source.label)}</option>`)
+             .join('')}</select>
+         </label>`
+      : '';
 
     const probeOptions = probes
       .map((p) => `<option value="${esc(p.device_name)}">${esc(p.device_name)} `
@@ -526,10 +575,10 @@ export function createEcephysPlayback(
       : '';
 
     const hint = hasEvents
-      ? 'PSTH aligned to behavioral events; full-session raster (binned in DuckDB).'
+      ? 'PSTH aligned to behavioral events; full-session raster.'
       : 'No behavioral events \u2014 showing session population rate; full-session raster.';
 
-    const unitsSection = hasUnits
+    const unitsSection = sources.some((source) => source.hasUnits)
       ? `<div class="ecephys-units-section">
            <h4 class="ecephys-section-heading">Units \u2014 click a row to compute its PSTH</h4>
            <div class="ecephys-units-wrap">
@@ -551,13 +600,14 @@ export function createEcephysPlayback(
 
     section.innerHTML = `
       <div class="ecephys-controls">
+        ${sourceControl}
         <label>Probe
           <select class="ecephys-probe-sel">${probeOptions}</select>
         </label>
         ${eventControl}
         <span class="ecephys-selection">All units</span>
         <span class="ecephys-hint">${hint}</span>
-        ${hasUnits && sonifierBridge ? `
+        ${sources.some((source) => source.hasUnits) && sonifierBridge ? `
         <button class="ecephys-midi-btn" type="button" hidden title="Map units to pitches and hear them during replay">🎹 Sonify</button>` : ''}
       </div>
       <div class="ecephys-plots">
@@ -574,6 +624,7 @@ export function createEcephysPlayback(
     `;
 
     const probeSel = section.querySelector('.ecephys-probe-sel');
+    const sourceSel = section.querySelector('.ecephys-source-sel');
     const eventSel = section.querySelector('.ecephys-event-sel');
     const psthEl = section.querySelector('.ecephys-psth');
     const rasterEl = section.querySelector('.ecephys-raster');
@@ -581,6 +632,7 @@ export function createEcephysPlayback(
     const unitDetailEl = section.querySelector('.ecephys-unit-detail');
     const selectionEl = section.querySelector('.ecephys-selection');
     const qcFilterSel = section.querySelector('.ecephys-qc-filter');
+    const midiBtn = section.querySelector('.ecephys-midi-btn');
 
     const nUnitsFor = (probe) =>
       Number(probes.find((p) => String(p.device_name) === String(probe))?.nunits ?? 0);
@@ -619,7 +671,7 @@ export function createEcephysPlayback(
       const g = gen;
       let data;
       try {
-        data = await loadBins(coord, url, probe);
+        data = await loadBins(coord, activeSource, probe);
       } catch (err) {
         console.error('[ecephys-playback] raster query error', err);
         if (g === gen) rasterEl.innerHTML = '<p class="ecephys-no-data">Error loading spikes.</p>';
@@ -636,7 +688,7 @@ export function createEcephysPlayback(
       if (mode === 'depth' && hasUnits) {
         let depthData;
         try {
-          depthData = await loadBinsByDepth(coord, url, unitsUrl, probe);
+          depthData = await loadBinsByDepth(coord, activeSource, probe);
         } catch (err) {
           console.error('[ecephys-playback] depth raster query error', err);
           if (g === gen) rasterEl.innerHTML = '<p class="ecephys-no-data">Error loading depth raster.</p>';
@@ -658,7 +710,7 @@ export function createEcephysPlayback(
       rasterEl.appendChild(buildRasterPlot(data.bins, data.lo, data.hi, nUnits, width));
     }
 
-    function renderUnitDetail() {
+    async function renderUnitDetail() {
       if (!unitDetailEl) return;
       if (!selectedUnit) {
         unitDetailEl.innerHTML = '<p class="ecephys-hint">Select a unit to see its mean waveform.</p>';
@@ -666,8 +718,19 @@ export function createEcephysPlayback(
       }
       const u = unitRows.find((r) => String(r.unit_name) === selectedUnit);
       if (!u) { unitDetailEl.innerHTML = ''; return; }
+      const selected = selectedUnit;
+      const g = gen;
       unitDetailEl.innerHTML = '<h5 class="ecephys-detail-title">Mean waveform</h5>';
-      const wf = parseWaveform(u.waveform);
+      let wf = parseWaveform(u.waveform);
+      if (activeSource.kind === 'virtual') {
+        try {
+          wf = await activeSource.loadWaveform(u);
+        } catch (err) {
+          console.warn('[ecephys-playback] waveform read error', err);
+          wf = null;
+        }
+      }
+      if (g !== gen || selected !== selectedUnit) return;
       if (wf && wf.length) {
         const width = Math.max(180, Math.floor(unitDetailEl.clientWidth) - 8);
         unitDetailEl.appendChild(buildWaveformPlot(wf, width));
@@ -684,13 +747,18 @@ export function createEcephysPlayback(
     }
 
     async function renderUnits() {
-      if (!hasUnits) return;
+      if (!hasUnits) {
+        if (unitsScrollEl) unitsScrollEl.innerHTML = '<p class="ecephys-hint">Unit metadata is not available for this source.</p>';
+        if (unitDetailEl) unitDetailEl.innerHTML = '';
+        return;
+      }
       const probe = probeSel.value;
       const g = gen;
-      if (!unitCache.has(probe)) {
+      const cacheKey = `${activeSource.id}:${probe}`;
+      if (!unitCache.has(cacheKey)) {
         unitsScrollEl.innerHTML = '<p class="ecephys-loading">Loading units\u2026</p>';
         try {
-          unitCache.set(probe, await loadUnitsMeta(coord, unitsUrl, probe));
+          unitCache.set(cacheKey, await loadUnitsMeta(coord, activeSource, probe));
         } catch (err) {
           console.error('[ecephys-playback] units query error', err);
           if (g === gen) unitsScrollEl.innerHTML = '<p class="ecephys-no-data">Error loading units.</p>';
@@ -698,9 +766,9 @@ export function createEcephysPlayback(
         }
       }
       if (g !== gen) return;
-      unitRows = unitCache.get(probe) ?? [];
+      unitRows = unitCache.get(cacheKey) ?? [];
       paintUnitsTable();
-      renderUnitDetail();
+      await renderUnitDetail();
     }
 
     let lastPsth = null;
@@ -733,7 +801,7 @@ export function createEcephysPlayback(
         let nTrials;
         try {
           nTrials = stream?.occurrences?.length ?? 0;
-          bins = await loadAlignedPsth(coord, url, probe, stream?.times ?? [], unit);
+          bins = await loadAlignedPsth(coord, activeSource, probe, stream?.times ?? [], unit);
         } catch (err) {
           console.error('[ecephys-playback] psth query error', err);
           if (g === gen) psthEl.innerHTML = '<p class="ecephys-no-data">Error loading PSTH.</p>';
@@ -756,7 +824,7 @@ export function createEcephysPlayback(
       let series;
       if (unit) {
         try {
-          series = await loadUnitSessionPsth(coord, url, probe, unit, lo, hi);
+          series = await loadUnitSessionPsth(coord, activeSource, probe, unit, lo, hi);
         } catch (err) {
           console.error('[ecephys-playback] unit psth query error', err);
           if (g === gen) psthEl.innerHTML = '<p class="ecephys-no-data">Error loading PSTH.</p>';
@@ -779,7 +847,7 @@ export function createEcephysPlayback(
       selectedUnit = selectedUnit === unitName ? null : unitName;
       updateSelectionLabel();
       paintUnitsTable();
-      renderUnitDetail();
+      void renderUnitDetail();
       renderPsth();
     }
 
@@ -808,13 +876,35 @@ export function createEcephysPlayback(
     }
 
     probeSel.addEventListener('change', refreshProbe);
+    if (sourceSel) sourceSel.addEventListener('change', async () => {
+      const next = sources.find((source) => source.kind === sourceSel.value);
+      if (!next || next === activeSource) return;
+      activeSource = next;
+      hasUnits = activeSource.hasUnits;
+      if (midiBtn) midiBtn.hidden = !hasUnits;
+      try {
+        probes = (await loadProbes(coord, activeSource))
+          .filter((p) => p.device_name != null && Number(p.nunits) > 0);
+      } catch (err) {
+        console.error('[ecephys-playback] source probe query error', err);
+        probes = [];
+      }
+      probeSel.innerHTML = probes
+        .map((p) => `<option value="${esc(p.device_name)}">${esc(p.device_name)} `
+          + `(${Number(p.nunits)} units)</option>`)
+        .join('');
+      unitCache.clear();
+      lastRaster = null;
+      lastPsth = null;
+      await refreshProbe();
+    });
     if (eventSel) eventSel.addEventListener('change', () => { renderPsth(); });
     if (qcFilterSel) qcFilterSel.addEventListener('change', () => { paintUnitsTable(); });
 
     // ---- Spike Jukebox (hidden MIDI sonification tool) -------------------
-    if (hasUnits && sonifierBridge) {
+    if (sources.some((source) => source.hasUnits) && sonifierBridge) {
       setupSonifier({
-        section, coord, spikesUrl: url, unitsUrl, probeSel,
+        section, coord, getSource: () => activeSource, probeSel,
         bridge: sonifierBridge,
       });
     }

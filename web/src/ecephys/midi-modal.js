@@ -53,7 +53,9 @@ function buildCandidateSql(unitsUrl, probe, sel) {
  *
  * @param {object} opts
  * @param {object} opts.coord      - DuckDB coordinator.
- * @param {string} opts.unitsUrl   - platform_ecephys_units parquet URL.
+ * @param {string} [opts.unitsUrl] - platform_ecephys_units parquet URL.
+ * @param {(probe:string,selection:object)=>Promise<Array>} [opts.loadCandidates]
+ *   - Alternative candidate loader, used by virtual-Zarr sources.
  * @param {string} opts.probe      - device_name.
  * @param {string} [opts.timbre]   - default oscillator type for this probe.
  * @param {(note:number,timbre:string)=>void} [opts.onPreview] - audition a pitch.
@@ -218,7 +220,9 @@ export function openMidiModal(opts) {
     statusEl.textContent = 'Loading units…';
     listEl.innerHTML = '';
     try {
-      rows = await queryRows(coord, buildCandidateSql(unitsUrl, probe, sel));
+      rows = opts.loadCandidates
+        ? await opts.loadCandidates(probe, sel)
+        : await queryRows(coord, buildCandidateSql(unitsUrl, probe, sel));
     } catch (err) {
       console.error('[midi-modal] unit query failed', err);
       statusEl.textContent = 'Error loading units.';
