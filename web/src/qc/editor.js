@@ -6,41 +6,9 @@ import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
 import { getQcAccount, loginForQc } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
-import { canonicalQcJson, hashQc } from './canonical.js';
-import { getMetricStatus, isCustomMetric, parseQCRecord } from './data.js';
-
-const UNSUPPORTED_CURATION_TYPES = /spike\s*sorting|ephys/i;
-
-function isEditableMetric(metric) {
-  if (isCustomMetric(metric.value)) return false;
-  if (metric.object_type === 'Curation metric' && UNSUPPORTED_CURATION_TYPES.test(metric.type ?? '')) return false;
-  return true;
-}
-
-function valueText(value) {
-  if (value !== null && typeof value === 'object') return JSON.stringify(value, null, 2);
-  return value === null || value === undefined ? '' : String(value);
-}
-
-function parseDraft(text, original) {
-  if (typeof original === 'number') {
-    const value = Number(text);
-    if (text.trim() === '' || !Number.isFinite(value)) throw new Error('Enter a finite number.');
-    return value;
-  }
-  if (typeof original === 'boolean') {
-    if (text !== 'true' && text !== 'false') throw new Error('Enter true or false.');
-    return text === 'true';
-  }
-  if (original !== null && typeof original === 'object') {
-    try { return JSON.parse(text); } catch { throw new Error('Enter valid JSON.'); }
-  }
-  return text;
-}
-
-function sameValue(left, right) {
-  try { return canonicalQcJson(left) === canonicalQcJson(right); } catch { return left === right; }
-}
+import { hashQc } from './canonical.js';
+import { getMetricStatus, parseQCRecord } from './data.js';
+import { isEditableMetric, parseDraft, sameValue, valueText } from './edit-model.js';
 
 /** Build the narrow request body from already-reviewed local changes. */
 export function buildQcSubmitPayload(record, {
@@ -119,36 +87,10 @@ function errorText(error) {
   return error.message || 'QC submission failed.';
 }
 
-function MetricEdit({ metric, draft, status, error, onValue, onStatus }) {
-  const curation = metric.object_type === 'Curation metric';
-  return html`
-    <div class=${`qc-editor-metric ${curation ? 'qc-editor-curation' : ''}`}>
-      <label class="qc-editor-label">${metric.name}</label>
-      <textarea
-        class="qc-editor-value"
-        value=${draft}
-        rows=${typeof metric.value === 'object' ? 4 : 1}
-        onInput=${event => onValue(event.currentTarget.value)}
-        aria-label=${`${metric.name} value`}
-      />
-      ${error ? html`<div class="qc-editor-field-error">${error}</div>` : null}
-      <label class="qc-editor-status-label">
-        Status
-        <select value=${status} onChange=${event => onStatus(event.currentTarget.value)}>
-          <option value="Pending">Pending</option>
-          <option value="Pass">Pass</option>
-          <option value="Fail">Fail</option>
-        </select>
-      </label>
-      ${curation ? html`<small>Curation values append to the existing history.</small>` : null}
-    </div>
-  `;
-}
-
-export function QcEditor({ record, onReload }) {
+export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
-  const editableMetrics = parsed.metrics.filter(isEditableMetric);
+  const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
   const [account, setAccount] = useState(null);
   const [authError, setAuthError] = useState('');
   const [valueDrafts, setValueDrafts] = useState(() => Object.fromEntries(
@@ -164,6 +106,7 @@ export function QcEditor({ record, onReload }) {
   const [review, setReview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [viewMode, setViewMode] = useState('tree');
 
   useEffect(() => {
     let alive = true;
@@ -200,6 +143,22 @@ export function QcEditor({ record, onReload }) {
       setFieldErrors(previous => ({ ...previous, [metric.name]: error.message }));
     }
   };
+
+  useEffect(() => {
+    onEditStateChange?.({
+      enabled: Boolean(account),
+      editableMetricNames: new Set(editableMetrics.map(metric => metric.name)),
+      valueDrafts,
+      statusDrafts,
+      fieldErrors,
+      viewMode,
+      onValue: (name, value) => {
+        const metric = editableMetrics.find(candidate => candidate.name === name);
+        if (metric) handleValue(metric, value);
+      },
+      onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
+    });
+  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, viewMode]);
 
   const handleLogin = async () => {
     setMessage('');
@@ -278,13 +237,21 @@ export function QcEditor({ record, onReload }) {
           <h3>Edit QC</h3>
           <small>Signed in as ${account.username || account.name || account.homeAccountId}</small>
         </div>
-        <button
-          class="qc-editor-secondary"
-          onClick=${() => (preview ? setPreview(false) : handleReview())}
-          disabled=${submitting || reviewing}
-        >
-          ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
-        </button>
+        <div class="qc-editor-actions">
+          ${!preview ? html`
+            <div class="qc-view-toggle" role="group" aria-label="Metric layout">
+              <button class=${viewMode === 'tree' ? 'active' : ''} onClick=${() => setViewMode('tree')}>Tree view</button>
+              <button class=${viewMode === 'table' ? 'active' : ''} onClick=${() => setViewMode('table')}>Table view</button>
+            </div>
+          ` : null}
+          <button
+            class="qc-editor-secondary"
+            onClick=${() => (preview ? setPreview(false) : handleReview())}
+            disabled=${submitting || reviewing}
+          >
+            ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
+          </button>
+        </div>
       </div>
       ${message ? html`<div class="qc-editor-message">${message}</div>` : null}
       ${preview && review ? html`
@@ -333,19 +300,6 @@ export function QcEditor({ record, onReload }) {
           </button>
         </div>
       ` : html`
-        <div class="qc-editor-metrics">
-          ${editableMetrics.map(metric => html`
-            <${MetricEdit}
-              key=${metric.name}
-              metric=${metric}
-              draft=${valueDrafts[metric.name]}
-              status=${statusDrafts[metric.name]}
-              error=${fieldErrors[metric.name]}
-              onValue=${value => handleValue(metric, value)}
-              onStatus=${value => setStatusDrafts(previous => ({ ...previous, [metric.name]: value }))}
-            />
-          `)}
-        </div>
         ${parsed.metrics.length !== editableMetrics.length ? html`<p class="qc-editor-fallback">Specialized/custom metrics remain read-only; use Open QC Portal for those.</p>` : null}
         <label class="qc-editor-label">Notes<textarea rows="3" value=${notes} onInput=${event => setNotes(event.currentTarget.value)} /></label>
         <button
@@ -362,6 +316,12 @@ export function QcEditor({ record, onReload }) {
 
 export function mountQcEditor(container, record, options = {}) {
   if (!QC_SPA_EDITOR_ENABLED) return () => {};
-  render(html`<${QcEditor} record=${record} onReload=${options.onReload || (() => Promise.resolve())} />`, container);
+  render(html`
+    <${QcEditor}
+      record=${record}
+      onReload=${options.onReload || (() => Promise.resolve())}
+      onEditStateChange=${options.onEditStateChange}
+    />
+  `, container);
   return () => render(null, container);
 }

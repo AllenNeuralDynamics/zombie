@@ -4,10 +4,10 @@
  *
  * @vitest-environment happy-dom
  */
-import { describe, it, expect } from 'vitest';
-import { renderMetrics } from '../qc/metrics.js';
+import { describe, it, expect, vi } from 'vitest';
+import { renderMetrics, renderMetricsTable } from '../qc/metrics.js';
 import { renderMedia } from '../qc/media.js';
-import { isCustomMetric } from '../qc/data.js';
+import { buildTreeNodes, isCustomMetric } from '../qc/data.js';
 
 const baseMetric = (overrides = {}) => ({
   name: 'm',
@@ -71,6 +71,69 @@ describe('status tooltip', () => {
   it('adds the edit-mode tooltip to the status indicator', () => {
     const card = cardFor(baseMetric({ value: 1 }));
     expect(card.querySelector('.metric-status').title).toMatch(/edit mode/i);
+  });
+});
+
+describe('inline editing', () => {
+  it('renders value and status controls in the metric card', () => {
+    const onValue = vi.fn();
+    const onStatus = vi.fn();
+    const metric = baseMetric({ name: 'drift', value: 0.5 });
+    const card = renderMetrics([metric], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      editableMetricNames: new Set(['drift']),
+      valueDrafts: { drift: '0.5' },
+      statusDrafts: { drift: 'Pass' },
+      onValue,
+      onStatus,
+    }).querySelector('.qc-metric-card');
+
+    const value = card.querySelector('.qc-inline-editor-value');
+    value.value = '0.75';
+    value.dispatchEvent(new Event('input', { bubbles: true }));
+    card.querySelector('.qc-inline-status').value = 'Fail';
+    card.querySelector('.qc-inline-status').dispatchEvent(new Event('change', { bubbles: true }));
+    expect(onValue).toHaveBeenCalledWith('drift', '0.75');
+    expect(onStatus).toHaveBeenCalledWith('drift', 'Fail');
+  });
+});
+
+describe('table view', () => {
+  it('renders one metric row per metric and keeps leaf tree groups', () => {
+    const metrics = [
+      baseMetric({ name: 'drift', value: 0.5, tags: { probe: 'A', type: 'drift' }, reference: 'figures/drift.png' }),
+      baseMetric({ name: 'noise', value: 0.2, tags: { probe: 'A', type: 'noise' }, reference: '' }),
+      baseMetric({ name: 'other', value: 1, tags: { probe: 'B', type: 'drift' }, reference: '' }),
+    ];
+    const treeNodes = buildTreeNodes(metrics, ['probe', 'type']);
+    const table = renderMetricsTable(metrics, 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      editableMetricNames: new Set(metrics.map(metric => metric.name)),
+      valueDrafts: { drift: '0.5', noise: '0.2', other: '1' },
+      statusDrafts: { drift: 'Pass', noise: 'Pass', other: 'Pass' },
+      onValue: () => {},
+      onStatus: () => {},
+    }, treeNodes);
+
+    expect(table.querySelectorAll('.qc-metrics-table-row')).toHaveLength(3);
+    expect(table.querySelectorAll('.qc-metrics-table-group')).toHaveLength(3);
+    expect(table.textContent).toContain('probe: A (2) / type: drift (1)');
+    expect(table.querySelectorAll('.qc-inline-editor-value')).toHaveLength(3);
+    expect(table.querySelectorAll('.qc-inline-status')).toHaveLength(3);
+    expect(table.querySelector('.qc-reference-link').textContent).toBe('drift.png');
+  });
+
+  it('opens reference media in a dialog and creates a hover preview', () => {
+    const table = renderMetricsTable([
+      baseMetric({ name: 'drift', reference: 'figures/drift.png', value: 1 }),
+    ], 'aind-open-data', 'prefix', 'asset');
+    const cell = table.querySelector('.qc-reference-cell');
+    cell.dispatchEvent(new Event('mouseenter', { bubbles: true }));
+    expect(cell.querySelector('.qc-reference-preview .qc-media')).toBeTruthy();
+    cell.querySelector('.qc-reference-link').click();
+    expect(document.body.querySelector('.qc-reference-dialog')).toBeTruthy();
+    document.body.querySelector('.qc-reference-dialog-close').click();
+    expect(document.body.querySelector('.qc-reference-dialog')).toBeNull();
   });
 });
 

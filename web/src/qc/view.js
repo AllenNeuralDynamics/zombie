@@ -1,6 +1,6 @@
 import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
-import { renderMetrics } from './metrics.js';
+import { renderMetrics, renderMetricsTable } from './metrics.js';
 import { mountQcEditor } from './editor.js';
 
 export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
@@ -15,7 +15,6 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const editor = document.createElement('div');
   editor.className = 'qc-editor-host';
   root.appendChild(editor);
-  mountQcEditor(editor, record, { onReload });
 
   if (notes) {
     const notesEl = document.createElement('div');
@@ -31,31 +30,79 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
   const body = document.createElement('div');
   body.className = 'qc-container';
-
-  const contentArea = document.createElement('div');
-  contentArea.className = 'qc-content';
-
   const treeNodes = buildTreeNodes(metrics, defaultGrouping);
+  root.appendChild(body);
 
-  const onSelect = (node) => {
-    contentArea.innerHTML = '';
-    contentArea.appendChild(renderMetrics(node.metrics, s3Bucket, s3Prefix, name, rawS3Loc));
+  let editState = { enabled: false, viewMode: 'tree' };
+  let activeNode = null;
+
+  const syncEditErrors = () => {
+    for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
+      const error = editState.fieldErrors?.[wrapper.dataset.qcMetric];
+      const current = wrapper.querySelector('.qc-inline-field-error');
+      if (error && !current) {
+        const errorEl = document.createElement('div');
+        errorEl.className = 'qc-inline-field-error';
+        errorEl.textContent = error;
+        wrapper.appendChild(errorEl);
+      } else if (!error && current) {
+        current.remove();
+      } else if (error && current) {
+        current.textContent = error;
+      }
+    }
   };
 
-  const tree = createTree(treeNodes, onSelect);
-  body.appendChild(tree);
-  body.appendChild(contentArea);
+  const renderBody = () => {
+    body.replaceChildren();
+    if (editState.viewMode === 'table') {
+      body.classList.add('qc-container-table');
+      const content = document.createElement('div');
+      content.className = 'qc-content qc-table-content';
+      if (metrics.length) {
+        content.appendChild(renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes));
+      } else {
+        const empty = document.createElement('p');
+        empty.className = 'qc-empty';
+        empty.textContent = 'No QC data available for this asset.';
+        content.appendChild(empty);
+      }
+      body.appendChild(content);
+      return;
+    }
 
-  if (metrics.length) {
-    contentArea.appendChild(renderMetrics(metrics, s3Bucket, s3Prefix, name, rawS3Loc));
-  } else {
-    const empty = document.createElement('p');
-    empty.className = 'qc-empty';
-    empty.textContent = 'No QC data available for this asset.';
-    contentArea.appendChild(empty);
-  }
+    body.classList.remove('qc-container-table');
+    const contentArea = document.createElement('div');
+    contentArea.className = 'qc-content';
+    const onSelect = (node) => {
+      activeNode = node;
+      contentArea.replaceChildren(renderMetrics(node.metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState));
+    };
+    const tree = createTree(treeNodes, onSelect);
+    body.appendChild(tree);
+    body.appendChild(contentArea);
 
-  root.appendChild(body);
+    const selectedMetrics = activeNode?.metrics ?? metrics;
+    if (selectedMetrics.length) {
+      contentArea.appendChild(renderMetrics(selectedMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState));
+    } else {
+      const empty = document.createElement('p');
+      empty.className = 'qc-empty';
+      empty.textContent = 'No QC data available for this asset.';
+      contentArea.appendChild(empty);
+    }
+  };
+
+  renderBody();
+  mountQcEditor(editor, record, {
+    onReload,
+    onEditStateChange: (nextState) => {
+      const layoutChanged = nextState.enabled !== editState.enabled || nextState.viewMode !== editState.viewMode;
+      editState = nextState;
+      if (layoutChanged) renderBody();
+      else syncEditErrors();
+    },
+  });
   return root;
 }
 
