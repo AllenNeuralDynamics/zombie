@@ -100,7 +100,7 @@ function EditApp({ doi }) {
         // brand-new project must still be treated as a new project so the view
         // creates it instead of trying (and failing) to load it.
         const getRes = await fetchContributions(
-          `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`,
+          `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(doi)}`,
         );
         if (cancelled) return;
         const projectExists = getRes.status !== 404;

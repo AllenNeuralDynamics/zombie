@@ -1003,7 +1003,7 @@ describe('createContributionsView — projectName auto-load', () => {
     await Promise.resolve();
 
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('contributions/get?project=my-project'),
+      expect.stringContaining('contributions/project?project=my-project'),
     );
     expect(sessionStorage.getItem('contributions:draft')).toBeNull();
   });
@@ -1050,11 +1050,12 @@ describe('createContributionsView — isNew auto-create', () => {
       ([, opts]) => (opts?.method || 'GET') === 'POST',
     );
     expect(postCalls.length).toBeGreaterThan(0);
-    expect(postCalls[0][0]).toContain('contributions/post?project=dan-test2');
+    expect(postCalls[0][0]).toContain('contributions/project?project=dan-test2');
 
     // Must NOT attempt a full project load (that path throws "not found").
     const loadCalls = global.fetch.mock.calls.filter(
-      ([url]) => url.includes('contributions/get?project=dan-test2')
+      ([url, opts]) => (opts?.method || 'GET') === 'GET'
+        && url.includes('contributions/project?project=dan-test2')
         && !url.includes('history=true'),
     );
     expect(loadCalls).toHaveLength(0);

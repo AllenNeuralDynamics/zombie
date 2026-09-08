@@ -1618,7 +1618,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (!project) { setEndpointStatus({ text: 'Enter a project name first.', cls: 'status-error' }); return; }
     setEndpointStatus({ text: `Fetching \u201c${project}\u201d\u2026`, cls: 'status-loading' });
     try {
-      const loadUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}`;
+      const loadUrl = `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(project)}`;
       const res = await fetch(loadUrl);
       if (res.status === 404) throw new Error(`Project \u201c${project}\u201d not found on server.`);
       if (!res.ok) throw new Error(`Server error ${res.status}`);
@@ -1681,7 +1681,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       payload.edit_locked = el;
       payload.allow_lead = al;
       payload.allow_levels = alv;
-      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(project)}`;
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1711,7 +1711,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   async function fetchHistory(project) {
     try {
       const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}&history=true`,
+        `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(project)}&history=true`,
       );
       if (!res.ok) { setHistoryCommits([]); return; }
       const data = await res.json();
@@ -1730,7 +1730,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     setEndpointStatus({ text: `Loading version ${commit.slice(0, 8)}\u2026`, cls: 'status-loading' });
     try {
       const res = await fetch(
-        `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(project)}&commit=${encodeURIComponent(commit)}`,
+        `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(project)}&commit=${encodeURIComponent(commit)}`,
       );
       if (res.status === 404) throw new Error('Version not found.');
       if (!res.ok) throw new Error(`Server error ${res.status}`);
