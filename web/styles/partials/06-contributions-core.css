@@ -698,6 +698,8 @@
   line-height: 1;
 }
 .cv-x-btn:hover { color: var(--color-red); }
+.cv-x-btn:disabled { cursor: default; opacity: 0.45; }
+.cv-x-btn:disabled:hover { color: var(--text-muted); }
 
 /* Add row button */
 .cv-add-row-btn {
@@ -1253,4 +1255,3 @@
   color: var(--color-muted, var(--text-muted));
   padding: var(--gap);
 }
-

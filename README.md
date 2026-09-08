@@ -60,6 +60,27 @@ Open <http://localhost:5173>.
 cd web && npm test
 ```
 
+## Release channels
+
+The portal ships on two channels. `dev` builds from the `dev` branch on every
+push; production builds from `main` on a release cycle.
+
+Every page is listed once in `web/build/routes.js` with a `stability` field.
+`stable` pages ship on both channels. `experimental` pages are built and linked
+only on the dev channel — the production bundle omits their HTML entirely and
+drops them from the shared nav, so they 404 on `data.allenneuraldynamics.org`
+until they are promoted.
+
+Mark a page experimental while its data source, URL contract or UI is still
+expected to change under users; promote it by changing one field.
+
+```bash
+cd web
+npm run dev        # dev server — always serves every page
+npm run build      # stable bundle (what production ships)
+npm run build:dev  # dev-channel bundle, experimental pages included
+```
+
 ## Production build
 
 A Docker container bundles the static Vite build and Python proxy behind nginx.
@@ -69,6 +90,9 @@ DuckDB-WASM remains browser-side and requires no container service.
 docker build -t zombie .
 docker run -p 8000:8000 zombie
 ```
+
+Pass `--build-arg ZOMBIE_EXPERIMENTAL=1` to build the dev-channel image; the
+default (off) matches production.
 
 ## ZOMBIE?
 

@@ -1056,6 +1056,8 @@ function ProjectSettingsSection({
     if (!val) onShowLevelsChange(false);
   }
 
+  const adminCount = rows.filter((r) => r.is_admin).length;
+
   return html`
     <section class="cv-section cv-settings-section">
       <button class="cv-section-toggle" id="cv-settings-toggle"
@@ -1118,6 +1120,7 @@ function ProjectSettingsSection({
                     : rows.map((r) => html`
                         <label key=${r.name} class="cv-settings-label">
                           <input type="checkbox" checked=${!!r.is_admin}
+                                 disabled=${!!r.is_admin && adminCount === 1}
                                  onChange=${(e) => onToggleRowAdmin(r.name, e.target.checked)} />
                           <span>${r.name || '(unnamed)'}</span>
                         </label>
@@ -1438,7 +1441,7 @@ function ProjectWidget({
 
 // ── AuthorRow ──────────────────────────────────────────────────────────────
 
-function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, allowLead, allowLevels }) {
+function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, allowLead, allowLevels, canRemove = true }) {
   const levels = allowLevels
     ? (allowLead ? CONTRIBUTION_LEVELS : CONTRIBUTION_LEVELS.filter((l) => l !== 'Lead'))
     : ['None', 'Equal'];
@@ -1447,6 +1450,7 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
     <tr class=${isActive ? 'cv-row-active' : ''}>
       <td>
         <button class="cv-x-btn" aria-label=${'Remove ' + row.name}
+                disabled=${!canRemove}
                 onClick=${() => onRemove(rowIdx)}>×</button>
       </td>
       <td>
@@ -1762,6 +1766,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   // ── Row mutations ──────────────────────────────────────────────────────────
   function removeRow(idx) {
     const removed = sr.current.rows[idx];
+    const adminCount = sr.current.rows.filter((r) => r.is_admin).length;
+    if (removed?.is_admin && adminCount === 1) return;
     if (sr.current.selectedAuthor === removed.name) setSelectedAuthor(null);
     setRows((prev) => prev.filter((_, i) => i !== idx));
   }
@@ -1856,6 +1862,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const hasProject = projectName.trim().length > 0;
   const canLoad    = hasProject;
   const canSave    = hasProject && rows.length > 0;
+  const adminCount = rows.filter((r) => r.is_admin).length;
   const selectedRow = rows.find((r) => r.name === selectedAuthor) || null;
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -1957,8 +1964,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         isAdmin=${isAdmin}
         editLocked=${editLocked} onEditLockedChange=${setEditLocked}
         rows=${rows}
-        onToggleRowAdmin=${(name, val) =>
-          setRows((prev) => prev.map((r) => r.name === name ? { ...r, is_admin: val } : r))}
+        onToggleRowAdmin=${(name, val) => setRows((prev) => {
+          const adminCount = prev.filter((r) => r.is_admin).length;
+          if (!val && adminCount === 1 && prev.some((r) => r.name === name && r.is_admin)) return prev;
+          return prev.map((r) => r.name === name ? { ...r, is_admin: val } : r);
+        })}
         onReorderPublication=${(names) => setRows((prev) => {
           // `names` is the full byline, front to back — renumber from 1.
           const rank = new Map(names.map((n, i) => [n, i + 1]));
@@ -2005,6 +2015,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
                     onCategoryChange=${updateCategory}
                     allowLead=${allowLead}
                     allowLevels=${allowLevels}
+                    canRemove=${!(row.is_admin && adminCount === 1)}
                   />
                 `)}
               </tbody>
