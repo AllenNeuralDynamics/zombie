@@ -362,6 +362,7 @@
 .qc-tree li { cursor: pointer; }
 .qc-tree .tree-node { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: var(--radius); }
 .qc-tree .tree-node:hover { background: var(--surface-card); }
+.qc-tree .tree-node.selected { background: var(--surface-card); outline: 1px solid var(--accent-2); }
 .qc-tree .tree-toggle { width: 16px; text-align: center; font-size: 0.7em; user-select: none; flex-shrink: 0; color: var(--text-muted); }
 .qc-tree .tree-icon { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .qc-tree .tree-icon.pass { background: var(--color-green); }
@@ -399,6 +400,10 @@
 .qc-media a { color: var(--color-red); }
 .qc-media-multi { display: flex; gap: var(--gap); flex-wrap: wrap; flex: 1; min-width: 0; }
 .qc-media-multi .qc-media { flex: 1; min-width: 200px; }
+.qc-media-loading { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; color: var(--text-secondary); }
+.qc-media-loading::before { content: ''; width: 14px; height: 14px; border: 2px solid var(--surface-border); border-top-color: var(--accent-2); border-radius: 50%; animation: qc-media-spin .8s linear infinite; }
+@keyframes qc-media-spin { to { transform: rotate(360deg); } }
+.qc-media-error { padding: 12px; color: var(--color-red); border: 1px solid color-mix(in srgb, var(--color-red) 35%, var(--surface-border)); border-radius: var(--radius); }
 .qc-fullscreen-btn { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.4); color: #fff; border: none; border-radius: var(--radius); padding: 2px 6px; cursor: pointer; font-size: 0.9em; }
 .qc-fullscreen-btn:hover { background: rgba(0,0,0,0.65); }
 .qc-value-table { border-collapse: collapse; font-size: 0.85em; width: 100%; }

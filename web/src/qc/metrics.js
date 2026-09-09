@@ -634,7 +634,11 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
   return table;
 }
 
-export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc = '', edit = {}) {
+export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc = '', edit = {}, {
+  openReferences = null,
+  onAccordionStateChange = null,
+  getEditState = () => edit,
+} = {}) {
   const container = document.createElement('div');
   container.className = 'qc-accordion';
 
@@ -648,7 +652,10 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
   let first = true;
   for (const [ref, groupMetrics] of groups) {
     const details = document.createElement('details');
-    if (first) { details.open = true; first = false; }
+    details.dataset.qcAccordionReference = ref;
+    const shouldOpen = openReferences === null ? first : openReferences.has(ref);
+    if (shouldOpen) details.open = true;
+    first = false;
 
     const summary = document.createElement('summary');
     const refLabel = ref ? ref.split('/').pop() || ref : 'No reference';
@@ -657,24 +664,38 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
 
     const body = document.createElement('div');
     body.className = 'accordion-body';
-
-    const leftCol = document.createElement('div');
-    // With a media reference the cards sit in a fixed-width column beside the media;
-    // without one they fill the width as a responsive grid instead of a single stack.
-    leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
-    for (const m of groupMetrics) {
-      leftCol.appendChild(buildMetricCard(m, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
-    }
-
-    body.appendChild(leftCol);
-
-    if (ref) {
-      const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
-      body.appendChild(media);
-    }
-
     details.appendChild(body);
+
+    let bodyLoaded = false;
+    const loadBody = () => {
+      if (bodyLoaded) return;
+      bodyLoaded = true;
+      const currentEdit = getEditState();
+
+      const leftCol = document.createElement('div');
+      // With a media reference the cards sit in a fixed-width column beside the media;
+      // without one they fill the width as a responsive grid instead of a single stack.
+      leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
+      for (const m of groupMetrics) {
+        leftCol.appendChild(buildMetricCard(m, currentEdit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
+      }
+
+      body.appendChild(leftCol);
+
+      if (ref) {
+        const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
+        body.appendChild(media);
+      }
+    };
+
+    details.addEventListener('toggle', () => {
+      if (details.open) loadBody();
+      onAccordionStateChange?.(new Set([...container.querySelectorAll('details')]
+        .filter(candidate => candidate.open)
+        .map(candidate => candidate.dataset.qcAccordionReference ?? '')));
+    });
     container.appendChild(details);
+    if (shouldOpen) loadBody();
   }
 
   return container;

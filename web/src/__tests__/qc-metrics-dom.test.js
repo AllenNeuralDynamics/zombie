@@ -286,6 +286,44 @@ describe('metric descriptions', () => {
 });
 
 describe('media rendering', () => {
+  it('shows a loading indicator until an image finishes loading', () => {
+    const el = renderMedia('figures/slow.png', 'aind-open-data', 'prefix', 'asset');
+    const img = el.querySelector('img');
+
+    expect(el.querySelector('.qc-media-loading').textContent).toBe('Loading image…');
+    img.dispatchEvent(new Event('load'));
+    expect(el.querySelector('.qc-media-loading')).toBeNull();
+    expect(el.querySelector('img')).toBe(img);
+  });
+
+  it('replaces a failed image with a visible error', () => {
+    const el = renderMedia('figures/missing.png', 'aind-open-data', 'prefix', 'asset');
+    el.querySelector('img').dispatchEvent(new Event('error'));
+
+    expect(el.querySelector('img')).toBeNull();
+    expect(el.querySelector('.qc-media-loading')).toBeNull();
+    expect(el.querySelector('.qc-media-error').textContent).toBe('Failed to load image.');
+    expect(el.querySelector('.qc-media-error').getAttribute('role')).toBe('alert');
+  });
+
+  it('shows a visible error when a private image cannot be presigned', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('denied')));
+    try {
+      const el = renderMedia('figures/private.png', 'private-bucket', 'prefix', 'asset');
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(el.querySelector('.qc-media-loading')).toBeNull();
+      expect(el.querySelector('.qc-media-error').textContent)
+        .toBe('Failed to load image (access denied or not found).');
+    } finally {
+      consoleError.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('renders an h5 reference as a message with a download link', () => {
     const el = renderMedia('data/volume.h5', 'aind-open-data', 'prefix', 'asset');
     const msg = el.querySelector('.qc-media-h5');
@@ -303,5 +341,23 @@ describe('media rendering', () => {
   it('falls back to side-by-side for non-image comparisons', () => {
     const el = renderMedia('a.pdf;b.pdf', 'aind-open-data', 'prefix', 'asset');
     expect(el.classList.contains('qc-media-multi')).toBe(true);
+  });
+
+  it('does not render media for closed accordion groups until opened', () => {
+    const el = renderMetrics([
+      baseMetric({ name: 'first', reference: 'figures/first.png' }),
+      baseMetric({ name: 'second', reference: 'figures/second.png' }),
+    ], 'aind-open-data', 'prefix', 'asset');
+    const details = el.querySelectorAll('details');
+
+    expect(details).toHaveLength(2);
+    expect(details[0].open).toBe(true);
+    expect(details[0].querySelector('img')).toBeTruthy();
+    expect(details[1].open).toBe(false);
+    expect(details[1].querySelector('img')).toBeNull();
+
+    details[1].open = true;
+    details[1].dispatchEvent(new Event('toggle'));
+    expect(details[1].querySelector('img')).toBeTruthy();
   });
 });

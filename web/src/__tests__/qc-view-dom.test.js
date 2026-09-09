@@ -1,6 +1,19 @@
 /** @vitest-environment happy-dom */
-import { describe, expect, it } from 'vitest';
-import { buildHeader, syncQcStatusShading } from '../qc/view.js';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../qc/editor.js', () => ({
+  mountQcEditor: vi.fn(),
+  readQcViewMode: () => 'tree',
+  writeQcViewMode: vi.fn(),
+}));
+
+import {
+  buildHeader,
+  createQCView,
+  readQcNavigationState,
+  syncQcStatusShading,
+  writeQcNavigationState,
+} from '../qc/view.js';
 
 describe('QC header actions', () => {
   it('keeps the view toggle beside the legacy and Login actions', () => {
@@ -39,5 +52,49 @@ describe('QC status updates', () => {
     expect(content.querySelector('details')).toBe(accordion);
     expect(card.classList.contains('qc-metric-status-fail')).toBe(true);
     expect(card.classList.contains('qc-metric-status-pending')).toBe(false);
+  });
+});
+
+describe('QC navigation state', () => {
+  it('round-trips the selected tree node and open accordion references', () => {
+    const child = { key: 'type', value: 'drift', label: 'type: drift', metrics: [], children: [] };
+    const parent = { key: 'probe', value: 'A', label: 'probe: A', metrics: [], children: [child] };
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+
+    writeQcNavigationState(child, [parent], new Set(['figures/a.png', '']));
+    const written = new URL(window.location.href);
+    expect(written.searchParams.get('tree')).toBe('probe=A/type=drift');
+    expect(JSON.parse(written.searchParams.get('open'))).toEqual(['figures/a.png', '']);
+
+    const restored = readQcNavigationState([parent]);
+    expect(restored.activeNode).toBe(child);
+    expect(restored.openReferences).toEqual(new Set(['figures/a.png', '']));
+  });
+
+  it('loads only the first tree node and its first accordion initially', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const view = createQCView({
+      name: 'asset-1',
+      location: 's3://aind-open-data/prefix',
+      quality_control: {
+        default_grouping: ['probe'],
+        metrics: [
+          { name: 'first', reference: 'figures/first.png', tags: { probe: 'A' }, status_history: [{ status: 'Pass' }] },
+          { name: 'second', reference: 'figures/second.png', tags: { probe: 'B' }, status_history: [{ status: 'Pass' }] },
+        ],
+      },
+    });
+    const details = view.querySelectorAll('.qc-content details');
+
+    expect(view.querySelectorAll('.qc-content .qc-metric-card')).toHaveLength(1);
+    expect(details).toHaveLength(1);
+    expect(details[0].open).toBe(true);
+    expect(details[0].querySelector('img')).toBeTruthy();
+
+    view.querySelectorAll('.qc-tree .tree-node')[1].click();
+    const selectedUrl = new URL(window.location.href);
+    expect(selectedUrl.searchParams.get('tree')).toBe('probe=B');
+    expect(JSON.parse(selectedUrl.searchParams.get('open'))).toEqual(['figures/second.png']);
+    expect(view.querySelector('.qc-content .metric-name').textContent).toBe('second');
   });
 });

@@ -1,8 +1,61 @@
 import { parseQCRecord, buildTreeNodes } from './data.js';
-import { createTree } from './tree.js';
+import {
+  createTree,
+  encodeTreeNodePath,
+  findTreeNodeByPath,
+  getTreeNodePath,
+} from './tree.js';
 import { renderMetrics, renderMetricsTable, statusShadeClass } from './metrics.js';
 import { mountQcEditor, readQcViewMode, writeQcViewMode } from './editor.js';
 import { loginForQc } from '../lib/qc-spa-auth.js';
+
+const QC_TREE_PARAM = 'tree';
+const QC_OPEN_PARAM = 'open';
+
+function readOpenAccordionParam(params) {
+  if (!params.has(QC_OPEN_PARAM)) return null;
+
+  const values = params.getAll(QC_OPEN_PARAM);
+  if (values.length === 1 && values[0].startsWith('[')) {
+    try {
+      const parsed = JSON.parse(values[0]);
+      if (Array.isArray(parsed)) {
+        return new Set(parsed.filter(value => typeof value === 'string'));
+      }
+    } catch {
+      // Fall through to the repeated-parameter format for hand-edited links.
+    }
+  }
+  return new Set(values);
+}
+
+export function readQcNavigationState(treeNodes, href = window.location.href) {
+  const url = new URL(href, window.location.origin);
+  const treePath = url.searchParams.get(QC_TREE_PARAM);
+  const activeNode = treePath ? findTreeNodeByPath(treeNodes, treePath) : null;
+  return {
+    activeNode,
+    // An obsolete tree path should fall back to the normal first-node/first-
+    // accordion defaults instead of applying open state from another node.
+    openReferences: treePath && !activeNode ? null : readOpenAccordionParam(url.searchParams),
+  };
+}
+
+export function writeQcNavigationState(activeNode, treeNodes, openReferences) {
+  try {
+    const url = new URL(window.location.href);
+    const path = activeNode ? getTreeNodePath(treeNodes, activeNode) : null;
+    if (path?.length) url.searchParams.set(QC_TREE_PARAM, encodeTreeNodePath(path));
+    else url.searchParams.delete(QC_TREE_PARAM);
+
+    if (openReferences === null) url.searchParams.delete(QC_OPEN_PARAM);
+    else url.searchParams.set(QC_OPEN_PARAM, JSON.stringify([...openReferences]));
+
+    history.replaceState(history.state, '', url);
+  } catch {
+    // URL/history APIs can be restricted in embedded contexts.
+  }
+}
 
 export function syncQcStatusShading(container, statusDrafts = {}) {
   for (const element of container.querySelectorAll('.qc-metric-card[data-qc-status-metric], .qc-metrics-table-row[data-qc-status-metric]')) {
@@ -21,7 +74,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const root = document.createElement('div');
   let viewMode = readQcViewMode();
   let editState = { enabled: false, draftRevision: 0 };
-  let activeNode = null;
+  const treeNodes = buildTreeNodes(metrics, defaultGrouping);
+  const initialNavigation = readQcNavigationState(treeNodes);
+  let activeNode = initialNavigation.activeNode ?? treeNodes[0] ?? null;
+  let openAccordionReferences = initialNavigation.openReferences;
 
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages, {
     viewMode,
@@ -52,7 +108,6 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
   const body = document.createElement('div');
   body.className = 'qc-container';
-  const treeNodes = buildTreeNodes(metrics, defaultGrouping);
   root.appendChild(body);
 
   const syncEditErrors = () => {
@@ -72,22 +127,16 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     }
   };
 
-  const accordionState = () => ({
-    hadAccordion: Boolean(body.querySelector('.qc-accordion')),
-    openLabels: new Set([...body.querySelectorAll('.qc-accordion details')]
-      .filter(details => details.open)
-      .map(details => details.querySelector('summary')?.textContent ?? '')),
-  });
-
-  const restoreAccordionState = (state) => {
-    if (!state.hadAccordion) return;
-    for (const details of body.querySelectorAll('.qc-accordion details')) {
-      details.open = state.openLabels.has(details.querySelector('summary')?.textContent ?? '');
-    }
+  const readRenderedAccordionReferences = (container = body) => {
+    const accordions = [...container.querySelectorAll('.qc-accordion details')];
+    if (!accordions.length) return null;
+    return new Set(accordions.filter(details => details.open)
+      .map(details => details.dataset.qcAccordionReference ?? ''));
   };
 
   const renderBody = () => {
-    const previousAccordionState = accordionState();
+    const renderedAccordionReferences = readRenderedAccordionReferences();
+    if (renderedAccordionReferences !== null) openAccordionReferences = renderedAccordionReferences;
     body.replaceChildren();
     if (viewMode === 'table') {
       body.classList.add('qc-container-table');
@@ -108,24 +157,38 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     body.classList.remove('qc-container-table');
     const contentArea = document.createElement('div');
     contentArea.className = 'qc-content';
+
+    const renderSelectedMetrics = (node) => {
+      const selectedMetrics = node?.metrics ?? metrics;
+      if (!selectedMetrics.length) {
+        const empty = document.createElement('p');
+        empty.className = 'qc-empty';
+        empty.textContent = 'No QC data available for this asset.';
+        return empty;
+      }
+      return renderMetrics(selectedMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, {
+        openReferences: openAccordionReferences,
+        getEditState: () => editState,
+        onAccordionStateChange: (references) => {
+          openAccordionReferences = references;
+          writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
+        },
+      });
+    };
+
     const onSelect = (node) => {
       activeNode = node;
-      contentArea.replaceChildren(renderMetrics(node.metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState));
+      // A newly selected tree node starts with its first accordion open.
+      openAccordionReferences = null;
+      contentArea.replaceChildren(renderSelectedMetrics(node));
+      openAccordionReferences = readRenderedAccordionReferences(contentArea);
+      writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
     };
-    const tree = createTree(treeNodes, onSelect);
+    const tree = createTree(treeNodes, onSelect, { selectedNode: activeNode });
     body.appendChild(tree);
     body.appendChild(contentArea);
 
-    const selectedMetrics = activeNode?.metrics ?? metrics;
-    if (selectedMetrics.length) {
-      contentArea.appendChild(renderMetrics(selectedMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState));
-    } else {
-      const empty = document.createElement('p');
-      empty.className = 'qc-empty';
-      empty.textContent = 'No QC data available for this asset.';
-      contentArea.appendChild(empty);
-    }
-    restoreAccordionState(previousAccordionState);
+    contentArea.appendChild(renderSelectedMetrics(activeNode));
   };
 
   renderBody();
