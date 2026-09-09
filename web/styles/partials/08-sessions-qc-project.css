@@ -353,8 +353,10 @@
 .qc-header-meta { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
 .qc-header-links a { margin-right: 12px; color: var(--color-red); text-decoration: none; }
 .qc-header-links a:hover { text-decoration: underline; }
-.qc-container { display: flex; gap: var(--gap); padding: var(--gap); height: calc(100vh - 110px); overflow: hidden; }
+.qc-container { display: flex; gap: var(--gap); padding: var(--gap); min-height: calc(100vh - 110px); overflow: visible; }
 .qc-tree { width: 280px; min-width: 180px; overflow-y: auto; border-right: 1px solid var(--surface-border); padding-right: var(--gap); flex-shrink: 0; }
+.qc-container:not(.qc-container-table) .qc-tree,
+.qc-container:not(.qc-container-table) .qc-content { overflow: visible; }
 .qc-tree ul { list-style: none; padding-left: 16px; margin: 0; }
 .qc-tree > ul { padding-left: 0; }
 .qc-tree li { cursor: pointer; }

@@ -50,7 +50,7 @@
 .qc-inline-status { min-width: 92px; padding: 4px 6px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); font: inherit; }
 
 /* Table mode keeps one metric per row while retaining the tree's leaf groups. */
-.qc-container-table { display: block; overflow: auto; }
+.qc-container-table { display: block; height: calc(100vh - 110px); overflow: auto; }
 .qc-container-table .qc-table-content { width: 100%; }
 .qc-metrics-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: .9em; }
 .qc-metrics-table th, .qc-metrics-table td { padding: 8px 10px; border-bottom: 1px solid var(--surface-border); text-align: left; vertical-align: top; }
