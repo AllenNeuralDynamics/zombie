@@ -28,10 +28,10 @@
 .qc-settings-btn { width: 34px; height: 34px; padding: 4px 8px; border: 0; border-radius: var(--radius); background: none; cursor: pointer; }
 .qc-settings-btn:hover { background: var(--surface-bg); }
 .qc-settings-btn img { width: 1.2rem; height: 1.2rem; display: block; filter: var(--icon-filter); }
-.qc-settings-overlay { position: fixed; inset: 0; z-index: 110; display: flex; align-items: flex-start; justify-content: flex-end; padding: 84px 24px 24px; background: rgba(0, 0, 0, .45); }
+.qc-settings-overlay { position: fixed; inset: 0; z-index: 110; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .45); }
 .qc-settings-modal { width: min(360px, 90vw); padding: 18px; border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-card); box-shadow: 0 12px 36px rgba(0, 0, 0, .3); }
 .qc-settings-option { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; color: var(--text-primary); font-weight: 400; }
-.qc-settings-modal .qc-editor-secondary { float: right; }
+.qc-settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .qc-view-toggle { display: inline-flex; border: 1px solid var(--surface-border); border-radius: var(--radius); overflow: hidden; }
 .qc-view-toggle button { border: 0; border-right: 1px solid var(--surface-border); padding: 5px 9px; color: var(--text-secondary); background: var(--surface-bg); cursor: pointer; }
 .qc-view-toggle button:last-child { border-right: 0; }

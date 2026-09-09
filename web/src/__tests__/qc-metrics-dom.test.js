@@ -118,6 +118,18 @@ describe('tree metric status shading', () => {
 
     expect(card.classList.contains('qc-metric-status-pending')).toBe(true);
   });
+
+  it('uses the source value and status when the editor is signed out', () => {
+    const card = renderMetrics([baseMetric({ value: 'actual', status_history: [{ status: 'Pass' }] })], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: false,
+      valueDrafts: { m: 'pending draft' },
+      statusDrafts: { m: 'Fail' },
+    }).querySelector('.qc-metric-card');
+
+    expect(card.querySelector('.metric-value').textContent).toBe('actual');
+    expect(card.querySelector('.metric-status').textContent).toContain('Pass');
+    expect(card.classList.contains('qc-metric-status-fail')).toBe(false);
+  });
 });
 
 describe('inline editing', () => {
@@ -228,6 +240,20 @@ describe('table view', () => {
     });
 
     expect(table.querySelector('.qc-metrics-table-row').classList.contains('qc-metric-status-fail')).toBe(true);
+  });
+
+  it('uses the source status for rows when the editor is signed out', () => {
+    const table = renderMetricsTable([
+      baseMetric({ name: 'quality', status_history: [{ status: 'Pass' }] }),
+    ], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: false,
+      statusDrafts: { quality: 'Fail' },
+    });
+
+    const row = table.querySelector('.qc-metrics-table-row');
+    expect(row.textContent).toContain('Pass');
+    expect(row.textContent).not.toContain('Fail');
+    expect(row.classList.contains('qc-metric-status-fail')).toBe(false);
   });
 
   it('opens reference media in a dialog and creates a hover preview', () => {

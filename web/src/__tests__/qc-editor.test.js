@@ -3,8 +3,13 @@ import {
   accountDisplayName,
   buildQcSubmitPayload,
   buildReviewRows,
+  clearQcPendingChanges,
+  QC_PENDING_CHANGES_STORAGE_PREFIX,
   QC_VIEW_MODE_STORAGE_KEY,
+  qcPendingChangesStorageKey,
+  readQcPendingChanges,
   readQcViewMode,
+  writeQcPendingChanges,
   writeQcViewMode,
 } from '../qc/editor.js';
 import { canonicalQcJson, hashQc } from '../qc/canonical.js';
@@ -20,6 +25,15 @@ function metric(name, value, status = 'Pending') {
     name,
     value,
     status_history: [{ status, evaluator: 'system', timestamp: '2024-01-01T00:00:00Z' }],
+  };
+}
+
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: key => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key),
   };
 }
 
@@ -46,6 +60,24 @@ describe('QC SPA edit helpers', () => {
     expect(readQcViewMode({ getItem: () => 'grid' })).toBe('tree');
     expect(readQcViewMode({ getItem: () => { throw new Error('blocked'); } })).toBe('tree');
     expect(() => writeQcViewMode('table', { setItem: () => { throw new Error('blocked'); } })).not.toThrow();
+  });
+
+  it('stores pending drafts under asset-specific keys and clears only the selected asset', () => {
+    const storage = memoryStorage();
+    const drafts = { valueDrafts: { metric: '1' }, statusDrafts: { metric: 'Fail' }, notes: 'draft' };
+
+    writeQcPendingChanges('asset/one', drafts, storage);
+    writeQcPendingChanges('asset/two', { notes: 'other' }, storage);
+
+    expect(qcPendingChangesStorageKey('asset/one')).toBe(`${QC_PENDING_CHANGES_STORAGE_PREFIX}asset%2Fone`);
+    expect(readQcPendingChanges('asset/one', storage)).toEqual(drafts);
+    clearQcPendingChanges('asset/one', storage);
+    expect(readQcPendingChanges('asset/one', storage)).toBeNull();
+    expect(readQcPendingChanges('asset/two', storage)).toEqual({ notes: 'other' });
+  });
+
+  it('ignores malformed pending draft storage', () => {
+    expect(readQcPendingChanges('asset', { getItem: () => '{bad json' })).toBeNull();
   });
 
   it('matches the frozen cross-language canonical fixtures', async () => {

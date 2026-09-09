@@ -273,9 +273,15 @@ function renderValue(val) {
 }
 
 function draftValue(metric, edit) {
+  if (!edit?.enabled) return metric.value;
   const draft = edit?.valueDrafts?.[metric.name];
   if (draft === undefined) return metric.value;
   try { return parseDraft(draft, metric.value); } catch { return metric.value; }
+}
+
+function draftStatus(metric, edit) {
+  if (!edit?.enabled) return getMetricStatus(metric);
+  return edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
 }
 
 function valueEditEnabled(metric, edit) {
@@ -397,7 +403,7 @@ function renderMetricValue(metric, edit, media = {}) {
 
 function renderMetricStatus(metric, edit) {
   const editable = statusEditEnabled(metric, edit);
-  const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+  const status = draftStatus(metric, edit);
   const showStatusEditor = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) &&
     !isAutoStatusMetric(metric) && edit.onStatus);
   if (showStatusEditor) {
@@ -433,7 +439,7 @@ function renderMetricStatus(metric, edit) {
 function buildMetricCard(metric, edit = {}, media = {}) {
   const card = document.createElement('div');
   const isCuration = metric.object_type === 'Curation metric';
-  const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+  const status = draftStatus(metric, edit);
   const statusShade = statusShadeClass(status);
   const editable = valueEditEnabled(metric, edit) || statusEditEnabled(metric, edit);
   card.className = `${isCuration ? 'qc-metric-card qc-metric-curation' : 'qc-metric-card'}${statusShade ? ` ${statusShade}` : ''}${editable ? ' qc-metric-editable' : ''}`;
@@ -557,7 +563,7 @@ function renderTableMetricValue(metric, edit, media = {}) {
 
 function renderTableMetricStatus(metric, edit) {
   const editable = statusEditEnabled(metric, edit);
-  const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+  const status = draftStatus(metric, edit);
   const showStatusEditor = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) &&
     !isAutoStatusMetric(metric) && edit.onStatus);
   if (!showStatusEditor) {
@@ -613,7 +619,7 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
     groupCell.textContent = group.label;
     for (const metric of group.metrics) {
       const row = tbody.insertRow();
-      const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+      const status = draftStatus(metric, edit);
       const statusShade = statusShadeClass(status);
       row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
       row.dataset.qcStatusMetric = metric.name ?? '';

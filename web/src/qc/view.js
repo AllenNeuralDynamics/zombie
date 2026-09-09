@@ -1,7 +1,7 @@
 import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
 import { renderMetrics, renderMetricsTable, statusShadeClass } from './metrics.js';
-import { mountQcEditor } from './editor.js';
+import { mountQcEditor, readQcViewMode, writeQcViewMode } from './editor.js';
 import { loginForQc } from '../lib/qc-spa-auth.js';
 
 export function syncQcStatusShading(container, statusDrafts = {}) {
@@ -19,8 +19,19 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
 
   const root = document.createElement('div');
+  let viewMode = readQcViewMode();
+  let editState = { enabled: false, draftRevision: 0 };
+  let activeNode = null;
 
-  const header = buildHeader(name, projectName, codeOceanId, modalities, stages);
+  const header = buildHeader(name, projectName, codeOceanId, modalities, stages, {
+    viewMode,
+    onViewModeChange: (nextViewMode) => {
+      if (nextViewMode === viewMode) return;
+      viewMode = nextViewMode;
+      writeQcViewMode(viewMode);
+      renderBody();
+    },
+  });
   root.appendChild(header);
 
   const editor = document.createElement('div');
@@ -44,9 +55,6 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const treeNodes = buildTreeNodes(metrics, defaultGrouping);
   root.appendChild(body);
 
-  let editState = { enabled: false, viewMode: 'tree' };
-  let activeNode = null;
-
   const syncEditErrors = () => {
     for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
       const error = editState.fieldErrors?.[wrapper.dataset.qcMetric];
@@ -64,9 +72,24 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     }
   };
 
+  const accordionState = () => ({
+    hadAccordion: Boolean(body.querySelector('.qc-accordion')),
+    openLabels: new Set([...body.querySelectorAll('.qc-accordion details')]
+      .filter(details => details.open)
+      .map(details => details.querySelector('summary')?.textContent ?? '')),
+  });
+
+  const restoreAccordionState = (state) => {
+    if (!state.hadAccordion) return;
+    for (const details of body.querySelectorAll('.qc-accordion details')) {
+      details.open = state.openLabels.has(details.querySelector('summary')?.textContent ?? '');
+    }
+  };
+
   const renderBody = () => {
+    const previousAccordionState = accordionState();
     body.replaceChildren();
-    if (editState.viewMode === 'table') {
+    if (viewMode === 'table') {
       body.classList.add('qc-container-table');
       const content = document.createElement('div');
       content.className = 'qc-table-content';
@@ -102,6 +125,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       empty.textContent = 'No QC data available for this asset.';
       contentArea.appendChild(empty);
     }
+    restoreAccordionState(previousAccordionState);
   };
 
   renderBody();
@@ -109,8 +133,8 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     onReload,
     onEditStateChange: (nextState) => {
       const layoutChanged = nextState.enabled !== editState.enabled ||
-        nextState.viewMode !== editState.viewMode ||
-        nextState.allowEditingValues !== editState.allowEditingValues;
+        nextState.allowEditingValues !== editState.allowEditingValues ||
+        nextState.draftRevision !== editState.draftRevision;
       editState = nextState;
       if (layoutChanged) renderBody();
       else {
@@ -122,7 +146,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   return root;
 }
 
-export function buildHeader(name, projectName, codeOceanId, modalities, stages) {
+export function buildHeader(name, projectName, codeOceanId, modalities, stages, {
+  viewMode = 'tree',
+  onViewModeChange = null,
+} = {}) {
   const header = document.createElement('div');
   header.className = 'qc-header';
 
@@ -135,6 +162,24 @@ export function buildHeader(name, projectName, codeOceanId, modalities, stages) 
 
   const actions = document.createElement('div');
   actions.className = 'qc-header-actions';
+
+  const viewToggle = document.createElement('div');
+  viewToggle.className = 'qc-view-toggle';
+  viewToggle.setAttribute('role', 'group');
+  viewToggle.setAttribute('aria-label', 'Metric layout');
+  const viewButtons = [];
+  for (const mode of ['tree', 'table']) {
+    const button = document.createElement('button');
+    button.className = mode === viewMode ? 'active' : '';
+    button.textContent = mode === 'tree' ? 'Tree view' : 'Table view';
+    button.addEventListener('click', () => {
+      viewButtons.forEach(candidate => candidate.classList.toggle('active', candidate === button));
+      onViewModeChange?.(mode);
+    });
+    viewButtons.push(button);
+    viewToggle.appendChild(button);
+  }
+  actions.appendChild(viewToggle);
 
   const editBtn = document.createElement('button');
   editBtn.className = 'qc-edit-btn';

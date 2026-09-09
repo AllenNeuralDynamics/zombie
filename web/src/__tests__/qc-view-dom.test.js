@@ -3,11 +3,22 @@ import { describe, expect, it } from 'vitest';
 import { buildHeader, syncQcStatusShading } from '../qc/view.js';
 
 describe('QC header actions', () => {
-  it('uses the legacy label and puts a green Login button beside it', () => {
-    const header = buildHeader('asset-1', '', '', [], []);
+  it('keeps the view toggle beside the legacy and Login actions', () => {
+    let selectedMode = null;
+    const header = buildHeader('asset-1', '', '', [], [], {
+      viewMode: 'table',
+      onViewModeChange: mode => { selectedMode = mode; },
+    });
     const buttons = [...header.querySelectorAll('button')];
-    expect(buttons.map(button => button.textContent)).toEqual(['Open Legacy QC Portal', 'Login']);
-    expect(buttons[1].classList.contains('qc-login-btn')).toBe(true);
+    expect(buttons.map(button => button.textContent)).toEqual(['Tree view', 'Table view', 'Open Legacy QC Portal', 'Login']);
+    expect(buttons[1].classList.contains('active')).toBe(true);
+    expect(buttons[2].classList.contains('qc-edit-btn')).toBe(true);
+    expect(buttons[3].classList.contains('qc-login-btn')).toBe(true);
+
+    buttons[0].click();
+    expect(selectedMode).toBe('tree');
+    expect(buttons[0].classList.contains('active')).toBe(true);
+    expect(buttons[1].classList.contains('active')).toBe(false);
   });
 });
 

@@ -106,6 +106,7 @@ function firstHumanIdentity(...values) {
 
 export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
 const QC_VIEW_MODES = new Set(['tree', 'table']);
+export const QC_PENDING_CHANGES_STORAGE_PREFIX = 'zombie.qc.pendingChanges:';
 
 function browserStorage() {
   if (typeof window === 'undefined') return null;
@@ -126,6 +127,31 @@ export function writeQcViewMode(viewMode, storage = browserStorage()) {
   try { storage?.setItem(QC_VIEW_MODE_STORAGE_KEY, viewMode); } catch { /* storage may be unavailable */ }
 }
 
+export function qcPendingChangesStorageKey(assetName) {
+  return `${QC_PENDING_CHANGES_STORAGE_PREFIX}${encodeURIComponent(String(assetName ?? ''))}`;
+}
+
+export function readQcPendingChanges(assetName, storage = browserStorage()) {
+  try {
+    const raw = storage?.getItem(qcPendingChangesStorageKey(assetName));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeQcPendingChanges(assetName, drafts, storage = browserStorage()) {
+  try {
+    storage?.setItem(qcPendingChangesStorageKey(assetName), JSON.stringify(drafts));
+  } catch { /* storage may be unavailable or full */ }
+}
+
+export function clearQcPendingChanges(assetName, storage = browserStorage()) {
+  try { storage?.removeItem(qcPendingChangesStorageKey(assetName)); } catch { /* storage may be unavailable */ }
+}
+
 export function accountDisplayName(account) {
   const claims = account?.idTokenClaims ?? {};
   const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
@@ -141,31 +167,53 @@ export function accountDisplayName(account) {
   ) || 'AIND account';
 }
 
+function restoreDrafts(defaults, saved, isValid) {
+  const restored = { ...defaults };
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of Object.keys(defaults)) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
+function draftValueChanged(metric, draft) {
+  try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
+}
+
 export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
   const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
-  const [account, setAccount] = useState(null);
-  const [valueDrafts, setValueDrafts] = useState(() => Object.fromEntries(
+  const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
-  ));
-  const [statusDrafts, setStatusDrafts] = useState(() => Object.fromEntries(
+  ), [editableMetrics]);
+  const defaultStatusDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, getMetricStatus(metric)]),
+  ), [editableMetrics]);
+  const savedDrafts = useMemo(() => readQcPendingChanges(record.name), [record.name]);
+  const [account, setAccount] = useState(null);
+  const [valueDrafts, setValueDrafts] = useState(() => restoreDrafts(
+    defaultValueDrafts,
+    savedDrafts?.valueDrafts,
+    value => typeof value === 'string',
+  ));
+  const [statusDrafts, setStatusDrafts] = useState(() => restoreDrafts(
+    defaultStatusDrafts,
+    savedDrafts?.statusDrafts,
+    value => value === 'Pending' || value === 'Pass' || value === 'Fail',
   ));
   const [fieldErrors, setFieldErrors] = useState({});
-  const [notes, setNotes] = useState(parsed.notes);
+  const [notes, setNotes] = useState(() => (
+    typeof savedDrafts?.notes === 'string' ? savedDrafts.notes : parsed.notes
+  ));
   const [preview, setPreview] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
-  const [viewMode, setViewMode] = useState(() => readQcViewMode());
   const [allowEditingValues, setAllowEditingValues] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  useEffect(() => {
-    writeQcViewMode(viewMode);
-  }, [viewMode]);
+  const [draftRevision, setDraftRevision] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -192,6 +240,28 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   }
   const notesChanged = notes !== parsed.notes;
   const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
+  const hasPendingDrafts = editableMetrics.some(metric =>
+    draftValueChanged(metric, valueDrafts[metric.name]) ||
+    statusDrafts[metric.name] !== getMetricStatus(metric)
+  ) || notesChanged;
+
+  useEffect(() => {
+    if (!hasPendingDrafts) {
+      clearQcPendingChanges(record.name);
+      return;
+    }
+    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, notes });
+  }, [record.name, editableMetrics, valueDrafts, statusDrafts, notes, parsed.notes]);
+
+  const clearPendingChanges = () => {
+    clearQcPendingChanges(record.name);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
+    setFieldErrors({});
+    setNotes(parsed.notes);
+    setMessage('');
+    setDraftRevision(revision => revision + 1);
+  };
 
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
@@ -213,14 +283,14 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       statusDrafts,
       fieldErrors,
       allowEditingValues,
-      viewMode,
+      draftRevision,
       onValue: (name, value) => {
         const metric = editableMetrics.find(candidate => candidate.name === name);
         if (metric) handleValue(metric, value);
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
     });
-  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, viewMode]);
+  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -261,6 +331,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         notes,
       });
       await submitQcEdit(payload);
+      clearQcPendingChanges(record.name);
       try {
         await onReload();
         setMessage('QC changes applied and reloaded.');
@@ -297,12 +368,6 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
           <small>Signed in as ${accountDisplayName(account)}</small>
         </div>
         <div class="qc-editor-actions">
-          ${!preview ? html`
-            <div class="qc-view-toggle" role="group" aria-label="Metric layout">
-              <button class=${viewMode === 'tree' ? 'active' : ''} onClick=${() => setViewMode('tree')}>Tree view</button>
-              <button class=${viewMode === 'table' ? 'active' : ''} onClick=${() => setViewMode('table')}>Table view</button>
-            </div>
-          ` : null}
           <button
             class="qc-editor-secondary"
             onClick=${() => (preview ? setPreview(false) : handleReview())}
@@ -324,7 +389,16 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
               />
               Allow editing metrics with values
             </label>
-            <button class="qc-editor-secondary" onClick=${() => setSettingsOpen(false)}>Done</button>
+            <div class="qc-settings-actions">
+              <button
+                class="qc-editor-secondary"
+                onClick=${clearPendingChanges}
+                disabled=${!hasPendingDrafts || submitting}
+              >
+                Clear pending changes
+              </button>
+              <button class="qc-editor-secondary" onClick=${() => setSettingsOpen(false)}>Done</button>
+            </div>
           </div>
         </div>
       ` : null}
