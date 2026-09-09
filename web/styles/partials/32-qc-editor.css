@@ -57,6 +57,8 @@
 .qc-metrics-table thead th { position: sticky; top: 0; z-index: 1; color: var(--text-secondary); background: var(--surface-card); font-weight: 600; }
 .qc-metrics-table-group td { padding-top: 12px; color: var(--text-primary); background: var(--surface-bg); font-weight: 600; }
 .qc-metrics-table-row:hover { background: color-mix(in srgb, var(--surface-card) 70%, transparent); }
+.qc-metrics-table-row.qc-metric-status-fail { background: color-mix(in srgb, var(--color-red) 8%, var(--surface-card)); }
+.qc-metrics-table-row.qc-metric-status-pending { background: color-mix(in srgb, var(--color-blue) 8%, var(--surface-card)); }
 .qc-metrics-table-row .qc-reference-cell { width: 18%; }
 .qc-reference-anchor { position: relative; display: inline-block; }
 .qc-metrics-table-row .qc-reference-link { color: var(--color-red); }

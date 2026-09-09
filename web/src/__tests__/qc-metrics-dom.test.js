@@ -97,6 +97,29 @@ describe('status tooltip', () => {
   });
 });
 
+describe('tree metric status shading', () => {
+  it('shades failing and pending metric cards', () => {
+    const failing = cardFor(baseMetric({ status_history: [{ status: 'Fail' }] }));
+    const pending = cardFor(baseMetric({ status_history: [] }));
+
+    expect(failing.classList.contains('qc-metric-status-fail')).toBe(true);
+    expect(pending.classList.contains('qc-metric-status-pending')).toBe(true);
+  });
+
+  it('uses a pending draft status while editing', () => {
+    const card = renderMetrics([baseMetric({ value: 1 })], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      editableMetricNames: new Set(['m']),
+      valueDrafts: { m: '1' },
+      statusDrafts: { m: 'Pending' },
+      onValue: () => {},
+      onStatus: () => {},
+    }).querySelector('.qc-metric-card');
+
+    expect(card.classList.contains('qc-metric-status-pending')).toBe(true);
+  });
+});
+
 describe('inline editing', () => {
   it('renders value and status controls in the metric card', () => {
     const onValue = vi.fn();
@@ -121,17 +144,17 @@ describe('inline editing', () => {
     expect(onStatus).toHaveBeenCalledWith('drift', 'Fail');
   });
 
-  it('shows empty values as editable but keeps status disabled until a value exists', () => {
-    const card = renderMetrics([baseMetric({ name: 'empty', value: null, status_history: [] })], 'aind-open-data', 'prefix', 'asset', '', {
+  it('shows empty values as editable with an enabled status dropdown', () => {
+    const card = renderMetrics([baseMetric({ name: 'empty', value: '', status_history: [{ status: 'Pass' }] })], 'aind-open-data', 'prefix', 'asset', '', {
       enabled: true,
       editableMetricNames: new Set(['empty']),
       valueDrafts: { empty: '' },
-      statusDrafts: { empty: 'Pending' },
+      statusDrafts: { empty: 'Pass' },
       onValue: () => {},
       onStatus: () => {},
     }).querySelector('.qc-metric-card');
     expect(card.querySelector('.qc-inline-editor-value')).toBeTruthy();
-    expect(card.querySelector('.qc-inline-status').disabled).toBe(true);
+    expect(card.querySelector('.qc-inline-status').disabled).toBe(false);
   });
 
   it('lets populated values opt into value edits while keeping auto status read-only', () => {
@@ -178,6 +201,33 @@ describe('table view', () => {
     expect(table.querySelectorAll('.qc-inline-editor-value')).toHaveLength(3);
     expect(table.querySelectorAll('.qc-inline-status')).toHaveLength(3);
     expect(table.querySelector('.qc-reference-link').textContent).toBe('drift.png');
+  });
+
+  it('shades failing and pending metric rows', () => {
+    const table = renderMetricsTable([
+      baseMetric({ name: 'fail', status_history: [{ status: 'Fail' }] }),
+      baseMetric({ name: 'pending', status_history: [] }),
+      baseMetric({ name: 'pass', status_history: [{ status: 'Pass' }] }),
+    ], 'aind-open-data', 'prefix', 'asset');
+    const rows = table.querySelectorAll('.qc-metrics-table-row');
+
+    expect(rows[0].classList.contains('qc-metric-status-fail')).toBe(true);
+    expect(rows[1].classList.contains('qc-metric-status-pending')).toBe(true);
+    expect(rows[2].classList.contains('qc-metric-status-fail')).toBe(false);
+    expect(rows[2].classList.contains('qc-metric-status-pending')).toBe(false);
+  });
+
+  it('uses edited draft status for row shading', () => {
+    const table = renderMetricsTable([
+      baseMetric({ name: 'quality', status_history: [{ status: 'Pass' }] }),
+    ], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      editableMetricNames: new Set(['quality']),
+      statusDrafts: { quality: 'Fail' },
+      onStatus: () => {},
+    });
+
+    expect(table.querySelector('.qc-metrics-table-row').classList.contains('qc-metric-status-fail')).toBe(true);
   });
 
   it('opens reference media in a dialog and creates a hover preview', () => {

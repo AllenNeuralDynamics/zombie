@@ -387,6 +387,8 @@
 .qc-metric-card .status-dot.pass { background: var(--color-green); }
 .qc-metric-card .status-dot.fail { background: var(--color-red); }
 .qc-metric-card .status-dot.pending { background: var(--text-muted); }
+.qc-metric-card.qc-metric-status-fail { background: color-mix(in srgb, var(--color-red) 8%, var(--surface-card)); }
+.qc-metric-card.qc-metric-status-pending { background: color-mix(in srgb, var(--color-blue) 8%, var(--surface-card)); }
 .qc-metric-curation { border-left: 3px solid var(--accent-2); }
 .metric-curation-type { font-size: 0.78em; font-weight: 600; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .qc-value-json { max-height: 300px; overflow-y: auto; }

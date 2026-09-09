@@ -1,8 +1,18 @@
 import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
-import { renderMetrics, renderMetricsTable } from './metrics.js';
+import { renderMetrics, renderMetricsTable, statusShadeClass } from './metrics.js';
 import { mountQcEditor } from './editor.js';
 import { loginForQc } from '../lib/qc-spa-auth.js';
+
+export function syncQcStatusShading(container, statusDrafts = {}) {
+  for (const element of container.querySelectorAll('.qc-metric-card[data-qc-status-metric], .qc-metrics-table-row[data-qc-status-metric]')) {
+    const status = statusDrafts[element.dataset.qcStatusMetric];
+    if (!status) continue;
+    element.classList.remove('qc-metric-status-fail', 'qc-metric-status-pending');
+    const shade = statusShadeClass(status);
+    if (shade) element.classList.add(shade);
+  }
+}
 
 export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const parsed = parseQCRecord(record);
@@ -36,12 +46,6 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
   let editState = { enabled: false, viewMode: 'tree' };
   let activeNode = null;
-
-  const objectsDiffer = (left = {}, right = {}) => {
-    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
-    for (const key of keys) if (left[key] !== right[key]) return true;
-    return false;
-  };
 
   const syncEditErrors = () => {
     for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
@@ -106,11 +110,13 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     onEditStateChange: (nextState) => {
       const layoutChanged = nextState.enabled !== editState.enabled ||
         nextState.viewMode !== editState.viewMode ||
-        nextState.allowEditingValues !== editState.allowEditingValues ||
-        objectsDiffer(nextState.statusDrafts, editState.statusDrafts);
+        nextState.allowEditingValues !== editState.allowEditingValues;
       editState = nextState;
       if (layoutChanged) renderBody();
-      else syncEditErrors();
+      else {
+        syncQcStatusShading(body, editState.statusDrafts);
+        syncEditErrors();
+      }
     },
   });
   return root;

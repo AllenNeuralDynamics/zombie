@@ -111,6 +111,11 @@ function statusDotClass(status) {
   return 'pending';
 }
 
+export function statusShadeClass(status) {
+  const normalized = statusDotClass(status);
+  return normalized === 'pass' ? '' : `qc-metric-status-${normalized}`;
+}
+
 function renderObjectTable(val, { excludeReference = false } = {}) {
   const entries = Object.entries(val).filter(([key]) => !excludeReference || key !== 'reference');
   if (!entries.length) return document.createTextNode('—');
@@ -428,8 +433,11 @@ function renderMetricStatus(metric, edit) {
 function buildMetricCard(metric, edit = {}, media = {}) {
   const card = document.createElement('div');
   const isCuration = metric.object_type === 'Curation metric';
+  const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+  const statusShade = statusShadeClass(status);
   const editable = valueEditEnabled(metric, edit) || statusEditEnabled(metric, edit);
-  card.className = `${isCuration ? 'qc-metric-card qc-metric-curation' : 'qc-metric-card'}${editable ? ' qc-metric-editable' : ''}`;
+  card.className = `${isCuration ? 'qc-metric-card qc-metric-curation' : 'qc-metric-card'}${statusShade ? ` ${statusShade}` : ''}${editable ? ' qc-metric-editable' : ''}`;
+  card.dataset.qcStatusMetric = metric.name ?? '';
 
   const name = document.createElement('div');
   name.className = 'metric-name';
@@ -605,7 +613,10 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
     groupCell.textContent = group.label;
     for (const metric of group.metrics) {
       const row = tbody.insertRow();
-      row.className = 'qc-metrics-table-row';
+      const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
+      const statusShade = statusShadeClass(status);
+      row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
+      row.dataset.qcStatusMetric = metric.name ?? '';
       row.appendChild(renderReferenceLink(metric.reference ?? '', s3Bucket, s3Prefix, assetName, rawS3Loc));
       row.insertCell().textContent = metric.name ?? '';
       const valueCell = row.insertCell();

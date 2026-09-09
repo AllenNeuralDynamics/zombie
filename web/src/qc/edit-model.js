@@ -35,12 +35,13 @@ export function canEditMetricValue(metric, { allowEditingValues = false } = {}) 
   return isEditableMetric(metric) && (!hasMetricValue(metric?.value) || allowEditingValues);
 }
 
-/** Status is only available after a value exists and never for auto-status metrics. */
+/** Empty metrics may set status; populated existing statuses require opt-in. */
 export function canEditMetricStatus(
   metric,
   { allowEditingValues = false, draftValue = metric?.value } = {},
 ) {
-  if (!isEditableMetric(metric) || isAutoStatusMetric(metric) || !hasMetricValue(draftValue)) return false;
+  if (!isEditableMetric(metric) || isAutoStatusMetric(metric)) return false;
+  if (!hasMetricValue(draftValue)) return true;
   return !hasMetricStatus(metric) || allowEditingValues;
 }
 

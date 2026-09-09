@@ -26,9 +26,11 @@ describe('QC edit policy', () => {
     expect(canEditMetricValue(metric('value'), { allowEditingValues: true })).toBe(true);
   });
 
-  it('allows status only after a value exists, with auto-status as the exception', () => {
+  it('allows status edits for empty values and gates populated existing statuses', () => {
     expect(hasMetricStatus(metric('value'))).toBe(false);
-    expect(canEditMetricStatus(metric(null))).toBe(false);
+    expect(canEditMetricStatus(metric(null))).toBe(true);
+    expect(canEditMetricStatus(metric(''))).toBe(true);
+    expect(canEditMetricStatus(metric('', [{ status: 'Pass' }]))).toBe(true);
     expect(canEditMetricStatus(metric('value'))).toBe(true);
     expect(canEditMetricStatus(metric('value', [{ status: 'Pass' }]))).toBe(false);
     expect(canEditMetricStatus(metric('value', [{ status: 'Pass' }]), { allowEditingValues: true })).toBe(true);
