@@ -1,4 +1,4 @@
-import { aggregateStatus } from './data.js';
+import { aggregateStatus, getMetricStatus } from './data.js';
 
 function statusClass(status) {
   if (status === 'Pass') return 'pass';
@@ -93,6 +93,16 @@ export function createTree(treeNodes, onSelect, { selectedNode = null } = {}) {
   }
 
   container.appendChild(ul);
+  container.syncStatuses = (statusDrafts = {}) => {
+    for (const [node, row] of nodeRows) {
+      const statuses = node.metrics.map(metric => statusDrafts[metric.name] ?? getMetricStatus(metric));
+      const status = statuses.includes('Fail')
+        ? 'Fail'
+        : statuses.includes('Pending') ? 'Pending' : 'Pass';
+      const icon = row.querySelector('.tree-icon');
+      if (icon) icon.className = `tree-icon ${statusClass(status)}`;
+    }
+  };
   return container;
 }
 

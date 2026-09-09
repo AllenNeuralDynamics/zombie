@@ -5,7 +5,7 @@ import {
   findTreeNodeByPath,
   getTreeNodePath,
 } from './tree.js';
-import { renderMetrics, renderMetricsTable, statusShadeClass } from './metrics.js';
+import { renderMetrics, renderMetricsTable, statusDotClass, statusShadeClass } from './metrics.js';
 import { mountQcEditor, readQcViewMode, writeQcViewMode } from './editor.js';
 import { loginForQc } from '../lib/qc-spa-auth.js';
 
@@ -64,6 +64,24 @@ export function syncQcStatusShading(container, statusDrafts = {}) {
     element.classList.remove('qc-metric-status-fail', 'qc-metric-status-pending');
     const shade = statusShadeClass(status);
     if (shade) element.classList.add(shade);
+
+    const metricStatus = element.querySelector('.metric-status:not(.metric-status-editor)');
+    if (metricStatus) {
+      const dot = metricStatus.querySelector('.status-dot');
+      if (dot) dot.className = `status-dot ${statusDotClass(status)}`;
+      const textNode = [...metricStatus.childNodes].find(node => node.nodeType === 3);
+      if (textNode) textNode.nodeValue = status;
+      else metricStatus.appendChild(document.createTextNode(status));
+    }
+
+    const tableStatus = element.querySelector('.qc-table-status');
+    if (tableStatus) {
+      tableStatus.className = `qc-table-status ${statusDotClass(status)}`;
+      tableStatus.textContent = status;
+    }
+
+    const statusSelect = element.querySelector('.qc-inline-status');
+    if (statusSelect) statusSelect.value = status;
   }
 }
 
@@ -109,6 +127,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const body = document.createElement('div');
   body.className = 'qc-container';
   root.appendChild(body);
+  let treeElement = null;
 
   const syncEditErrors = () => {
     for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
@@ -184,8 +203,8 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       openAccordionReferences = readRenderedAccordionReferences(contentArea);
       writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
     };
-    const tree = createTree(treeNodes, onSelect, { selectedNode: activeNode });
-    body.appendChild(tree);
+    treeElement = createTree(treeNodes, onSelect, { selectedNode: activeNode });
+    body.appendChild(treeElement);
     body.appendChild(contentArea);
 
     contentArea.appendChild(renderSelectedMetrics(activeNode));
@@ -202,6 +221,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       if (layoutChanged) renderBody();
       else {
         syncQcStatusShading(body, editState.statusDrafts);
+        treeElement?.syncStatuses?.(editState.statusDrafts);
         syncEditErrors();
       }
     },
@@ -209,7 +229,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   return root;
 }
 
-export function buildHeader(name, projectName, codeOceanId, modalities, stages, {
+export function buildHeader(name, _projectName, codeOceanId, modalities, stages, {
   viewMode = 'tree',
   onViewModeChange = null,
 } = {}) {
@@ -220,7 +240,10 @@ export function buildHeader(name, projectName, codeOceanId, modalities, stages, 
   topRow.className = 'qc-header-top';
 
   const h2 = document.createElement('h2');
-  h2.textContent = name;
+  const assetLink = document.createElement('a');
+  assetLink.href = `/view?asset=${encodeURIComponent(name)}`;
+  assetLink.textContent = name;
+  h2.appendChild(assetLink);
   topRow.appendChild(h2);
 
   const actions = document.createElement('div');
@@ -281,18 +304,11 @@ export function buildHeader(name, projectName, codeOceanId, modalities, stages, 
   const links = document.createElement('div');
   links.className = 'qc-header-links';
 
-  if (projectName) {
-    const a = document.createElement('a');
-    a.href = `/view?project=${encodeURIComponent(projectName)}`;
-    a.textContent = 'Project page';
-    links.appendChild(a);
-  }
-
   const metaLink = document.createElement('a');
   metaLink.href = `/record?name=${encodeURIComponent(name)}`;
   metaLink.target = '_blank';
   metaLink.rel = 'noopener noreferrer';
-  metaLink.textContent = 'Metadata viewer';
+  metaLink.textContent = 'Metadata';
   links.appendChild(metaLink);
 
   if (codeOceanId) {

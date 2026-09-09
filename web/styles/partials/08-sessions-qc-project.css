@@ -351,8 +351,19 @@
 .qc-header-top h2 { margin: 0; }
 .qc-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .qc-header-meta { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
-.qc-header-links a { margin-right: 12px; color: var(--color-red); text-decoration: none; }
-.qc-header-links a:hover { text-decoration: underline; }
+.qc-header-links a {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 7px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 3px;
+  text-decoration: none;
+  background: var(--text-primary);
+  color: var(--surface-bg);
+  transition: background 0.15s;
+}
+.qc-header-links a:hover { background: var(--color-red); }
 .qc-container { display: flex; gap: var(--gap); padding: var(--gap); min-height: calc(100vh - 110px); overflow: visible; }
 .qc-tree { width: 280px; min-width: 180px; overflow-y: auto; border-right: 1px solid var(--surface-border); padding-right: var(--gap); flex-shrink: 0; }
 .qc-container:not(.qc-container-table) .qc-tree,

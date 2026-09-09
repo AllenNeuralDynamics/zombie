@@ -14,11 +14,12 @@ import {
   syncQcStatusShading,
   writeQcNavigationState,
 } from '../qc/view.js';
+import { mountQcEditor } from '../qc/editor.js';
 
 describe('QC header actions', () => {
   it('keeps the view toggle beside the legacy and Login actions', () => {
     let selectedMode = null;
-    const header = buildHeader('asset-1', '', '', [], [], {
+    const header = buildHeader('asset-1', 'legacy-project', '', [], [], {
       viewMode: 'table',
       onViewModeChange: mode => { selectedMode = mode; },
     });
@@ -28,10 +29,26 @@ describe('QC header actions', () => {
     expect(buttons[2].classList.contains('qc-edit-btn')).toBe(true);
     expect(buttons[3].classList.contains('qc-login-btn')).toBe(true);
 
+    const assetLink = header.querySelector('h2 a');
+    expect(assetLink.textContent).toBe('asset-1');
+    expect(assetLink.getAttribute('href')).toBe('/view?asset=asset-1');
+    expect(header.textContent).not.toContain('Project page');
+
     buttons[0].click();
     expect(selectedMode).toBe('tree');
     expect(buttons[0].classList.contains('active')).toBe(true);
     expect(buttons[1].classList.contains('active')).toBe(false);
+  });
+
+  it('renders metadata and Code Ocean links as action links', () => {
+    const header = buildHeader('asset-1', 'legacy-project', 'co-123', [], [], {});
+    const links = [...header.querySelectorAll('.qc-header-links a')];
+
+    expect(links.map(link => link.textContent)).toEqual(['Metadata', 'Code Ocean']);
+    expect(links.map(link => link.getAttribute('href'))).toEqual([
+      '/record?name=asset-1',
+      'https://codeocean.allenneuraldynamics.org/data_assets/co-123',
+    ]);
   });
 });
 
@@ -52,6 +69,50 @@ describe('QC status updates', () => {
     expect(content.querySelector('details')).toBe(accordion);
     expect(card.classList.contains('qc-metric-status-fail')).toBe(true);
     expect(card.classList.contains('qc-metric-status-pending')).toBe(false);
+  });
+
+  it('updates a linked status when an editable dropdown changes', () => {
+    mountQcEditor.mockClear();
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        default_grouping: ['probe'],
+        metrics: [{
+          name: 'quality',
+          tags: { probe: 'A' },
+          value: { type: 'dropdown', options: ['good', 'bad'], value: 'good', status: ['Pass', 'Fail'] },
+          status_history: [{ status: 'Pass' }],
+        }],
+      },
+    });
+    const editorOptions = mountQcEditor.mock.calls.at(-1)[2];
+    const state = {
+      enabled: true,
+      editableMetricNames: new Set(['quality']),
+      valueDrafts: { quality: JSON.stringify({ type: 'dropdown', options: ['good', 'bad'], value: 'good', status: ['Pass', 'Fail'] }) },
+      statusDrafts: { quality: 'Pass' },
+      fieldErrors: {},
+      allowEditingValues: true,
+      draftRevision: 0,
+    };
+    state.onValue = (name, value) => {
+      state.valueDrafts[name] = value;
+      state.statusDrafts[name] = 'Fail';
+      editorOptions.onEditStateChange(state);
+    };
+    state.onStatus = () => {};
+    editorOptions.onEditStateChange(state);
+
+    const card = view.querySelector('.qc-metric-card');
+    const dropdown = card.querySelector('.qc-inline-custom-select');
+    dropdown.value = 'bad';
+    dropdown.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(card.classList.contains('qc-metric-status-fail')).toBe(true);
+    expect(card.querySelector('.metric-status').textContent).toContain('Fail');
+    expect(card.querySelector('.status-dot').classList.contains('fail')).toBe(true);
+    expect(view.querySelector('.qc-tree .tree-icon').classList.contains('fail')).toBe(true);
   });
 });
 

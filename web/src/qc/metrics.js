@@ -105,7 +105,7 @@ function renderMarkdownLinks(text) {
   return fragment;
 }
 
-function statusDotClass(status) {
+export function statusDotClass(status) {
   if (status === 'Pass') return 'pass';
   if (status === 'Fail') return 'fail';
   return 'pending';
