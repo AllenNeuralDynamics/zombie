@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { buildQcSubmitPayload, buildReviewRows } from '../qc/editor.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  accountDisplayName,
+  buildQcSubmitPayload,
+  buildReviewRows,
+  QC_VIEW_MODE_STORAGE_KEY,
+  readQcViewMode,
+  writeQcViewMode,
+} from '../qc/editor.js';
 import { canonicalQcJson, hashQc } from '../qc/canonical.js';
 import { QC_HASH_FIXTURES } from '../qc/canonical-fixtures.js';
 
@@ -17,6 +24,30 @@ function metric(name, value, status = 'Pending') {
 }
 
 describe('QC SPA edit helpers', () => {
+  it('uses the account display name before username or opaque account ids', () => {
+    expect(accountDisplayName({ name: 'Ada Lovelace', username: 'opaque-id', homeAccountId: 'another-id' })).toBe('Ada Lovelace');
+    expect(accountDisplayName({ name: 'CKyRAoBpUygn1Sle6uNHscpYK8Mpor-i8LmjfJud5Jo', idTokenClaims: { name: 'Ada Lovelace' } })).toBe('Ada Lovelace');
+    expect(accountDisplayName({ username: 'CKyRAoBpUygn1Sle6uNHscpYK8Mpor-i8LmjfJud5Jo' })).toBe('AIND account');
+  });
+
+  it('persists only valid view modes in local storage without URL state', () => {
+    const storage = {
+      getItem: vi.fn(() => 'table'),
+      setItem: vi.fn(),
+    };
+    expect(readQcViewMode(storage)).toBe('table');
+    writeQcViewMode('tree', storage);
+    expect(storage.setItem).toHaveBeenCalledWith(QC_VIEW_MODE_STORAGE_KEY, 'tree');
+    writeQcViewMode('invalid', storage);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to tree when view-mode storage is unavailable or invalid', () => {
+    expect(readQcViewMode({ getItem: () => 'grid' })).toBe('tree');
+    expect(readQcViewMode({ getItem: () => { throw new Error('blocked'); } })).toBe('tree');
+    expect(() => writeQcViewMode('table', { setItem: () => { throw new Error('blocked'); } })).not.toThrow();
+  });
+
   it('matches the frozen cross-language canonical fixtures', async () => {
     for (const fixture of QC_HASH_FIXTURES) {
       expect(canonicalQcJson(fixture.value)).toBe(canonicalQcJson(JSON.parse(JSON.stringify(fixture.value))));
@@ -104,4 +135,3 @@ describe('review diff against the freshly-pulled record', () => {
     expect(rows.some(row => row.isNotes)).toBe(false);
   });
 });
-

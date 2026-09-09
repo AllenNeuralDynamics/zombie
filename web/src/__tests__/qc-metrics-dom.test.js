@@ -65,6 +65,29 @@ describe('curation dict rendering', () => {
     expect(text).toContain('good');
     expect(text).not.toContain('figures/x.png');
   });
+
+  it('renders list-of-dictionary curations with an item picker and its reference panel', () => {
+    const value = ['{"0":{"reference":"figures/0.png","label":"good"},"1":{"reference":"figures/1.png","label":"bad"}}'];
+    const card = cardFor(baseMetric({ object_type: 'Curation metric', value }));
+    const picker = card.querySelector('.qc-curation-select');
+    expect(picker).toBeTruthy();
+    expect(picker.options).toHaveLength(2);
+    expect(card.querySelector('.qc-curation-detail').textContent).toContain('good');
+    expect(card.querySelector('.qc-curation-reference img').alt).toBe('figures/0.png');
+
+    picker.value = '1';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(card.querySelector('.qc-curation-detail').textContent).toContain('bad');
+    expect(card.querySelector('.qc-curation-reference img').alt).toBe('figures/1.png');
+  });
+});
+
+describe('dictionary rendering', () => {
+  it('renders scalar dictionaries as tables instead of JSON text', () => {
+    const card = cardFor(baseMetric({ value: { quality: 'good', count: 5 } }));
+    expect(card.querySelector('.qc-value-table')).toBeTruthy();
+    expect(card.querySelector('.qc-value-json')).toBeNull();
+  });
 });
 
 describe('status tooltip', () => {
@@ -81,6 +104,7 @@ describe('inline editing', () => {
     const metric = baseMetric({ name: 'drift', value: 0.5 });
     const card = renderMetrics([metric], 'aind-open-data', 'prefix', 'asset', '', {
       enabled: true,
+      allowEditingValues: true,
       editableMetricNames: new Set(['drift']),
       valueDrafts: { drift: '0.5' },
       statusDrafts: { drift: 'Pass' },
@@ -96,6 +120,38 @@ describe('inline editing', () => {
     expect(onValue).toHaveBeenCalledWith('drift', '0.75');
     expect(onStatus).toHaveBeenCalledWith('drift', 'Fail');
   });
+
+  it('shows empty values as editable but keeps status disabled until a value exists', () => {
+    const card = renderMetrics([baseMetric({ name: 'empty', value: null, status_history: [] })], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      editableMetricNames: new Set(['empty']),
+      valueDrafts: { empty: '' },
+      statusDrafts: { empty: 'Pending' },
+      onValue: () => {},
+      onStatus: () => {},
+    }).querySelector('.qc-metric-card');
+    expect(card.querySelector('.qc-inline-editor-value')).toBeTruthy();
+    expect(card.querySelector('.qc-inline-status').disabled).toBe(true);
+  });
+
+  it('lets populated values opt into value edits while keeping auto status read-only', () => {
+    const onValue = vi.fn();
+    const metric = baseMetric({
+      name: 'quality',
+      value: { type: 'dropdown', options: ['good', 'bad'], value: 'good', status: ['Pass', 'Fail'] },
+    });
+    const card = renderMetrics([metric], 'aind-open-data', 'prefix', 'asset', '', {
+      enabled: true,
+      allowEditingValues: true,
+      editableMetricNames: new Set(['quality']),
+      valueDrafts: { quality: JSON.stringify(metric.value) },
+      statusDrafts: { quality: 'Pass' },
+      onValue,
+      onStatus: () => {},
+    }).querySelector('.qc-metric-card');
+    expect(card.querySelector('.qc-inline-custom-select')).toBeTruthy();
+    expect(card.querySelector('.qc-inline-status')).toBeNull();
+  });
 });
 
 describe('table view', () => {
@@ -108,6 +164,7 @@ describe('table view', () => {
     const treeNodes = buildTreeNodes(metrics, ['probe', 'type']);
     const table = renderMetricsTable(metrics, 'aind-open-data', 'prefix', 'asset', '', {
       enabled: true,
+      allowEditingValues: true,
       editableMetricNames: new Set(metrics.map(metric => metric.name)),
       valueDrafts: { drift: '0.5', noise: '0.2', other: '1' },
       statusDrafts: { drift: 'Pass', noise: 'Pass', other: 'Pass' },
@@ -128,8 +185,10 @@ describe('table view', () => {
       baseMetric({ name: 'drift', reference: 'figures/drift.png', value: 1 }),
     ], 'aind-open-data', 'prefix', 'asset');
     const cell = table.querySelector('.qc-reference-cell');
-    cell.dispatchEvent(new Event('mouseenter', { bubbles: true }));
-    expect(cell.querySelector('.qc-reference-preview .qc-media')).toBeTruthy();
+    const anchor = cell.querySelector('.qc-reference-anchor');
+    anchor.dispatchEvent(new Event('mouseenter', { bubbles: true }));
+    expect(anchor.querySelector('.qc-reference-preview .qc-media')).toBeTruthy();
+    expect(anchor.querySelector('.qc-reference-preview')).toBeTruthy();
     cell.querySelector('.qc-reference-link').click();
     expect(document.body.querySelector('.qc-reference-dialog')).toBeTruthy();
     document.body.querySelector('.qc-reference-dialog-close').click();

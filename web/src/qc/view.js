@@ -2,6 +2,7 @@ import { parseQCRecord, buildTreeNodes } from './data.js';
 import { createTree } from './tree.js';
 import { renderMetrics, renderMetricsTable } from './metrics.js';
 import { mountQcEditor } from './editor.js';
+import { loginForQc } from '../lib/qc-spa-auth.js';
 
 export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const parsed = parseQCRecord(record);
@@ -36,6 +37,12 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   let editState = { enabled: false, viewMode: 'tree' };
   let activeNode = null;
 
+  const objectsDiffer = (left = {}, right = {}) => {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    for (const key of keys) if (left[key] !== right[key]) return true;
+    return false;
+  };
+
   const syncEditErrors = () => {
     for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
       const error = editState.fieldErrors?.[wrapper.dataset.qcMetric];
@@ -58,7 +65,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     if (editState.viewMode === 'table') {
       body.classList.add('qc-container-table');
       const content = document.createElement('div');
-      content.className = 'qc-content qc-table-content';
+      content.className = 'qc-table-content';
       if (metrics.length) {
         content.appendChild(renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes));
       } else {
@@ -97,7 +104,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   mountQcEditor(editor, record, {
     onReload,
     onEditStateChange: (nextState) => {
-      const layoutChanged = nextState.enabled !== editState.enabled || nextState.viewMode !== editState.viewMode;
+      const layoutChanged = nextState.enabled !== editState.enabled ||
+        nextState.viewMode !== editState.viewMode ||
+        nextState.allowEditingValues !== editState.allowEditingValues ||
+        objectsDiffer(nextState.statusDrafts, editState.statusDrafts);
       editState = nextState;
       if (layoutChanged) renderBody();
       else syncEditErrors();
@@ -106,7 +116,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   return root;
 }
 
-function buildHeader(name, projectName, codeOceanId, modalities, stages) {
+export function buildHeader(name, projectName, codeOceanId, modalities, stages) {
   const header = document.createElement('div');
   header.className = 'qc-header';
 
@@ -117,13 +127,31 @@ function buildHeader(name, projectName, codeOceanId, modalities, stages) {
   h2.textContent = name;
   topRow.appendChild(h2);
 
+  const actions = document.createElement('div');
+  actions.className = 'qc-header-actions';
+
   const editBtn = document.createElement('button');
   editBtn.className = 'qc-edit-btn';
-  editBtn.textContent = 'Open QC Portal';
+  editBtn.textContent = 'Open Legacy QC Portal';
   editBtn.addEventListener('click', () => {
     window.open(`https://qc.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`, '_blank');
   });
-  topRow.appendChild(editBtn);
+  actions.appendChild(editBtn);
+
+  const loginBtn = document.createElement('button');
+  loginBtn.className = 'qc-login-btn';
+  loginBtn.textContent = 'Login';
+  loginBtn.addEventListener('click', async () => {
+    loginBtn.disabled = true;
+    try {
+      await loginForQc();
+    } catch (error) {
+      console.error('QC login failed', error);
+      loginBtn.disabled = false;
+    }
+  });
+  actions.appendChild(loginBtn);
+  topRow.appendChild(actions);
   header.appendChild(topRow);
 
   if (modalities.length || stages.length) {

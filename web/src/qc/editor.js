@@ -4,11 +4,17 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { getQcAccount, loginForQc } from '../lib/qc-spa-auth.js';
+import { getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
 import { getMetricStatus, parseQCRecord } from './data.js';
-import { isEditableMetric, parseDraft, sameValue, valueText } from './edit-model.js';
+import {
+  autoStatusForValue,
+  isEditableMetric,
+  parseDraft,
+  sameValue,
+  valueText,
+} from './edit-model.js';
 
 /** Build the narrow request body from already-reviewed local changes. */
 export function buildQcSubmitPayload(record, {
@@ -83,8 +89,56 @@ function errorText(error) {
   if (error.status === 403) return 'Your account cannot edit QC from this page.';
   if (error.status === 409) return 'This record changed elsewhere. Review the current record before submitting again.';
   if (error.status === 422) return 'The QC server rejected this change because it does not match the QC schema.';
-  if (error.status >= 500) return 'The QC editor is temporarily unavailable. Use Open QC Portal to edit.';
+  if (error.status >= 500) return 'QC editing is temporarily unavailable. Use Open Legacy QC Portal to edit.';
   return error.message || 'QC submission failed.';
+}
+
+function isOpaqueIdentity(value) {
+  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
+}
+
+function firstHumanIdentity(...values) {
+  return values.find(value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text && !isOpaqueIdentity(text);
+  })?.trim() || '';
+}
+
+export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
+const QC_VIEW_MODES = new Set(['tree', 'table']);
+
+function browserStorage() {
+  if (typeof window === 'undefined') return null;
+  try { return window.localStorage; } catch { return null; }
+}
+
+export function readQcViewMode(storage = browserStorage()) {
+  try {
+    const value = storage?.getItem(QC_VIEW_MODE_STORAGE_KEY);
+    return QC_VIEW_MODES.has(value) ? value : 'tree';
+  } catch {
+    return 'tree';
+  }
+}
+
+export function writeQcViewMode(viewMode, storage = browserStorage()) {
+  if (!QC_VIEW_MODES.has(viewMode)) return;
+  try { storage?.setItem(QC_VIEW_MODE_STORAGE_KEY, viewMode); } catch { /* storage may be unavailable */ }
+}
+
+export function accountDisplayName(account) {
+  const claims = account?.idTokenClaims ?? {};
+  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
+  return firstHumanIdentity(
+    claims.name,
+    claims.display_name,
+    composedName,
+    account?.name,
+    claims.preferred_username,
+    claims.email,
+    claims.upn,
+    account?.username,
+  ) || 'AIND account';
 }
 
 export function QcEditor({ record, onReload, onEditStateChange }) {
@@ -92,7 +146,6 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const parsed = useMemo(() => parseQCRecord(record), [record]);
   const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
   const [account, setAccount] = useState(null);
-  const [authError, setAuthError] = useState('');
   const [valueDrafts, setValueDrafts] = useState(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
   ));
@@ -106,14 +159,20 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const [review, setReview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
-  const [viewMode, setViewMode] = useState('tree');
+  const [viewMode, setViewMode] = useState(() => readQcViewMode());
+  const [allowEditingValues, setAllowEditingValues] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    writeQcViewMode(viewMode);
+  }, [viewMode]);
 
   useEffect(() => {
     let alive = true;
     getQcAccount().then(value => {
       if (alive) setAccount(value);
     }).catch(() => {
-      if (alive) setAuthError('Entra login is not configured for this deployment.');
+      if (alive) setAccount(null);
     });
     return () => { alive = false; };
   }, []);
@@ -137,8 +196,10 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
     try {
-      parseDraft(value, metric.value);
+      const parsedValue = parseDraft(value, metric.value);
       setFieldErrors(previous => ({ ...previous, [metric.name]: undefined }));
+      const autoStatus = autoStatusForValue(parsedValue);
+      if (autoStatus) setStatusDrafts(previous => ({ ...previous, [metric.name]: autoStatus }));
     } catch (error) {
       setFieldErrors(previous => ({ ...previous, [metric.name]: error.message }));
     }
@@ -151,6 +212,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       valueDrafts,
       statusDrafts,
       fieldErrors,
+      allowEditingValues,
       viewMode,
       onValue: (name, value) => {
         const metric = editableMetrics.find(candidate => candidate.name === name);
@@ -158,12 +220,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
     });
-  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, viewMode]);
-
-  const handleLogin = async () => {
-    setMessage('');
-    try { await loginForQc(); } catch (error) { setMessage(errorText(error)); }
-  };
+  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, viewMode]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -208,7 +265,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         await onReload();
         setMessage('QC changes applied and reloaded.');
       } catch {
-        setMessage('The server may have applied the change, but reload failed. Use Open QC Portal to verify.');
+        setMessage('The server may have applied the change, but reload failed. Use Open Legacy QC Portal to verify.');
       }
       setPreview(false);
       setReview(null);
@@ -219,23 +276,25 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     }
   };
 
-  if (!account) {
-    return html`
-      <section class="qc-editor qc-editor-readonly">
-        <h3>QC editor</h3>
-        <p>${message || authError || 'Log in with your AIND account to edit QC.'}</p>
-        <button class="qc-edit-btn" onClick=${handleLogin}>Log in to edit QC</button>
-        <p class="qc-editor-fallback">You can always use Open QC Portal above.</p>
-      </section>
-    `;
-  }
+  if (!account) return null;
 
   return html`
     <section class="qc-editor">
       <div class="qc-editor-heading">
-        <div>
-          <h3>Edit QC</h3>
-          <small>Signed in as ${account.username || account.name || account.homeAccountId}</small>
+        <div class="qc-editor-title">
+          <div class="qc-editor-title-row">
+            <h3>Edit QC</h3>
+            ${!preview ? html`
+              <button
+                class="qc-settings-btn icon-btn"
+                aria-label="QC editing settings"
+                onClick=${() => setSettingsOpen(true)}
+              >
+                <img src="/icons/gear.svg" alt="Settings" />
+              </button>
+            ` : null}
+          </div>
+          <small>Signed in as ${accountDisplayName(account)}</small>
         </div>
         <div class="qc-editor-actions">
           ${!preview ? html`
@@ -253,6 +312,22 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
           </button>
         </div>
       </div>
+      ${settingsOpen ? html`
+        <div class="qc-settings-overlay" role="dialog" aria-modal="true" aria-label="QC settings">
+          <div class="qc-settings-modal">
+            <h4>QC settings</h4>
+            <label class="qc-settings-option">
+              <input
+                type="checkbox"
+                checked=${allowEditingValues}
+                onChange=${event => setAllowEditingValues(event.currentTarget.checked)}
+              />
+              Allow editing metrics with values
+            </label>
+            <button class="qc-editor-secondary" onClick=${() => setSettingsOpen(false)}>Done</button>
+          </div>
+        </div>
+      ` : null}
       ${message ? html`<div class="qc-editor-message">${message}</div>` : null}
       ${preview && review ? html`
         <div class="qc-editor-preview">
@@ -300,15 +375,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
           </button>
         </div>
       ` : html`
-        ${parsed.metrics.length !== editableMetrics.length ? html`<p class="qc-editor-fallback">Specialized/custom metrics remain read-only; use Open QC Portal for those.</p>` : null}
         <label class="qc-editor-label">Notes<textarea rows="3" value=${notes} onInput=${event => setNotes(event.currentTarget.value)} /></label>
-        <button
-          class="qc-edit-btn"
-          onClick=${handleReview}
-          disabled=${reviewing || !changeCount || Object.values(fieldErrors).some(Boolean)}
-        >
-          ${reviewing ? 'Loading current record…' : `Review changes (${changeCount})`}
-        </button>
       `}
     </section>
   `;

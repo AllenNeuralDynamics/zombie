@@ -1,5 +1,11 @@
 import { getMetricStatus, isCustomMetric, resolveReference } from './data.js';
-import { isEditableMetric, valueText } from './edit-model.js';
+import {
+  canEditMetricStatus,
+  canEditMetricValue,
+  isAutoStatusMetric,
+  parseDraft,
+  valueText,
+} from './edit-model.js';
 import { renderMedia } from './media.js';
 
 const EDIT_TOOLTIP = 'Use edit mode to make changes';
@@ -8,30 +14,54 @@ const EDIT_TOOLTIP = 'Use edit mode to make changes';
  * Read-only rendering of the custom metric value widgets (DropdownMetric / CheckboxMetric)
  * that the Panel app shows as interactive Select / MultiChoice controls.
  */
-function renderCustomMetric(val) {
+function renderCustomMetric(val, { editable = false, onChange = null } = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'qc-custom-metric';
-  wrap.title = EDIT_TOOLTIP;
+  if (!editable) wrap.title = EDIT_TOOLTIP;
 
   if (val.type === 'dropdown') {
-    const sel = document.createElement('div');
-    sel.className = 'qc-readonly-select';
-    const v = val.value;
-    sel.textContent = (v === '' || v === null || v === undefined) ? '—' : String(v);
+    const sel = document.createElement(editable ? 'select' : 'div');
+    sel.className = editable ? 'qc-inline-custom-select' : 'qc-readonly-select';
+    if (editable) {
+      for (const option of [''].concat(val.options ?? [])) {
+        const optionEl = document.createElement('option');
+        optionEl.value = option;
+        optionEl.textContent = option || '—';
+        optionEl.selected = option === (val.value ?? '');
+        sel.appendChild(optionEl);
+      }
+      sel.addEventListener('change', () => onChange?.({ ...val, value: sel.value }));
+    } else {
+      const v = val.value;
+      sel.textContent = (v === '' || v === null || v === undefined) ? '—' : String(v);
+    }
     wrap.appendChild(sel);
   } else if (val.type === 'checkbox') {
     const selected = Array.isArray(val.value) ? val.value : (val.value != null ? [val.value] : []);
     const list = document.createElement('div');
-    list.className = 'qc-readonly-checklist';
+    list.className = editable ? 'qc-inline-checkbox-list' : 'qc-readonly-checklist';
     for (const opt of (val.options ?? [])) {
-      const item = document.createElement('div');
-      item.className = 'qc-readonly-check';
       const checked = selected.includes(opt);
-      const box = document.createElement('span');
-      box.className = 'qc-checkbox' + (checked ? ' checked' : '');
-      box.textContent = checked ? '☑' : '☐';
-      item.appendChild(box);
-      item.appendChild(document.createTextNode(` ${opt}`));
+      const item = document.createElement(editable ? 'label' : 'div');
+      item.className = editable ? 'qc-inline-checkbox' : 'qc-readonly-check';
+      if (editable) {
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.checked = checked;
+        input.value = opt;
+        input.addEventListener('change', () => {
+          const next = [...list.querySelectorAll('input:checked')].map(inputEl => inputEl.value);
+          onChange?.({ ...val, value: next });
+        });
+        item.appendChild(input);
+        item.appendChild(document.createTextNode(opt));
+      } else {
+        const box = document.createElement('span');
+        box.className = 'qc-checkbox' + (checked ? ' checked' : '');
+        box.textContent = checked ? '☑' : '☐';
+        item.appendChild(box);
+        item.appendChild(document.createTextNode(` ${opt}`));
+      }
       list.appendChild(item);
     }
     wrap.appendChild(list);
@@ -81,6 +111,123 @@ function statusDotClass(status) {
   return 'pending';
 }
 
+function renderObjectTable(val, { excludeReference = false } = {}) {
+  const entries = Object.entries(val).filter(([key]) => !excludeReference || key !== 'reference');
+  if (!entries.length) return document.createTextNode('—');
+
+  const listsOnly = entries.every(([, value]) => Array.isArray(value));
+  const lengths = entries.map(([, value]) => value.length);
+  if (listsOnly && lengths.every(length => length === lengths[0])) {
+    const indexKey = entries.find(([key]) => key.toLowerCase() === 'index')?.[0];
+    const columns = entries.filter(([key]) => key !== indexKey);
+    const table = document.createElement('table');
+    table.className = 'qc-value-table';
+    const thead = table.createTHead();
+    const header = thead.insertRow();
+    if (indexKey) appendHeaderCell(header, indexKey);
+    for (const [key] of columns) appendHeaderCell(header, key);
+    const body = table.createTBody();
+    const rowCount = columns.length ? columns[0][1].length : val[indexKey].length;
+    for (let index = 0; index < rowCount; index++) {
+      const row = body.insertRow();
+      if (indexKey) row.insertCell().textContent = String(val[indexKey][index]);
+      for (const [, values] of columns) row.insertCell().textContent = formatCellValue(values[index]);
+    }
+    return table;
+  }
+
+  const table = document.createElement('table');
+  table.className = 'qc-value-table qc-value-key-table';
+  const thead = table.createTHead();
+  const header = thead.insertRow();
+  appendHeaderCell(header, 'Field');
+  appendHeaderCell(header, 'Value');
+  const body = table.createTBody();
+  for (const [key, value] of entries) {
+    const row = body.insertRow();
+    const keyCell = row.insertCell();
+    keyCell.textContent = key;
+    keyCell.className = 'qc-value-key';
+    row.insertCell().textContent = formatCellValue(value);
+  }
+  return table;
+}
+
+function formatCellValue(value) {
+  if (value === null || value === undefined) return '—';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+function appendHeaderCell(row, text) {
+  const cell = document.createElement('th');
+  cell.textContent = text;
+  row.appendChild(cell);
+}
+
+/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
+export function parseCurationValues(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
+  }
+  if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
+  return source.map(entry => {
+    if (typeof entry !== 'string') return entry;
+    try { return JSON.parse(entry.startsWith('json:') ? entry.slice(5) : entry); } catch { return null; }
+  }).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
+}
+
+function isCurationCollection(metric) {
+  if (metric.object_type === 'Curation metric') return true;
+  return parseCurationValues(metric.value).some(entry =>
+    Object.values(entry).some(item => item && typeof item === 'object' && !Array.isArray(item) && 'reference' in item),
+  );
+}
+
+function renderCurationValue(metric, { s3Bucket, s3Prefix, assetName, rawS3Loc } = {}) {
+  const values = parseCurationValues(metric.value);
+  const current = values[values.length - 1] ?? {};
+  const items = Object.entries(current).filter(([, item]) => item && typeof item === 'object' && !Array.isArray(item));
+  if (!items.length) return renderObjectTable(current);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'qc-curation';
+  const pickerLabel = document.createElement('label');
+  pickerLabel.className = 'qc-curation-picker';
+  pickerLabel.appendChild(document.createTextNode('Curation item'));
+  const picker = document.createElement('select');
+  picker.className = 'qc-curation-select';
+  picker.setAttribute('aria-label', `${metric.name} curation item`);
+  for (const [key] of items) {
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = key;
+    picker.appendChild(option);
+  }
+  pickerLabel.appendChild(picker);
+  wrap.appendChild(pickerLabel);
+
+  const detail = document.createElement('div');
+  detail.className = 'qc-curation-detail';
+  wrap.appendChild(detail);
+
+  const renderSelected = () => {
+    detail.replaceChildren();
+    const selected = items.find(([key]) => key === picker.value)?.[1] ?? {};
+    detail.appendChild(renderObjectTable(selected, { excludeReference: true }));
+    if (selected.reference) {
+      const reference = document.createElement('div');
+      reference.className = 'qc-curation-reference';
+      reference.appendChild(renderMedia(selected.reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
+      detail.appendChild(reference);
+    }
+  };
+  picker.addEventListener('change', renderSelected);
+  picker.value = items[0][0];
+  renderSelected();
+  return wrap;
+}
+
 function renderValue(val) {
   if (val === null || val === undefined) return document.createTextNode('—');
 
@@ -93,34 +240,17 @@ function renderValue(val) {
   }
 
   if (Array.isArray(val)) {
-    // Arrays of objects (e.g., curation history): show the last (most recent) entry as JSON.
-    if (val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
-      const latest = val[val.length - 1];
-      const pre = document.createElement('pre');
-      pre.className = 'qc-value-json';
-      pre.textContent = JSON.stringify(latest, null, 2);
-      if (val.length > 1) {
-        const note = document.createElement('p');
-        note.className = 'metric-tags';
-        note.textContent = `Showing latest of ${val.length} curation entries.`;
-        const wrap = document.createElement('div');
-        wrap.appendChild(note);
-        wrap.appendChild(pre);
-        return wrap;
-      }
-      return pre;
-    }
     const table = document.createElement('table');
     table.className = 'qc-value-table';
     const thead = table.createTHead();
     const hrow = thead.insertRow();
-    const th = document.createElement('th');
-    th.textContent = 'values';
-    hrow.appendChild(th);
+    appendHeaderCell(hrow, 'index');
+    appendHeaderCell(hrow, 'values');
     const tbody = table.createTBody();
-    for (const item of val) {
+    for (const [index, item] of val.entries()) {
       const row = tbody.insertRow();
-      row.insertCell().textContent = String(item);
+      row.insertCell().textContent = String(index);
+      row.insertCell().textContent = formatCellValue(item);
     }
     return table;
   }
@@ -131,73 +261,117 @@ function renderValue(val) {
       return renderCustomMetric(val);
     }
 
-    let entries = Object.entries(val);
-
-    // Curation dicts carry a "reference" key (rendered as media alongside). Show the
-    // remaining key/value pairs as a small read-only table, matching GenericCuration.
-    if ('reference' in val) {
-      const rest = entries.filter(([k]) => k !== 'reference');
-      if (!rest.length) return document.createTextNode('—');
-      const table = document.createElement('table');
-      table.className = 'qc-value-table';
-      const tbody = table.createTBody();
-      for (const [k, v] of rest) {
-        const row = tbody.insertRow();
-        const keyCell = row.insertCell();
-        keyCell.textContent = k;
-        keyCell.style.fontWeight = '600';
-        row.insertCell().textContent = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v);
-      }
-      return table;
-    }
-
-    const listsOnly = entries.every(([, v]) => Array.isArray(v));
-    if (listsOnly && entries.length) {
-      const lengths = entries.map(([, v]) => v.length);
-      const allSame = lengths.every(l => l === lengths[0]);
-      if (allSame) {
-        const indexKey = entries.find(([k]) => k.toLowerCase() === 'index')?.[0];
-        const cols = entries.filter(([k]) => k !== indexKey);
-        const table = document.createElement('table');
-        table.className = 'qc-value-table';
-        const thead = table.createTHead();
-        const hrow = thead.insertRow();
-        if (indexKey) {
-          const th = document.createElement('th');
-          th.textContent = indexKey;
-          hrow.appendChild(th);
-        }
-        for (const [k] of cols) {
-          const th = document.createElement('th');
-          th.textContent = k;
-          hrow.appendChild(th);
-        }
-        const tbody = table.createTBody();
-        const rowCount = cols[0][1].length;
-        for (let i = 0; i < rowCount; i++) {
-          const row = tbody.insertRow();
-          if (indexKey) row.insertCell().textContent = String(val[indexKey][i]);
-          for (const [, v] of cols) row.insertCell().textContent = String(v[i]);
-        }
-        return table;
-      }
-    }
-    const pre = document.createElement('pre');
-    pre.className = 'qc-value-json';
-    pre.textContent = JSON.stringify(val, null, 2);
-    return pre;
+    return renderObjectTable(val, { excludeReference: 'reference' in val });
   }
 
   return document.createTextNode(String(val));
 }
 
-function renderMetricValue(metric, edit) {
-  const editable = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onValue && isEditableMetric(metric));
+function draftValue(metric, edit) {
+  const draft = edit?.valueDrafts?.[metric.name];
+  if (draft === undefined) return metric.value;
+  try { return parseDraft(draft, metric.value); } catch { return metric.value; }
+}
+
+function valueEditEnabled(metric, edit) {
+  return Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onValue &&
+    canEditMetricValue(metric, { allowEditingValues: edit.allowEditingValues }));
+}
+
+function statusEditEnabled(metric, edit) {
+  return Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onStatus &&
+    canEditMetricStatus(metric, {
+      allowEditingValues: edit.allowEditingValues,
+      draftValue: draftValue(metric, edit),
+    }));
+}
+
+function enableStatusForDraft(wrapper, metric, edit, nextValue) {
+  const status = wrapper.closest('.qc-metric-card, .qc-metrics-table-row')?.querySelector('.qc-inline-status');
+  if (!status) return;
+  status.disabled = !canEditMetricStatus(metric, {
+    allowEditingValues: edit.allowEditingValues,
+    draftValue: nextValue,
+  });
+}
+
+function appendFieldError(wrapper, metric, edit) {
+  const error = edit.fieldErrors?.[metric.name];
+  if (!error) return;
+  const errorEl = document.createElement('div');
+  errorEl.className = 'qc-inline-field-error';
+  errorEl.textContent = error;
+  wrapper.appendChild(errorEl);
+}
+
+function renderEditableDictionary(metric, edit) {
+  const value = draftValue(metric, edit);
+  if (!value || typeof value !== 'object' || Array.isArray(value) || isCustomMetric(value)) return null;
+  const entries = Object.entries(value);
+  const wrapper = document.createElement('div');
+  wrapper.className = 'qc-inline-dictionary-editor';
+  wrapper.dataset.qcMetric = metric.name;
+  const table = document.createElement('table');
+  table.className = 'qc-value-table qc-value-key-table';
+  const thead = table.createTHead();
+  const header = thead.insertRow();
+  appendHeaderCell(header, 'Field');
+  appendHeaderCell(header, 'Value');
+  const body = table.createTBody();
+  for (const [key, original] of entries) {
+    const row = body.insertRow();
+    row.insertCell().textContent = key;
+    const valueCell = row.insertCell();
+    if (Array.isArray(original) || (original && typeof original === 'object')) {
+      valueCell.textContent = formatCellValue(original);
+      continue;
+    }
+    const input = document.createElement('input');
+    input.className = 'qc-inline-dictionary-input';
+    input.value = valueText(original);
+    input.setAttribute('aria-label', `${metric.name} ${key}`);
+    input.addEventListener('input', () => {
+      let nextValue = input.value;
+      try { nextValue = parseDraft(input.value, original); } catch { /* keep the in-progress text */ }
+      const next = { ...value, [key]: nextValue };
+      edit.onValue(metric.name, JSON.stringify(next));
+      enableStatusForDraft(wrapper, metric, edit, next);
+    });
+    valueCell.appendChild(input);
+  }
+  wrapper.appendChild(table);
+  appendFieldError(wrapper, metric, edit);
+  return wrapper;
+}
+
+function renderMetricValue(metric, edit, media = {}) {
+  const editable = valueEditEnabled(metric, edit);
+  const currentValue = draftValue(metric, edit);
+  if (isCurationCollection(metric)) {
+    return renderCurationValue(metric, media);
+  }
+  if (isCustomMetric(currentValue)) {
+    const custom = renderCustomMetric(currentValue, {
+      editable,
+      onChange: next => {
+        edit.onValue(metric.name, JSON.stringify(next));
+        enableStatusForDraft(custom, metric, edit, next);
+      },
+    });
+    if (editable) {
+      custom.dataset.qcMetric = metric.name;
+      appendFieldError(custom, metric, edit);
+    }
+    return custom;
+  }
   if (!editable) {
     const value = document.createElement('div');
     value.appendChild(renderValue(metric.value));
     return value;
   }
+
+  const dictionary = renderEditableDictionary(metric, edit);
+  if (dictionary) return dictionary;
 
   const wrapper = document.createElement('div');
   wrapper.className = 'qc-inline-value-editor';
@@ -205,30 +379,29 @@ function renderMetricValue(metric, edit) {
   const input = document.createElement('textarea');
   input.className = 'qc-inline-editor-value';
   input.value = edit.valueDrafts?.[metric.name] ?? valueText(metric.value);
-  input.rows = typeof metric.value === 'object' ? 4 : 1;
+  input.rows = 1;
   input.setAttribute('aria-label', `${metric.name} value`);
-  input.addEventListener('input', () => edit.onValue(metric.name, input.value));
+  input.addEventListener('input', () => {
+    edit.onValue(metric.name, input.value);
+    try { enableStatusForDraft(wrapper, metric, edit, parseDraft(input.value, metric.value)); } catch { /* invalid draft */ }
+  });
   wrapper.appendChild(input);
-
-  const error = edit.fieldErrors?.[metric.name];
-  if (error) {
-    const errorEl = document.createElement('div');
-    errorEl.className = 'qc-inline-field-error';
-    errorEl.textContent = error;
-    wrapper.appendChild(errorEl);
-  }
+  appendFieldError(wrapper, metric, edit);
   return wrapper;
 }
 
 function renderMetricStatus(metric, edit) {
-  const editable = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onStatus && isEditableMetric(metric));
+  const editable = statusEditEnabled(metric, edit);
   const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
-  if (editable) {
+  const showStatusEditor = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) &&
+    !isAutoStatusMetric(metric) && edit.onStatus);
+  if (showStatusEditor) {
     const label = document.createElement('label');
     label.className = 'metric-status metric-status-editor';
     label.textContent = 'Status';
     const select = document.createElement('select');
     select.className = 'qc-inline-status';
+    select.disabled = !editable;
     select.setAttribute('aria-label', `${metric.name} status`);
     for (const option of ['Pending', 'Pass', 'Fail']) {
       const optionEl = document.createElement('option');
@@ -252,10 +425,10 @@ function renderMetricStatus(metric, edit) {
   return statusEl;
 }
 
-function buildMetricCard(metric, edit = {}) {
+function buildMetricCard(metric, edit = {}, media = {}) {
   const card = document.createElement('div');
   const isCuration = metric.object_type === 'Curation metric';
-  const editable = edit.enabled && edit.editableMetricNames?.has(metric.name) && isEditableMetric(metric);
+  const editable = valueEditEnabled(metric, edit) || statusEditEnabled(metric, edit);
   card.className = `${isCuration ? 'qc-metric-card qc-metric-curation' : 'qc-metric-card'}${editable ? ' qc-metric-editable' : ''}`;
 
   const name = document.createElement('div');
@@ -299,7 +472,7 @@ function buildMetricCard(metric, edit = {}) {
 
   const valEl = document.createElement('div');
   valEl.className = 'metric-value';
-  valEl.appendChild(renderMetricValue(metric, edit));
+  valEl.appendChild(renderMetricValue(metric, edit, media));
   card.appendChild(valEl);
 
   card.appendChild(renderMetricStatus(metric, edit));
@@ -322,13 +495,16 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
     event.preventDefault();
     openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
   });
-  cell.appendChild(link);
+  const anchor = document.createElement('span');
+  anchor.className = 'qc-reference-anchor';
+  anchor.appendChild(link);
+  cell.appendChild(anchor);
 
   const preview = document.createElement('div');
   preview.className = 'qc-reference-preview';
   preview.hidden = true;
-  cell.appendChild(preview);
-  cell.addEventListener('mouseenter', () => {
+  anchor.appendChild(preview);
+  anchor.addEventListener('mouseenter', () => {
     if (preview.childElementCount) {
       preview.hidden = false;
       return;
@@ -336,7 +512,7 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
     preview.appendChild(renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
     preview.hidden = false;
   });
-  cell.addEventListener('mouseleave', () => { preview.hidden = true; });
+  anchor.addEventListener('mouseleave', () => { preview.hidden = true; });
   return cell;
 }
 
@@ -367,34 +543,16 @@ function openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
   document.body.appendChild(overlay);
 }
 
-function renderTableMetricValue(metric, edit) {
-  const editable = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onValue && isEditableMetric(metric));
-  if (!editable) return renderValue(metric.value);
-
-  const wrapper = document.createElement('div');
-  wrapper.className = 'qc-table-value-editor';
-  wrapper.dataset.qcMetric = metric.name;
-  const input = document.createElement('textarea');
-  input.className = 'qc-inline-editor-value';
-  input.value = edit.valueDrafts?.[metric.name] ?? valueText(metric.value);
-  input.rows = typeof metric.value === 'object' ? 3 : 1;
-  input.setAttribute('aria-label', `${metric.name} value`);
-  input.addEventListener('input', () => edit.onValue(metric.name, input.value));
-  wrapper.appendChild(input);
-  const error = edit.fieldErrors?.[metric.name];
-  if (error) {
-    const errorEl = document.createElement('div');
-    errorEl.className = 'qc-inline-field-error';
-    errorEl.textContent = error;
-    wrapper.appendChild(errorEl);
-  }
-  return wrapper;
+function renderTableMetricValue(metric, edit, media = {}) {
+  return renderMetricValue(metric, edit, media);
 }
 
 function renderTableMetricStatus(metric, edit) {
-  const editable = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onStatus && isEditableMetric(metric));
+  const editable = statusEditEnabled(metric, edit);
   const status = edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
-  if (!editable) {
+  const showStatusEditor = Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) &&
+    !isAutoStatusMetric(metric) && edit.onStatus);
+  if (!showStatusEditor) {
     const statusEl = document.createElement('span');
     statusEl.className = `qc-table-status ${statusDotClass(status)}`;
     statusEl.textContent = status;
@@ -403,6 +561,7 @@ function renderTableMetricStatus(metric, edit) {
 
   const select = document.createElement('select');
   select.className = 'qc-inline-status';
+  select.disabled = !editable;
   select.setAttribute('aria-label', `${metric.name} status`);
   for (const option of ['Pending', 'Pass', 'Fail']) {
     const optionEl = document.createElement('option');
@@ -450,7 +609,7 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
       row.appendChild(renderReferenceLink(metric.reference ?? '', s3Bucket, s3Prefix, assetName, rawS3Loc));
       row.insertCell().textContent = metric.name ?? '';
       const valueCell = row.insertCell();
-      valueCell.appendChild(renderTableMetricValue(metric, edit));
+      valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
       const statusCell = row.insertCell();
       statusCell.appendChild(renderTableMetricStatus(metric, edit));
     }
@@ -487,7 +646,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
     // without one they fill the width as a responsive grid instead of a single stack.
     leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
     for (const m of groupMetrics) {
-      leftCol.appendChild(buildMetricCard(m, edit));
+      leftCol.appendChild(buildMetricCard(m, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
     }
 
     body.appendChild(leftCol);
