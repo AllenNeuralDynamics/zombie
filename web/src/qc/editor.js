@@ -3,7 +3,7 @@ import { render } from 'preact';
 import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
-import { queryDocDb } from '../lib/docdb.js';
+import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
@@ -38,6 +38,15 @@ export function buildQcSubmitPayload(record, {
   return payload;
 }
 
+function asRecordMap(records, fallback = null) {
+  const map = new Map();
+  for (const record of Array.isArray(records) ? records : []) {
+    if (record?.name) map.set(record.name, record);
+  }
+  if (fallback?.name && !map.has(fallback.name)) map.set(fallback.name, fallback);
+  return map;
+}
+
 /**
  * Diff pending edits against a freshly-fetched record rather than the copy
  * loaded when the page rendered, so the user reviews what will actually
@@ -47,17 +56,37 @@ export function buildReviewRows(freshRecord, loadedRecord, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  freshRecords = [],
+  loadedRecords = [],
+  affectedAssetsByMetric = {},
 } = {}) {
   const fresh = parseQCRecord(freshRecord);
   const loaded = parseQCRecord(loadedRecord);
-  const liveByName = new Map(fresh.metrics.map(metric => [metric.name, metric]));
-  const loadedByName = new Map(loaded.metrics.map(metric => [metric.name, metric]));
+  const freshByAsset = asRecordMap(freshRecords, freshRecord);
+  const loadedByAsset = asRecordMap(loadedRecords, loadedRecord);
 
   const rows = Object.entries(pendingChanges).map(([name, change]) => {
-    const live = liveByName.get(name);
-    if (!live) return { name, missing: true, drifted: true };
-    const was = loadedByName.get(name);
-    const row = { name, missing: false };
+    const hasLineage = Object.prototype.hasOwnProperty.call(affectedAssetsByMetric, name);
+    const affectedAssets = affectedAssetsByMetric[name] ?? [freshRecord.name].filter(Boolean);
+    const lineageFields = hasLineage
+      ? { affectedAssets, affectsMultipleAssets: affectedAssets.length > 1 }
+      : {};
+    const sourceAsset = affectedAssets[0];
+    const liveRecord = freshByAsset.get(sourceAsset) ?? freshRecord;
+    const loadedRecordForMetric = loadedByAsset.get(sourceAsset) ?? loadedRecord;
+    const live = parseQCRecord(liveRecord).metrics.find(metric => metric.name === name);
+    const was = parseQCRecord(loadedRecordForMetric).metrics.find(metric => metric.name === name);
+    if (!live) return {
+      name,
+      missing: true,
+      drifted: true,
+      ...lineageFields,
+    };
+    const row = {
+      name,
+      missing: false,
+      ...lineageFields,
+    };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) {
       row.currentValue = valueText(live.value);
       row.nextValue = valueText(change.value);
@@ -82,6 +111,38 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     });
   }
   return rows;
+}
+
+/** Expand one reviewed draft into one narrow request per affected asset. */
+export function buildQcSubmitPayloads(records, {
+  expectedQcHashes = {},
+  pendingChanges = {},
+  affectedAssetsByMetric = {},
+  recordName = '',
+  notesChanged = false,
+  notes = '',
+} = {}) {
+  const byName = asRecordMap(records);
+  const changesByAsset = new Map();
+  for (const [metricName, change] of Object.entries(pendingChanges)) {
+    const affectedAssets = affectedAssetsByMetric[metricName] ?? [recordName];
+    for (const assetName of affectedAssets) {
+      const target = byName.get(assetName);
+      if (!target) continue;
+      if (!parseQCRecord(target).metrics.some(metric => metric.name === metricName)) continue;
+      if (!changesByAsset.has(assetName)) changesByAsset.set(assetName, {});
+      changesByAsset.get(assetName)[metricName] = change;
+    }
+  }
+  if (notesChanged && byName.has(recordName)) {
+    changesByAsset.set(recordName, changesByAsset.get(recordName) ?? {});
+  }
+  return [...changesByAsset].map(([assetName, changes]) => buildQcSubmitPayload(byName.get(assetName), {
+    expectedQcHash: expectedQcHashes[assetName],
+    pendingChanges: changes,
+    notesChanged: assetName === recordName && notesChanged,
+    notes,
+  }));
 }
 
 function errorText(error) {
@@ -180,10 +241,18 @@ function draftValueChanged(metric, draft) {
   try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
 }
 
-export function QcEditor({ record, onReload, onEditStateChange }) {
+export function QcEditor({
+  record,
+  onReload,
+  onEditStateChange,
+  displayMetrics = null,
+  affectedAssetsByMetric = {},
+  chainRecords = [],
+}) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
-  const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
+  const metrics = displayMetrics ?? parsed.metrics;
+  const editableMetrics = useMemo(() => metrics.filter(isEditableMetric), [metrics]);
   const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
   ), [editableMetrics]);
@@ -298,18 +367,37 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     setReviewing(true);
     setMessage('');
     try {
-      const records = await queryDocDb({ name: record.name }, { limit: 1 });
-      if (!records.length) throw new Error(`Asset "${record.name}" is no longer in DocDB.`);
-      const freshRecord = records[0];
-      const [freshHash, loadedHash] = await Promise.all([
-        hashQc(freshRecord.quality_control),
-        hashQc(record.quality_control),
-      ]);
+      const names = [...new Set([
+        record.name,
+        ...Object.values(affectedAssetsByMetric).flat(),
+      ].filter(Boolean))];
+      const records = await fetchDocDbRecordsByName(names, { limit: 1 });
+      const freshRecords = records.filter(candidate => candidate?.name);
+      const freshRecord = freshRecords.find(candidate => candidate.name === record.name);
+      if (!freshRecord) throw new Error(`Asset "${record.name}" is no longer in DocDB.`);
+      const loadedRecords = chainRecords.length ? chainRecords : [record];
+      const freshHashes = Object.fromEntries(await Promise.all(
+        freshRecords.map(async candidate => [candidate.name, await hashQc(candidate.quality_control)]),
+      ));
+      const loadedHashes = Object.fromEntries(await Promise.all(
+        loadedRecords.filter(candidate => candidate?.name).map(async candidate => [candidate.name, await hashQc(candidate.quality_control)]),
+      ));
+      const freshHash = freshHashes[record.name];
       setReview({
         freshRecord,
+        freshRecords,
+        loadedRecords,
         freshHash,
-        changedSinceLoad: freshHash !== loadedHash,
-        rows: buildReviewRows(freshRecord, record, { pendingChanges, notesChanged, notes }),
+        freshHashes,
+        changedSinceLoad: Object.entries(freshHashes).some(([name, hash]) => loadedHashes[name] && loadedHashes[name] !== hash),
+        rows: buildReviewRows(freshRecord, record, {
+          pendingChanges,
+          notesChanged,
+          notes,
+          freshRecords,
+          loadedRecords,
+          affectedAssetsByMetric,
+        }),
       });
       setPreview(true);
     } catch (error) {
@@ -324,13 +412,15 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     setSubmitting(true);
     setMessage('');
     try {
-      const payload = buildQcSubmitPayload(review.freshRecord, {
-        expectedQcHash: review.freshHash,
+      const payloads = buildQcSubmitPayloads(review.freshRecords, {
+        expectedQcHashes: review.freshHashes,
         pendingChanges,
+        affectedAssetsByMetric,
+        recordName: record.name,
         notesChanged,
         notes,
       });
-      await submitQcEdit(payload);
+      for (const payload of payloads) await submitQcEdit(payload);
       clearQcPendingChanges(record.name);
       try {
         await onReload();
@@ -406,10 +496,10 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       ${preview && review ? html`
         <div class="qc-editor-preview">
           <h4>Review before submit</h4>
-          <p class="qc-editor-review-note">Compared against the current record in DocDB.</p>
+          <p class="qc-editor-review-note">Compared against the current records in DocDB.</p>
           ${review.changedSinceLoad ? html`
             <div class="qc-editor-drift">
-              This record changed since you opened the page. Rows marked changed were edited by someone else —
+              One or more records changed since you opened the page. Rows marked changed were edited by someone else —
               check them before submitting.
             </div>
           ` : null}
@@ -422,6 +512,15 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
                     <td>
                       ${row.name}
                       ${row.drifted ? html`<span class="qc-editor-diff-flag"> changed</span>` : null}
+                      ${row.affectedAssets ? html`
+                        <span
+                          class="qc-editor-affected-assets"
+                          data-assets=${row.affectedAssets.join(', ')}
+                          aria-label=${`${row.affectedAssets.length} asset${row.affectedAssets.length === 1 ? '' : 's'} will be updated`}
+                        >
+                          ${row.affectedAssets.length > 1 ? ` affects ${row.affectedAssets.length} assets` : ' affects 1 asset'}
+                        </span>
+                      ` : null}
                     </td>
                     <td>
                       ${row.missing
@@ -460,6 +559,9 @@ export function mountQcEditor(container, record, options = {}) {
   render(html`
     <${QcEditor}
       record=${record}
+      displayMetrics=${options.displayMetrics || null}
+      affectedAssetsByMetric=${options.affectedAssetsByMetric || {}}
+      chainRecords=${options.chainRecords || []}
       onReload=${options.onReload || (() => Promise.resolve())}
       onEditStateChange=${options.onEditStateChange}
     />

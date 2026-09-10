@@ -22,6 +22,9 @@
 .qc-editor-diff td:first-child { font-weight: 600; }
 .qc-editor-diff-drifted { background: color-mix(in srgb, var(--color-yellow) 12%, transparent); }
 .qc-editor-diff-flag { color: var(--color-yellow); font-weight: 600; font-size: .85em; }
+.qc-editor-affected-assets { position: relative; display: inline-block; margin-left: 4px; color: var(--text-secondary); font-size: .85em; font-weight: 400; cursor: help; }
+.qc-editor-affected-assets::after { content: attr(data-assets); position: absolute; z-index: 3; left: 0; top: calc(100% + 4px); display: none; min-width: 220px; padding: 6px 8px; border: 1px solid var(--surface-border); border-radius: var(--radius); color: var(--text-primary); background: var(--surface-card); box-shadow: 0 4px 12px color-mix(in srgb, var(--text-primary) 18%, transparent); font-size: .9rem; font-weight: 400; white-space: normal; }
+.qc-editor-affected-assets:hover::after, .qc-editor-affected-assets:focus::after { display: block; }
 .qc-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .qc-editor-secondary { border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 5px 10px; color: var(--text-primary); background: var(--surface-bg); cursor: pointer; }
 .qc-editor-secondary:disabled, .qc-editor .qc-edit-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -36,6 +39,7 @@
 .qc-view-toggle button { border: 0; border-right: 1px solid var(--surface-border); padding: 5px 9px; color: var(--text-secondary); background: var(--surface-bg); cursor: pointer; }
 .qc-view-toggle button:last-child { border-right: 0; }
 .qc-view-toggle button.active { color: var(--text-primary); background: var(--surface-border); font-weight: 600; }
+.qc-stage-filter { padding: 5px 8px; border: 1px solid var(--surface-border); border-radius: var(--radius); color: var(--text-primary); background: var(--surface-bg); }
 
 /* Inline metric editing mirrors the portal's MetricValue panels. */
 .qc-metric-editable .metric-value { margin-bottom: 10px; }

@@ -360,4 +360,17 @@ describe('media rendering', () => {
     details[1].dispatchEvent(new Event('toggle'));
     expect(details[1].querySelector('img')).toBeTruthy();
   });
+
+  it('resolves the same relative reference from each metric source asset', () => {
+    const el = renderMetrics([
+      baseMetric({ name: 'raw metric', reference: 'figure.png', assetName: 'raw', assetLocation: 's3://aind-open-data/raw' }),
+      baseMetric({ name: 'processed metric', reference: 'figure.png', assetName: 'processed', assetLocation: 's3://aind-open-data/processed' }),
+    ], 'fallback-bucket', 'fallback-prefix', 'fallback-asset');
+    const details = el.querySelector('.qc-accordion details');
+    expect(details.querySelectorAll('img')).toHaveLength(2);
+    expect([...details.querySelectorAll('img')].map(image => image.src)).toEqual([
+      'https://aind-open-data.s3.us-west-2.amazonaws.com/raw/figure.png',
+      'https://aind-open-data.s3.us-west-2.amazonaws.com/processed/figure.png',
+    ]);
+  });
 });

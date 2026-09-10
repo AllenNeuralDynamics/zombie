@@ -1,59 +1,119 @@
-import { queryDocDb } from './lib/docdb.js';
+import { bootstrap } from './lib/bootstrap.js';
+import { queryRows } from './lib/arrow.js';
+import { ensureTable } from './lib/registry.js';
+import { fetchDocDbRecordsByName, queryDocDb } from './lib/docdb.js';
+import { assetNamesForQcRows, findRawAssetName } from './qc/lineage.js';
+import { buildCachedLineageRecords } from './qc/data.js';
 import { createQCView } from './qc/view.js';
 
-async function init() {
-  const app = document.getElementById('app');
-  if (!app) return;
-
-  const params = new URLSearchParams(window.location.search);
-  const assetName = params.get('name');
-
-  if (!assetName) {
-    app.innerHTML = '<p class="qc-empty">No asset specified. Use ?name=&lt;asset-name&gt;</p>';
-    return;
-  }
-
-  await loadRecord(app, assetName);
+function sqlString(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-async function loadRecord(app, assetName, { replaceOnStart = true, throwOnFailure = false } = {}) {
+function modalityAbbreviation(metric) {
+  return typeof metric?.modality === 'object' ? metric.modality?.abbreviation : metric?.modality;
+}
+
+function latestMetricStatus(metric) {
+  const history = metric?.status_history;
+  return Array.isArray(history) && history.length ? history.at(-1)?.status : null;
+}
+
+function overlayLiveMetrics(rows, records) {
+  const recordsByName = new Map(records.map(record => [record.name, record]));
+  return rows.map(row => {
+    const record = recordsByName.get(row.asset_name);
+    const metrics = record?.quality_control?.metrics ?? [];
+    const metric = metrics.find(candidate => candidate?.name === row.name &&
+      (row.stage == null || candidate.stage === row.stage) &&
+      (row.modality == null || modalityAbbreviation(candidate) === row.modality));
+    if (!metric) return row;
+    const qualityControl = record.quality_control ?? {};
+    const value = metric.value !== null && typeof metric.value === 'object'
+      ? JSON.stringify(metric.value)
+      : metric.value;
+    return {
+      ...row,
+      value,
+      status: latestMetricStatus(metric),
+      tags: metric.tags == null ? null : JSON.stringify(metric.tags),
+      metric_json: JSON.stringify(metric),
+      default_grouping: qualityControl.default_grouping == null ? null : JSON.stringify(qualityControl.default_grouping),
+      asset_location: record.location ?? row.asset_location,
+    };
+  });
+}
+
+async function loadPage(coord, app, requestedName, {
+  replaceOnStart = true,
+  throwOnFailure = false,
+  preferLive = false,
+} = {}) {
   if (replaceOnStart) app.innerHTML = '<p class="qc-loading">Loading QC data…</p>';
 
   try {
-    const records = await queryDocDb({ name: assetName }, { limit: 1 });
-    if (!records.length) {
-      throw new Error(`Asset "${assetName}" not found in DocDB.`);
+    let sourceRows = [];
+    try {
+      await ensureTable(coord, 'source_data');
+      sourceRows = await queryRows(coord, 'SELECT name, source_data FROM source_data');
+    } catch (error) {
+      console.warn('[quality_control] source_data cache unavailable:', error);
     }
 
-    // Look up raw (source) asset S3 location so ephys GUI URLs can be fully resolved.
-    let rawS3Loc = '';
-    const sourceDataName = records[0]?.data_description?.source_data?.[0];
-    if (sourceDataName) {
-      try {
-        const rawRecords = await queryDocDb(
-          { name: sourceDataName },
-          { limit: 1, projection: { location: 1 } },
-        );
-        if (rawRecords.length) rawS3Loc = rawRecords[0].location ?? '';
-      } catch {
-        // Non-fatal: proceed without the raw asset location.
-      }
+    const rawAssetName = findRawAssetName(requestedName, sourceRows);
+    if (rawAssetName !== requestedName) {
+      const url = new URL(window.location.href);
+      url.searchParams.set('name', rawAssetName);
+      history.replaceState(history.state, '', url);
     }
 
-    const projectName = records[0]?.data_description?.project_name ?? '';
+    const records = await queryDocDb({ name: rawAssetName }, { limit: 1 });
+    if (!records.length) throw new Error(`Asset "${rawAssetName}" not found in DocDB.`);
+    const rawRecord = records[0];
+
+    let cachedRows = [];
+    try {
+      await ensureTable(coord, 'quality_control');
+      cachedRows = await queryRows(
+        coord,
+        `SELECT * FROM quality_control WHERE raw_asset_name = ${sqlString(rawAssetName)}`,
+      );
+    } catch (error) {
+      // The DocDB record remains a useful read-only fallback while a new cache
+      // version is propagating.
+      console.warn('[quality_control] quality_control cache unavailable:', error);
+    }
+
+    let chainRecords = buildCachedLineageRecords(cachedRows, rawRecord);
+    if (preferLive) {
+      const liveNames = assetNamesForQcRows(cachedRows).filter(name => name !== rawRecord.name);
+      const liveRecords = [rawRecord, ...(liveNames.length
+        ? await fetchDocDbRecordsByName(liveNames, { limit: 1 })
+        : [])];
+      cachedRows = overlayLiveMetrics(cachedRows, liveRecords);
+      chainRecords = buildCachedLineageRecords(cachedRows, rawRecord);
+    }
+
+    const projectName = rawRecord.data_description?.project_name ?? '';
     if (projectName) {
-      const u = new URL(window.location.href);
-      u.searchParams.set('project', projectName);
-      history.replaceState({}, '', u);
+      const url = new URL(window.location.href);
+      url.searchParams.set('project', projectName);
+      history.replaceState(history.state, '', url);
     }
 
-    const nextView = createQCView(records[0], rawS3Loc, {
-      onReload: () => loadRecord(app, assetName, { replaceOnStart: false, throwOnFailure: true }),
+    const nextView = createQCView(rawRecord, rawRecord.location ?? '', {
+      cachedRows,
+      chainRecords,
+      onReload: () => loadPage(coord, app, rawAssetName, {
+        replaceOnStart: false,
+        throwOnFailure: true,
+        preferLive: true,
+      }),
     });
     app.replaceChildren(nextView);
-  } catch (err) {
-    if (replaceOnStart) renderMessage(app, 'qc-error', `Failed to load: ${err?.message ?? err}`);
-    if (throwOnFailure) throw err;
+  } catch (error) {
+    if (replaceOnStart) renderMessage(app, 'qc-error', `Failed to load: ${error?.message ?? error}`);
+    if (throwOnFailure) throw error;
   }
 }
 
@@ -62,6 +122,18 @@ function renderMessage(container, className, message) {
   paragraph.className = className;
   paragraph.textContent = message;
   container.replaceChildren(paragraph);
+}
+
+async function init() {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const assetName = new URLSearchParams(window.location.search).get('name');
+  if (!assetName) {
+    app.innerHTML = '<p class="qc-empty">No asset specified. Use ?name=&lt;asset-name&gt;</p>';
+    return;
+  }
+
+  await bootstrap((coord) => loadPage(coord, app, assetName), { requiredTables: [] });
 }
 
 init();

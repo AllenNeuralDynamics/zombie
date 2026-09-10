@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   accountDisplayName,
   buildQcSubmitPayload,
+  buildQcSubmitPayloads,
   buildReviewRows,
   clearQcPendingChanges,
   QC_PENDING_CHANGES_STORAGE_PREFIX,
@@ -105,6 +106,23 @@ describe('QC SPA edit helpers', () => {
     });
     expect(payload.evaluator).toBeUndefined();
   });
+
+  it('fans one reviewed metric change out to each asset carrying its inherited version', () => {
+    const records = ['raw', 'processed', 'analysis'].map((name) => ({
+      _id: `id-${name}`,
+      name,
+      quality_control: { metrics: [metric('drift', 0.5)], notes: '' },
+    }));
+    const payloads = buildQcSubmitPayloads(records, {
+      expectedQcHashes: { raw: 'a', processed: 'b', analysis: 'c' },
+      pendingChanges: { drift: { value: 0.94, status: 'Pass' } },
+      affectedAssetsByMetric: { drift: ['raw', 'processed', 'analysis'] },
+      recordName: 'raw',
+    });
+    expect(payloads.map(payload => payload.record_id)).toEqual(['id-raw', 'id-processed', 'id-analysis']);
+    expect(payloads.every(payload => payload.changes[0].value === 0.94)).toBe(true);
+    expect(payloads.map(payload => payload.expected_qc_hash)).toEqual(['a', 'b', 'c']);
+  });
 });
 
 describe('review diff against the freshly-pulled record', () => {
@@ -165,5 +183,16 @@ describe('review diff against the freshly-pulled record', () => {
     const fresh = recordWith([metric('drift', 0.5)], 'same');
     const rows = buildReviewRows(fresh, loaded, { pendingChanges: { drift: { value: 1 } } });
     expect(rows.some(row => row.isNotes)).toBe(false);
+  });
+
+  it('marks rows that will update inherited downstream metrics', () => {
+    const loaded = recordWith([metric('drift', 0.5)]);
+    const fresh = recordWith([metric('drift', 0.5)]);
+    const [row] = buildReviewRows(fresh, loaded, {
+      pendingChanges: { drift: { value: 0.94 } },
+      affectedAssetsByMetric: { drift: ['asset-1', 'processed-1', 'analysis-1'] },
+    });
+    expect(row.affectedAssets).toEqual(['asset-1', 'processed-1', 'analysis-1']);
+    expect(row.affectsMultipleAssets).toBe(true);
   });
 });

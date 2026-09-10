@@ -9,7 +9,7 @@ export function parseQCRecord(record) {
   const s3Match = location.match(/^s3:\/\/([^/]+)\/(.+)$/);
   if (s3Match) {
     s3Bucket = s3Match[1];
-    s3Prefix = s3Match[2];
+    s3Prefix = s3Match[2].replace(/\/+$/, '');
   }
 
   const modalities = [...new Set(metrics.map(m => m.modality?.abbreviation).filter(Boolean))];
@@ -21,7 +21,8 @@ export function parseQCRecord(record) {
   const coIds = record.other_identifiers?.['Code Ocean'] ?? [];
   const codeOceanId = coIds[0] ?? '';
 
-  const rawAssetName = record.data_description?.source_data?.[0] ?? '';
+  const sourceData = record.data_description?.source_data ?? [];
+  const rawAssetName = (Array.isArray(sourceData) ? sourceData[0] : sourceData) ?? '';
 
   const notes = qc.notes ?? '';
 
@@ -44,10 +45,98 @@ function decodeJsonField(val) {
   return val;
 }
 
+function decodeCachedJsonField(val) {
+  if (typeof val !== 'string') return val;
+  const decoded = decodeJsonField(val);
+  if (decoded !== val) return decoded;
+  try { return JSON.parse(val); } catch { return val; }
+}
+
 function normalizeMetric(metric) {
   const tags = decodeJsonField(metric.tags ?? {});
   const value = decodeJsonField(metric.value);
   return { ...metric, tags: tags ?? {}, value };
+}
+
+/**
+ * Rehydrate one row from the lineage-aware cache into the metric shape used by
+ * the existing renderer.  Rendering metadata is kept as non-schema properties
+ * so the visible metric and editor contracts remain unchanged.
+ */
+export function parseCachedMetricRow(row) {
+  let metric = decodeCachedJsonField(row.metric_json);
+  if (!metric || typeof metric !== 'object' || Array.isArray(metric)) {
+    metric = {
+      name: row.name,
+      stage: row.stage,
+      modality: row.modality ? { abbreviation: row.modality, name: row.modality } : null,
+      value: decodeCachedJsonField(row.value),
+      status_history: row.status ? [{ status: row.status }] : [],
+      description: row.description,
+      reference: row.reference,
+      tags: decodeCachedJsonField(row.tags),
+      object_type: row.object_type,
+      type: row.type,
+      evaluated_assets: decodeCachedJsonField(row.evaluated_assets),
+    };
+  }
+  metric = normalizeMetric(metric);
+  if (!metric.status_history?.length && row.status) {
+    metric.status_history = [{ status: row.status }];
+  }
+  metric.assetName = row.asset_name ?? '';
+  metric.rawAssetName = row.raw_asset_name ?? '';
+  metric.assetLocation = row.asset_location ?? '';
+  metric.assetDataLevel = row.asset_data_level ?? '';
+  metric.downstreamAssetNames = Array.isArray(row.downstream_asset_names)
+    ? row.downstream_asset_names
+    : decodeCachedJsonField(row.downstream_asset_names) ?? [];
+  metric.metricKey = row.metric_key ?? '';
+  return metric;
+}
+
+/** Build a lightweight review baseline for lineage assets from cached rows. */
+export function buildCachedLineageRecords(rows, rawRecord) {
+  const records = new Map();
+  if (rawRecord?.name) records.set(rawRecord.name, rawRecord);
+  for (const row of rows) {
+    const metric = parseCachedMetricRow(row);
+    const { assetName, rawAssetName, assetLocation, assetDataLevel, downstreamAssetNames, metricKey, ...sourceMetric } = metric;
+    const names = [assetName, ...(downstreamAssetNames ?? [])].filter(Boolean);
+    for (const name of names) {
+      if (name === rawRecord?.name) continue;
+      if (!records.has(name)) {
+        records.set(name, {
+          _id: `cached-${name}`,
+          name,
+          _cachedSnapshot: true,
+          quality_control: { metrics: [], notes: '' },
+        });
+      }
+      const target = records.get(name);
+      const key = metricKey || `${sourceMetric.name}|${sourceMetric.stage}|${sourceMetric.modality?.abbreviation ?? ''}`;
+      if (!target.quality_control.metrics.some(candidate => candidate._qcCacheMetricKey === key)) {
+        sourceMetric._qcCacheMetricKey = key;
+        target.quality_control.metrics.push(sourceMetric);
+      }
+    }
+  }
+  return [...records.values()];
+}
+
+function stageBucket(stage) {
+  const value = String(stage ?? '').toLowerCase();
+  if (value.includes('raw') || value.includes('acquisition')) return 'raw';
+  if (value.includes('process')) return 'processing';
+  if (value.includes('analys')) return 'analysis';
+  return 'other';
+}
+
+/** Filter cached or DocDB metrics by the user-facing stage categories. */
+export function filterMetricsByStage(metrics, filter = 'all') {
+  if (!filter || filter === 'all') return metrics;
+  const normalizedFilter = filter === 'processed' ? 'processing' : filter;
+  return metrics.filter(metric => stageBucket(metric.stage) === normalizedFilter);
 }
 
 export function getMetricStatus(metric) {

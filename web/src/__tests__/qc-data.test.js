@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { parseQCRecord, getMetricStatus, resolveReference, buildTreeNodes, aggregateStatus } from '../qc/data.js';
+import {
+  parseQCRecord,
+  buildCachedLineageRecords,
+  getMetricStatus,
+  resolveReference,
+  buildTreeNodes,
+  aggregateStatus,
+  filterMetricsByStage,
+  parseCachedMetricRow,
+} from '../qc/data.js';
 
 const makeMetric = (overrides = {}) => ({
   name: 'test metric',
@@ -295,5 +304,53 @@ describe('buildTreeNodes', () => {
     ];
     const nodes = buildTreeNodes(metrics, ['stage']);
     expect(nodes[0].value).toBe('Curated');
+  });
+});
+
+describe('cached QC metrics', () => {
+  it('reconstructs the full metric and its hidden lineage metadata from a cache row', () => {
+    const metric = parseCachedMetricRow({
+      metric_json: JSON.stringify({
+        object_type: 'QC metric',
+        name: 'metric',
+        value: { type: 'dropdown', value: 'good', options: ['good'], status: ['Pass'] },
+        status_history: [{ status: 'Pass' }],
+      }),
+      asset_name: 'derived',
+      asset_location: 's3://bucket/derived',
+      downstream_asset_names: '["latest"]',
+    });
+    expect(metric.name).toBe('metric');
+    expect(metric.value.type).toBe('dropdown');
+    expect(metric.assetName).toBe('derived');
+    expect(metric.assetLocation).toBe('s3://bucket/derived');
+    expect(metric.downstreamAssetNames).toEqual(['latest']);
+  });
+
+  it('filters raw, processing, and analysis metrics while retaining all by default', () => {
+    const metrics = [
+      makeMetric({ name: 'raw', stage: 'Raw data' }),
+      makeMetric({ name: 'processing', stage: 'Processing' }),
+      makeMetric({ name: 'analysis', stage: 'Analysis' }),
+    ];
+    expect(filterMetricsByStage(metrics, 'raw').map(metric => metric.name)).toEqual(['raw']);
+    expect(filterMetricsByStage(metrics, 'processing').map(metric => metric.name)).toEqual(['processing']);
+    expect(filterMetricsByStage(metrics, 'analysis').map(metric => metric.name)).toEqual(['analysis']);
+    expect(filterMetricsByStage(metrics, 'all')).toEqual(metrics);
+  });
+
+  it('builds a lightweight review baseline for each metric origin and downstream asset', () => {
+    const records = buildCachedLineageRecords([
+      {
+        name: 'drift',
+        asset_name: 'raw',
+        downstream_asset_names: ['processed'],
+        metric_key: 'drift-key',
+        metric_json: JSON.stringify({ name: 'drift', value: 0.5, status_history: [{ status: 'Pass' }] }),
+      },
+    ], { name: 'raw', _id: 'raw-id', quality_control: { metrics: [], notes: 'notes' } });
+    expect(records.map(record => record.name)).toEqual(['raw', 'processed']);
+    expect(records.find(record => record.name === 'processed').quality_control.metrics[0].value).toBe(0.5);
+    expect(records.find(record => record.name === 'processed')._cachedSnapshot).toBe(true);
   });
 });

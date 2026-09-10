@@ -50,6 +50,49 @@ describe('QC header actions', () => {
       'https://codeocean.allenneuraldynamics.org/data_assets/co-123',
     ]);
   });
+
+  it('filters the chain by raw, processed, and analysis stages', () => {
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        metrics: [
+          { name: 'raw metric', stage: 'Raw data', status_history: [{ status: 'Pass' }] },
+          { name: 'processed metric', stage: 'Processing', status_history: [{ status: 'Pass' }] },
+          { name: 'analysis metric', stage: 'Analysis', status_history: [{ status: 'Pass' }] },
+        ],
+      },
+    });
+    const filter = view.querySelector('.qc-stage-filter');
+    filter.value = 'processed';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    expect([...view.querySelectorAll('.qc-content .metric-name')].map(node => node.textContent)).toEqual(['processed metric']);
+    filter.value = 'raw';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    expect([...view.querySelectorAll('.qc-content .metric-name')].map(node => node.textContent)).toEqual(['raw metric']);
+  });
+
+  it('renders lineage metrics from the cache while keeping the raw record for editing', () => {
+    const view = createQCView({
+      _id: 'raw-id',
+      name: 'raw',
+      quality_control: { metrics: [{ name: 'raw-only', status_history: [{ status: 'Pass' }] }] },
+    }, '', {
+      cachedRows: [{
+        name: 'processed-only',
+        stage: 'Processing',
+        modality: 'behavior',
+        value: 'new',
+        status: 'Pass',
+        asset_name: 'processed',
+        raw_asset_name: 'raw',
+        downstream_asset_names: [],
+        metric_json: JSON.stringify({ name: 'processed-only', stage: 'Processing', value: 'new', status_history: [{ status: 'Pass' }] }),
+        default_grouping: JSON.stringify([]),
+      }],
+    });
+    expect([...view.querySelectorAll('.qc-content .metric-name')].map(node => node.textContent)).toEqual(['processed-only']);
+    expect(mountQcEditor.mock.calls.at(-1)[2].displayMetrics[0].name).toBe('processed-only');
+  });
 });
 
 describe('QC status updates', () => {

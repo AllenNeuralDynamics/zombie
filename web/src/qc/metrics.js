@@ -10,6 +10,17 @@ import { renderMedia } from './media.js';
 
 const EDIT_TOOLTIP = 'Use edit mode to make changes';
 
+function metricMedia(metric, defaults = {}) {
+  const location = metric.assetLocation ?? '';
+  const match = location.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  return {
+    ...defaults,
+    assetName: metric.assetName || defaults.assetName,
+    s3Bucket: match ? match[1] : defaults.s3Bucket,
+    s3Prefix: match ? match[2].replace(/\/+$/, '') : defaults.s3Prefix,
+  };
+}
+
 /**
  * Read-only rendering of the custom metric value widgets (DropdownMetric / CheckboxMetric)
  * that the Panel app shows as interactive Select / MultiChoice controls.
@@ -494,7 +505,8 @@ function buildMetricCard(metric, edit = {}, media = {}) {
   return card;
 }
 
-function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc) {
+function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc, metric = null) {
+  const media = metricMedia(metric ?? {}, { s3Bucket, s3Prefix, assetName, rawS3Loc });
   const cell = document.createElement('td');
   cell.className = 'qc-reference-cell';
   if (!reference) {
@@ -503,11 +515,11 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
   }
   const link = document.createElement('a');
   link.className = 'qc-reference-link';
-  link.href = resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc);
+  link.href = resolveReferenceUrl(reference, media.s3Bucket, media.s3Prefix, media.rawS3Loc);
   link.textContent = reference.split('/').pop() || reference;
   link.addEventListener('click', (event) => {
     event.preventDefault();
-    openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
+    openReferenceDialog(reference, media.s3Bucket, media.s3Prefix, media.assetName, media.rawS3Loc);
   });
   const anchor = document.createElement('span');
   anchor.className = 'qc-reference-anchor';
@@ -523,7 +535,7 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
       preview.hidden = false;
       return;
     }
-    preview.appendChild(renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
+    preview.appendChild(renderMedia(reference, media.s3Bucket, media.s3Prefix, media.assetName, media.rawS3Loc));
     preview.hidden = false;
   });
   anchor.addEventListener('mouseleave', () => { preview.hidden = true; });
@@ -623,10 +635,11 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
       const statusShade = statusShadeClass(status);
       row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
       row.dataset.qcStatusMetric = metric.name ?? '';
-      row.appendChild(renderReferenceLink(metric.reference ?? '', s3Bucket, s3Prefix, assetName, rawS3Loc));
+      const context = metricMedia(metric, { s3Bucket, s3Prefix, assetName, rawS3Loc });
+      row.appendChild(renderReferenceLink(metric.reference ?? '', context.s3Bucket, context.s3Prefix, context.assetName, context.rawS3Loc, metric));
       row.insertCell().textContent = metric.name ?? '';
       const valueCell = row.insertCell();
-      valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
+      valueCell.appendChild(renderTableMetricValue(metric, edit, context));
       const statusCell = row.insertCell();
       statusCell.appendChild(renderTableMetricStatus(metric, edit));
     }
@@ -677,14 +690,21 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
       // without one they fill the width as a responsive grid instead of a single stack.
       leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
       for (const m of groupMetrics) {
-        leftCol.appendChild(buildMetricCard(m, currentEdit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
+        leftCol.appendChild(buildMetricCard(m, currentEdit, metricMedia(m, { s3Bucket, s3Prefix, assetName, rawS3Loc })));
       }
 
       body.appendChild(leftCol);
 
       if (ref) {
-        const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
-        body.appendChild(media);
+        const contexts = [];
+        for (const metric of groupMetrics) {
+          const context = metricMedia(metric, { s3Bucket, s3Prefix, assetName, rawS3Loc });
+          const key = `${context.s3Bucket}/${context.s3Prefix}/${context.assetName}`;
+          if (!contexts.some(candidate => candidate.key === key)) contexts.push({ key, context });
+        }
+        for (const { context } of contexts) {
+          body.appendChild(renderMedia(ref, context.s3Bucket, context.s3Prefix, context.assetName, context.rawS3Loc));
+        }
       }
     };
 

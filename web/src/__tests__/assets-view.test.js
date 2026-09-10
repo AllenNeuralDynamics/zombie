@@ -197,6 +197,12 @@ describe('renderAssetRow', () => {
     expect(html).toContain('codeocean.allenneuraldynamics.org');
   });
 
+  it('uses the source raw asset for the QC link when search provides one', () => {
+    const html = renderAssetRow({ ...row, qc_asset_name: 'raw-session' }, visibleColumns);
+    expect(html).toContain('/quality_control?name=raw-session');
+    expect(html).not.toContain('/quality_control?name=ecephys_12345_2024-01-01');
+  });
+
   it('renders fallback "—" when code_ocean is missing', () => {
     const html = renderAssetRow({ ...row, code_ocean: null }, visibleColumns);
     expect(html).toContain('no-link');

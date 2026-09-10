@@ -1,4 +1,4 @@
-import { parseQCRecord, buildTreeNodes } from './data.js';
+import { parseQCRecord, parseCachedMetricRow, filterMetricsByStage, buildTreeNodes } from './data.js';
 import {
   createTree,
   encodeTreeNodePath,
@@ -27,6 +27,17 @@ function readOpenAccordionParam(params) {
     }
   }
   return new Set(values);
+}
+
+function cachedGrouping(rows, fallback) {
+  for (const row of rows) {
+    let grouping = row.default_grouping;
+    if (typeof grouping === 'string') {
+      try { grouping = JSON.parse(grouping); } catch { continue; }
+    }
+    if (Array.isArray(grouping)) return grouping;
+  }
+  return fallback;
 }
 
 export function readQcNavigationState(treeNodes, href = window.location.href) {
@@ -85,24 +96,42 @@ export function syncQcStatusShading(container, statusDrafts = {}) {
   }
 }
 
-export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
+export function createQCView(record, rawS3Loc = '', {
+  onReload = null,
+  cachedRows = [],
+  chainRecords = [],
+} = {}) {
   const parsed = parseQCRecord(record);
-  const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
+  const cachedMetrics = cachedRows.map(parseCachedMetricRow).filter(metric => metric.name);
+  const metrics = cachedMetrics.length ? cachedMetrics : parsed.metrics;
+  const { name, s3Bucket, s3Prefix, projectName, codeOceanId, notes } = parsed;
+  const defaultGrouping = cachedGrouping(cachedRows, parsed.defaultGrouping);
+  const modalities = [...new Set(metrics.map(metric => metric.modality?.abbreviation).filter(Boolean))];
+  const stages = [...new Set(metrics.map(metric => metric.stage).filter(Boolean))];
+  const affectedAssetsByMetric = Object.fromEntries(metrics.map(metric => [
+    metric.name,
+    [...new Set([metric.assetName || name, ...(metric.downstreamAssetNames ?? [])])],
+  ]));
 
   const root = document.createElement('div');
   let viewMode = readQcViewMode();
+  let stageFilter = 'all';
   let editState = { enabled: false, draftRevision: 0 };
-  const treeNodes = buildTreeNodes(metrics, defaultGrouping);
-  const initialNavigation = readQcNavigationState(treeNodes);
-  let activeNode = initialNavigation.activeNode ?? treeNodes[0] ?? null;
-  let openAccordionReferences = initialNavigation.openReferences;
 
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages, {
     viewMode,
+    stageFilter,
     onViewModeChange: (nextViewMode) => {
       if (nextViewMode === viewMode) return;
       viewMode = nextViewMode;
       writeQcViewMode(viewMode);
+      renderBody();
+    },
+    onStageFilterChange: (nextFilter) => {
+      if (nextFilter === stageFilter) return;
+      stageFilter = nextFilter;
+      activeNode = null;
+      openAccordionReferences = null;
       renderBody();
     },
   });
@@ -128,6 +157,11 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   body.className = 'qc-container';
   root.appendChild(body);
   let treeElement = null;
+  let treeNodes = [];
+  let activeNode = null;
+  let openAccordionReferences = null;
+
+  const filteredMetrics = () => filterMetricsByStage(metrics, stageFilter);
 
   const syncEditErrors = () => {
     for (const wrapper of body.querySelectorAll('[data-qc-metric]')) {
@@ -154,6 +188,11 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   };
 
   const renderBody = () => {
+    const visibleMetrics = filteredMetrics();
+    treeNodes = buildTreeNodes(visibleMetrics, defaultGrouping);
+    const initialNavigation = readQcNavigationState(treeNodes);
+    activeNode = initialNavigation.activeNode ?? treeNodes[0] ?? null;
+    if (openAccordionReferences === null) openAccordionReferences = initialNavigation.openReferences;
     const renderedAccordionReferences = readRenderedAccordionReferences();
     if (renderedAccordionReferences !== null) openAccordionReferences = renderedAccordionReferences;
     body.replaceChildren();
@@ -161,12 +200,12 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       body.classList.add('qc-container-table');
       const content = document.createElement('div');
       content.className = 'qc-table-content';
-      if (metrics.length) {
-        content.appendChild(renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes));
+      if (visibleMetrics.length) {
+        content.appendChild(renderMetricsTable(visibleMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes));
       } else {
         const empty = document.createElement('p');
         empty.className = 'qc-empty';
-        empty.textContent = 'No QC data available for this asset.';
+        empty.textContent = 'No QC data available for this stage filter.';
         content.appendChild(empty);
       }
       body.appendChild(content);
@@ -178,11 +217,11 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     contentArea.className = 'qc-content';
 
     const renderSelectedMetrics = (node) => {
-      const selectedMetrics = node?.metrics ?? metrics;
+      const selectedMetrics = node?.metrics ?? visibleMetrics;
       if (!selectedMetrics.length) {
         const empty = document.createElement('p');
         empty.className = 'qc-empty';
-        empty.textContent = 'No QC data available for this asset.';
+        empty.textContent = 'No QC data available for this stage filter.';
         return empty;
       }
       return renderMetrics(selectedMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, {
@@ -212,6 +251,9 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
   renderBody();
   mountQcEditor(editor, record, {
+    displayMetrics: cachedMetrics.length ? cachedMetrics : null,
+    affectedAssetsByMetric,
+    chainRecords,
     onReload,
     onEditStateChange: (nextState) => {
       const layoutChanged = nextState.enabled !== editState.enabled ||
@@ -231,7 +273,9 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
 export function buildHeader(name, _projectName, codeOceanId, modalities, stages, {
   viewMode = 'tree',
+  stageFilter = 'all',
   onViewModeChange = null,
+  onStageFilterChange = null,
 } = {}) {
   const header = document.createElement('div');
   header.className = 'qc-header';
@@ -266,6 +310,24 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
     viewToggle.appendChild(button);
   }
   actions.appendChild(viewToggle);
+
+  const stageSelect = document.createElement('select');
+  stageSelect.className = 'qc-stage-filter';
+  stageSelect.setAttribute('aria-label', 'Stage filter');
+  for (const [value, label] of [
+    ['all', 'All stages'],
+    ['raw', 'Raw'],
+    ['processed', 'Processed'],
+    ['analysis', 'Analysis'],
+  ]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    option.selected = value === stageFilter;
+    stageSelect.appendChild(option);
+  }
+  stageSelect.addEventListener('change', () => onStageFilterChange?.(stageSelect.value));
+  actions.appendChild(stageSelect);
 
   const editBtn = document.createElement('button');
   editBtn.className = 'qc-edit-btn';
