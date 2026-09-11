@@ -1,0 +1,70 @@
+/* ---------------------------------------------------------------------------
+ * Record-consistency checks — experimental dev dashboard
+ * ------------------------------------------------------------------------ */
+
+.record-consistency-view {
+  padding: 20px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.record-consistency-intro,
+.record-consistency-summary,
+.record-consistency-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.record-consistency-intro {
+  margin: 0 0 14px;
+}
+
+.record-consistency-summary {
+  margin: 0 0 12px;
+}
+
+.record-consistency-table-wrap {
+  overflow-x: auto;
+}
+
+.record-consistency-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  background: var(--surface-bg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.record-consistency-table thead {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--surface-border);
+}
+
+.record-consistency-table th,
+.record-consistency-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.record-consistency-table th {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.record-consistency-table tbody tr:nth-child(even) {
+  background: var(--surface-card);
+}
+
+.record-consistency-table code {
+  overflow-wrap: anywhere;
+}
+
+.record-consistency-table a {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
