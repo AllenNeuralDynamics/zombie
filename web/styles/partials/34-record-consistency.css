@@ -132,6 +132,36 @@
   overflow-x: auto;
 }
 
+.record-consistency-table-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.record-consistency-filter-count {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.record-consistency-export-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.record-consistency-export-btn:hover,
+.record-consistency-export-btn:focus-visible {
+  background: var(--surface-hover);
+}
+
 .record-consistency-table {
   width: 100%;
   min-width: 980px;
@@ -159,6 +189,24 @@
 .record-consistency-table th {
   white-space: nowrap;
   font-weight: 600;
+}
+
+.record-consistency-table th .col-label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.record-consistency-table .col-filter {
+  width: 100%;
+  min-width: 90px;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 400;
 }
 
 .record-consistency-table tbody tr:nth-child(even) {

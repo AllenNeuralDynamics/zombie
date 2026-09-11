@@ -6,6 +6,7 @@ import {
   buildManifestUrl,
   countChecks,
   createRecordConsistencyView,
+  findingCsvRows,
   renderFindingRow,
 } from '../record-consistency/view.js';
 
@@ -18,8 +19,14 @@ vi.mock('../lib/arrow.js', () => ({
   queryRows: vi.fn(),
 }));
 
+vi.mock('../lib/utils.js', async (importOriginal) => ({
+  ...await importOriginal(),
+  downloadCsv: vi.fn(),
+}));
+
 import { queryRows } from '../lib/arrow.js';
 import { ensureTable, getAcorn } from '../lib/registry.js';
+import { downloadCsv } from '../lib/utils.js';
 
 const CHECK_DESCRIPTION = 'Fails each record in DocDB v2 whose exact "name" key is identical to another v2 record.';
 const IMPLEMENTATION_URL = 'https://github.com/AllenNeuralDynamics/biodata-cache/blob/5b10df0/'
@@ -123,11 +130,25 @@ describe('record-consistency view helpers', () => {
     expect(html).toContain('<code>docdb_duplicate_name_v2</code>');
     expect(html).not.toContain(IMPLEMENTATION_URL);
   });
+
+  it('exports raw finding values in display-column order', () => {
+    expect(findingCsvRows([ROWS[0]])).toEqual([[
+      'asset-one',
+      'docdb_duplicate_name_v2',
+      'fail',
+      'v2',
+      'id-001',
+      's3://aind-data/asset-one/',
+      'run-001',
+      '2026-09-11T18:26:32Z',
+    ]]);
+  });
 });
 
 describe('createRecordConsistencyView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    history.replaceState(null, '', '/record-consistency');
     ensureTable.mockResolvedValue('record_consistency_checks');
     getAcorn.mockReturnValue({
       location: 's3://allen-data-views/cache/record_consistency_checks.pqt',
@@ -162,7 +183,8 @@ describe('createRecordConsistencyView', () => {
     expect(checkCards[1].querySelector('.record-consistency-implementation a')?.getAttribute('href'))
       .toBe(V1_IMPLEMENTATION_URL);
     expect(root.querySelectorAll('tbody tr')).toHaveLength(3);
-    expect([...root.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual([
+    expect(root.querySelectorAll('.col-filter')).toHaveLength(8);
+    expect([...root.querySelectorAll('th')].map((cell) => cell.querySelector('.col-label').textContent)).toEqual([
       'Name',
       'Check',
       'Status',
@@ -172,6 +194,38 @@ describe('createRecordConsistencyView', () => {
       'Run ID',
       'Checked at',
     ]);
+  });
+
+  it('filters columns and exports every filtered raw row', async () => {
+    const root = createRecordConsistencyView({ query: vi.fn() });
+    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
+
+    const versionFilter = root.querySelector('.col-filter[data-col="docdb_version"]');
+    versionFilter.value = 'v1';
+    versionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
+    expect(root.querySelector('.record-consistency-filter-count')?.textContent).toBe('Showing 1 of 3 findings');
+    expect(window.location.search).toContain('f_docdb_version=v1');
+
+    root.querySelector('.record-consistency-export-btn').click();
+    expect(downloadCsv).toHaveBeenCalledWith(
+      'record-consistency-findings.csv',
+      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
+      findingCsvRows([ROWS[2]]),
+    );
+  });
+
+  it('exports all loaded findings when filters are empty', async () => {
+    const root = createRecordConsistencyView({ query: vi.fn() });
+    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
+
+    root.querySelector('.record-consistency-export-btn').click();
+    expect(downloadCsv).toHaveBeenCalledWith(
+      'record-consistency-findings.csv',
+      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
+      findingCsvRows(ROWS),
+    );
   });
 
   it('renders findings when the optional manifest is unavailable', async () => {

@@ -1,10 +1,42 @@
 import { queryRows } from '../lib/arrow.js';
 import { quoteIdentifier, s3PathToHttps } from '../lib/metadata.js';
+import { buildFilterInput } from '../lib/paginated-table.js';
 import { ensureTable, getAcorn } from '../lib/registry.js';
-import { escHtml } from '../lib/utils.js';
+import { downloadCsv, escHtml, filterRows } from '../lib/utils.js';
 import { buildMetadataLink, buildS3ConsoleUrl } from '../assets/links.js';
 
 export const RECORD_CONSISTENCY_TABLE = 'record_consistency_checks';
+
+const FINDING_COLUMNS = [
+  'name',
+  'check_key',
+  'status',
+  'docdb_version',
+  'docdb_id',
+  'location',
+  'run_id',
+  'checked_at',
+];
+const FINDING_COLUMN_LABELS = {
+  name: 'Name',
+  check_key: 'Check',
+  status: 'Status',
+  docdb_version: 'DocDB version',
+  docdb_id: 'DocDB ID',
+  location: 's3_location',
+  run_id: 'Run ID',
+  checked_at: 'Checked at',
+};
+const FINDING_FILTER_TYPES = {
+  name: 'text',
+  check_key: 'select',
+  status: 'select',
+  docdb_version: 'select',
+  docdb_id: 'text',
+  location: 'text',
+  run_id: 'text',
+  checked_at: 'text',
+};
 
 /**
  * Build the query used by the dev-only flagged-records page.
@@ -222,25 +254,93 @@ export function renderFindingRow(row) {
   </tr>`;
 }
 
-function buildTable(rows) {
+function readFindingFilters() {
+  const params = new URLSearchParams(window.location.search);
+  return Object.fromEntries(
+    FINDING_COLUMNS.map((column) => [column, params.get(`f_${column}`) ?? '']),
+  );
+}
+
+function writeFindingFilters(filters) {
+  const params = new URLSearchParams(window.location.search);
+  for (const column of FINDING_COLUMNS) {
+    const key = `f_${column}`;
+    if (filters[column]) params.set(key, filters[column]);
+    else params.delete(key);
+  }
+  const query = params.toString();
+  history.replaceState(null, '', query ? `?${query}` : window.location.pathname);
+}
+
+/**
+ * Convert finding rows to raw CSV values in display-column order.
+ *
+ * @param {object[]} rows
+ * @returns {Array<string[]>}
+ */
+export function findingCsvRows(rows) {
+  return rows.map((row) => FINDING_COLUMNS.map((column) => String(row[column] ?? '')));
+}
+
+function buildTableArea(rows) {
+  const filters = readFindingFilters();
+  const area = document.createElement('div');
+  area.className = 'record-consistency-table-area';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'record-consistency-table-toolbar';
+  const count = document.createElement('span');
+  count.className = 'record-consistency-filter-count';
+  const exportButton = document.createElement('button');
+  exportButton.className = 'record-consistency-export-btn';
+  exportButton.type = 'button';
+  exportButton.textContent = 'Export CSV';
+  toolbar.append(count, exportButton);
+  area.appendChild(toolbar);
+
+  const tableWrap = document.createElement('div');
+  tableWrap.className = 'record-consistency-table-wrap';
   const table = document.createElement('table');
   table.className = 'record-consistency-table';
+  const headerCells = FINDING_COLUMNS.map((column) => `
+    <th>
+      <span class="col-label">${escHtml(FINDING_COLUMN_LABELS[column])}</span>
+      ${buildFilterInput(column, filters[column], rows, FINDING_FILTER_TYPES[column])}
+    </th>
+  `).join('');
   table.innerHTML = `
-    <thead>
-      <tr>
-        <th>Name</th>
-        <th>Check</th>
-        <th>Status</th>
-        <th>DocDB version</th>
-        <th>DocDB ID</th>
-        <th>s3_location</th>
-        <th>Run ID</th>
-        <th>Checked at</th>
-      </tr>
-    </thead>
-    <tbody>${rows.map((row) => renderFindingRow(row)).join('')}</tbody>
+    <thead><tr>${headerCells}</tr></thead>
+    <tbody></tbody>
   `;
-  return table;
+  tableWrap.appendChild(table);
+  area.appendChild(tableWrap);
+
+  const visibleRows = () => filterRows(rows, filters);
+  const refresh = () => {
+    const filtered = visibleRows();
+    table.querySelector('tbody').innerHTML = filtered.map((row) => renderFindingRow(row)).join('');
+    count.textContent = `Showing ${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} findings`;
+    writeFindingFilters(filters);
+  };
+
+  const updateFilter = (event) => {
+    const input = event.target.closest('.col-filter');
+    if (!input) return;
+    filters[input.dataset.col] = input.value;
+    refresh();
+  };
+  table.querySelector('thead').addEventListener('input', updateFilter);
+  table.querySelector('thead').addEventListener('change', updateFilter);
+  exportButton.addEventListener('click', () => {
+    downloadCsv(
+      'record-consistency-findings.csv',
+      FINDING_COLUMNS.map((column) => FINDING_COLUMN_LABELS[column]),
+      findingCsvRows(visibleRows()),
+    );
+  });
+
+  refresh();
+  return area;
 }
 
 /**
@@ -292,10 +392,7 @@ export function createRecordConsistencyView(coord) {
         return;
       }
 
-      const tableWrap = document.createElement('div');
-      tableWrap.className = 'record-consistency-table-wrap';
-      tableWrap.appendChild(buildTable(rows));
-      container.appendChild(tableWrap);
+      container.appendChild(buildTableArea(rows));
     })
     .catch((err) => {
       console.error('[Record-consistency checks] Failed to load:', err);
