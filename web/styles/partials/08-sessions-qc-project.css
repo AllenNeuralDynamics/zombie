@@ -371,6 +371,9 @@
 .qc-tree ul { list-style: none; padding-left: 16px; margin: 0; }
 .qc-tree > ul { padding-left: 0; }
 .qc-tree li { cursor: pointer; }
+.qc-tree .tree-stage-section { margin-top: 8px; }
+.qc-tree .tree-stage-section:first-child { margin-top: 0; }
+.qc-tree .tree-stage-node { font-weight: 600; border-bottom: 1px solid var(--surface-border); }
 .qc-tree .tree-node { display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: var(--radius); }
 .qc-tree .tree-node:hover { background: var(--surface-card); }
 .qc-tree .tree-node.selected { background: var(--surface-card); outline: 1px solid var(--accent-2); }

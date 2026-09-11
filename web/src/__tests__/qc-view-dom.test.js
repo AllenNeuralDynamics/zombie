@@ -71,6 +71,37 @@ describe('QC header actions', () => {
     expect([...view.querySelectorAll('.qc-content .metric-name')].map(node => node.textContent)).toEqual(['raw metric']);
   });
 
+  it('shows stage sections in tree and table views while respecting the filter', () => {
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        metrics: [
+          { name: 'raw metric', stage: 'Raw data', tags: { type: 'raw' }, status_history: [{ status: 'Pass' }] },
+          { name: 'processed metric', stage: 'Processing', tags: { type: 'processed' }, status_history: [{ status: 'Pass' }] },
+          { name: 'analysis metric', stage: 'Analysis', tags: { type: 'analysis' }, status_history: [{ status: 'Pass' }] },
+        ],
+        default_grouping: ['type'],
+      },
+    });
+
+    expect([...view.querySelectorAll('.qc-tree > ul > li .tree-stage-node')]
+      .map(node => node.querySelector(':scope > span:last-child').textContent)).toEqual([
+        'Raw (1)', 'Processed (1)', 'Analysis (1)',
+      ]);
+
+    view.querySelector('.qc-view-toggle button:nth-child(2)').click();
+    expect([...view.querySelectorAll('.qc-metrics-table-stage')].map(row => row.textContent)).toEqual([
+      'Raw (1)', 'Processed (1)', 'Analysis (1)',
+    ]);
+
+    const filter = view.querySelector('.qc-stage-filter');
+    filter.value = 'processed';
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(view.querySelectorAll('.qc-metrics-table-stage')).toHaveLength(0);
+    expect(view.querySelectorAll('.qc-metrics-table-row')).toHaveLength(1);
+    expect(view.querySelector('.qc-metrics-table-row').textContent).toContain('processed metric');
+  });
+
   it('renders lineage metrics from the cache while keeping the raw record for editing', () => {
     const view = createQCView({
       _id: 'raw-id',

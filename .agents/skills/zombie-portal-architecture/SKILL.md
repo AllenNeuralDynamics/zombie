@@ -9,6 +9,6 @@ Zombie is a multi-page Vite application: every page has its own HTML entry and E
 
 Use `web/src/lib/bootstrap.js` for normal pages. It loads metadata and DuckDB-WASM in parallel, registers eager tables, mounts the view, and distinguishes required-table failures from optional-table warnings. Set `requiredTables: []` only for pages such as SWDB that explicitly read their own parquet partitions. Do not bypass the registry to invent table schemas: resolve the current distributed registry through `web/src/lib/metadata.js`.
 
-Use `ensureTable()` from `web/src/lib/registry.js` for lazy tables and `queryRows()`/`arrowTableToRows()` from `web/src/lib/arrow.js` for DuckDB results. Use the existing S3 URL helpers in `metadata.js`; do not construct cache URLs ad hoc. For live DuckDB cross-filtering use `@uwdata/vgplot`; for static arrays use `@observablehq/plot`, never hand-built SVG charts.
+Use `ensureTable()` from `web/src/lib/registry.js` for lazy tables and `queryRows()`/`arrowTableToRows()` from `web/src/lib/arrow.js` for DuckDB results. Use the existing S3 URL helpers in `metadata.js`; do not construct cache URLs ad hoc. Use `@observablehq/plot` for charts, never hand-built SVG; `@uwdata/vgplot` is used only for the DuckDB-WASM engine.
 
 The dev workflow is `cd web && npm start` when proxy features are needed, or `npm run dev` for Vite alone. Page tests live under `web/src/__tests__`; pure tests use Vitest's default node environment and DOM tests opt into `happy-dom` with `@vitest-environment happy-dom`. Mock coordinator queries instead of starting DuckDB.

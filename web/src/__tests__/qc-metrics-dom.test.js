@@ -215,6 +215,21 @@ describe('table view', () => {
     expect(table.querySelector('.qc-reference-link').textContent).toBe('drift.png');
   });
 
+  it('renders stage section rows when the hierarchy contains multiple stages', () => {
+    const metrics = [
+      baseMetric({ name: 'raw', stage: 'Raw data', tags: { type: 'raw' } }),
+      baseMetric({ name: 'processed', stage: 'Processing', tags: { type: 'processed' } }),
+    ];
+    const treeNodes = buildTreeNodes(metrics, ['type']);
+    const table = renderMetricsTable(metrics, 'aind-open-data', 'prefix', 'asset', '', {}, treeNodes);
+
+    expect([...table.querySelectorAll('.qc-metrics-table-stage')].map(row => row.textContent)).toEqual([
+      'Raw (1)',
+      'Processed (1)',
+    ]);
+    expect(table.querySelectorAll('.qc-metrics-table-row')).toHaveLength(2);
+  });
+
   it('shades failing and pending metric rows', () => {
     const table = renderMetricsTable([
       baseMetric({ name: 'fail', status_history: [{ status: 'Fail' }] }),
@@ -336,6 +351,43 @@ describe('media rendering', () => {
     expect(el.classList.contains('qc-swipe')).toBe(true);
     expect(el.querySelector('.qc-swipe-slider')).toBeTruthy();
     expect(el.querySelectorAll('img').length).toBe(2);
+  });
+
+  it('passes Neuroglancer state URLs directly to an iframe even when they contain s3 sources', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const ref = 'https://neuroglancer-demo.appspot.com/#!{"layers":[{"source":"precomputed://s3://bucket/path"}]}';
+      const el = renderMedia(ref, 'private-bucket', 'prefix', 'asset');
+      const iframeUrl = new URL(el.querySelector('iframe').src);
+      expect(iframeUrl.origin).toBe('https://neuroglancer-demo.appspot.com');
+      expect(iframeUrl.hash).toContain('s3://bucket/path');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([
+    'https://sortingview.vercel.app/figurl?v=1',
+    'https://figurl.org/f?v=1',
+  ])('embeds %s as an iframe without presigning', (reference) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const el = renderMedia(reference, 'private-bucket', 'prefix', 'asset');
+      expect(el.querySelector('iframe').src).toBe(reference);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('embeds percent-encoded Ephys GUI references directly', () => {
+    const ref = 'https%3A//ephys.allenneuraldynamics.org/app%3Fraw%3D%7Braw_asset_location%7D';
+    const el = renderMedia(ref, 'private-bucket', 'prefix', 'asset', 's3://raw-bucket/raw-prefix');
+    expect(el.querySelector('iframe').src)
+      .toBe('https://ephys.allenneuraldynamics.org/app?raw=s3://raw-bucket/raw-prefix');
   });
 
   it('falls back to side-by-side for non-image comparisons', () => {

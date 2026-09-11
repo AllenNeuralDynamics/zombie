@@ -12,9 +12,11 @@ function containsNode(node, target) {
 
 function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows) {
   const li = document.createElement('li');
+  if (node.kind === 'stage') li.className = 'tree-stage-section';
 
   const nodeRow = document.createElement('div');
   nodeRow.className = 'tree-node';
+  if (node.kind === 'stage') nodeRow.classList.add('tree-stage-node');
   if (node === selectedNode) {
     nodeRow.classList.add('selected');
     nodeRow.setAttribute('aria-current', 'true');

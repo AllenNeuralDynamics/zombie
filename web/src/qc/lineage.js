@@ -1,6 +1,6 @@
 /** Utilities for resolving derived assets to their raw source assets. */
 
-function sourceNames(value) {
+export function sourceAssetNames(value) {
   if (Array.isArray(value)) return value.filter(Boolean).map(String);
   if (typeof value === 'string') return value.split(',').map(item => item.trim()).filter(Boolean);
   return value ? [String(value)] : [];
@@ -15,7 +15,7 @@ function downstreamNames(value) {
     } catch {
       // Fall back to the legacy comma-separated representation.
     }
-    return sourceNames(value);
+    return sourceAssetNames(value);
   }
   return [];
 }
@@ -24,7 +24,7 @@ function buildParents(sourceRows = []) {
   const parents = new Map();
   for (const row of sourceRows) {
     if (!row?.name) continue;
-    const values = sourceNames(row.source_data);
+    const values = sourceAssetNames(row.source_data);
     if (!parents.has(row.name)) parents.set(row.name, []);
     for (const value of values) {
       if (!parents.get(row.name).includes(value)) parents.get(row.name).push(value);
@@ -64,4 +64,12 @@ export function assetNamesForQcRows(rows = []) {
     }
   }
   return names;
+}
+
+/** Build a narrowly scoped query for the source rows of the given assets. */
+export function buildSourceDataQuery(assetNames = []) {
+  const names = [...new Set(assetNames.filter(Boolean).map(String))];
+  if (!names.length) return 'SELECT name, source_data FROM source_data WHERE FALSE';
+  const quotedNames = names.map(name => `'${name.replaceAll("'", "''")}'`).join(', ');
+  return `SELECT name, source_data FROM source_data WHERE name IN (${quotedNames})`;
 }

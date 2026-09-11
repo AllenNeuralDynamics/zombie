@@ -124,6 +124,14 @@ export function buildCachedLineageRecords(rows, rawRecord) {
   return [...records.values()];
 }
 
+const STAGE_SECTION_ORDER = ['raw', 'processing', 'analysis', 'other'];
+const STAGE_SECTION_LABELS = {
+  raw: 'Raw',
+  processing: 'Processed',
+  analysis: 'Analysis',
+  other: 'Other',
+};
+
 function stageBucket(stage) {
   const value = String(stage ?? '').toLowerCase();
   if (value.includes('raw') || value.includes('acquisition')) return 'raw';
@@ -132,11 +140,21 @@ function stageBucket(stage) {
   return 'other';
 }
 
+/** Return the normalized stage bucket used by filtering and hierarchy sections. */
+export function metricStageBucket(metric) {
+  return stageBucket(metric?.stage ?? (metric?.tags ?? {}).stage);
+}
+
+/** Return the user-facing label for a normalized stage bucket. */
+export function stageSectionLabel(bucket) {
+  return STAGE_SECTION_LABELS[bucket] ?? STAGE_SECTION_LABELS.other;
+}
+
 /** Filter cached or DocDB metrics by the user-facing stage categories. */
 export function filterMetricsByStage(metrics, filter = 'all') {
   if (!filter || filter === 'all') return metrics;
   const normalizedFilter = filter === 'processed' ? 'processing' : filter;
-  return metrics.filter(metric => stageBucket(metric.stage) === normalizedFilter);
+  return metrics.filter(metric => metricStageBucket(metric) === normalizedFilter);
 }
 
 export function getMetricStatus(metric) {
@@ -160,22 +178,33 @@ function encodeS3Key(key) {
   return key.split('/').map(encodeURIComponent).join('/');
 }
 
+function decodeHttpReference(reference) {
+  const value = String(reference ?? '').trim();
+  if (!value.toLowerCase().includes('http')) return value;
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function isHttpReference(reference) {
+  return /^https?:\/\//i.test(reference);
+}
+
 export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   if (!reference) return { url: '', type: 'text' };
 
-  if (reference.includes(';')) {
-    return { url: reference, type: 'multi' };
+  const normalizedReference = decodeHttpReference(reference);
+  if (normalizedReference.includes(';')) {
+    return { url: normalizedReference, type: 'multi' };
   }
 
-  let url = reference;
+  let url = normalizedReference;
 
-  if (reference.includes('s3://')) {
-    const match = reference.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (normalizedReference.startsWith('s3://')) {
+    const match = normalizedReference.match(/^s3:\/\/([^/]+)\/(.+)$/);
     if (match) {
       url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${encodeS3Key(match[2])}`;
     }
-  } else if (!reference.startsWith('http')) {
-    const cleaned = cleanRef(reference);
+  } else if (!isHttpReference(normalizedReference)) {
+    const cleaned = cleanRef(normalizedReference);
     url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(cleaned)}`;
   }
 
@@ -183,7 +212,8 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
 
   if (lower.includes('ephys.allenneuraldynamics.org')) {
     // Decode URL-encoded placeholders, then substitute asset locations.
-    let processed = decodeURIComponent(url);
+    let processed;
+    try { processed = decodeURIComponent(url); } catch { processed = url; }
     processed = processed.replace(/\{derived_asset_location\}/g, `s3://${s3Bucket}/${s3Prefix}`);
     if (rawS3Loc) {
       processed = processed.replace(/\{raw_asset_location\}/g, rawS3Loc);
@@ -198,7 +228,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   }
 
   if (lower.includes('.rrd')) {
-    const verMatch = reference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
+    const verMatch = normalizedReference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
     const version = verMatch ? verMatch[1] : '0.19.1';
     const iframeUrl = `https://app.rerun.io/version/${version}/index.html?url=${encodeURIComponent(url)}`;
     return { url: iframeUrl, type: 'iframe' };
@@ -219,7 +249,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url, type: 'h5' };
   }
 
-  if (reference.startsWith('http')) {
+  if (isHttpReference(normalizedReference)) {
     return { url, type: 'link' };
   }
 
@@ -228,7 +258,14 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
 
 export function buildTreeNodes(metrics, defaultGrouping) {
   const modalities = [...new Set(metrics.map(m => m.modality?.abbreviation).filter(Boolean))];
-  const grouping = modalities.length > 1 ? ['modality', ...defaultGrouping] : defaultGrouping;
+  const baseGrouping = Array.isArray(defaultGrouping) ? defaultGrouping : [];
+  const stageBuckets = [...new Set(metrics.map(metricStageBucket))];
+  const automaticStageGrouping = stageBuckets.length > 1 && !baseGrouping.includes('stage');
+  const grouping = [
+    ...(automaticStageGrouping ? ['__stage_section__'] : []),
+    ...(modalities.length > 1 ? ['modality'] : []),
+    ...baseGrouping,
+  ];
 
   function buildLevel(metricSubset, levels) {
     if (!levels.length) {
@@ -238,7 +275,9 @@ export function buildTreeNodes(metrics, defaultGrouping) {
     const groups = new Map();
     for (const m of metricSubset) {
       let val;
-      if (level === 'modality') {
+      if (level === '__stage_section__') {
+        val = metricStageBucket(m);
+      } else if (level === 'modality') {
         val = m.modality?.abbreviation ?? 'unknown';
       } else if (level === 'stage') {
         val = m.stage ?? (m.tags ?? {})['stage'] ?? 'unknown';
@@ -249,9 +288,21 @@ export function buildTreeNodes(metrics, defaultGrouping) {
       groups.get(val).push(m);
     }
     const children = [];
-    for (const [val, subset] of groups) {
+    const entries = [...groups.entries()];
+    if (level === '__stage_section__') {
+      entries.sort(([a], [b]) => STAGE_SECTION_ORDER.indexOf(a) - STAGE_SECTION_ORDER.indexOf(b));
+    }
+    for (const [val, subset] of entries) {
       const node = buildLevel(subset, rest);
-      children.push({ label: `${level}: ${val}`, key: level, value: val, metrics: subset, ...node });
+      const isStageSection = level === '__stage_section__';
+      children.push({
+        label: isStageSection ? stageSectionLabel(val) : `${level}: ${val}`,
+        key: isStageSection ? 'stage' : level,
+        value: val,
+        metrics: subset,
+        ...(isStageSection ? { kind: 'stage', stageLabel: stageSectionLabel(val) } : {}),
+        ...node,
+      });
     }
     return { metrics: metricSubset, children };
   }

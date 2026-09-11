@@ -59,6 +59,7 @@
 .qc-metrics-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: .9em; }
 .qc-metrics-table th, .qc-metrics-table td { padding: 8px 10px; border-bottom: 1px solid var(--surface-border); text-align: left; vertical-align: top; }
 .qc-metrics-table thead th { position: sticky; top: 0; z-index: 1; color: var(--text-secondary); background: var(--surface-card); font-weight: 600; }
+.qc-metrics-table-stage td { padding-top: 14px; border-top: 2px solid var(--surface-border); color: var(--text-primary); background: var(--surface-bg); font-size: 1.05em; font-weight: 700; }
 .qc-metrics-table-group td { padding-top: 12px; color: var(--text-primary); background: var(--surface-bg); font-weight: 600; }
 .qc-metrics-table-row:hover { background: color-mix(in srgb, var(--surface-card) 70%, transparent); }
 .qc-metrics-table-row.qc-metric-status-fail { background: color-mix(in srgb, var(--color-red) 8%, var(--surface-card)); }

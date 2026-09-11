@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assetNamesForQcRows, findRawAssetName, findRawAssetNames } from '../qc/lineage.js';
+import { assetNamesForQcRows, buildSourceDataQuery, findRawAssetName, findRawAssetNames } from '../qc/lineage.js';
 
 const sources = [
   { name: 'processed', source_data: 'raw' },
@@ -30,5 +30,11 @@ describe('QC asset lineage', () => {
       { asset_name: 'raw', downstream_asset_names: ['processed'] },
       { asset_name: 'processed', downstream_asset_names: ['analysis'] },
     ])).toEqual(['raw', 'processed', 'analysis']);
+  });
+
+  it('builds a source-data query scoped to the requested asset names', () => {
+    expect(buildSourceDataQuery(["derived'asset", 'derived-asset'])).toBe(
+      "SELECT name, source_data FROM source_data WHERE name IN ('derived''asset', 'derived-asset')",
+    );
   });
 });

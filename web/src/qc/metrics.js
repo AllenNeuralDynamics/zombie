@@ -600,12 +600,18 @@ function renderTableMetricStatus(metric, edit) {
   return select;
 }
 
-function leafMetricGroups(nodes, path = []) {
+function leafMetricGroups(nodes, path = [], stage = null) {
   const groups = [];
   for (const node of nodes) {
-    const nextPath = [...path, `${node.label} (${node.metrics.length})`];
-    if (node.children?.length) groups.push(...leafMetricGroups(node.children, nextPath));
-    else groups.push({ label: nextPath.join(' / '), metrics: node.metrics });
+    const isStage = node.key === 'stage';
+    const nextStage = isStage ? {
+      key: node.value,
+      label: node.stageLabel ?? String(node.label).replace(/^stage:\s*/, ''),
+      count: node.metrics.length,
+    } : stage;
+    const nextPath = isStage ? path : [...path, `${node.label} (${node.metrics.length})`];
+    if (node.children?.length) groups.push(...leafMetricGroups(node.children, nextPath, nextStage));
+    else groups.push({ label: nextPath.join(' / ') || 'Metrics', metrics: node.metrics, stage: nextStage });
   }
   return groups;
 }
@@ -623,7 +629,16 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
 
   const tbody = table.createTBody();
   const groups = treeNodes.length ? leafMetricGroups(treeNodes) : [{ label: 'Metrics', metrics }];
+  let currentStage = null;
   for (const group of groups) {
+    if (group.stage && group.stage.key !== currentStage) {
+      currentStage = group.stage.key;
+      const stageRow = tbody.insertRow();
+      stageRow.className = 'qc-metrics-table-stage';
+      const stageCell = stageRow.insertCell();
+      stageCell.colSpan = 4;
+      stageCell.textContent = `${group.stage.label} (${group.stage.count})`;
+    }
     const groupRow = tbody.insertRow();
     groupRow.className = 'qc-metrics-table-group';
     const groupCell = groupRow.insertCell();

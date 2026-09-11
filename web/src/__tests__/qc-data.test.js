@@ -8,6 +8,7 @@ import {
   aggregateStatus,
   filterMetricsByStage,
   parseCachedMetricRow,
+  metricStageBucket,
 } from '../qc/data.js';
 
 const makeMetric = (overrides = {}) => ({
@@ -190,6 +191,11 @@ describe('resolveReference', () => {
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
   });
 
+  it('keeps s3 sources in a Neuroglancer URL fragment inside the iframe URL', () => {
+    const ref = 'https://neuroglancer-demo.appspot.com/#!{"layers":[{"source":"precomputed://s3://bucket/path"}]}';
+    expect(resolveReference(ref, 'private-bucket', prefix)).toEqual({ url: ref, type: 'iframe' });
+  });
+
   it('classifies sortingview URL as iframe', () => {
     const ref = 'https://sortingview.vercel.app/figurl?v=1';
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
@@ -198,6 +204,13 @@ describe('resolveReference', () => {
   it('classifies ephys.allenneuraldynamics.org URL as iframe', () => {
     const ref = 'https://ephys.allenneuraldynamics.org/app?a=1';
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
+  });
+
+  it('decodes QC Portal percent-encoded HTTP references before classifying them', () => {
+    const ref = 'https%3A//ephys.allenneuraldynamics.org/app%3Fraw%3D%7Braw_asset_location%7D';
+    const { url, type } = resolveReference(ref, bucket, prefix, 's3://raw-bucket/raw-prefix');
+    expect(url).toBe('https://ephys.allenneuraldynamics.org/app?raw=s3://raw-bucket/raw-prefix');
+    expect(type).toBe('iframe');
   });
 
   it('substitutes {derived_asset_location} placeholder in ephys URLs', () => {
@@ -304,6 +317,34 @@ describe('buildTreeNodes', () => {
     ];
     const nodes = buildTreeNodes(metrics, ['stage']);
     expect(nodes[0].value).toBe('Curated');
+  });
+
+  it('automatically creates ordered top-level stage sections for mixed stages', () => {
+    const metrics = [
+      makeMetric({ name: 'analysis', stage: 'Analysis', tags: {} }),
+      makeMetric({ name: 'processing', stage: 'Processing', tags: {} }),
+      makeMetric({ name: 'raw', stage: 'Raw data', tags: {} }),
+    ];
+    const nodes = buildTreeNodes(metrics, []);
+
+    expect(nodes.map(node => [node.key, node.value, node.label])).toEqual([
+      ['stage', 'raw', 'Raw'],
+      ['stage', 'processing', 'Processed'],
+      ['stage', 'analysis', 'Analysis'],
+    ]);
+    expect(nodes.map(node => node.kind)).toEqual(['stage', 'stage', 'stage']);
+  });
+
+  it('does not add a redundant stage section after a stage filter', () => {
+    const metrics = [
+      makeMetric({ name: 'raw', stage: 'Raw data', tags: { type: 'raw' } }),
+      makeMetric({ name: 'processing', stage: 'Processing', tags: { type: 'processing' } }),
+    ];
+    const nodes = buildTreeNodes(filterMetricsByStage(metrics, 'processing'), ['type']);
+
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].key).toBe('type');
+    expect(metricStageBucket(metrics[1])).toBe('processing');
   });
 });
 

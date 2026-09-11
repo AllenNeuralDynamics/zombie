@@ -1,14 +1,11 @@
 import { bootstrap } from './lib/bootstrap.js';
 import { queryRows } from './lib/arrow.js';
-import { ensureTable } from './lib/registry.js';
+import { ensureTable, getAcorn } from './lib/registry.js';
 import { fetchDocDbRecordsByName, queryDocDb } from './lib/docdb.js';
-import { assetNamesForQcRows, findRawAssetName } from './qc/lineage.js';
+import { buildQcPartitionQuery } from './qc/cache.js';
+import { assetNamesForQcRows, buildSourceDataQuery, findRawAssetName, sourceAssetNames } from './qc/lineage.js';
 import { buildCachedLineageRecords } from './qc/data.js';
 import { createQCView } from './qc/view.js';
-
-function sqlString(value) {
-  return `'${String(value).replaceAll("'", "''")}'`;
-}
 
 function modalityAbbreviation(metric) {
   return typeof metric?.modality === 'object' ? metric.modality?.abbreviation : metric?.modality;
@@ -44,6 +41,25 @@ function overlayLiveMetrics(rows, records) {
   });
 }
 
+async function fetchRelevantSourceRows(coord, assetName) {
+  await ensureTable(coord, 'source_data');
+
+  const rows = [];
+  const queriedNames = new Set();
+  let pendingNames = [assetName];
+  while (pendingNames.length) {
+    const names = [...new Set(pendingNames.map(String))]
+      .filter(name => name && !queriedNames.has(name));
+    if (!names.length) break;
+    names.forEach(name => queriedNames.add(name));
+
+    const matchingRows = await queryRows(coord, buildSourceDataQuery(names));
+    rows.push(...matchingRows);
+    pendingNames = matchingRows.flatMap(row => sourceAssetNames(row.source_data));
+  }
+  return rows;
+}
+
 async function loadPage(coord, app, requestedName, {
   replaceOnStart = true,
   throwOnFailure = false,
@@ -54,8 +70,7 @@ async function loadPage(coord, app, requestedName, {
   try {
     let sourceRows = [];
     try {
-      await ensureTable(coord, 'source_data');
-      sourceRows = await queryRows(coord, 'SELECT name, source_data FROM source_data');
+      sourceRows = await fetchRelevantSourceRows(coord, requestedName);
     } catch (error) {
       console.warn('[quality_control] source_data cache unavailable:', error);
     }
@@ -73,11 +88,7 @@ async function loadPage(coord, app, requestedName, {
 
     let cachedRows = [];
     try {
-      await ensureTable(coord, 'quality_control');
-      cachedRows = await queryRows(
-        coord,
-        `SELECT * FROM quality_control WHERE raw_asset_name = ${sqlString(rawAssetName)}`,
-      );
+      cachedRows = await queryRows(coord, buildQcPartitionQuery(getAcorn('quality_control'), rawAssetName));
     } catch (error) {
       // The DocDB record remains a useful read-only fallback while a new cache
       // version is propagating.
@@ -92,13 +103,6 @@ async function loadPage(coord, app, requestedName, {
         : [])];
       cachedRows = overlayLiveMetrics(cachedRows, liveRecords);
       chainRecords = buildCachedLineageRecords(cachedRows, rawRecord);
-    }
-
-    const projectName = rawRecord.data_description?.project_name ?? '';
-    if (projectName) {
-      const url = new URL(window.location.href);
-      url.searchParams.set('project', projectName);
-      history.replaceState(history.state, '', url);
     }
 
     const nextView = createQCView(rawRecord, rawRecord.location ?? '', {

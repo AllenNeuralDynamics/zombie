@@ -4,10 +4,20 @@ import { QC_API_BASE } from '../constants.js';
 const PUBLIC_BUCKET = 'aind-open-data';
 const PRESIGN_BASE = `${QC_API_BASE.replace(/\/$/, '')}/get-signed-reference`;
 
+function isHttpReference(reference) {
+  const value = String(reference ?? '').trim();
+  if (/^https?:\/\//i.test(value)) return true;
+  if (!value.toLowerCase().includes('http')) return false;
+  try { return /^https?:\/\//i.test(decodeURIComponent(value)); } catch { return false; }
+}
+
 function needsPresign(reference, s3Bucket, type) {
+  // An iframe URL may contain an s3:// source in its fragment (as Neuroglancer
+  // state URLs do). Only a reference that actually starts with s3:// is an S3
+  // object; external HTTP URLs must be handed to the iframe unchanged.
+  if (isHttpReference(reference)) return false;
   if (s3Bucket === PUBLIC_BUCKET) return false;
   if (type === 'link' || type === 'text' || type === 'multi') return false;
-  if (reference.startsWith('http') && !reference.includes('s3://')) return false;
   return true;
 }
 
