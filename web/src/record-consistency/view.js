@@ -1,6 +1,6 @@
 import { queryRows } from '../lib/arrow.js';
-import { quoteIdentifier } from '../lib/metadata.js';
-import { ensureTable } from '../lib/registry.js';
+import { quoteIdentifier, s3PathToHttps } from '../lib/metadata.js';
+import { ensureTable, getAcorn } from '../lib/registry.js';
 import { escHtml } from '../lib/utils.js';
 import { buildMetadataLink, buildS3ConsoleUrl } from '../assets/links.js';
 
@@ -31,18 +31,168 @@ export function countChecks(rows) {
   return new Set(rows.map((row) => String(row.check_key ?? ''))).size;
 }
 
+/**
+ * Build the manifest URL beside the record-consistency Parquet table.
+ *
+ * @param {string} tableLocation
+ * @returns {string}
+ */
+export function buildManifestUrl(tableLocation) {
+  const tableUrl = s3PathToHttps(tableLocation);
+  if (!tableUrl.endsWith('.pqt')) {
+    throw new Error(`Unexpected record-consistency table location: ${tableLocation}`);
+  }
+  return `${tableUrl.slice(0, -4)}.manifest.json`;
+}
+
+async function fetchRecordConsistencyManifest() {
+  const location = getAcorn(RECORD_CONSISTENCY_TABLE)?.location;
+  if (!location) return null;
+
+  const response = await fetch(buildManifestUrl(location), { cache: 'no-cache' });
+  if (!response.ok) {
+    throw new Error(`Record-consistency manifest request failed (${response.status})`);
+  }
+  return response.json();
+}
+
+function indexCheckMetadata(manifest) {
+  if (!Array.isArray(manifest?.checks)) return {};
+  return Object.fromEntries(
+    manifest.checks
+      .filter((check) => typeof check?.check_key === 'string')
+      .map((check) => [check.check_key, check]),
+  );
+}
+
+function summarizeFindings(rows, manifest) {
+  const failedCount = rows.filter((row) => row.status === 'fail').length;
+  const unknownCount = rows.filter((row) => row.status === 'unknown').length;
+  return {
+    findingCount: rows.length,
+    failedCount,
+    unknownCount,
+    checkCount: Number.isInteger(manifest?.check_count) ? manifest.check_count : countChecks(rows),
+    evaluatedCount: Number.isInteger(manifest?.row_count) ? manifest.row_count : null,
+    checkedAt: manifest?.checked_at ?? rows[0]?.checked_at ?? null,
+  };
+}
+
+function buildSummary(rows, manifest) {
+  const summary = summarizeFindings(rows, manifest);
+  const panel = document.createElement('section');
+  panel.className = 'record-consistency-summary-panel';
+  panel.innerHTML = `
+    <h3>Summary</h3>
+    <div class="record-consistency-summary-grid">
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Flagged results</span>
+        <strong>${summary.findingCount.toLocaleString()}</strong>
+      </div>
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Failed</span>
+        <strong>${summary.failedCount.toLocaleString()}</strong>
+      </div>
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Unknown</span>
+        <strong>${summary.unknownCount.toLocaleString()}</strong>
+      </div>
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Checks run</span>
+        <strong>${summary.checkCount.toLocaleString()}</strong>
+      </div>
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Evaluated rows</span>
+        <strong>${summary.evaluatedCount?.toLocaleString() ?? '—'}</strong>
+      </div>
+      <div class="record-consistency-summary-stat">
+        <span class="record-consistency-summary-label">Checked at</span>
+        <strong class="record-consistency-summary-time">${escHtml(summary.checkedAt ?? '—')}</strong>
+      </div>
+    </div>
+  `;
+  return panel;
+}
+
 function externalLink(href, label) {
   if (!href) return '<span class="no-link">—</span>';
   return `<a href="${escHtml(href)}" target="_blank" rel="noopener noreferrer">${escHtml(label)}</a>`;
+}
+
+function implementationUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'https:' && url.hostname === 'github.com' ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+function renderCheckCell(checkKey, checkMetadata) {
+  const key = String(checkKey ?? '');
+  const metadata = checkMetadata[key];
+  const description = metadata?.description;
+  if (!description) return `<code>${escHtml(key)}</code>`;
+
+  const sourceUrl = implementationUrl(metadata.implementation_url);
+  const info = sourceUrl
+    ? `<a class="record-consistency-check-info" href="${escHtml(sourceUrl)}"
+        target="_blank" rel="noopener noreferrer"
+        aria-label="Description and implementation for ${escHtml(key)}"
+        title="${escHtml(description)}"
+        data-check-description="${escHtml(description)}">ⓘ</a>`
+    : `<button class="record-consistency-check-info" type="button"
+        aria-label="Description for ${escHtml(key)}"
+        title="${escHtml(description)}"
+        data-check-description="${escHtml(description)}">ⓘ</button>`;
+
+  return `<span class="record-consistency-check">
+    <code>${escHtml(key)}</code>
+    ${info}
+  </span>`;
+}
+
+function attachCheckDescriptionTooltips(table) {
+  for (const icon of table.querySelectorAll('.record-consistency-check-info')) {
+    let popup = null;
+
+    const hide = () => {
+      popup?.remove();
+      popup = null;
+    };
+    const show = () => {
+      hide();
+      const rect = icon.getBoundingClientRect();
+      const tooltipWidth = 320;
+      const gap = 8;
+      const left = Math.min(
+        Math.max(gap, rect.left),
+        Math.max(gap, window.innerWidth - tooltipWidth - gap),
+      );
+      popup = document.createElement('div');
+      popup.className = 'record-consistency-check-tooltip';
+      popup.setAttribute('role', 'tooltip');
+      popup.textContent = icon.dataset.checkDescription;
+      popup.style.left = `${left}px`;
+      popup.style.top = `${rect.bottom + 6}px`;
+      document.body.appendChild(popup);
+    };
+
+    icon.addEventListener('mouseenter', show);
+    icon.addEventListener('mouseleave', hide);
+    icon.addEventListener('focus', show);
+    icon.addEventListener('blur', hide);
+  }
 }
 
 /**
  * Render one flagged record-consistency finding.
  *
  * @param {object} row
+ * @param {Record<string, object>} [checkMetadata]
  * @returns {string} Escaped table-row HTML.
  */
-export function renderFindingRow(row) {
+export function renderFindingRow(row, checkMetadata = {}) {
   const name = String(row.name ?? '');
   const nameHref = buildMetadataLink(name);
   const nameCell = nameHref
@@ -52,7 +202,7 @@ export function renderFindingRow(row) {
 
   return `<tr>
     <td>${nameCell}</td>
-    <td><code>${escHtml(row.check_key ?? '')}</code></td>
+    <td>${renderCheckCell(row.check_key, checkMetadata)}</td>
     <td>${escHtml(row.status ?? '')}</td>
     <td>${escHtml(row.docdb_version ?? '')}</td>
     <td><code>${escHtml(row.docdb_id ?? '')}</code></td>
@@ -62,7 +212,7 @@ export function renderFindingRow(row) {
   </tr>`;
 }
 
-function buildTable(rows) {
+function buildTable(rows, checkMetadata) {
   const table = document.createElement('table');
   table.className = 'record-consistency-table';
   table.innerHTML = `
@@ -78,8 +228,9 @@ function buildTable(rows) {
         <th>Checked at</th>
       </tr>
     </thead>
-    <tbody>${rows.map(renderFindingRow).join('')}</tbody>
+    <tbody>${rows.map((row) => renderFindingRow(row, checkMetadata)).join('')}</tbody>
   `;
+  attachCheckDescriptionTooltips(table);
   return table;
 }
 
@@ -110,15 +261,19 @@ export function createRecordConsistencyView(coord) {
   loading.textContent = 'Loading record-consistency checks…';
   container.appendChild(loading);
 
-  ensureTable(coord, RECORD_CONSISTENCY_TABLE)
-    .then((tableName) => queryRows(coord, buildFlaggedRecordsQuery(tableName)))
-    .then((rows) => {
+  const manifestPromise = fetchRecordConsistencyManifest().catch((error) => {
+    console.warn('[Record-consistency checks] Manifest unavailable:', error);
+    return null;
+  });
+
+  Promise.all([
+    ensureTable(coord, RECORD_CONSISTENCY_TABLE)
+      .then((tableName) => queryRows(coord, buildFlaggedRecordsQuery(tableName))),
+    manifestPromise,
+  ])
+    .then(([rows, manifest]) => {
       loading.remove();
-      const summary = document.createElement('p');
-      summary.className = 'record-consistency-summary';
-      summary.textContent = `${rows.length.toLocaleString()} flagged record(s) across `
-        + `${countChecks(rows).toLocaleString()} check(s).`;
-      container.appendChild(summary);
+      container.appendChild(buildSummary(rows, manifest));
 
       if (rows.length === 0) {
         const empty = document.createElement('p');
@@ -130,7 +285,7 @@ export function createRecordConsistencyView(coord) {
 
       const tableWrap = document.createElement('div');
       tableWrap.className = 'record-consistency-table-wrap';
-      tableWrap.appendChild(buildTable(rows));
+      tableWrap.appendChild(buildTable(rows, indexCheckMetadata(manifest)));
       container.appendChild(tableWrap);
     })
     .catch((err) => {
