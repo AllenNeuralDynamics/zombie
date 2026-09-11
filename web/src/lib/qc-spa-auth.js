@@ -26,7 +26,7 @@ function authConfig() {
       protocolMode: 'OIDC',
       OIDCOptions: { defaultScopes: OIDC_SCOPES },
     },
-    cache: { cacheLocation: 'sessionStorage' },
+    cache: { cacheLocation: 'localStorage' },
   };
 }
 
