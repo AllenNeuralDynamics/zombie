@@ -9,6 +9,11 @@ import {
   unitProbeKey,
   unitProbeName,
 } from './data.js';
+import {
+  DR_CONTEXT_BACKGROUND_COLORS,
+  DR_CONTEXT_COLORS,
+} from '../dynamic_routing/colors.js';
+import { baselineSeries, createBaselineControls } from '../lib/psth.js';
 
 const DEFAULT_PRE = -1.5;
 const DEFAULT_POST = 1;
@@ -20,9 +25,10 @@ const RASTER_COLUMNS = [
   { condition: 'auditory_nontarget', label: 'AUD-' },
 ];
 const CONTEXTS = ['vis', 'aud'];
-const CONTEXT_COLORS = { vis: '#dceedd', aud: '#fff0d5' };
-const PSTH_COLORS = { vis: '#6b7280', aud: '#f59e0b' };
+const CONTEXT_COLORS = DR_CONTEXT_BACKGROUND_COLORS;
+const PSTH_COLORS = DR_CONTEXT_COLORS;
 const PSTH_BINS = 60;
+const UNIT_PARAM = 'unit_id';
 
 function finite(value, fallback) {
   if (value == null || value === '') return fallback;
@@ -221,7 +227,15 @@ function buildPsthSeries(spikeTimes, trials, condition, pre, post) {
   });
 }
 
-function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980) {
+function makePlot(
+  trials,
+  spikes,
+  pre,
+  post,
+  includeCatch,
+  availableWidth = 980,
+  baselineSec = 0,
+) {
   const visibleTrials = trials.filter((trial) => includeCatch || trial.condition !== 'catch');
   // Each condition gets its own compact trial stack. Keeping these stacks
   // independent avoids reserving blank rows for trials shown in another
@@ -234,11 +248,27 @@ function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980)
   const columnWidth = Math.max(160, Math.floor((availableWidth - plotGap * 3) / 4));
   const columnPsths = RASTER_COLUMNS.map(({ condition }) =>
     buildPsthSeries(spikes, visibleTrials, condition, pre, post));
-  const maxPsth = Math.max(
-    0,
-    ...columnPsths.flat().map((point) => point.hi).filter(Number.isFinite),
-  );
-  const psthYMax = maxPsth > 0 ? maxPsth * 1.1 : 1;
+  const displayedPsths = columnPsths.map((series) => baselineSeries(
+    series,
+    baselineSec,
+    { colorKey: 'context' },
+  ));
+  const psthValues = displayedPsths
+    .flat()
+    .flatMap((point) => [point.lo, point.hi, point.mean])
+    .filter(Number.isFinite);
+  const maxPsth = Math.max(0, ...psthValues);
+  const minPsth = Math.min(0, ...psthValues);
+  const psthYDomain = baselineSec > 0
+    ? (() => {
+      const span = Math.max(1, maxPsth - minPsth);
+      const padding = span * 0.1;
+      return [
+        minPsth < 0 ? minPsth - padding : 0,
+        maxPsth > 0 ? maxPsth + padding : 1,
+      ];
+    })()
+    : [0, maxPsth > 0 ? maxPsth * 1.1 : 1];
   const durations = visibleTrials
     .map((trial) => trial.stimStop - trial.stimStart)
     .filter((duration) => Number.isFinite(duration) && duration > 0);
@@ -348,8 +378,20 @@ function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980)
     column.appendChild(rasterPlot);
 
     const psthMarks = [];
+    if (baselineSec > 0) {
+      psthMarks.push(Plot.rect([{
+        x1: Math.max(pre, -baselineSec),
+        x2: 0,
+        y1: psthYDomain[0],
+        y2: psthYDomain[1],
+      }], {
+        x1: 'x1', x2: 'x2', y1: 'y1', y2: 'y2',
+        fill: '#888',
+        fillOpacity: 0.14,
+      }));
+    }
     for (const context of CONTEXTS) {
-      const series = columnPsths[columnIndex].filter((point) => point.context === context);
+      const series = displayedPsths[columnIndex].filter((point) => point.context === context);
       if (!series.length) continue;
       psthMarks.push(
         Plot.areaY(series, {
@@ -376,7 +418,7 @@ function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980)
         ticks: 3,
       },
       y: {
-        domain: [0, psthYMax],
+        domain: psthYDomain,
         axis: columnIndex === 0 ? 'left' : null,
         grid: true,
         label: columnIndex === 0 ? 'Hz' : null,
@@ -398,7 +440,11 @@ function makePlot(trials, spikes, pre, post, includeCatch, availableWidth = 980)
  * source_data relationship when the timeline asset is raw but the public
  * NWB-Zarr is a derived ecephys asset.
  */
-export function createDynamicRoutingRasterSection(coord, assetName) {
+export function createDynamicRoutingRasterSection(
+  coord,
+  assetName,
+  { selectedUnitId = null, onUnitSelect = null } = {},
+) {
   const container = document.createElement('div');
   container.className = 'dynamic-routing-raster-view dynamic-routing-raster-section';
 
@@ -406,6 +452,12 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   let currentUnit = null;
   let generation = 0;
   let spikeController = null;
+  const urlParams = new URLSearchParams(window.location.search);
+  const requestedUnitId = selectedUnitId
+    ?? urlParams.get(UNIT_PARAM)
+    ?? urlParams.get('unit')
+    ?? null;
+  let applyRequestedUnit = true;
 
   container.innerHTML = `
     <div class="dr-raster-layout">
@@ -433,7 +485,10 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
       </section>
       <div class="dr-raster-visuals">
         <section class="dr-raster-brain" aria-label="Ecephys unit locations"></section>
-        <section class="dr-raster-raster" aria-live="polite"></section>
+        <section class="dr-raster-raster">
+          <div class="dr-raster-unit-header" aria-live="polite">Unit ID: <span>—</span></div>
+          <div class="dr-raster-plot-mount" aria-live="polite"></div>
+        </section>
       </div>
     </div>
   `;
@@ -448,16 +503,24 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   const status = container.querySelector('.dr-raster-status');
   const brainMount = container.querySelector('.dr-raster-brain');
   const rasterMount = container.querySelector('.dr-raster-raster');
+  const plotMount = container.querySelector('.dr-raster-plot-mount');
+  const unitHeader = container.querySelector('.dr-raster-unit-header span');
+  const baselineControls = createBaselineControls({
+    defaultMs: 200,
+    defaultOn: true,
+    onChange: () => renderSelectedUnit(),
+  });
+  const qcLabel = qcInput.closest('label');
+  qcLabel?.parentElement?.insertBefore(baselineControls.element, qcLabel);
   let brainViz = null;
   let brainInitPromise = null;
 
   function syncBrainHeight() {
     const figure = rasterMount.querySelector('.dr-raster-figure');
     if (!figure) return;
-    const rasterStyles = getComputedStyle(rasterMount);
-    const verticalPadding = parseFloat(rasterStyles.paddingTop || 0)
-      + parseFloat(rasterStyles.paddingBottom || 0);
-    const height = figure.getBoundingClientRect().height + verticalPadding;
+    // Include the selected-unit heading so the 3D panel stays aligned with the
+    // complete raster/PSTH column.
+    const height = rasterMount.getBoundingClientRect().height;
     if (height > 0) brainMount.style.height = `${Math.ceil(height)}px`;
   }
 
@@ -472,6 +535,31 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     status.classList.toggle('is-error', error);
   }
 
+  function syncUnitUrl(unit) {
+    const unitId = unit?.unitName == null ? null : String(unit.unitName);
+    if (onUnitSelect) {
+      onUnitSelect(unitId);
+      return;
+    }
+    try {
+      const url = new URL(window.location.href);
+      if (unitId != null) url.searchParams.set(UNIT_PARAM, unitId);
+      else url.searchParams.delete(UNIT_PARAM);
+      // Drop the legacy alias once the canonical parameter has been written.
+      url.searchParams.delete('unit');
+      window.history.replaceState(window.history.state, '', url);
+    } catch {
+      // URL updates are best-effort in restricted browser contexts.
+    }
+  }
+
+  function setCurrentUnit(unit) {
+    currentUnit = unit;
+    unitHeader.textContent = unit?.unitName == null ? '—' : String(unit.unitName);
+    brainViz?.setSelectedUnit(currentUnit?.key ?? null);
+    syncUnitUrl(currentUnit);
+  }
+
   function availableUnits() {
     return currentSession?.units.filter((unit) => !qcInput.checked || unit.qc) ?? [];
   }
@@ -483,10 +571,15 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   ) {
     const units = availableUnits();
     const sorted = sortUnits(units);
+    const requestedUnit = applyRequestedUnit && requestedUnitId
+      ? units.find((unit) => String(unit.unitName) === requestedUnitId || unit.key === requestedUnitId)
+      : null;
     const preferredUnit = units.find((unit) => unit.key === preferredUnitKey)
+      ?? requestedUnit
       ?? sorted.find((unit) => unit.qc)
       ?? sorted[0]
       ?? null;
+    applyRequestedUnit = false;
     const probes = buildProbeOptions(
       probeSelect,
       units,
@@ -508,16 +601,16 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
         : preferredAreaKey,
     );
     areaSelect.disabled = !areas.selected;
-    currentUnit = buildUnitOptions(
+    const nextUnit = buildUnitOptions(
       unitSelect,
       units,
       preferredUnit?.key ?? null,
       probeSelect.value,
       areaSelect.value,
     );
+    setCurrentUnit(nextUnit);
     unitSelect.disabled = !currentUnit;
     brainViz?.setUnits(units);
-    brainViz?.setSelectedUnit(currentUnit?.key ?? null);
     return units;
   }
 
@@ -563,15 +656,16 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
         const empty = document.createElement('p');
         empty.className = 'dr-raster-empty';
         empty.textContent = 'No trial conditions are available.';
-        rasterMount.replaceChildren(empty);
+        plotMount.replaceChildren(empty);
       } else {
-        rasterMount.replaceChildren(makePlot(
+        plotMount.replaceChildren(makePlot(
           currentSession.trials,
           spikes,
           pre,
           post,
           catchInput.checked,
-          Math.max(760, rasterMount.clientWidth || 980),
+          Math.max(760, plotMount.clientWidth || 980),
+          baselineControls.getBaselineSec(),
         ));
       }
       syncBrainHeight();
@@ -580,7 +674,7 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
       if (error?.message === 'aborted' || spikeController.signal.aborted) return;
       console.error('[dynamic-routing-raster] spike load failed', error);
       setStatus(`Could not load spikes: ${error?.message ?? error}`, true);
-      rasterMount.replaceChildren();
+      plotMount.replaceChildren();
     }
   }
 
@@ -590,7 +684,7 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
     unitSelect.disabled = true;
     probeSelect.disabled = true;
     areaSelect.disabled = true;
-    rasterMount.replaceChildren();
+    plotMount.replaceChildren();
     setStatus(`Loading trials and unit catalog for ${asset}…`);
     try {
       currentSession = await loadRasterSession(coord, asset);
@@ -625,8 +719,7 @@ export function createDynamicRoutingRasterSection(coord, assetName) {
   });
 
   unitSelect.addEventListener('change', () => {
-    currentUnit = currentSession?.units.find((unit) => unit.key === unitSelect.value) ?? null;
-    brainViz?.setSelectedUnit(currentUnit?.key ?? null);
+    setCurrentUnit(currentSession?.units.find((unit) => unit.key === unitSelect.value) ?? null);
     renderSelectedUnit();
   });
   preInput.addEventListener('change', () => renderSelectedUnit());

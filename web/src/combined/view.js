@@ -13,6 +13,7 @@
  *
  * Navigation rules:
  *   - ?subject_id=<id>  → open Subject section, collapse Project.
+ *   - ?unit_id=<id>     → restore the selected Dynamic Routing unit.
  *   - ?project=<name>   → open Project section, collapse Subject.
  *     (?project_name= is accepted as an alias on the way in.)
  *   - Clicking a subject (label / asset row / acquisition dot) on the Project
@@ -74,6 +75,7 @@ export function createCombinedView(opts = {}) {
   const initialProject = params.get('project') ?? params.get('project_name') ?? '';
   const initialSubject = params.get('subject_id') ?? '';
   const initialAsset = params.get('asset') ?? '';
+  const initialUnitId = params.get('unit_id') ?? params.get('unit') ?? '';
 
   // Open project only when ?project= was given, or when there is nothing else
   // to show. An asset or subject deep link leaves it collapsed — for an asset
@@ -90,6 +92,7 @@ export function createCombinedView(opts = {}) {
   let currentSubject = initialSubject || '';
   let currentProject = initialProject || '';
   let currentAsset = initialAsset || '';
+  let currentUnitId = initialUnitId || '';
   let _preserveAsset = !!initialAsset;
 
   // ── Section scaffolding ──────────────────────────────────────────────────
@@ -118,6 +121,8 @@ export function createCombinedView(opts = {}) {
     p.delete('project_name');
     if (currentSubject) p.set('subject_id', currentSubject); else p.delete('subject_id');
     if (currentAsset) p.set('asset', currentAsset); else p.delete('asset');
+    if (currentUnitId) p.set('unit_id', currentUnitId); else p.delete('unit_id');
+    p.delete('unit');
     try {
       const url = new URL(window.location.href);
       url.search = p.toString();
@@ -129,6 +134,11 @@ export function createCombinedView(opts = {}) {
   const subjectView = createSubjectView({
     coordinator,
     embedded: true,
+    selectedUnitId: currentUnitId || null,
+    onUnitSelect: (unitId) => {
+      currentUnitId = unitId || '';
+      syncUrl();
+    },
     initialAcquisition: initialAsset || null,
     onSubjectLoaded: ({ subjectId, mostRecentProject }) => {
       currentSubject = subjectId || '';
