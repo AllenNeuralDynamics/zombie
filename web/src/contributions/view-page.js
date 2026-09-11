@@ -109,7 +109,7 @@ function ViewApp({ doi }) {
     setLoading(true);
     setError(null);
     try {
-      let url = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}`;
+      let url = `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(doi)}`;
       if (commit) url += `&commit=${encodeURIComponent(commit)}`;
       const res = await fetchContributions(url);
       if (res.status === 404) throw new Error(`Project "${doi}" not found.`);
@@ -136,7 +136,7 @@ function ViewApp({ doi }) {
   async function fetchHistory() {
     try {
       const res = await fetchContributions(
-        `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(doi)}&history=true`,
+        `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(doi)}&history=true`,
       );
       if (!res.ok) return;
       const data = await res.json();

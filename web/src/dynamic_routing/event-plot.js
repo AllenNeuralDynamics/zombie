@@ -21,6 +21,7 @@
 
 import * as Plot from '@observablehq/plot';
 import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
+import { DR_CONTEXT_COLORS } from './colors.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,8 +30,8 @@ import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
 const PLOT_HEIGHT     = 280;
 const OVERVIEW_HEIGHT = 36;
 
-const COLOR_VIS       = '#7c3aed';   // purple — visual rule
-const COLOR_AUD       = '#f59e0b';   // amber  — auditory rule
+const COLOR_VIS       = DR_CONTEXT_COLORS.vis; // green — visual rule
+const COLOR_AUD       = DR_CONTEXT_COLORS.aud; // amber — auditory rule
 const COLOR_VIS_TGT   = '#1e40af';   // deep blue — vis target stim
 const COLOR_VIS_NTG   = '#60a5fa';   // light blue — vis nontarget
 const COLOR_AUD_TGT   = '#b91c1c';   // dark red — aud target stim

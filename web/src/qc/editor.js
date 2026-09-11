@@ -4,43 +4,17 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { getQcAccount, loginForQc } from '../lib/qc-spa-auth.js';
+import { getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
-import { canonicalQcJson, hashQc } from './canonical.js';
-import { getMetricStatus, isCustomMetric, parseQCRecord } from './data.js';
-
-const UNSUPPORTED_CURATION_TYPES = /spike\s*sorting|ephys/i;
-
-function isEditableMetric(metric) {
-  if (isCustomMetric(metric.value)) return false;
-  if (metric.object_type === 'Curation metric' && UNSUPPORTED_CURATION_TYPES.test(metric.type ?? '')) return false;
-  return true;
-}
-
-function valueText(value) {
-  if (value !== null && typeof value === 'object') return JSON.stringify(value, null, 2);
-  return value === null || value === undefined ? '' : String(value);
-}
-
-function parseDraft(text, original) {
-  if (typeof original === 'number') {
-    const value = Number(text);
-    if (text.trim() === '' || !Number.isFinite(value)) throw new Error('Enter a finite number.');
-    return value;
-  }
-  if (typeof original === 'boolean') {
-    if (text !== 'true' && text !== 'false') throw new Error('Enter true or false.');
-    return text === 'true';
-  }
-  if (original !== null && typeof original === 'object') {
-    try { return JSON.parse(text); } catch { throw new Error('Enter valid JSON.'); }
-  }
-  return text;
-}
-
-function sameValue(left, right) {
-  try { return canonicalQcJson(left) === canonicalQcJson(right); } catch { return left === right; }
-}
+import { hashQc } from './canonical.js';
+import { getMetricStatus, parseQCRecord } from './data.js';
+import {
+  autoStatusForValue,
+  isEditableMetric,
+  parseDraft,
+  sameValue,
+  valueText,
+} from './edit-model.js';
 
 /** Build the narrow request body from already-reviewed local changes. */
 export function buildQcSubmitPayload(record, {
@@ -115,62 +89,138 @@ function errorText(error) {
   if (error.status === 403) return 'Your account cannot edit QC from this page.';
   if (error.status === 409) return 'This record changed elsewhere. Review the current record before submitting again.';
   if (error.status === 422) return 'The QC server rejected this change because it does not match the QC schema.';
-  if (error.status >= 500) return 'The QC editor is temporarily unavailable. Use Open QC Portal to edit.';
+  if (error.status >= 500) return 'QC editing is temporarily unavailable. Use Open Legacy QC Portal to edit.';
   return error.message || 'QC submission failed.';
 }
 
-function MetricEdit({ metric, draft, status, error, onValue, onStatus }) {
-  const curation = metric.object_type === 'Curation metric';
-  return html`
-    <div class=${`qc-editor-metric ${curation ? 'qc-editor-curation' : ''}`}>
-      <label class="qc-editor-label">${metric.name}</label>
-      <textarea
-        class="qc-editor-value"
-        value=${draft}
-        rows=${typeof metric.value === 'object' ? 4 : 1}
-        onInput=${event => onValue(event.currentTarget.value)}
-        aria-label=${`${metric.name} value`}
-      />
-      ${error ? html`<div class="qc-editor-field-error">${error}</div>` : null}
-      <label class="qc-editor-status-label">
-        Status
-        <select value=${status} onChange=${event => onStatus(event.currentTarget.value)}>
-          <option value="Pending">Pending</option>
-          <option value="Pass">Pass</option>
-          <option value="Fail">Fail</option>
-        </select>
-      </label>
-      ${curation ? html`<small>Curation values append to the existing history.</small>` : null}
-    </div>
-  `;
+function isOpaqueIdentity(value) {
+  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
 }
 
-export function QcEditor({ record, onReload }) {
+function firstHumanIdentity(...values) {
+  return values.find(value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text && !isOpaqueIdentity(text);
+  })?.trim() || '';
+}
+
+export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
+const QC_VIEW_MODES = new Set(['tree', 'table']);
+export const QC_PENDING_CHANGES_STORAGE_PREFIX = 'zombie.qc.pendingChanges:';
+
+function browserStorage() {
+  if (typeof window === 'undefined') return null;
+  try { return window.localStorage; } catch { return null; }
+}
+
+export function readQcViewMode(storage = browserStorage()) {
+  try {
+    const value = storage?.getItem(QC_VIEW_MODE_STORAGE_KEY);
+    return QC_VIEW_MODES.has(value) ? value : 'tree';
+  } catch {
+    return 'tree';
+  }
+}
+
+export function writeQcViewMode(viewMode, storage = browserStorage()) {
+  if (!QC_VIEW_MODES.has(viewMode)) return;
+  try { storage?.setItem(QC_VIEW_MODE_STORAGE_KEY, viewMode); } catch { /* storage may be unavailable */ }
+}
+
+export function qcPendingChangesStorageKey(assetName) {
+  return `${QC_PENDING_CHANGES_STORAGE_PREFIX}${encodeURIComponent(String(assetName ?? ''))}`;
+}
+
+export function readQcPendingChanges(assetName, storage = browserStorage()) {
+  try {
+    const raw = storage?.getItem(qcPendingChangesStorageKey(assetName));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeQcPendingChanges(assetName, drafts, storage = browserStorage()) {
+  try {
+    storage?.setItem(qcPendingChangesStorageKey(assetName), JSON.stringify(drafts));
+  } catch { /* storage may be unavailable or full */ }
+}
+
+export function clearQcPendingChanges(assetName, storage = browserStorage()) {
+  try { storage?.removeItem(qcPendingChangesStorageKey(assetName)); } catch { /* storage may be unavailable */ }
+}
+
+export function accountDisplayName(account) {
+  const claims = account?.idTokenClaims ?? {};
+  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
+  return firstHumanIdentity(
+    claims.name,
+    claims.display_name,
+    composedName,
+    account?.name,
+    claims.preferred_username,
+    claims.email,
+    claims.upn,
+    account?.username,
+  ) || 'AIND account';
+}
+
+function restoreDrafts(defaults, saved, isValid) {
+  const restored = { ...defaults };
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of Object.keys(defaults)) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
+function draftValueChanged(metric, draft) {
+  try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
+}
+
+export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
-  const editableMetrics = parsed.metrics.filter(isEditableMetric);
-  const [account, setAccount] = useState(null);
-  const [authError, setAuthError] = useState('');
-  const [valueDrafts, setValueDrafts] = useState(() => Object.fromEntries(
+  const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
+  const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
-  ));
-  const [statusDrafts, setStatusDrafts] = useState(() => Object.fromEntries(
+  ), [editableMetrics]);
+  const defaultStatusDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, getMetricStatus(metric)]),
+  ), [editableMetrics]);
+  const savedDrafts = useMemo(() => readQcPendingChanges(record.name), [record.name]);
+  const [account, setAccount] = useState(null);
+  const [valueDrafts, setValueDrafts] = useState(() => restoreDrafts(
+    defaultValueDrafts,
+    savedDrafts?.valueDrafts,
+    value => typeof value === 'string',
+  ));
+  const [statusDrafts, setStatusDrafts] = useState(() => restoreDrafts(
+    defaultStatusDrafts,
+    savedDrafts?.statusDrafts,
+    value => value === 'Pending' || value === 'Pass' || value === 'Fail',
   ));
   const [fieldErrors, setFieldErrors] = useState({});
-  const [notes, setNotes] = useState(parsed.notes);
+  const [notes, setNotes] = useState(() => (
+    typeof savedDrafts?.notes === 'string' ? savedDrafts.notes : parsed.notes
+  ));
   const [preview, setPreview] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [allowEditingValues, setAllowEditingValues] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draftRevision, setDraftRevision] = useState(0);
 
   useEffect(() => {
     let alive = true;
     getQcAccount().then(value => {
       if (alive) setAccount(value);
     }).catch(() => {
-      if (alive) setAuthError('Entra login is not configured for this deployment.');
+      if (alive) setAccount(null);
     });
     return () => { alive = false; };
   }, []);
@@ -190,21 +240,57 @@ export function QcEditor({ record, onReload }) {
   }
   const notesChanged = notes !== parsed.notes;
   const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
+  const hasPendingDrafts = editableMetrics.some(metric =>
+    draftValueChanged(metric, valueDrafts[metric.name]) ||
+    statusDrafts[metric.name] !== getMetricStatus(metric)
+  ) || notesChanged;
+
+  useEffect(() => {
+    if (!hasPendingDrafts) {
+      clearQcPendingChanges(record.name);
+      return;
+    }
+    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, notes });
+  }, [record.name, editableMetrics, valueDrafts, statusDrafts, notes, parsed.notes]);
+
+  const clearPendingChanges = () => {
+    clearQcPendingChanges(record.name);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
+    setFieldErrors({});
+    setNotes(parsed.notes);
+    setMessage('');
+    setDraftRevision(revision => revision + 1);
+  };
 
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
     try {
-      parseDraft(value, metric.value);
+      const parsedValue = parseDraft(value, metric.value);
       setFieldErrors(previous => ({ ...previous, [metric.name]: undefined }));
+      const autoStatus = autoStatusForValue(parsedValue);
+      if (autoStatus) setStatusDrafts(previous => ({ ...previous, [metric.name]: autoStatus }));
     } catch (error) {
       setFieldErrors(previous => ({ ...previous, [metric.name]: error.message }));
     }
   };
 
-  const handleLogin = async () => {
-    setMessage('');
-    try { await loginForQc(); } catch (error) { setMessage(errorText(error)); }
-  };
+  useEffect(() => {
+    onEditStateChange?.({
+      enabled: Boolean(account),
+      editableMetricNames: new Set(editableMetrics.map(metric => metric.name)),
+      valueDrafts,
+      statusDrafts,
+      fieldErrors,
+      allowEditingValues,
+      draftRevision,
+      onValue: (name, value) => {
+        const metric = editableMetrics.find(candidate => candidate.name === name);
+        if (metric) handleValue(metric, value);
+      },
+      onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
+    });
+  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -245,11 +331,12 @@ export function QcEditor({ record, onReload }) {
         notes,
       });
       await submitQcEdit(payload);
+      clearQcPendingChanges(record.name);
       try {
         await onReload();
         setMessage('QC changes applied and reloaded.');
       } catch {
-        setMessage('The server may have applied the change, but reload failed. Use Open QC Portal to verify.');
+        setMessage('The server may have applied the change, but reload failed. Use Open Legacy QC Portal to verify.');
       }
       setPreview(false);
       setReview(null);
@@ -260,32 +347,61 @@ export function QcEditor({ record, onReload }) {
     }
   };
 
-  if (!account) {
-    return html`
-      <section class="qc-editor qc-editor-readonly">
-        <h3>QC editor</h3>
-        <p>${message || authError || 'Log in with your AIND account to edit QC.'}</p>
-        <button class="qc-edit-btn" onClick=${handleLogin}>Log in to edit QC</button>
-        <p class="qc-editor-fallback">You can always use Open QC Portal above.</p>
-      </section>
-    `;
-  }
+  if (!account) return null;
 
   return html`
     <section class="qc-editor">
       <div class="qc-editor-heading">
-        <div>
-          <h3>Edit QC</h3>
-          <small>Signed in as ${account.username || account.name || account.homeAccountId}</small>
+        <div class="qc-editor-title">
+          <div class="qc-editor-title-row">
+            <h3>Edit QC</h3>
+            ${!preview ? html`
+              <button
+                class="qc-settings-btn icon-btn"
+                aria-label="QC editing settings"
+                onClick=${() => setSettingsOpen(true)}
+              >
+                <img src="/icons/gear.svg" alt="Settings" />
+              </button>
+            ` : null}
+          </div>
+          <small>Signed in as ${accountDisplayName(account)}</small>
         </div>
-        <button
-          class="qc-editor-secondary"
-          onClick=${() => (preview ? setPreview(false) : handleReview())}
-          disabled=${submitting || reviewing}
-        >
-          ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
-        </button>
+        <div class="qc-editor-actions">
+          <button
+            class="qc-editor-secondary"
+            onClick=${() => (preview ? setPreview(false) : handleReview())}
+            disabled=${submitting || reviewing}
+          >
+            ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
+          </button>
+        </div>
       </div>
+      ${settingsOpen ? html`
+        <div class="qc-settings-overlay" role="dialog" aria-modal="true" aria-label="QC settings">
+          <div class="qc-settings-modal">
+            <h4>QC settings</h4>
+            <label class="qc-settings-option">
+              <input
+                type="checkbox"
+                checked=${allowEditingValues}
+                onChange=${event => setAllowEditingValues(event.currentTarget.checked)}
+              />
+              Allow editing metrics with values
+            </label>
+            <div class="qc-settings-actions">
+              <button
+                class="qc-editor-secondary"
+                onClick=${clearPendingChanges}
+                disabled=${!hasPendingDrafts || submitting}
+              >
+                Clear pending changes
+              </button>
+              <button class="qc-editor-secondary" onClick=${() => setSettingsOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      ` : null}
       ${message ? html`<div class="qc-editor-message">${message}</div>` : null}
       ${preview && review ? html`
         <div class="qc-editor-preview">
@@ -333,28 +449,7 @@ export function QcEditor({ record, onReload }) {
           </button>
         </div>
       ` : html`
-        <div class="qc-editor-metrics">
-          ${editableMetrics.map(metric => html`
-            <${MetricEdit}
-              key=${metric.name}
-              metric=${metric}
-              draft=${valueDrafts[metric.name]}
-              status=${statusDrafts[metric.name]}
-              error=${fieldErrors[metric.name]}
-              onValue=${value => handleValue(metric, value)}
-              onStatus=${value => setStatusDrafts(previous => ({ ...previous, [metric.name]: value }))}
-            />
-          `)}
-        </div>
-        ${parsed.metrics.length !== editableMetrics.length ? html`<p class="qc-editor-fallback">Specialized/custom metrics remain read-only; use Open QC Portal for those.</p>` : null}
         <label class="qc-editor-label">Notes<textarea rows="3" value=${notes} onInput=${event => setNotes(event.currentTarget.value)} /></label>
-        <button
-          class="qc-edit-btn"
-          onClick=${handleReview}
-          disabled=${reviewing || !changeCount || Object.values(fieldErrors).some(Boolean)}
-        >
-          ${reviewing ? 'Loading current record…' : `Review changes (${changeCount})`}
-        </button>
       `}
     </section>
   `;
@@ -362,6 +457,12 @@ export function QcEditor({ record, onReload }) {
 
 export function mountQcEditor(container, record, options = {}) {
   if (!QC_SPA_EDITOR_ENABLED) return () => {};
-  render(html`<${QcEditor} record=${record} onReload=${options.onReload || (() => Promise.resolve())} />`, container);
+  render(html`
+    <${QcEditor}
+      record=${record}
+      onReload=${options.onReload || (() => Promise.resolve())}
+      onEditStateChange=${options.onEditStateChange}
+    />
+  `, container);
   return () => render(null, container);
 }

@@ -1,12 +1,10 @@
 .qc-editor-host:empty { display: none; }
 .qc-editor { margin: var(--gap); padding: var(--gap); border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-card); }
-.qc-editor-readonly { color: var(--text-secondary); }
 .qc-editor h3, .qc-editor h4 { margin: 0 0 6px; }
 .qc-editor-heading { display: flex; justify-content: space-between; gap: var(--gap); align-items: flex-start; }
-.qc-editor-heading small, .qc-editor-fallback, .qc-editor small { color: var(--text-secondary); }
-.qc-editor-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap); margin: var(--gap) 0; }
-.qc-editor-metric { display: flex; flex-direction: column; gap: 6px; padding: 10px; border: 1px solid var(--surface-border); border-radius: var(--radius); }
-.qc-editor-curation { border-left: 3px solid var(--accent-2); }
+.qc-editor-title-row { display: flex; align-items: center; gap: 6px; }
+.qc-editor-title-row h3 { margin-bottom: 0; }
+.qc-editor-heading small, .qc-editor small { color: var(--text-secondary); }
 .qc-editor-label { display: flex; flex-direction: column; gap: 5px; font-weight: 600; }
 .qc-editor-value, .qc-editor-label textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 7px; color: var(--text-primary); background: var(--surface-bg); font: inherit; }
 .qc-editor-value { font-weight: 400; resize: vertical; }
@@ -24,5 +22,55 @@
 .qc-editor-diff td:first-child { font-weight: 600; }
 .qc-editor-diff-drifted { background: color-mix(in srgb, var(--color-yellow) 12%, transparent); }
 .qc-editor-diff-flag { color: var(--color-yellow); font-weight: 600; font-size: .85em; }
+.qc-editor-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .qc-editor-secondary { border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 5px 10px; color: var(--text-primary); background: var(--surface-bg); cursor: pointer; }
 .qc-editor-secondary:disabled, .qc-editor .qc-edit-btn:disabled { opacity: .55; cursor: not-allowed; }
+.qc-settings-btn { width: 34px; height: 34px; padding: 4px 8px; border: 0; border-radius: var(--radius); background: none; cursor: pointer; }
+.qc-settings-btn:hover { background: var(--surface-bg); }
+.qc-settings-btn img { width: 1.2rem; height: 1.2rem; display: block; filter: var(--icon-filter); }
+.qc-settings-overlay { position: fixed; inset: 0; z-index: 110; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .45); }
+.qc-settings-modal { width: min(360px, 90vw); padding: 18px; border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-card); box-shadow: 0 12px 36px rgba(0, 0, 0, .3); }
+.qc-settings-option { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; color: var(--text-primary); font-weight: 400; }
+.qc-settings-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.qc-view-toggle { display: inline-flex; border: 1px solid var(--surface-border); border-radius: var(--radius); overflow: hidden; }
+.qc-view-toggle button { border: 0; border-right: 1px solid var(--surface-border); padding: 5px 9px; color: var(--text-secondary); background: var(--surface-bg); cursor: pointer; }
+.qc-view-toggle button:last-child { border-right: 0; }
+.qc-view-toggle button.active { color: var(--text-primary); background: var(--surface-border); font-weight: 600; }
+
+/* Inline metric editing mirrors the portal's MetricValue panels. */
+.qc-metric-editable .metric-value { margin-bottom: 10px; }
+.qc-inline-editor-value { width: 100%; min-height: 31px; box-sizing: border-box; resize: vertical; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 6px; color: var(--text-primary); background: var(--surface-bg); font: inherit; }
+.qc-inline-dictionary-editor { width: 100%; }
+.qc-inline-dictionary-input { width: 100%; box-sizing: border-box; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 4px 6px; color: var(--text-primary); background: var(--surface-bg); font: inherit; }
+.qc-inline-custom-select { min-width: 140px; padding: 4px 6px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); font: inherit; }
+.qc-inline-checkbox-list { display: flex; flex-direction: column; gap: 4px; }
+.qc-inline-checkbox { display: flex; gap: 6px; align-items: center; font-weight: 400; }
+.qc-inline-field-error { margin-top: 4px; color: var(--color-red); font-size: .82em; }
+.metric-status-editor { color: var(--text-secondary); font-size: .85em; }
+.qc-inline-status { min-width: 92px; padding: 4px 6px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); font: inherit; }
+
+/* Table mode keeps one metric per row while retaining the tree's leaf groups. */
+.qc-container-table { display: block; height: calc(100vh - 110px); overflow: auto; }
+.qc-container-table .qc-table-content { width: 100%; }
+.qc-metrics-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: .9em; }
+.qc-metrics-table th, .qc-metrics-table td { padding: 8px 10px; border-bottom: 1px solid var(--surface-border); text-align: left; vertical-align: top; }
+.qc-metrics-table thead th { position: sticky; top: 0; z-index: 1; color: var(--text-secondary); background: var(--surface-card); font-weight: 600; }
+.qc-metrics-table-group td { padding-top: 12px; color: var(--text-primary); background: var(--surface-bg); font-weight: 600; }
+.qc-metrics-table-row:hover { background: color-mix(in srgb, var(--surface-card) 70%, transparent); }
+.qc-metrics-table-row.qc-metric-status-fail { background: color-mix(in srgb, var(--color-red) 8%, var(--surface-card)); }
+.qc-metrics-table-row.qc-metric-status-pending { background: color-mix(in srgb, var(--color-blue) 8%, var(--surface-card)); }
+.qc-metrics-table-row .qc-reference-cell { width: 18%; }
+.qc-reference-anchor { position: relative; display: inline-block; }
+.qc-metrics-table-row .qc-reference-link { color: var(--color-red); }
+.qc-metrics-table-row .qc-table-value-editor { min-width: 260px; }
+.qc-table-status { font-weight: 600; }
+.qc-table-status.pass { color: var(--color-green); }
+.qc-table-status.fail { color: var(--color-red); }
+.qc-table-status.pending { color: var(--text-muted); }
+.qc-reference-preview { position: absolute; top: calc(100% + 4px); left: 0; z-index: 5; width: min(420px, 45vw); max-height: 300px; overflow: hidden; padding: 6px; border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-card); box-shadow: 0 8px 24px rgba(0, 0, 0, .25); pointer-events: none; }
+.qc-reference-preview .qc-media { max-height: 286px; overflow: hidden; }
+.qc-reference-preview img, .qc-reference-preview video { max-height: 270px; object-fit: contain; }
+.qc-reference-preview iframe { height: 270px; }
+.qc-reference-dialog { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(0, 0, 0, .72); }
+.qc-reference-dialog-content { position: relative; width: min(1100px, 95vw); max-height: 92vh; overflow: auto; padding: 36px 14px 14px; border-radius: var(--radius); background: var(--surface-card); }
+.qc-reference-dialog-close { position: absolute; top: 8px; right: 8px; border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 4px 9px; color: var(--text-primary); background: var(--surface-bg); cursor: pointer; }

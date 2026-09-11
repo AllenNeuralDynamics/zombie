@@ -13,7 +13,7 @@ describe('fetchContributions', () => {
       .mockResolvedValueOnce(response);
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(fetchContributions('/metadata-viz/contributions/get')).resolves.toBe(response);
+    await expect(fetchContributions('/metadata-viz/contributions/project')).resolves.toBe(response);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });

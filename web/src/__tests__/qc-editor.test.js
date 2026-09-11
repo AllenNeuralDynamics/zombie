@@ -1,5 +1,17 @@
-import { describe, expect, it } from 'vitest';
-import { buildQcSubmitPayload, buildReviewRows } from '../qc/editor.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  accountDisplayName,
+  buildQcSubmitPayload,
+  buildReviewRows,
+  clearQcPendingChanges,
+  QC_PENDING_CHANGES_STORAGE_PREFIX,
+  QC_VIEW_MODE_STORAGE_KEY,
+  qcPendingChangesStorageKey,
+  readQcPendingChanges,
+  readQcViewMode,
+  writeQcPendingChanges,
+  writeQcViewMode,
+} from '../qc/editor.js';
 import { canonicalQcJson, hashQc } from '../qc/canonical.js';
 import { QC_HASH_FIXTURES } from '../qc/canonical-fixtures.js';
 
@@ -16,7 +28,58 @@ function metric(name, value, status = 'Pending') {
   };
 }
 
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: key => values.has(key) ? values.get(key) : null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key),
+  };
+}
+
 describe('QC SPA edit helpers', () => {
+  it('uses the account display name before username or opaque account ids', () => {
+    expect(accountDisplayName({ name: 'Ada Lovelace', username: 'opaque-id', homeAccountId: 'another-id' })).toBe('Ada Lovelace');
+    expect(accountDisplayName({ name: 'CKyRAoBpUygn1Sle6uNHscpYK8Mpor-i8LmjfJud5Jo', idTokenClaims: { name: 'Ada Lovelace' } })).toBe('Ada Lovelace');
+    expect(accountDisplayName({ username: 'CKyRAoBpUygn1Sle6uNHscpYK8Mpor-i8LmjfJud5Jo' })).toBe('AIND account');
+  });
+
+  it('persists only valid view modes in local storage without URL state', () => {
+    const storage = {
+      getItem: vi.fn(() => 'table'),
+      setItem: vi.fn(),
+    };
+    expect(readQcViewMode(storage)).toBe('table');
+    writeQcViewMode('tree', storage);
+    expect(storage.setItem).toHaveBeenCalledWith(QC_VIEW_MODE_STORAGE_KEY, 'tree');
+    writeQcViewMode('invalid', storage);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to tree when view-mode storage is unavailable or invalid', () => {
+    expect(readQcViewMode({ getItem: () => 'grid' })).toBe('tree');
+    expect(readQcViewMode({ getItem: () => { throw new Error('blocked'); } })).toBe('tree');
+    expect(() => writeQcViewMode('table', { setItem: () => { throw new Error('blocked'); } })).not.toThrow();
+  });
+
+  it('stores pending drafts under asset-specific keys and clears only the selected asset', () => {
+    const storage = memoryStorage();
+    const drafts = { valueDrafts: { metric: '1' }, statusDrafts: { metric: 'Fail' }, notes: 'draft' };
+
+    writeQcPendingChanges('asset/one', drafts, storage);
+    writeQcPendingChanges('asset/two', { notes: 'other' }, storage);
+
+    expect(qcPendingChangesStorageKey('asset/one')).toBe(`${QC_PENDING_CHANGES_STORAGE_PREFIX}asset%2Fone`);
+    expect(readQcPendingChanges('asset/one', storage)).toEqual(drafts);
+    clearQcPendingChanges('asset/one', storage);
+    expect(readQcPendingChanges('asset/one', storage)).toBeNull();
+    expect(readQcPendingChanges('asset/two', storage)).toEqual({ notes: 'other' });
+  });
+
+  it('ignores malformed pending draft storage', () => {
+    expect(readQcPendingChanges('asset', { getItem: () => '{bad json' })).toBeNull();
+  });
+
   it('matches the frozen cross-language canonical fixtures', async () => {
     for (const fixture of QC_HASH_FIXTURES) {
       expect(canonicalQcJson(fixture.value)).toBe(canonicalQcJson(JSON.parse(JSON.stringify(fixture.value))));
@@ -104,4 +167,3 @@ describe('review diff against the freshly-pulled record', () => {
     expect(rows.some(row => row.isNotes)).toBe(false);
   });
 });
-

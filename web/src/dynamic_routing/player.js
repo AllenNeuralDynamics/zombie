@@ -30,6 +30,7 @@ import {
 import { createEventPlot } from './event-plot.js';
 import { createPlaybackHarness } from '../lib/behaviors/playback-harness.js';
 import { s3LocationToHttps } from '../lib/behaviors/playback-video.js';
+import { DR_CONTEXT_COLORS } from './colors.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -57,10 +58,9 @@ const DR_BODY_HTML = `
 
         <div class="dr-plot-col">
           <div id="dr-evt-plot"></div>
-          <div id="dr-trial-info" class="dr-trial-info">–</div>
           <div class="dr-legend">
-            <span class="dr-legend-item"><span class="dr-swatch" style="background:#7c3aed"></span>visual block</span>
-            <span class="dr-legend-item"><span class="dr-swatch" style="background:#f59e0b"></span>auditory block</span>
+            <span class="dr-legend-item"><span class="dr-swatch" style="background:${DR_CONTEXT_COLORS.vis}"></span>visual block</span>
+            <span class="dr-legend-item"><span class="dr-swatch" style="background:${DR_CONTEXT_COLORS.aud}"></span>auditory block</span>
             <span class="dr-legend-item"><span class="dr-tick" style="background:#1e40af"></span>vis target</span>
             <span class="dr-legend-item"><span class="dr-tick" style="background:#60a5fa"></span>vis nontarget</span>
             <span class="dr-legend-item"><span class="dr-tick" style="background:#b91c1c"></span>aud target</span>
@@ -71,6 +71,8 @@ const DR_BODY_HTML = `
           </div>
         </div>
       </div>
+
+      <div id="dr-trial-info" class="dr-trial-info">–</div>
 
       <div class="dr-transport">
         <button id="dr-play" type="button" title="Play / pause (space)">▶</button>
@@ -247,6 +249,7 @@ export function createDrSessionPlayback(coord, sessionId, opts = {}) {
     taskClass: 'dr',
     speedSteps: SPEED_STEPS,
     defaultSpeedIdx: DEFAULT_SPEED_IDX,
+    trialInfoBelowMain: true,
   });
   const root = harness.root;
   root.classList.add('dr-player', 'dr-player--embedded');
@@ -310,8 +313,8 @@ function _buildLegend() {
   const el = document.createElement('div');
   el.className = 'dr-legend';
   el.innerHTML = `
-    <span class="dr-legend-item"><span class="dr-swatch" style="background:#7c3aed"></span>visual block</span>
-    <span class="dr-legend-item"><span class="dr-swatch" style="background:#f59e0b"></span>auditory block</span>
+    <span class="dr-legend-item"><span class="dr-swatch" style="background:${DR_CONTEXT_COLORS.vis}"></span>visual block</span>
+    <span class="dr-legend-item"><span class="dr-swatch" style="background:${DR_CONTEXT_COLORS.aud}"></span>auditory block</span>
     <span class="dr-legend-item"><span class="dr-tick" style="background:#1e40af"></span>vis target</span>
     <span class="dr-legend-item"><span class="dr-tick" style="background:#60a5fa"></span>vis nontarget</span>
     <span class="dr-legend-item"><span class="dr-tick" style="background:#b91c1c"></span>aud target</span>
