@@ -134,6 +134,7 @@
 
 .record-consistency-table-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
   justify-content: space-between;
@@ -228,6 +229,10 @@
   align-items: center;
   justify-content: center;
   margin-top: 12px;
+}
+
+.record-consistency-paging-top .paging-bar {
+  margin-top: 0;
 }
 
 .record-consistency-paging .paging-bar button {

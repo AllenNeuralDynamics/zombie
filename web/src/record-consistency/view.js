@@ -292,11 +292,13 @@ function buildTableArea(rows) {
   toolbar.className = 'record-consistency-table-toolbar';
   const count = document.createElement('span');
   count.className = 'record-consistency-filter-count';
+  const topPaging = document.createElement('div');
+  topPaging.className = 'record-consistency-paging record-consistency-paging-top';
   const exportButton = document.createElement('button');
   exportButton.className = 'record-consistency-export-btn';
   exportButton.type = 'button';
   exportButton.textContent = 'Export CSV';
-  toolbar.append(count, exportButton);
+  toolbar.append(count, topPaging, exportButton);
   area.appendChild(toolbar);
 
   const tableWrap = document.createElement('div');
@@ -321,6 +323,33 @@ function buildTableArea(rows) {
   area.appendChild(paging);
 
   const visibleRows = () => filterRows(rows, filters);
+  const renderPaging = (container, pageCount, total, prefix) => {
+    container.innerHTML = buildPagingBar(
+      page,
+      PAGE_SIZE,
+      total,
+      `${prefix}-prev`,
+      `${prefix}-next`,
+    );
+    const start = total === 0 ? 0 : page * PAGE_SIZE + 1;
+    const end = Math.min((page + 1) * PAGE_SIZE, total);
+    container.querySelector('.paging-info').textContent = [
+      `${start.toLocaleString()}–${end.toLocaleString()} / ${total.toLocaleString()}`,
+      `Page ${(page + 1).toLocaleString()} / ${pageCount.toLocaleString()}`,
+    ].join(' · ');
+    container.querySelector(`#${prefix}-prev`)?.addEventListener('click', () => {
+      if (page > 0) {
+        page -= 1;
+        refresh();
+      }
+    });
+    container.querySelector(`#${prefix}-next`)?.addEventListener('click', () => {
+      if (page < pageCount - 1) {
+        page += 1;
+        refresh();
+      }
+    });
+  };
   const refresh = () => {
     const filtered = visibleRows();
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -328,26 +357,9 @@ function buildTableArea(rows) {
     const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
     table.querySelector('tbody').innerHTML = pageRows.map((row) => renderFindingRow(row)).join('');
-    count.textContent = `Showing ${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} findings`;
-    paging.innerHTML = buildPagingBar(
-      page,
-      PAGE_SIZE,
-      filtered.length,
-      'record-consistency-prev',
-      'record-consistency-next',
-    );
-    paging.querySelector('#record-consistency-prev')?.addEventListener('click', () => {
-      if (page > 0) {
-        page -= 1;
-        refresh();
-      }
-    });
-    paging.querySelector('#record-consistency-next')?.addEventListener('click', () => {
-      if (page < totalPages - 1) {
-        page += 1;
-        refresh();
-      }
-    });
+    count.textContent = `Filtered Matches: ${filtered.length.toLocaleString()} / Total: ${rows.length.toLocaleString()}`;
+    renderPaging(topPaging, totalPages, filtered.length, 'record-consistency-top');
+    renderPaging(paging, totalPages, filtered.length, 'record-consistency-bottom');
     writeFindingFilters(filters);
   };
 

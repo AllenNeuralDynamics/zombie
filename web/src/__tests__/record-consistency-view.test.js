@@ -205,7 +205,7 @@ describe('createRecordConsistencyView', () => {
     versionFilter.dispatchEvent(new Event('change', { bubbles: true }));
 
     expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(root.querySelector('.record-consistency-filter-count')?.textContent).toBe('Showing 1 of 3 findings');
+    expect(root.querySelector('.record-consistency-filter-count')?.textContent).toBe('Filtered Matches: 1 / Total: 3');
     expect(window.location.search).toContain('f_docdb_version=v1');
 
     root.querySelector('.record-consistency-export-btn').click();
@@ -239,10 +239,16 @@ describe('createRecordConsistencyView', () => {
     const root = createRecordConsistencyView({ query: vi.fn() });
     await vi.waitFor(() => expect(root.querySelectorAll('tbody tr')).toHaveLength(100));
 
-    expect(root.querySelector('.paging-info')?.textContent).toBe('1–100 of 102');
-    root.querySelector('#record-consistency-next').click();
+    expect([...root.querySelectorAll('.paging-info')].map((element) => element.textContent)).toEqual([
+      '1–100 / 102 · Page 1 / 2',
+      '1–100 / 102 · Page 1 / 2',
+    ]);
+    root.querySelector('#record-consistency-top-next').click();
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(root.querySelector('.paging-info')?.textContent).toBe('101–102 of 102');
+    expect([...root.querySelectorAll('.paging-info')].map((element) => element.textContent)).toEqual([
+      '101–102 / 102 · Page 2 / 2',
+      '101–102 / 102 · Page 2 / 2',
+    ]);
 
     root.querySelector('.record-consistency-export-btn').click();
     expect(downloadCsv).toHaveBeenCalledWith(
