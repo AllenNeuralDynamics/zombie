@@ -2,12 +2,10 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  addDuplicateGroupDetails,
-  buildDuplicateNameQuery,
-  countDuplicateNameGroups,
+  buildFlaggedRecordsQuery,
+  countChecks,
   createRecordConsistencyView,
-  formatListValue,
-  renderDuplicateNameRow,
+  renderFindingRow,
 } from '../record-consistency/view.js';
 
 vi.mock('../lib/registry.js', () => ({
@@ -23,57 +21,51 @@ import { ensureTable } from '../lib/registry.js';
 
 const ROWS = [
   {
+    check_key: 'docdb_duplicate_name_v2',
+    status: 'fail',
     docdb_id: 'id-001',
     docdb_version: 'v2',
     name: 'asset-one',
     location: 's3://aind-data/asset-one/',
+    checked_at: '2026-09-11T18:26:32Z',
+    run_id: 'run-001',
   },
   {
+    check_key: 'docdb_duplicate_name_v2',
+    status: 'fail',
     docdb_id: 'id-002',
     docdb_version: 'v2',
     name: 'asset-one',
     location: 's3://aind-data/asset-two/',
+    checked_at: '2026-09-11T18:26:32Z',
+    run_id: 'run-001',
   },
 ];
 
 describe('record-consistency view helpers', () => {
-  it('queries only failed v2 duplicate-name flags', () => {
-    const sql = buildDuplicateNameQuery('record_consistency_checks');
+  it('queries non-pass findings across all checks', () => {
+    const sql = buildFlaggedRecordsQuery('record_consistency_checks');
     expect(sql).toContain('FROM "record_consistency_checks"');
-    expect(sql).toContain("check_key = 'docdb_duplicate_name_v2'");
-    expect(sql).toContain("docdb_version = 'v2'");
-    expect(sql).toContain("status = 'fail'");
-    expect(sql).toContain('ORDER BY name ASC, docdb_id ASC');
-    expect(sql).not.toContain('peer_docdb_ids');
-    expect(sql).not.toContain('duplicate_group_count');
+    expect(sql).toContain('SELECT name, check_key, status, docdb_version, docdb_id, location, run_id, checked_at');
+    expect(sql).toContain("status IN ('fail', 'unknown')");
+    expect(sql).toContain('ORDER BY check_key ASC, name ASC, docdb_id ASC');
   });
 
-  it('derives group sizes and peer IDs from result rows', () => {
-    expect(addDuplicateGroupDetails(ROWS)).toEqual([
-      { ...ROWS[0], duplicate_group_count: 2, peer_docdb_ids: ['id-002'] },
-      { ...ROWS[1], duplicate_group_count: 2, peer_docdb_ids: ['id-001'] },
-    ]);
-  });
-
-  it('formats list-valued and scalar peer IDs', () => {
-    expect(formatListValue(['id-001', 'id-002'])).toBe('id-001, id-002');
-    expect(formatListValue('id-001')).toBe('id-001');
-    expect(formatListValue(null)).toBe('');
-  });
-
-  it('counts duplicate groups by exact flagged name', () => {
-    expect(countDuplicateNameGroups(ROWS)).toBe(1);
-    expect(countDuplicateNameGroups([...ROWS, { name: 'asset-two' }])).toBe(2);
+  it('counts represented checks', () => {
+    expect(countChecks(ROWS)).toBe(1);
+    expect(countChecks([...ROWS, { check_key: 'missing_s3_location' }])).toBe(2);
   });
 
   it('escapes row content and links metadata and S3 location', () => {
-    const html = renderDuplicateNameRow({
-      ...addDuplicateGroupDetails(ROWS)[0],
+    const html = renderFindingRow({
+      ...ROWS[0],
       name: '"><img src=x>',
       docdb_id: 'id"><script>',
     });
     expect(html).not.toContain('<img');
     expect(html).not.toContain('<script>');
+    expect(html).toContain('docdb_duplicate_name_v2');
+    expect(html).toContain('run-001');
     expect(html).toContain('/record?name=');
     expect(html).toContain('s3.console.aws.amazon.com');
   });
@@ -91,15 +83,25 @@ describe('createRecordConsistencyView', () => {
     await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
 
     expect(ensureTable).toHaveBeenCalledWith(expect.anything(), 'record_consistency_checks');
-    expect(queryRows).toHaveBeenCalledWith(expect.anything(), expect.stringContaining("status = 'fail'"));
-    expect(root.textContent).toContain('2 flagged v2 record(s) across 1 duplicate name group(s).');
+    expect(queryRows).toHaveBeenCalledWith(expect.anything(), expect.stringContaining("status IN ('fail', 'unknown')"));
+    expect(root.textContent).toContain('2 flagged record(s) across 1 check(s).');
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect([...root.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual([
+      'Name',
+      'Check',
+      'Status',
+      'DocDB version',
+      'DocDB ID',
+      's3_location',
+      'Run ID',
+      'Checked at',
+    ]);
   });
 
   it('renders an explicit empty state', async () => {
     queryRows.mockResolvedValue([]);
     const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.textContent).toContain('No flagged v2 duplicate-name records.'));
+    await vi.waitFor(() => expect(root.textContent).toContain('No flagged records.'));
     expect(root.querySelector('table')).toBeNull();
   });
 

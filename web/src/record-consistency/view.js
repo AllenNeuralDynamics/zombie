@@ -5,70 +5,30 @@ import { escHtml } from '../lib/utils.js';
 import { buildMetadataLink, buildS3ConsoleUrl } from '../assets/links.js';
 
 export const RECORD_CONSISTENCY_TABLE = 'record_consistency_checks';
-export const DUPLICATE_NAME_CHECK_KEY = 'docdb_duplicate_name_v2';
 
 /**
- * Build the query used by the dev-only duplicate-name findings page.
+ * Build the query used by the dev-only flagged-records page.
  *
  * @param {string} tableName - Registered DuckDB table name.
  * @returns {string}
  */
-export function buildDuplicateNameQuery(tableName = RECORD_CONSISTENCY_TABLE) {
+export function buildFlaggedRecordsQuery(tableName = RECORD_CONSISTENCY_TABLE) {
   return `
-    SELECT docdb_id, docdb_version, name, location
+    SELECT name, check_key, status, docdb_version, docdb_id, location, run_id, checked_at
     FROM ${quoteIdentifier(tableName)}
-    WHERE check_key = '${DUPLICATE_NAME_CHECK_KEY}'
-      AND docdb_version = 'v2'
-      AND status = 'fail'
-    ORDER BY name ASC, docdb_id ASC
+    WHERE status IN ('fail', 'unknown')
+    ORDER BY check_key ASC, name ASC, docdb_id ASC
   `;
 }
 
 /**
- * Derive duplicate-group display fields from failed result rows.
- *
- * @param {object[]} rows
- * @returns {object[]}
- */
-export function addDuplicateGroupDetails(rows) {
-  const idsByName = new Map();
-  for (const row of rows) {
-    const name = String(row.name ?? '');
-    const ids = idsByName.get(name) ?? [];
-    ids.push(String(row.docdb_id ?? ''));
-    idsByName.set(name, ids);
-  }
-  return rows.map((row) => {
-    const ids = idsByName.get(String(row.name ?? '')) ?? [];
-    const docdbId = String(row.docdb_id ?? '');
-    return {
-      ...row,
-      duplicate_group_count: ids.length,
-      peer_docdb_ids: ids.filter((id) => id !== docdbId),
-    };
-  });
-}
-
-/**
- * Format a scalar or list-valued cache field for display.
- *
- * @param {unknown} value
- * @returns {string}
- */
-export function formatListValue(value) {
-  if (value == null) return '';
-  if (Array.isArray(value)) return value.map((item) => String(item)).join(', ');
-  return String(value);
-}
-
-/**
- * Count distinct duplicate-name groups in the failed rows.
+ * Count checks represented by flagged rows.
  *
  * @param {object[]} rows
  * @returns {number}
  */
-export function countDuplicateNameGroups(rows) {
-  return new Set(rows.map((row) => String(row.name ?? ''))).size;
+export function countChecks(rows) {
+  return new Set(rows.map((row) => String(row.check_key ?? ''))).size;
 }
 
 function externalLink(href, label) {
@@ -77,27 +37,28 @@ function externalLink(href, label) {
 }
 
 /**
- * Render one failed v2 duplicate-name finding.
+ * Render one flagged record-consistency finding.
  *
- * @param {object} row - Row enriched by {@link addDuplicateGroupDetails}.
+ * @param {object} row
  * @returns {string} Escaped table-row HTML.
  */
-export function renderDuplicateNameRow(row) {
+export function renderFindingRow(row) {
   const name = String(row.name ?? '');
   const nameHref = buildMetadataLink(name);
   const nameCell = nameHref
     ? `<a href="${escHtml(nameHref)}">${escHtml(name)}</a>`
     : '<span class="no-link">—</span>';
   const location = String(row.location ?? '');
-  const peerIds = formatListValue(row.peer_docdb_ids);
-  const groupCount = row.duplicate_group_count == null ? '' : String(row.duplicate_group_count);
 
   return `<tr>
     <td>${nameCell}</td>
+    <td><code>${escHtml(row.check_key ?? '')}</code></td>
+    <td>${escHtml(row.status ?? '')}</td>
+    <td>${escHtml(row.docdb_version ?? '')}</td>
     <td><code>${escHtml(row.docdb_id ?? '')}</code></td>
-    <td>${escHtml(groupCount)}</td>
-    <td><code>${escHtml(peerIds)}</code></td>
     <td>${externalLink(buildS3ConsoleUrl(location), location)}</td>
+    <td><code>${escHtml(row.run_id ?? '')}</code></td>
+    <td>${escHtml(row.checked_at ?? '')}</td>
   </tr>`;
 }
 
@@ -108,13 +69,16 @@ function buildTable(rows) {
     <thead>
       <tr>
         <th>Name</th>
-        <th>DocDB v2 ID</th>
-        <th>Group size</th>
-        <th>Peer DocDB v2 IDs</th>
-        <th>S3 location</th>
+        <th>Check</th>
+        <th>Status</th>
+        <th>DocDB version</th>
+        <th>DocDB ID</th>
+        <th>s3_location</th>
+        <th>Run ID</th>
+        <th>Checked at</th>
       </tr>
     </thead>
-    <tbody>${rows.map(renderDuplicateNameRow).join('')}</tbody>
+    <tbody>${rows.map(renderFindingRow).join('')}</tbody>
   `;
   return table;
 }
@@ -138,8 +102,7 @@ export function createRecordConsistencyView(coord) {
 
   const intro = document.createElement('p');
   intro.className = 'record-consistency-intro';
-  intro.textContent =
-    'Current check: docdb_duplicate_name_v2. Each row is one v2 DocDB record in an exact duplicate-name group.';
+  intro.textContent = 'Each row is one non-pass result from the record-consistency cache.';
   container.appendChild(intro);
 
   const loading = document.createElement('p');
@@ -148,27 +111,26 @@ export function createRecordConsistencyView(coord) {
   container.appendChild(loading);
 
   ensureTable(coord, RECORD_CONSISTENCY_TABLE)
-    .then((tableName) => queryRows(coord, buildDuplicateNameQuery(tableName)))
+    .then((tableName) => queryRows(coord, buildFlaggedRecordsQuery(tableName)))
     .then((rows) => {
-      const displayRows = addDuplicateGroupDetails(rows);
       loading.remove();
       const summary = document.createElement('p');
       summary.className = 'record-consistency-summary';
-      summary.textContent = `${displayRows.length.toLocaleString()} flagged v2 record(s) across `
-        + `${countDuplicateNameGroups(displayRows).toLocaleString()} duplicate name group(s).`;
+      summary.textContent = `${rows.length.toLocaleString()} flagged record(s) across `
+        + `${countChecks(rows).toLocaleString()} check(s).`;
       container.appendChild(summary);
 
-      if (displayRows.length === 0) {
+      if (rows.length === 0) {
         const empty = document.createElement('p');
         empty.className = 'record-consistency-empty';
-        empty.textContent = 'No flagged v2 duplicate-name records.';
+        empty.textContent = 'No flagged records.';
         container.appendChild(empty);
         return;
       }
 
       const tableWrap = document.createElement('div');
       tableWrap.className = 'record-consistency-table-wrap';
-      tableWrap.appendChild(buildTable(displayRows));
+      tableWrap.appendChild(buildTable(rows));
       container.appendChild(tableWrap);
     })
     .catch((err) => {
