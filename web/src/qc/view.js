@@ -108,6 +108,10 @@ export function createQCView(record, rawS3Loc = '', {
   const defaultGrouping = cachedGrouping(cachedRows, parsed.defaultGrouping);
   const modalities = [...new Set(metrics.map(metric => metric.modality?.abbreviation).filter(Boolean))];
   const stages = [...new Set(metrics.map(metric => metric.stage).filter(Boolean))];
+  const derivedAssets = [...new Set([
+    ...chainRecords.map(chainRecord => chainRecord?.name),
+    ...cachedMetrics.flatMap(metric => [metric.assetName, ...(metric.downstreamAssetNames ?? [])]),
+  ].filter(assetName => assetName && assetName !== name))];
   const affectedAssetsByMetric = Object.fromEntries(metrics.map(metric => [
     metric.name,
     [...new Set([metric.assetName || name, ...(metric.downstreamAssetNames ?? [])])],
@@ -121,6 +125,7 @@ export function createQCView(record, rawS3Loc = '', {
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages, {
     viewMode,
     stageFilter,
+    derivedAssets,
     onViewModeChange: (nextViewMode) => {
       if (nextViewMode === viewMode) return;
       viewMode = nextViewMode;
@@ -274,6 +279,7 @@ export function createQCView(record, rawS3Loc = '', {
 export function buildHeader(name, _projectName, codeOceanId, modalities, stages, {
   viewMode = 'tree',
   stageFilter = 'all',
+  derivedAssets = [],
   onViewModeChange = null,
   onStageFilterChange = null,
 } = {}) {
@@ -288,7 +294,23 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
   assetLink.href = `/view?asset=${encodeURIComponent(name)}`;
   assetLink.textContent = name;
   h2.appendChild(assetLink);
-  topRow.appendChild(h2);
+
+  const assetHeading = document.createElement('div');
+  assetHeading.className = 'qc-header-asset';
+  assetHeading.appendChild(h2);
+  if (derivedAssets.length) {
+    const derivedLinks = document.createElement('div');
+    derivedLinks.className = 'qc-derived-assets';
+    for (const derivedAsset of derivedAssets) {
+      const derivedLink = document.createElement('a');
+      derivedLink.className = 'qc-derived-asset-link';
+      derivedLink.href = `/view?asset=${encodeURIComponent(derivedAsset)}`;
+      derivedLink.textContent = `↳ ${derivedAsset}`;
+      derivedLinks.appendChild(derivedLink);
+    }
+    assetHeading.appendChild(derivedLinks);
+  }
+  topRow.appendChild(assetHeading);
 
   const actions = document.createElement('div');
   actions.className = 'qc-header-actions';

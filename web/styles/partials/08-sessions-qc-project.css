@@ -349,6 +349,10 @@
 .qc-header { padding: var(--gap); border-bottom: 1px solid var(--surface-border); }
 .qc-header-top { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); margin-bottom: 6px; }
 .qc-header-top h2 { margin: 0; }
+.qc-header-asset { min-width: 0; }
+.qc-derived-assets { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; padding-left: 4px; font-size: 0.85em; }
+.qc-derived-asset-link { color: var(--text-secondary); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qc-derived-asset-link:hover { color: var(--accent-2); text-decoration: underline; }
 .qc-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .qc-header-meta { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
 .qc-header-links a {

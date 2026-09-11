@@ -13,6 +13,7 @@ import { queryRows } from '../lib/arrow.js';
 import { buildInteractiveModalityHistogram } from '../lib/charts.js';
 import { ensureTable } from '../lib/registry.js';
 import { buildQueryBuilder } from './query-builder.js';
+import { findRawAssetName } from '../qc/lineage.js';
 
 // Re-export for backward compatibility with tests
 export { formatDatetime, sortRows, uniqueValues, filterRows };
@@ -94,7 +95,7 @@ const COLUMN_LABELS = {
 
 export function renderAssetRow(row, visibleColumns) {
   const s3Href = buildS3ConsoleUrl(row.location ?? null);
-  const qcHref = buildQcLink(row.name ?? null);
+  const qcHref = buildQcLink(row.qc_asset_name ?? row.name ?? null);
   const metaHref = buildMetadataLink(row.name ?? null);
   const coHref = buildCoLink(row.code_ocean ?? null);
   const acqTime = formatDatetime(row.acquisition_start_time ?? null);
@@ -342,10 +343,18 @@ export function createAssetsView(coord) {
   // Query builder placeholder — inserted once rows are loaded
   let queryBuilderEl = null;
 
-  queryRows(coord, sql)
-    .then((rows) => {
+  const sourceRows = ensureTable(coord, 'source_data')
+    .then(() => queryRows(coord, 'SELECT name, source_data FROM source_data'))
+    .catch(() => []);
+
+  Promise.all([queryRows(coord, sql), sourceRows])
+    .then(([rows, sources]) => {
       loadingEl.remove();
-      buildTable(rows, settingsBtn);
+      const rawByAsset = new Map(rows.map(row => [row.name, findRawAssetName(row.name, sources)]));
+      buildTable(rows.map(row => ({
+        ...row,
+        qc_asset_name: rawByAsset.get(row.name) ?? row.name,
+      })), settingsBtn);
     })
     .catch((err) => {
       loadingEl.textContent = `Failed to load assets: ${err?.message ?? err}`;

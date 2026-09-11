@@ -116,13 +116,17 @@ describe('QC header actions', () => {
         status: 'Pass',
         asset_name: 'processed',
         raw_asset_name: 'raw',
-        downstream_asset_names: [],
+        downstream_asset_names: ['analysis', 'processed'],
         metric_json: JSON.stringify({ name: 'processed-only', stage: 'Processing', value: 'new', status_history: [{ status: 'Pass' }] }),
         default_grouping: JSON.stringify([]),
       }],
     });
     expect([...view.querySelectorAll('.qc-content .metric-name')].map(node => node.textContent)).toEqual(['processed-only']);
     expect(mountQcEditor.mock.calls.at(-1)[2].displayMetrics[0].name).toBe('processed-only');
+    expect([...view.querySelectorAll('.qc-derived-asset-link')].map(link => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['↳ processed', '/view?asset=processed'],
+      ['↳ analysis', '/view?asset=analysis'],
+    ]);
   });
 });
 
