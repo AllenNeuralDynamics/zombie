@@ -221,3 +221,34 @@
   color: var(--text-primary);
   text-decoration: underline;
 }
+
+.record-consistency-paging .paging-bar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.record-consistency-paging .paging-bar button {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.record-consistency-paging .paging-bar button:hover:not(:disabled) {
+  background: var(--surface-card);
+}
+
+.record-consistency-paging .paging-bar button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.record-consistency-paging .paging-info {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}

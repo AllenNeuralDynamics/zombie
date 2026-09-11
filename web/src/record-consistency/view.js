@@ -1,8 +1,8 @@
 import { queryRows } from '../lib/arrow.js';
 import { quoteIdentifier, s3PathToHttps } from '../lib/metadata.js';
-import { buildFilterInput } from '../lib/paginated-table.js';
+import { buildFilterInput, buildPagingBar } from '../lib/paginated-table.js';
 import { ensureTable, getAcorn } from '../lib/registry.js';
-import { downloadCsv, escHtml, filterRows } from '../lib/utils.js';
+import { downloadCsv, escHtml, filterRows, PAGE_SIZE } from '../lib/utils.js';
 import { buildMetadataLink, buildS3ConsoleUrl } from '../assets/links.js';
 
 export const RECORD_CONSISTENCY_TABLE = 'record_consistency_checks';
@@ -284,6 +284,7 @@ export function findingCsvRows(rows) {
 
 function buildTableArea(rows) {
   const filters = readFindingFilters();
+  let page = 0;
   const area = document.createElement('div');
   area.className = 'record-consistency-table-area';
 
@@ -315,11 +316,38 @@ function buildTableArea(rows) {
   tableWrap.appendChild(table);
   area.appendChild(tableWrap);
 
+  const paging = document.createElement('div');
+  paging.className = 'record-consistency-paging';
+  area.appendChild(paging);
+
   const visibleRows = () => filterRows(rows, filters);
   const refresh = () => {
     const filtered = visibleRows();
-    table.querySelector('tbody').innerHTML = filtered.map((row) => renderFindingRow(row)).join('');
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (page >= totalPages) page = totalPages - 1;
+    const pageRows = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+    table.querySelector('tbody').innerHTML = pageRows.map((row) => renderFindingRow(row)).join('');
     count.textContent = `Showing ${filtered.length.toLocaleString()} of ${rows.length.toLocaleString()} findings`;
+    paging.innerHTML = buildPagingBar(
+      page,
+      PAGE_SIZE,
+      filtered.length,
+      'record-consistency-prev',
+      'record-consistency-next',
+    );
+    paging.querySelector('#record-consistency-prev')?.addEventListener('click', () => {
+      if (page > 0) {
+        page -= 1;
+        refresh();
+      }
+    });
+    paging.querySelector('#record-consistency-next')?.addEventListener('click', () => {
+      if (page < totalPages - 1) {
+        page += 1;
+        refresh();
+      }
+    });
     writeFindingFilters(filters);
   };
 
@@ -327,6 +355,7 @@ function buildTableArea(rows) {
     const input = event.target.closest('.col-filter');
     if (!input) return;
     filters[input.dataset.col] = input.value;
+    page = 0;
     refresh();
   };
   table.querySelector('thead').addEventListener('input', updateFilter);

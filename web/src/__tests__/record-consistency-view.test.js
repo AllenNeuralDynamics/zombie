@@ -228,6 +228,30 @@ describe('createRecordConsistencyView', () => {
     );
   });
 
+  it('paginates filtered findings without limiting CSV export', async () => {
+    const manyRows = Array.from({ length: 102 }, (_, index) => ({
+      ...ROWS[0],
+      docdb_id: `id-${String(index).padStart(3, '0')}`,
+      name: `asset-${String(index).padStart(3, '0')}`,
+    }));
+    queryRows.mockResolvedValue(manyRows);
+
+    const root = createRecordConsistencyView({ query: vi.fn() });
+    await vi.waitFor(() => expect(root.querySelectorAll('tbody tr')).toHaveLength(100));
+
+    expect(root.querySelector('.paging-info')?.textContent).toBe('1–100 of 102');
+    root.querySelector('#record-consistency-next').click();
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(root.querySelector('.paging-info')?.textContent).toBe('101–102 of 102');
+
+    root.querySelector('.record-consistency-export-btn').click();
+    expect(downloadCsv).toHaveBeenCalledWith(
+      'record-consistency-findings.csv',
+      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
+      findingCsvRows(manyRows),
+    );
+  });
+
   it('renders findings when the optional manifest is unavailable', async () => {
     fetch.mockRejectedValue(new Error('manifest unavailable'));
     const root = createRecordConsistencyView({ query: vi.fn() });
