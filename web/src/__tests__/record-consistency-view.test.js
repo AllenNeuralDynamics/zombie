@@ -32,6 +32,9 @@ const MANIFEST = {
     check_key: 'docdb_duplicate_name_v2',
     description: CHECK_DESCRIPTION,
     implementation_url: IMPLEMENTATION_URL,
+    processed_count: 3,
+    failed_count: 2,
+    unknown_count: 0,
   }],
 };
 
@@ -92,14 +95,10 @@ describe('record-consistency view helpers', () => {
     expect(html).toContain('s3.console.aws.amazon.com');
   });
 
-  it('renders manifest-provided check metadata beside known check keys', () => {
-    const html = renderFindingRow(ROWS[0], {
-      docdb_duplicate_name_v2: MANIFEST.checks[0],
-    });
-    expect(html).toContain('record-consistency-check-info');
-    expect(html).toContain('Flags each record in DocDB v2');
-    expect(html).toContain('&quot;name&quot;');
-    expect(html).toContain(IMPLEMENTATION_URL);
+  it('renders a plain check key in each finding row', () => {
+    const html = renderFindingRow(ROWS[0]);
+    expect(html).toContain('<code>docdb_duplicate_name_v2</code>');
+    expect(html).not.toContain(IMPLEMENTATION_URL);
   });
 });
 
@@ -126,9 +125,12 @@ describe('createRecordConsistencyView', () => {
     expect(queryRows).toHaveBeenCalledWith(expect.anything(), expect.stringContaining("status IN ('fail', 'unknown')"));
     expect(root.querySelector('.record-consistency-summary-panel')?.textContent).toContain('Flagged results');
     expect(root.querySelector('.record-consistency-summary-panel')?.textContent).toContain('Evaluated rows');
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain(CHECK_DESCRIPTION);
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('2 flagged');
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('3 evaluated');
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('Implementation permalink');
+    expect(root.querySelector('.record-consistency-implementation a')?.getAttribute('href')).toBe(IMPLEMENTATION_URL);
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(root.querySelectorAll('.record-consistency-check-info')).toHaveLength(2);
-    expect(root.querySelector('.record-consistency-check-info')?.getAttribute('href')).toBe(IMPLEMENTATION_URL);
     expect([...root.querySelectorAll('th')].map((cell) => cell.textContent)).toEqual([
       'Name',
       'Check',
@@ -141,23 +143,14 @@ describe('createRecordConsistencyView', () => {
     ]);
   });
 
-  it('shows the check description on hover', async () => {
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelector('.record-consistency-check-info')).not.toBeNull());
-
-    root.querySelector('.record-consistency-check-info').dispatchEvent(new MouseEvent('mouseenter'));
-    expect(document.body.querySelector('.record-consistency-check-tooltip')?.textContent).toBe(CHECK_DESCRIPTION);
-    root.querySelector('.record-consistency-check-info').dispatchEvent(new MouseEvent('mouseleave'));
-    expect(document.body.querySelector('.record-consistency-check-tooltip')).toBeNull();
-  });
-
   it('renders findings when the optional manifest is unavailable', async () => {
     fetch.mockRejectedValue(new Error('manifest unavailable'));
     const root = createRecordConsistencyView({ query: vi.fn() });
     await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
 
     expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(root.querySelector('.record-consistency-check-info')).toBeNull();
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('Description unavailable.');
+    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('2 flagged');
   });
 
   it('renders an explicit empty state', async () => {
