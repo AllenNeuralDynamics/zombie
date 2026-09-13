@@ -7,7 +7,7 @@ import { queryDocDb } from '../lib/docdb.js';
 import { getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
-import { getMetricStatus, parseQCRecord } from './data.js';
+import { getMetricStatus, isCustomMetric, parseQCRecord } from './data.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -38,6 +38,55 @@ export function buildQcSubmitPayload(record, {
   return payload;
 }
 
+function isDictionary(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function changedDictionaryKeys(current, next) {
+  const keys = new Set([...Object.keys(current), ...Object.keys(next)]);
+  return [...keys].filter(key => !sameValue(current[key], next[key]));
+}
+
+function partialDictionaryText(value, keys, allKeys) {
+  const shown = Object.fromEntries(
+    keys.filter(key => Object.prototype.hasOwnProperty.call(value, key))
+      .map(key => [key, value[key]]),
+  );
+  const text = Object.keys(shown).length ? JSON.stringify(shown) : '—';
+  return allKeys.length > keys.length ? `${text} …` : text;
+}
+
+/**
+ * Keep review values useful when the submitted value is a metadata dictionary.
+ * The edit still submits the complete dictionary; this only narrows its display
+ * to the fields that differ between the current and submitted values.
+ */
+export function reviewValueText(value, nextValue, previousValue) {
+  if (!isDictionary(value) || !isDictionary(nextValue)) {
+    return valueText(value);
+  }
+
+  // DropdownMetric and CheckboxMetric carry their options and status mapping
+  // alongside the actual selection. Only the selection is user-editable here.
+  let keys = isCustomMetric(value) && isCustomMetric(nextValue)
+    ? ['value']
+    : changedDictionaryKeys(value, nextValue);
+
+  // If the live record already contains the submitted value, retain the field
+  // that the user changed when the live value drifted to match it.
+  if (!keys.length && isDictionary(previousValue)) {
+    keys = changedDictionaryKeys(previousValue, nextValue);
+  }
+  if (!keys.length) return valueText(value);
+
+  const allKeys = [...new Set([
+    ...Object.keys(value),
+    ...Object.keys(nextValue),
+    ...(isDictionary(previousValue) ? Object.keys(previousValue) : []),
+  ])];
+  return partialDictionaryText(value, keys, allKeys);
+}
+
 /**
  * Diff pending edits against a freshly-fetched record rather than the copy
  * loaded when the page rendered, so the user reviews what will actually
@@ -59,8 +108,8 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     const was = loadedByName.get(name);
     const row = { name, missing: false };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      row.currentValue = valueText(live.value);
-      row.nextValue = valueText(change.value);
+      row.currentValue = reviewValueText(live.value, change.value, was?.value);
+      row.nextValue = reviewValueText(change.value, live.value, was?.value);
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {

@@ -12,6 +12,7 @@ import { escHtml, formatDatetime, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD } fr
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
+import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
 
 const ALWAYS_SHOWN_BASICS = ['subject_id', 'project_name'];
 const OPTIONAL_BASICS = ['acquisition_start_time', 'data_level', 'modalities', 'genotype'];
@@ -28,7 +29,7 @@ const BASICS_LABELS = {
 const BASICS_KEYS_FROM_JOIN = [
   'subject_id', 'project_name', 'acquisition_start_time',
   'data_level', 'modalities', 'genotype', 'location',
-  'code_ocean', 'investigators', 'experimenters',
+  'code_ocean', 'investigators', 'experimenters', 'instrument_id_normalized',
 ];
 
 // ---------------------------------------------------------------------------
@@ -217,10 +218,21 @@ function uniqueFiberValues(wideRows, cols) {
   return [...seen].sort();
 }
 
-/** Filter rows to those matching the sidebar selections (target AND measurement). */
-function applyFiberSidebarFilters(rows, selectedTargets, selectedMeasurements, targetCols, measCols) {
-  if (selectedTargets.size === 0 && selectedMeasurements.size === 0) return rows;
+/** Filter rows to those matching the sidebar selections. */
+export function applyFiberSidebarFilters(
+  rows,
+  selectedTargets,
+  selectedMeasurements,
+  targetCols,
+  measCols,
+  selectedInstruments = new Set(),
+) {
+  if (selectedTargets.size === 0 && selectedMeasurements.size === 0 && selectedInstruments.size === 0) return rows;
   return rows.filter((row) => {
+    if (
+      selectedInstruments.size > 0 &&
+      !selectedInstruments.has(String(row.instrument_id_normalized ?? ''))
+    ) return false;
     if (selectedTargets.size > 0) {
       if (!targetCols.some((col) => selectedTargets.has(String(row[col] ?? '')))) return false;
     }
@@ -229,50 +241,6 @@ function applyFiberSidebarFilters(rows, selectedTargets, selectedMeasurements, t
     }
     return true;
   });
-}
-
-/** Build a checkbox filter group in the sidebar. */
-function buildCheckboxGroup(filterPanel, label, allValues, selectedSet, onChange) {
-  const group = document.createElement('div');
-  group.className = 'sessions-filter-group';
-
-  const labelEl = document.createElement('div');
-  labelEl.className = 'sessions-filter-label';
-  labelEl.textContent = label;
-  group.appendChild(labelEl);
-
-  const checkboxList = document.createElement('div');
-  checkboxList.className = 'sessions-checkbox-list';
-  group.appendChild(checkboxList);
-
-  const clearBtn = document.createElement('button');
-  clearBtn.className = 'sessions-filter-clear';
-  clearBtn.textContent = 'Clear';
-  clearBtn.addEventListener('click', () => {
-    selectedSet.clear();
-    checkboxList.querySelectorAll('input[type=checkbox]').forEach((cb) => { cb.checked = false; });
-    onChange();
-  });
-  group.appendChild(clearBtn);
-
-  for (const val of allValues) {
-    const item = document.createElement('label');
-    item.className = 'sessions-checkbox-item';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.value = val;
-    cb.checked = selectedSet.has(val);
-    cb.addEventListener('change', () => {
-      if (cb.checked) selectedSet.add(val);
-      else selectedSet.delete(val);
-      onChange();
-    });
-    item.appendChild(cb);
-    item.appendChild(document.createTextNode(' ' + val));
-    checkboxList.appendChild(item);
-  }
-
-  filterPanel.appendChild(group);
 }
 
 // ---------------------------------------------------------------------------
@@ -528,11 +496,12 @@ export function createFiberPhotometryView(coord) {
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.data_level, b.modalities_str AS modalities, b.genotype, b.location,
                 b.code_ocean_str AS code_ocean,
-                b.investigators_str AS investigators, b.experimenters_str AS experimenters
+                b.investigators_str AS investigators, b.experimenters_str AS experimenters,
+                b.instrument_id_normalized
          FROM platform_fib f
          LEFT JOIN (
            SELECT name, subject_id, project_name, acquisition_start_time,
-                  data_level, genotype, location,
+                  data_level, genotype, location, instrument_id_normalized,
                   array_to_string(modalities, ', ') AS modalities_str,
                   array_to_string(code_ocean, ', ') AS code_ocean_str,
                   array_to_string(investigators_normalized, ', ') AS investigators_str,
@@ -573,11 +542,20 @@ export function createFiberPhotometryView(coord) {
     const { targetCols, measCols } = detectFiberCols(allRows);
     const allTargets = uniqueFiberValues(allRows, targetCols);
     const allMeasurements = uniqueFiberValues(allRows, measCols);
+    const allInstruments = uniqueValues(allRows, 'instrument_id_normalized');
     const selectedTargets = new Set();
     const selectedMeasurements = new Set();
+    const selectedInstruments = new Set();
 
     function getBaseRows() {
-      return applyFiberSidebarFilters(allRows, selectedTargets, selectedMeasurements, targetCols, measCols);
+      return applyFiberSidebarFilters(
+        allRows,
+        selectedTargets,
+        selectedMeasurements,
+        targetCols,
+        measCols,
+        selectedInstruments,
+      );
     }
 
     // Layout: sidebar + main
@@ -735,10 +713,17 @@ export function createFiberPhotometryView(coord) {
     }
 
     if (allTargets.length > 0) {
-      buildCheckboxGroup(filterPanel, 'Target', allTargets, selectedTargets, onSidebarChange);
+      filterPanel.appendChild(buildCheckboxGroup('Target', allTargets, selectedTargets, onSidebarChange).wrapper);
     }
     if (allMeasurements.length > 0) {
-      buildCheckboxGroup(filterPanel, 'Intended Measurement', allMeasurements, selectedMeasurements, onSidebarChange);
+      filterPanel.appendChild(buildCheckboxGroup(
+        'Intended Measurement', allMeasurements, selectedMeasurements, onSidebarChange,
+      ).wrapper);
+    }
+    if (allInstruments.length > 0) {
+      filterPanel.appendChild(buildCheckboxGroup(
+        'Instrument ID (normalized)', allInstruments, selectedInstruments, onSidebarChange,
+      ).wrapper);
     }
   }
 

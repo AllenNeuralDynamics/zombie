@@ -116,6 +116,35 @@ describe('review diff against the freshly-pulled record', () => {
     expect(row.nextValue).toBe('0.94');
   });
 
+  it.each([
+    ['dropdown', 'good', 'bad'],
+    ['checkbox', ['good'], ['bad']],
+  ])('only shows the value field for a changed %s metric', (type, current, next) => {
+    const loadedValue = { type, options: ['good', 'bad'], value: current, status: ['Pass', 'Fail'] };
+    const nextValue = { ...loadedValue, value: next };
+    const loaded = recordWith([metric('quality', loadedValue)]);
+    const fresh = recordWith([metric('quality', loadedValue)]);
+    const [row] = buildReviewRows(fresh, loaded, { pendingChanges: { quality: { value: nextValue } } });
+
+    expect(row.currentValue).toBe(`${JSON.stringify({ value: current })} …`);
+    expect(row.nextValue).toBe(`${JSON.stringify({ value: next })} …`);
+    expect(row.currentValue).not.toContain('options');
+    expect(row.nextValue).not.toContain('status');
+  });
+
+  it('only shows changed fields for an ordinary dictionary value', () => {
+    const loadedValue = { quality: 'good', count: 3, source: 'pipeline' };
+    const nextValue = { ...loadedValue, quality: 'bad' };
+    const loaded = recordWith([metric('quality', loadedValue)]);
+    const fresh = recordWith([metric('quality', loadedValue)]);
+    const [row] = buildReviewRows(fresh, loaded, { pendingChanges: { quality: { value: nextValue } } });
+
+    expect(row.currentValue).toBe('{"quality":"good"} …');
+    expect(row.nextValue).toBe('{"quality":"bad"} …');
+    expect(row.currentValue).not.toContain('count');
+    expect(row.nextValue).not.toContain('source');
+  });
+
   it('flags a metric whose value moved underneath the edit', () => {
     const loaded = recordWith([metric('drift', 0.5)]);
     const fresh = recordWith([metric('drift', 0.77)]);
