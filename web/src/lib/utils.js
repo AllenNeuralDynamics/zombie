@@ -127,7 +127,11 @@ export function filterRows(rows, filters) {
   return rows.filter((row) =>
     entries.every(([col, val]) => {
       const raw = row[col];
-      const cell = (Array.isArray(raw) ? raw.join(', ') : String(raw ?? '')).toLowerCase();
+      // Arrow returns timestamp columns as Date objects. Match the same UTC
+      // representation used by renderAssetRow instead of Date#toString(),
+      // which does not contain the searchable YYYY-MM-DD form.
+      const value = raw instanceof Date ? formatDatetime(raw) : raw;
+      const cell = (Array.isArray(value) ? value.join(', ') : String(value ?? '')).toLowerCase();
       return cell.includes(val.toLowerCase());
     }),
   );

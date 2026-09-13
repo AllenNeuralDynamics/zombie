@@ -318,6 +318,15 @@ describe('filterRows', () => {
     expect(result).toHaveLength(2);
   });
 
+  it('matches date filters against Date-valued cells in the displayed format', () => {
+    const dateRows = [
+      { name: 'new', acquisition_start_time: new Date('2026-01-15T12:34:00Z') },
+      { name: 'old', acquisition_start_time: new Date('2025-12-31T23:59:00Z') },
+    ];
+    const result = filterRows(dateRows, { acquisition_start_time: '2026-' });
+    expect(result.map((row) => row.name)).toEqual(['new']);
+  });
+
   it('returns an empty array when no rows match', () => {
     expect(filterRows(rows, { project_name: 'Gamma' })).toHaveLength(0);
   });
