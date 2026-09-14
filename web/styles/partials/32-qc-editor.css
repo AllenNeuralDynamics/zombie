@@ -49,6 +49,13 @@
 .metric-status-editor { color: var(--text-secondary); font-size: .85em; }
 .qc-inline-status { min-width: 92px; padding: 4px 6px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); font: inherit; }
 
+/* Keyboard mode is opt-in after the first key press, so mouse-only browsing
+   keeps the existing visual treatment. */
+.qc-keyboard-control .qc-metric-keyboard-active {
+  outline: 2px solid color-mix(in srgb, var(--accent-2) 55%, var(--surface-border));
+  outline-offset: 2px;
+}
+
 /* Table mode keeps one metric per row while retaining the tree's leaf groups. */
 .qc-container-table { display: block; height: calc(100vh - 110px); overflow: auto; }
 .qc-container-table .qc-table-content { width: 100%; }

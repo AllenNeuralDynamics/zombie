@@ -438,6 +438,7 @@ function renderMetricStatus(metric, edit) {
 
 function buildMetricCard(metric, edit = {}, media = {}) {
   const card = document.createElement('div');
+  card.tabIndex = -1;
   const isCuration = metric.object_type === 'Curation metric';
   const status = draftStatus(metric, edit);
   const statusShade = statusShadeClass(status);
@@ -619,6 +620,7 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
     groupCell.textContent = group.label;
     for (const metric of group.metrics) {
       const row = tbody.insertRow();
+      row.tabIndex = -1;
       const status = draftStatus(metric, edit);
       const statusShade = statusShadeClass(status);
       row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
@@ -648,6 +650,11 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
     if (!groups.has(ref)) groups.set(ref, []);
     groups.get(ref).push(m);
   }
+
+  const accordionLoaders = new Map();
+  const notifyAccordionStateChange = () => onAccordionStateChange?.(new Set([...container.querySelectorAll('details')]
+    .filter(candidate => candidate.open)
+    .map(candidate => candidate.dataset.qcAccordionReference ?? '')));
 
   let first = true;
   for (const [ref, groupMetrics] of groups) {
@@ -690,13 +697,23 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
 
     details.addEventListener('toggle', () => {
       if (details.open) loadBody();
-      onAccordionStateChange?.(new Set([...container.querySelectorAll('details')]
-        .filter(candidate => candidate.open)
-        .map(candidate => candidate.dataset.qcAccordionReference ?? '')));
+      notifyAccordionStateChange();
     });
     container.appendChild(details);
+    accordionLoaders.set(details, loadBody);
     if (shouldOpen) loadBody();
   }
+
+  // Keyboard navigation can reveal the next metric group without requiring a
+  // pointer click on its summary. Keep the lazy body loading in one place.
+  container.openAccordion = (details) => {
+    if (!details || details.open) return;
+    details.open = true;
+    // Programmatic changes to <details>.open do not fire a toggle event in
+    // every browser, so invoke the same lazy loader explicitly.
+    accordionLoaders.get(details)?.();
+    notifyAccordionStateChange();
+  };
 
   return container;
 }

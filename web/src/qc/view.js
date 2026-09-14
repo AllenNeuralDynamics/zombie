@@ -7,6 +7,7 @@ import {
 } from './tree.js';
 import { renderMetrics, renderMetricsTable, statusDotClass, statusShadeClass } from './metrics.js';
 import { mountQcEditor, readQcViewMode, writeQcViewMode } from './editor.js';
+import { installQcKeyboardControl } from './keyboard.js';
 import { loginForQc } from '../lib/qc-spa-auth.js';
 
 const QC_TREE_PARAM = 'tree';
@@ -90,6 +91,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
 
   const root = document.createElement('div');
+  root.className = 'qc-view';
   let viewMode = readQcViewMode();
   let editState = { enabled: false, draftRevision: 0 };
   const treeNodes = buildTreeNodes(metrics, defaultGrouping);
@@ -211,6 +213,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   };
 
   renderBody();
+  installQcKeyboardControl(root, () => body);
   mountQcEditor(editor, record, {
     onReload,
     onEditStateChange: (nextState) => {
