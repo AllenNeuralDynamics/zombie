@@ -121,24 +121,26 @@ function renderObjectTable(val, { excludeReference = false } = {}) {
   if (!entries.length) return document.createTextNode('—');
 
   const listsOnly = entries.every(([, value]) => Array.isArray(value));
-  const lengths = entries.map(([, value]) => value.length);
-  if (listsOnly && lengths.every(length => length === lengths[0])) {
-    const indexKey = entries.find(([key]) => key.toLowerCase() === 'index')?.[0];
-    const columns = entries.filter(([key]) => key !== indexKey);
-    const table = document.createElement('table');
-    table.className = 'qc-value-table';
-    const thead = table.createTHead();
-    const header = thead.insertRow();
-    if (indexKey) appendHeaderCell(header, indexKey);
-    for (const [key] of columns) appendHeaderCell(header, key);
-    const body = table.createTBody();
-    const rowCount = columns.length ? columns[0][1].length : val[indexKey].length;
-    for (let index = 0; index < rowCount; index++) {
-      const row = body.insertRow();
-      if (indexKey) row.insertCell().textContent = String(val[indexKey][index]);
-      for (const [, values] of columns) row.insertCell().textContent = formatCellValue(values[index]);
+  if (listsOnly) {
+    const lengths = entries.map(([, value]) => value.length);
+    if (lengths.every(length => length === lengths[0])) {
+      const indexKey = entries.find(([key]) => key.toLowerCase() === 'index')?.[0];
+      const columns = entries.filter(([key]) => key !== indexKey);
+      const table = document.createElement('table');
+      table.className = 'qc-value-table';
+      const thead = table.createTHead();
+      const header = thead.insertRow();
+      if (indexKey) appendHeaderCell(header, indexKey);
+      for (const [key] of columns) appendHeaderCell(header, key);
+      const body = table.createTBody();
+      const rowCount = columns.length ? columns[0][1].length : val[indexKey].length;
+      for (let index = 0; index < rowCount; index++) {
+        const row = body.insertRow();
+        if (indexKey) row.insertCell().textContent = String(val[indexKey][index]);
+        for (const [, values] of columns) row.insertCell().textContent = formatCellValue(values[index]);
+      }
+      return table;
     }
-    return table;
   }
 
   const table = document.createElement('table');
