@@ -156,13 +156,17 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const renderBody = () => {
     const renderedAccordionReferences = readRenderedAccordionReferences();
     if (renderedAccordionReferences !== null) openAccordionReferences = renderedAccordionReferences;
+    body._qcDestroy?.();
+    body._qcDestroy = null;
     body.replaceChildren();
     if (viewMode === 'table') {
       body.classList.add('qc-container-table');
       const content = document.createElement('div');
       content.className = 'qc-table-content';
       if (metrics.length) {
-        content.appendChild(renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes));
+        const table = renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes);
+        content.appendChild(table);
+        body._qcDestroy = () => table.qcDestroy?.();
       } else {
         const empty = document.createElement('p');
         empty.className = 'qc-empty';
@@ -176,6 +180,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     body.classList.remove('qc-container-table');
     const contentArea = document.createElement('div');
     contentArea.className = 'qc-content';
+    contentArea._qcDestroy = null;
 
     const renderSelectedMetrics = (node) => {
       const selectedMetrics = node?.metrics ?? metrics;
@@ -199,7 +204,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       activeNode = node;
       // A newly selected tree node starts with its first accordion open.
       openAccordionReferences = null;
-      contentArea.replaceChildren(renderSelectedMetrics(node));
+      contentArea._qcDestroy?.();
+      const rendered = renderSelectedMetrics(node);
+      contentArea.replaceChildren(rendered);
+      contentArea._qcDestroy = rendered.qcDestroy ?? null;
       openAccordionReferences = readRenderedAccordionReferences(contentArea);
       writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
     };
@@ -207,7 +215,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     body.appendChild(treeElement);
     body.appendChild(contentArea);
 
-    contentArea.appendChild(renderSelectedMetrics(activeNode));
+    const rendered = renderSelectedMetrics(activeNode);
+    contentArea.appendChild(rendered);
+    contentArea._qcDestroy = rendered.qcDestroy ?? null;
+    body._qcDestroy = () => contentArea._qcDestroy?.();
   };
 
   renderBody();

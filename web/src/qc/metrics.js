@@ -1,4 +1,4 @@
-import { getMetricStatus, isCustomMetric, resolveReference } from './data.js';
+import { getMetricStatus, isCustomMetric, parseCurationValues, resolveReference } from './data.js';
 import {
   canEditMetricStatus,
   canEditMetricValue,
@@ -7,6 +7,13 @@ import {
   valueText,
 } from './edit-model.js';
 import { renderMedia } from './media.js';
+import {
+  buildEphysCurationUrl,
+  isEphysCurationMetric,
+  renderEphysCuration,
+} from './ephys-curation.js';
+
+export { parseCurationValues };
 
 const EDIT_TOOLTIP = 'Use edit mode to make changes';
 
@@ -169,19 +176,6 @@ function appendHeaderCell(row, text) {
   const cell = document.createElement('th');
   cell.textContent = text;
   row.appendChild(cell);
-}
-
-/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
-export function parseCurationValues(value) {
-  let source = value;
-  if (typeof source === 'string') {
-    try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
-  }
-  if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
-  return source.map(entry => {
-    if (typeof entry !== 'string') return entry;
-    try { return JSON.parse(entry.startsWith('json:') ? entry.slice(5) : entry); } catch { return null; }
-  }).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
 }
 
 function isCurationCollection(metric) {
@@ -360,6 +354,9 @@ function renderEditableDictionary(metric, edit) {
 function renderMetricValue(metric, edit, media = {}) {
   const editable = valueEditEnabled(metric, edit);
   const currentValue = draftValue(metric, edit);
+  if (isEphysCurationMetric(metric)) {
+    return renderEphysCuration(metric, { ...media, edit });
+  }
   if (isCurationCollection(metric)) {
     return renderCurationValue(metric, media);
   }
@@ -438,7 +435,7 @@ function renderMetricStatus(metric, edit) {
   return statusEl;
 }
 
-function buildMetricCard(metric, edit = {}, media = {}) {
+function buildMetricCard(metric, edit = {}, media = {}, { suppressValue = false } = {}) {
   const card = document.createElement('div');
   const isCuration = metric.object_type === 'Curation metric';
   const status = draftStatus(metric, edit);
@@ -486,17 +483,21 @@ function buildMetricCard(metric, edit = {}, media = {}) {
     card.appendChild(meta);
   }
 
-  const valEl = document.createElement('div');
-  valEl.className = 'metric-value';
-  valEl.appendChild(renderMetricValue(metric, edit, media));
-  card.appendChild(valEl);
+  if (!suppressValue) {
+    const valEl = document.createElement('div');
+    valEl.className = 'metric-value';
+    valEl.appendChild(renderMetricValue(metric, edit, media));
+    card.appendChild(valEl);
+  }
 
   card.appendChild(renderMetricStatus(metric, edit));
 
   return card;
 }
 
-function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc) {
+function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
+  const reference = typeof metric === 'string' ? metric : metric?.reference ?? '';
+  const ephysCuration = typeof metric !== 'string' && isEphysCurationMetric(metric);
   const cell = document.createElement('td');
   cell.className = 'qc-reference-cell';
   if (!reference) {
@@ -505,11 +506,18 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
   }
   const link = document.createElement('a');
   link.className = 'qc-reference-link';
-  link.href = resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc);
+  link.href = ephysCuration
+    ? buildEphysCurationUrl(reference, {
+      s3Bucket,
+      s3Prefix,
+      rawS3Loc,
+      identifier: 'reference-link',
+    })
+    : resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc);
   link.textContent = reference.split('/').pop() || reference;
   link.addEventListener('click', (event) => {
     event.preventDefault();
-    openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
+    openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit);
   });
   const anchor = document.createElement('span');
   anchor.className = 'qc-reference-anchor';
@@ -525,7 +533,13 @@ function renderReferenceLink(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
       preview.hidden = false;
       return;
     }
-    preview.appendChild(renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
+    if (ephysCuration) {
+      const notice = document.createElement('p');
+      notice.textContent = 'Open the curation panel to use the ephys GUI.';
+      preview.appendChild(notice);
+    } else {
+      preview.appendChild(renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
+    }
     preview.hidden = false;
   });
   anchor.addEventListener('mouseleave', () => { preview.hidden = true; });
@@ -537,7 +551,9 @@ function resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc) {
   return resolveReference(parts[0] || reference, s3Bucket, s3Prefix, rawS3Loc).url || '#';
 }
 
-function openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc) {
+function openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
+  const reference = typeof metric === 'string' ? metric : metric?.reference ?? '';
+  const ephysCuration = typeof metric !== 'string' && isEphysCurationMetric(metric);
   const overlay = document.createElement('div');
   overlay.className = 'qc-reference-dialog';
   overlay.setAttribute('role', 'dialog');
@@ -549,12 +565,21 @@ function openReferenceDialog(reference, s3Bucket, s3Prefix, assetName, rawS3Loc)
   close.className = 'qc-reference-dialog-close';
   close.type = 'button';
   close.textContent = 'Close';
-  close.addEventListener('click', () => overlay.remove());
+  close.addEventListener('click', () => {
+    dialog.querySelector('.qc-ephys-curation')?.qcDestroy?.();
+    overlay.remove();
+  });
   dialog.appendChild(close);
-  dialog.appendChild(renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc));
+  const content = ephysCuration
+    ? renderEphysCuration(metric, { s3Bucket, s3Prefix, assetName, rawS3Loc, edit })
+    : renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
+  dialog.appendChild(content);
   overlay.appendChild(dialog);
   overlay.addEventListener('click', event => {
-    if (event.target === overlay) overlay.remove();
+    if (event.target === overlay) {
+      dialog.querySelector('.qc-ephys-curation')?.qcDestroy?.();
+      overlay.remove();
+    }
   });
   document.body.appendChild(overlay);
 }
@@ -625,7 +650,7 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
       const statusShade = statusShadeClass(status);
       row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
       row.dataset.qcStatusMetric = metric.name ?? '';
-      row.appendChild(renderReferenceLink(metric.reference ?? '', s3Bucket, s3Prefix, assetName, rawS3Loc));
+      row.appendChild(renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit));
       row.insertCell().textContent = metric.name ?? '';
       const valueCell = row.insertCell();
       valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
@@ -633,6 +658,9 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
       statusCell.appendChild(renderTableMetricStatus(metric, edit));
     }
   }
+  table.qcDestroy = () => {
+    table.querySelectorAll('.qc-ephys-curation').forEach(panel => panel.qcDestroy?.());
+  };
   return table;
 }
 
@@ -643,6 +671,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
 } = {}) {
   const container = document.createElement('div');
   container.className = 'qc-accordion';
+  const ephysPanels = [];
 
   const groups = new Map();
   for (const m of metrics) {
@@ -679,14 +708,34 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
       // without one they fill the width as a responsive grid instead of a single stack.
       leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
       for (const m of groupMetrics) {
-        leftCol.appendChild(buildMetricCard(m, currentEdit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
+        leftCol.appendChild(buildMetricCard(
+          m,
+          currentEdit,
+          { s3Bucket, s3Prefix, assetName, rawS3Loc },
+          { suppressValue: isEphysCurationMetric(m) },
+        ));
       }
 
       body.appendChild(leftCol);
 
       if (ref) {
-        const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
-        body.appendChild(media);
+        const ephysMetrics = groupMetrics.filter(isEphysCurationMetric);
+        if (ephysMetrics.length) {
+          for (const metric of ephysMetrics) {
+            const panel = renderEphysCuration(metric, {
+              s3Bucket,
+              s3Prefix,
+              assetName,
+              rawS3Loc,
+              edit: currentEdit,
+            });
+            ephysPanels.push(panel);
+            body.appendChild(panel);
+          }
+        } else {
+          const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
+          body.appendChild(media);
+        }
       }
     };
 
@@ -700,5 +749,8 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
     if (shouldOpen) loadBody();
   }
 
+  container.qcDestroy = () => {
+    for (const panel of ephysPanels) panel.qcDestroy?.();
+  };
   return container;
 }

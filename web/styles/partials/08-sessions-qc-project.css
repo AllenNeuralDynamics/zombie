@@ -449,6 +449,28 @@
 .qc-curation-detail { display: flex; flex-direction: column; gap: 10px; }
 .qc-curation-reference { width: 100%; }
 
+/* Spike-sorting curation parity with the legacy EphysCuration panel. */
+.qc-ephys-curation { display: flex; gap: var(--gap); flex: 1 1 auto; min-width: 0; align-items: flex-start; }
+.qc-ephys-curation-controls { flex: 0 0 290px; min-width: 0; }
+.qc-ephys-curation-picker { display: flex; flex-direction: column; gap: 5px; color: var(--text-secondary); font-size: .85em; font-weight: 600; }
+.qc-ephys-curation-select { width: 100%; box-sizing: border-box; padding: 5px 6px; color: var(--text-primary); background: var(--surface-bg); border: 1px solid var(--surface-border); border-radius: var(--radius); font: inherit; }
+.qc-ephys-curation-metadata { margin: 8px 0; color: var(--text-secondary); font-size: .85em; }
+.qc-ephys-curation-json { max-height: 360px; overflow: auto; margin: 0 0 8px; padding: 8px; border: 1px solid var(--surface-border); border-radius: var(--radius); color: var(--text-primary); background: var(--surface-bg); font-size: .75em; white-space: pre-wrap; word-break: break-word; }
+.qc-ephys-curation-send { width: 100%; padding: 6px 10px; border: 0; border-radius: var(--radius); color: var(--surface-bg); background: var(--color-red); cursor: pointer; font: inherit; font-weight: 600; }
+.qc-ephys-curation-send:hover { background: var(--color-red-hover); }
+.qc-ephys-curation-frame { position: relative; flex: 1 1 auto; min-width: 0; }
+.qc-ephys-curation-iframe { display: block; width: 100%; min-width: 60vw; min-height: 600px; border: 1px solid var(--surface-border); border-radius: var(--radius); background: var(--surface-bg); }
+.qc-ephys-curation-fullscreen { position: absolute; top: 6px; right: 6px; border: 0; border-radius: var(--radius); padding: 2px 6px; color: #fff; background: rgba(0, 0, 0, .45); cursor: pointer; font-size: .9em; }
+.qc-ephys-curation-fullscreen:hover { background: rgba(0, 0, 0, .7); }
+.qc-ephys-curation-frame:fullscreen { width: 100vw; height: 100vh; background: var(--surface-bg); }
+.qc-ephys-curation-frame:fullscreen .qc-ephys-curation-iframe { width: 100%; height: 100%; min-width: 0; min-height: 0; border: 0; }
+
+@media (max-width: 1000px) {
+  .qc-ephys-curation { flex-direction: column; }
+  .qc-ephys-curation-controls { flex-basis: auto; width: 100%; }
+  .qc-ephys-curation-iframe { min-width: 0; }
+}
+
 /* HDF5 volumetric-data placeholder */
 .qc-media-h5 { color: var(--text-secondary); font-size: 0.9em; }
 .qc-media-h5 a { color: var(--color-red); }

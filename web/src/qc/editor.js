@@ -7,7 +7,8 @@ import { queryDocDb } from '../lib/docdb.js';
 import { getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
-import { getMetricStatus, isCustomMetric, parseQCRecord } from './data.js';
+import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
+import { isEphysCurationMetric } from './ephys-curation.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -54,6 +55,16 @@ function partialDictionaryText(value, keys, allKeys) {
   );
   const text = Object.keys(shown).length ? JSON.stringify(shown) : '—';
   return allKeys.length > keys.length ? `${text} …` : text;
+}
+
+function curationReviewText(value) {
+  const count = Array.isArray(value) ? value.length : value == null ? 0 : 1;
+  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'})`;
+}
+
+function latestCurationValue(metric) {
+  const values = parseCurationValues(metric.value);
+  return values[values.length - 1] ?? {};
 }
 
 /**
@@ -108,8 +119,13 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     const was = loadedByName.get(name);
     const row = { name, missing: false };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      row.currentValue = reviewValueText(live.value, change.value, was?.value);
-      row.nextValue = reviewValueText(change.value, live.value, was?.value);
+      if (live.object_type === 'Curation metric') {
+        row.currentValue = curationReviewText(live.value);
+        row.nextValue = curationReviewText(change.value);
+      } else {
+        row.currentValue = reviewValueText(live.value, change.value, was?.value);
+        row.nextValue = reviewValueText(change.value, live.value, was?.value);
+      }
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {
@@ -225,6 +241,15 @@ function restoreDrafts(defaults, saved, isValid) {
   return restored;
 }
 
+function restoreNamedDrafts(names, saved, isValid) {
+  const restored = {};
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of names) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
 function draftValueChanged(metric, draft) {
   try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
 }
@@ -233,6 +258,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
   const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
+  const curationMetrics = useMemo(() => parsed.metrics.filter(isEphysCurationMetric), [parsed]);
   const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
   ), [editableMetrics]);
@@ -250,6 +276,11 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     defaultStatusDrafts,
     savedDrafts?.statusDrafts,
     value => value === 'Pending' || value === 'Pass' || value === 'Fail',
+  ));
+  const [curationDrafts, setCurationDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDrafts,
+    value => value && typeof value === 'object' && !Array.isArray(value),
   ));
   const [fieldErrors, setFieldErrors] = useState({});
   const [notes, setNotes] = useState(() => (
@@ -287,25 +318,35 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       if (statusChanged) pendingChanges[metric.name].status = statusDrafts[metric.name];
     }
   }
+  for (const metric of curationMetrics) {
+    const draft = curationDrafts[metric.name];
+    if (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) {
+      pendingChanges[metric.name] = { value: draft };
+    }
+  }
   const notesChanged = notes !== parsed.notes;
   const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
   const hasPendingDrafts = editableMetrics.some(metric =>
     draftValueChanged(metric, valueDrafts[metric.name]) ||
     statusDrafts[metric.name] !== getMetricStatus(metric)
-  ) || notesChanged;
+  ) || curationMetrics.some(metric => {
+    const draft = curationDrafts[metric.name];
+    return draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+  }) || notesChanged;
 
   useEffect(() => {
     if (!hasPendingDrafts) {
       clearQcPendingChanges(record.name);
       return;
     }
-    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, notes });
-  }, [record.name, editableMetrics, valueDrafts, statusDrafts, notes, parsed.notes]);
+    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, notes });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, notes, parsed.notes]);
 
   const clearPendingChanges = () => {
     clearQcPendingChanges(record.name);
     setValueDrafts(defaultValueDrafts);
     setStatusDrafts(defaultStatusDrafts);
+    setCurationDrafts({});
     setFieldErrors({});
     setNotes(parsed.notes);
     setMessage('');
@@ -338,8 +379,14 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         if (metric) handleValue(metric, value);
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
+      curationDrafts,
+      onCuration: (name, value) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => ({ ...previous, [name]: value }));
+        }
+      },
     });
-  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, draftRevision]);
+  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {

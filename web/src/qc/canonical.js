@@ -1,9 +1,10 @@
 /**
- * Cross-language QC hash contract (v1).
+ * Cross-language QC hash contract (JCS-SHA256-v1).
  *
- * Objects are recursively key-sorted. JSON.stringify-compatible escaping is
- * used for strings, and finite numbers use ECMAScript-style decimal notation.
- * Keep this serializer in sync with aind_qc_portal.qc_edit.canonical_qc_json.
+ * This is the JSON Canonicalization Scheme (RFC 8785) representation used by
+ * the QC API: JSON.stringify-compatible strings and numbers, no whitespace,
+ * and object keys sorted by UTF-16 code units. Keep this serializer in sync
+ * with aind_qc_portal.qc_edit.canonical_qc_json.
  */
 
 function canonicalNumber(value) {
@@ -36,6 +37,14 @@ function canonicalNumber(value) {
   return `${sign}${coefficient}e${exponentSign}${Math.abs(decimalExponent)}`;
 }
 
+// JavaScript relational string comparison is lexicographic by UTF-16 code
+// unit, which is the ordering required by RFC 8785. Keep the comparator
+// explicit so another implementation does not accidentally use code-point
+// ordering instead.
+function compareUtf16(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export function canonicalQcJson(value) {
   if (value === null) return 'null';
   if (value === true) return 'true';
@@ -44,7 +53,7 @@ export function canonicalQcJson(value) {
   if (typeof value === 'string') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalQcJson).join(',')}]`;
   if (typeof value === 'object') {
-    const keys = Object.keys(value).sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+    const keys = Object.keys(value).sort(compareUtf16);
     return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalQcJson(value[key])}`).join(',')}}`;
   }
   throw new TypeError(`Unsupported value in QC hash: ${typeof value}`);
@@ -55,4 +64,3 @@ export async function hashQc(qualityControl) {
   const digest = await crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
-
