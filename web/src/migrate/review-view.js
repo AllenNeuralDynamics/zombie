@@ -291,11 +291,9 @@ export function MigrateReviewPage() {
     <div class="migrate-page">
       <h1>Review metadata proposals</h1>
       <p class="migrate-intro">
-        Every change submitted from <a href="/migrate/submit">/migrate/submit</a>
-        waits here until a second QC-portal user approves it. Proposals with the
-        same change are grouped so a subject-wide repair can be reviewed and
-        approved together; each asset is still checked and written separately.
-        You cannot approve your own proposal.
+        Changes submitted from the${' '}<a href="/migrate/submit">submit page</a>${' '}
+        appear here for review. A second QC Portal user must approve them before
+        they are written to DocDB. You cannot approve your own proposal.
       </p>
 
       <${QcLoginBar}
