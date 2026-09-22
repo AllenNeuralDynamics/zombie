@@ -2331,6 +2331,10 @@
   background: color-mix(in srgb, var(--color-red) 20%, transparent);
   color: var(--color-red);
 }
+.migrate-status-pill.is-mixed {
+  background: color-mix(in srgb, var(--color-yellow) 20%, transparent);
+  color: var(--color-yellow);
+}
 .migrate-note-row {
   display: flex;
   align-items: center;

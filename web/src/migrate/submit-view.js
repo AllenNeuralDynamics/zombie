@@ -12,7 +12,8 @@
  * approves it on /migrate/review.
  *
  * URL params kept in sync:
- *   ?dbDocdb=v1|v2  ?dbSvc=v1|v2  ?id=<asset id or name>  ?endpoint=subject|procedures
+ *   ?dbDocdb=v1|v2  ?dbSvc=v1|v2  ?id=<asset id or subject_id>
+ *   ?endpoint=subject|procedures  ?scope=asset|subject
  */
 
 import { html } from 'htm/preact';
@@ -25,7 +26,7 @@ import {
 } from '../lib/qc-spa-auth.js';
 import {
   clearMetadataCache,
-  createProposal,
+  createProposalsBatch,
   diffJson,
   DB_VERSIONS,
   DiffView,
@@ -33,6 +34,7 @@ import {
   ENDPOINTS,
   fetchFullRecord,
   fetchMetadataServiceSection,
+  fetchRecordsForSubject,
   getAtPath,
   lookupIdForEndpoint,
   lookupLabelForEndpoint,
@@ -56,16 +58,18 @@ export function MigrateSubmitPage() {
     const id = p.get('id') ?? p.get('name') ?? '';
     const ep = p.get('endpoint');
     const endpoint = ep === EDIT || ENDPOINTS.includes(ep) ? ep : 'subject';
-    return { dbDocdb, dbSvc, id, endpoint };
+    const scope = p.get('scope') === 'subject' ? 'subject' : 'asset';
+    return { dbDocdb, dbSvc, id, endpoint, scope };
   }, []);
 
   const [dbDocdb, setDbDocdb] = useState(initial.dbDocdb);
   const [dbSvc, setDbSvc] = useState(initial.dbSvc);
   const [endpoint, setEndpoint] = useState(initial.endpoint);
+  const [scope, setScope] = useState(initial.scope);
   const [assetInput, setAssetInput] = useState(initial.id);
   const [selectedId, setSelectedId] = useState(initial.id);
 
-  const [currentRecord, setCurrentRecord] = useState(null);
+  const [currentRecords, setCurrentRecords] = useState([]);
   const [candidate, setCandidate] = useState(null);
   const [loadStatus, setLoadStatus] = useState('idle');
   const [loadError, setLoadError] = useState('');
@@ -76,9 +80,10 @@ export function MigrateSubmitPage() {
   const [authStatus, setAuthStatus] = useState('loading');
 
   const [submitState, setSubmitState] = useState('idle');
-  const [proposal, setProposal] = useState(null);
+  const [proposals, setProposals] = useState([]);
+  const [submittedIds, setSubmittedIds] = useState([]);
   const [submitError, setSubmitError] = useState('');
-  const [duplicateId, setDuplicateId] = useState(null);
+  const [duplicateIds, setDuplicateIds] = useState([]);
   const [note, setNote] = useState('');
 
   const [originalRecord, setOriginalRecord] = useState(null);
@@ -89,6 +94,9 @@ export function MigrateSubmitPage() {
   const [editing, setEditing] = useState(false);
 
   const isEdit = endpoint === EDIT;
+  const canUseSubjectScope = !isEdit;
+  const isSubjectScope = scope === 'subject' && canUseSubjectScope;
+  const currentRecord = currentRecords[0] ?? null;
   const targetPath = isEdit ? null : ENDPOINT_CONFIG[endpoint]?.targetPath ?? null;
   const user = account ? accountDisplayName(account) : null;
 
@@ -97,13 +105,19 @@ export function MigrateSubmitPage() {
     url.searchParams.set('dbDocdb', dbDocdb);
     url.searchParams.set('dbSvc', dbSvc);
     url.searchParams.delete('db');
+    if (isSubjectScope) url.searchParams.set('scope', 'subject');
+    else url.searchParams.delete('scope');
     if (selectedId) url.searchParams.set('id', selectedId);
     else url.searchParams.delete('id');
     url.searchParams.delete('name');
     if (endpoint) url.searchParams.set('endpoint', endpoint);
     else url.searchParams.delete('endpoint');
     history.replaceState({}, '', url);
-  }, [dbDocdb, dbSvc, selectedId, endpoint]);
+  }, [dbDocdb, dbSvc, selectedId, endpoint, isSubjectScope]);
+
+  useEffect(() => {
+    if (!canUseSubjectScope && scope === 'subject') setScope('asset');
+  }, [canUseSubjectScope, scope]);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -127,7 +141,7 @@ export function MigrateSubmitPage() {
 
   useEffect(() => {
     if (!selectedId || !endpoint) {
-      setCurrentRecord(null);
+      setCurrentRecords([]);
       setCandidate(null);
       setLoadStatus('idle');
       setLoadError('');
@@ -139,20 +153,29 @@ export function MigrateSubmitPage() {
     setLoadError('');
     setServiceWarning(null);
     setCacheHit(false);
-    setCurrentRecord(null);
+    setCurrentRecords([]);
     setCandidate(null);
     setEditing(false);
     setSubmitState('idle');
-    setProposal(null);
+    setProposals([]);
+    setSubmittedIds([]);
     setSubmitError('');
-    setDuplicateId(null);
+    setDuplicateIds([]);
 
     (async () => {
       try {
-        const record = await fetchFullRecord(dbDocdb, selectedId, ctrl.signal);
+        const records = isSubjectScope
+          ? await fetchRecordsForSubject(dbDocdb, selectedId, ctrl.signal)
+          : [await fetchFullRecord(dbDocdb, selectedId, ctrl.signal)];
         if (ctrl.signal.aborted) return;
-        setCurrentRecord(record);
-        setOriginalRecord((prev) => prev ?? record);
+        if (records.length === 0) {
+          throw new Error(isSubjectScope
+            ? `No DocDB assets found for subject_id "${selectedId}" in ${dbDocdb}.`
+            : `Asset "${selectedId}" not found in DocDB ${dbDocdb}.`);
+        }
+        const record = records[0];
+        setCurrentRecords(records);
+        setOriginalRecord(record);
 
         // Edit mode pulls nothing from the metadata service — the user edits
         // the DocDB record directly.
@@ -163,16 +186,25 @@ export function MigrateSubmitPage() {
           return;
         }
 
-        const lookupId = lookupIdForEndpoint(record, endpoint);
-        if (!lookupId) {
-          throw new Error(`Selected asset has no ${lookupLabelForEndpoint(endpoint)} — cannot query metadata service.`);
+        const lookupIds = isSubjectScope
+          ? records.map((item) => lookupIdForEndpoint(item, endpoint))
+          : [lookupIdForEndpoint(record, endpoint)];
+        const missingIndex = lookupIds.findIndex((lookupId) => !lookupId);
+        if (missingIndex >= 0) {
+          const missing = records[missingIndex];
+          throw new Error(`Asset "${missing?.name ?? missing?._id ?? selectedId}" has no ${lookupLabelForEndpoint(endpoint)} — cannot query metadata service.`);
         }
-        const { data: section, warning, fromCache } =
-          await fetchMetadataServiceSection(dbSvc, endpoint, lookupId, ctrl.signal);
+        const uniqueLookupIds = [...new Set(lookupIds)];
+        const serviceResults = await Promise.all(
+          uniqueLookupIds.map((lookupId) => fetchMetadataServiceSection(dbSvc, endpoint, lookupId, ctrl.signal)),
+        );
         if (ctrl.signal.aborted) return;
-        setServiceWarning(warning ?? null);
-        setCacheHit(fromCache);
-        setCandidate(section);
+        const byLookupId = new Map(uniqueLookupIds.map((lookupId, index) => [lookupId, serviceResults[index]]));
+        const sections = lookupIds.map((lookupId) => byLookupId.get(lookupId).data);
+        const warnings = [...new Set(serviceResults.map((result) => result.warning).filter(Boolean))];
+        setServiceWarning(warnings.length ? warnings.join(' ') : null);
+        setCacheHit(serviceResults.length > 0 && serviceResults.every((result) => result.fromCache));
+        setCandidate(isSubjectScope ? sections : sections[0]);
         setLoadStatus('ready');
       } catch (err) {
         if (ctrl.signal.aborted) return;
@@ -183,7 +215,7 @@ export function MigrateSubmitPage() {
     })();
 
     return () => ctrl.abort();
-  }, [dbDocdb, dbSvc, selectedId, endpoint]);
+  }, [dbDocdb, dbSvc, selectedId, endpoint, isSubjectScope]);
 
   // Parse the editor text (edit mode only). Returns { record } on success or
   // { error } so the UI can show a parse error without throwing.
@@ -196,62 +228,108 @@ export function MigrateSubmitPage() {
     }
   }, [isEdit, editText]);
 
-  const merged = useMemo(() => {
-    if (isEdit) return currentRecord; // submit the edited record as-is
-    return currentRecord && candidate != null
-      ? setAtPath(currentRecord, targetPath, candidate)
-      : null;
-  }, [isEdit, currentRecord, candidate, targetPath]);
+  const mergedRecords = useMemo(() => {
+    if (isEdit) return currentRecords;
+    if (candidate == null || !targetPath) return [];
+    return currentRecords.map((record, index) => setAtPath(
+      record,
+      targetPath,
+      isSubjectScope ? candidate[index] : candidate,
+    ));
+  }, [isEdit, isSubjectScope, currentRecords, candidate, targetPath]);
 
-  const sectionDiff = useMemo(() => {
+  const recordChanges = useMemo(() => {
     if (isEdit) {
       // While editing, preview against the live (parseable) text; once done,
-      // currentRecord holds the committed edits.
+      // currentRecord holds the committed edits. Edit mode is asset-scoped.
       const next = editing ? parsedEdit?.record : currentRecord;
-      return originalRecord && next ? diffJson(originalRecord, next) : null;
+      return originalRecord && next
+        ? [{ record: originalRecord, merged: next, diff: diffJson(originalRecord, next) }]
+        : [];
     }
-    return currentRecord && candidate != null
-      ? diffJson(getAtPath(currentRecord, targetPath) ?? null, candidate)
-      : null;
-  }, [isEdit, editing, parsedEdit, originalRecord, currentRecord, candidate, targetPath]);
+    if (candidate == null || !targetPath) return [];
+    return currentRecords.map((record, index) => ({
+      record,
+      merged: mergedRecords[index],
+      diff: diffJson(
+        getAtPath(record, targetPath) ?? null,
+        isSubjectScope ? candidate[index] : candidate,
+      ),
+    }));
+  }, [isEdit, isSubjectScope, editing, parsedEdit, originalRecord, currentRecord, currentRecords, candidate, targetPath, mergedRecords]);
+
+  const sectionDiff = useMemo(
+    () => recordChanges.find((item) => item.diff.length > 0)?.diff ?? recordChanges[0]?.diff ?? null,
+    [recordChanges],
+  );
+
+  const changedRecords = useMemo(
+    () => recordChanges.filter((item) => item.diff.length > 0),
+    [recordChanges],
+  );
 
   function handleFetch() {
     const name = assetInput.trim();
     if (!name) return;
     setSubmitState('idle');
-    setProposal(null);
+    setProposals([]);
+    setSubmittedIds([]);
     setSubmitError('');
-    setDuplicateId(null);
+    setDuplicateIds([]);
     setOriginalRecord(null);
     setSelectedId(name);
   }
 
   async function handleSubmit() {
-    if (!merged) return;
+    const pending = changedRecords.filter((item) => !submittedIds.includes(
+      String(item.record._id ?? item.record.name ?? selectedId),
+    ));
+    if (pending.length === 0) return;
     setSubmitState('submitting');
     setSubmitError('');
-    setDuplicateId(null);
-    try {
-      const created = await createProposal({
-        version: dbDocdb,
-        id: merged._id ?? selectedId,
-        body: merged,
-        note,
-      });
-      setProposal(created);
-      setSubmitState('submitted');
-    } catch (err) {
-      console.error('[migrate/submit] submit failed:', err);
-      if (err.code === 'not_authenticated' || err.status === 401) {
-        startLogin();
-        return;
-      }
-      if (err.code === 'duplicate_proposal') {
-        setDuplicateId(err.payload.proposal_id ?? null);
-      }
-      setSubmitState('error');
-      setSubmitError(err.payload?.detail || err.message || String(err));
+    setDuplicateIds([]);
+    const inputs = pending.map(({ record, merged: next }) => ({
+      version: dbDocdb,
+      id: next._id ?? record._id ?? record.name ?? selectedId,
+      body: next,
+      note,
+    }));
+    const results = await createProposalsBatch(inputs);
+    const created = results.filter((result) => result.proposal).map((result) => result.proposal);
+    const failed = results.filter((result) => result.error);
+    const duplicate = failed
+      .map((result) => result.error)
+      .filter((error) => error?.code === 'duplicate_proposal')
+      .map((error) => error.payload?.proposal_id)
+      .filter(Boolean);
+    const duplicateRecordIds = failed
+      .filter(({ error }) => error?.code === 'duplicate_proposal')
+      .map(({ input }) => input.id)
+      .filter(Boolean);
+    const unresolved = failed.filter(({ error }) => error?.code !== 'duplicate_proposal');
+    setProposals((previous) => {
+      const all = [...previous, ...created];
+      return all.filter((proposal, index) => all.findIndex((p) => p.proposal_id === proposal.proposal_id) === index);
+    });
+    setSubmittedIds((previous) => [
+      ...new Set([
+        ...previous,
+        ...created.map((proposal) => String(proposal.record_id)),
+        ...duplicateRecordIds.map(String),
+      ]),
+    ]);
+    setDuplicateIds(duplicate);
+
+    if (failed.some(({ error }) => error?.code === 'not_authenticated' || error?.status === 401)) {
+      startLogin();
     }
+    if (unresolved.length === 0) {
+      setSubmitState('submitted');
+      return;
+    }
+    console.error('[migrate/submit] batch submit failed:', failed);
+    setSubmitState('error');
+    setSubmitError(`${created.length} proposal${created.length === 1 ? '' : 's'} submitted; ${unresolved.length} could not be submitted.`);
   }
 
   function handleCopyUrl() {
@@ -260,7 +338,7 @@ export function MigrateSubmitPage() {
 
   function handleDoneEditing() {
     if (!parsedEdit || parsedEdit.error) return;
-    setCurrentRecord(parsedEdit.record);
+    setCurrentRecords([parsedEdit.record]);
     setEditing(false);
   }
 
@@ -270,11 +348,14 @@ export function MigrateSubmitPage() {
     setEditing(true);
   }
 
-  const noChanges = sectionDiff != null && sectionDiff.length === 0;
-  const submitDisabled = (isEdit && editing)
+  const noChanges = recordChanges.length > 0 && changedRecords.length === 0;
+  const submitDisabled = !currentRecord || (isEdit && editing)
     || noChanges
     || submitState === 'submitting'
     || submitState === 'submitted';
+  const loadingMessage = isEdit
+    ? `Fetching record from DocDB ${dbDocdb}…`
+    : `Fetching ${isSubjectScope ? 'subject assets from' : 'from'} DocDB ${dbDocdb} + metadata-service ${dbSvc}${endpoint === 'procedures' ? ' (procedures can take ~45s — cached for 24 h)' : ''}…`;
 
   return html`
     <div class="migrate-page">
@@ -286,9 +367,12 @@ export function MigrateSubmitPage() {
         <code>aind-metadata-service</code> and merging it into a DocDB record.
         Subject and procedures are looked up by <code>subject.subject_id</code>;
         funding and investigators by <code>data_description.project_name</code>
-        and merged into <code>data_description</code>. Or pick <code>Edit</code>
-        to change any fields by hand. The DocDB and metadata-service versions are
-        independent — you can pull v2 metadata into a v1 record, or vice versa.
+        and merged into <code>data_description</code>. Choose <code>Subject</code>
+        scope to apply the selected replacement to every asset with one
+        <code>subject_id</code>; project-specific lookups are fetched per asset
+        and remain separate when their proposed changes differ. Or pick
+        <code>Edit</code> for a single record. The DocDB and metadata-service
+        versions are independent — you can pull v2 metadata into a v1 record, or vice versa.
         Nothing is written to DocDB when you submit: the proposal is stored on
         the QC portal and shown publicly on the
         <a href="/migrate/review">review page</a> until a second QC-portal user
@@ -334,15 +418,28 @@ export function MigrateSubmitPage() {
               ${ENDPOINTS.map(
                 (e) => html`
                   <button
-                    class=${`migrate-toggle-btn ${endpoint === e ? 'is-active' : ''}`}
+                  class=${`migrate-toggle-btn ${endpoint === e ? 'is-active' : ''}`}
                     onClick=${() => setEndpoint(e)}
                   >${e}</button>`,
               )}
               <button
                 class=${`migrate-toggle-btn ${isEdit ? 'is-active' : ''}`}
-                title="Edit the DocDB record directly"
-                onClick=${() => setEndpoint(EDIT)}
+                onClick=${() => { setEndpoint(EDIT); setScope('asset'); }}
               >Edit</button>
+            </div>
+          </div>
+          <div class="migrate-control">
+            <label>Scope</label>
+            <div class="migrate-toggle" role="group" aria-label="Migration scope">
+              <button
+                class=${`migrate-toggle-btn ${scope === 'asset' ? 'is-active' : ''}`}
+                onClick=${() => setScope('asset')}
+              >Asset</button>
+              <button
+                class=${`migrate-toggle-btn ${scope === 'subject' ? 'is-active' : ''}`}
+                disabled=${!canUseSubjectScope}
+                onClick=${() => setScope('subject')}
+              >Subject</button>
             </div>
           </div>
         </div>
@@ -353,7 +450,7 @@ export function MigrateSubmitPage() {
           <input
             type="text"
             class="migrate-asset-input"
-            placeholder="Asset name or _id…"
+            placeholder=${isSubjectScope ? 'subject_id…' : 'Asset name or _id…'}
             value=${assetInput}
             onInput=${(e) => setAssetInput(e.currentTarget.value)}
             onKeyDown=${(e) => e.key === 'Enter' && handleFetch()}
@@ -365,11 +462,12 @@ export function MigrateSubmitPage() {
           >${loadStatus === 'loading' ? 'Loading…' : 'Fetch'}</button>
           <button
             class="btn-secondary"
-            title="Clear cached metadata-service response for this asset+endpoint"
             disabled=${!assetInput.trim() || loadStatus === 'loading' || isEdit}
             onClick=${() => {
-              const lookupId = (currentRecord && lookupIdForEndpoint(currentRecord, endpoint)) || assetInput.trim();
-              clearMetadataCache(dbSvc, endpoint, lookupId);
+              const lookupIds = isSubjectScope
+                ? currentRecords.map((record) => lookupIdForEndpoint(record, endpoint)).filter(Boolean)
+                : [lookupIdForEndpoint(currentRecord, endpoint) || assetInput.trim()];
+              [...new Set(lookupIds)].forEach((lookupId) => clearMetadataCache(dbSvc, endpoint, lookupId));
               setCacheHit(false);
             }}
           >Clear cache</button>
@@ -382,9 +480,16 @@ export function MigrateSubmitPage() {
       ${selectedId && loadStatus !== 'error'
         ? html`
             <section class="migrate-section">
-              <h2>Selected asset</h2>
+              <h2>${isSubjectScope ? 'Selected subject' : 'Selected asset'}</h2>
               <div class="migrate-selected">
-                ${currentRecord
+                ${isSubjectScope
+                  ? currentRecords.length
+                    ? html`
+                        <div><strong>subject_id:</strong> <code>${selectedId}</code></div>
+                        <div><strong>assets:</strong> ${currentRecords.length}</div>
+                      `
+                    : html`<div><strong>looking up:</strong> <code>${selectedId}</code></div>`
+                  : currentRecord
                   ? html`
                       <div><strong>_id:</strong> <code>${currentRecord._id ?? selectedId}</code></div>
                       <div><strong>name:</strong> ${currentRecord.name ?? '—'}</div>
@@ -394,10 +499,25 @@ export function MigrateSubmitPage() {
                   : html`<div><strong>looking up:</strong> <code>${selectedId}</code></div>`}
               </div>
 
+              ${isSubjectScope && currentRecords.length
+                ? html`
+                    <div class="migrate-table-responsive" style="margin-top:12px; max-height:240px">
+                      <table class="data-table migrate-table">
+                        <thead><tr><th>Asset</th><th>_id</th><th>Change</th></tr></thead>
+                        <tbody>
+                          ${recordChanges.map(({ record, diff }) => html`
+                            <tr key=${record._id ?? record.name}>
+                              <td>${record.name ?? '—'}</td>
+                              <td class="migrate-id-cell">${record._id ?? '—'}</td>
+                              <td>${diff.length ? 'will change' : 'already matches'}</td>
+                            </tr>`)}
+                        </tbody>
+                      </table>
+                    </div>`
+                : null}
+
               ${loadStatus === 'loading'
-                ? html`<p class="loading-message">${isEdit
-                    ? html`Fetching record from DocDB ${dbDocdb}…`
-                    : html`Fetching from DocDB ${dbDocdb} + metadata-service ${dbSvc}${endpoint === 'procedures' ? ' (procedures can take ~45s — cached for 24 h)' : ''}…`}</p>`
+                ? html`<p class="loading-message">${loadingMessage}</p>`
                 : null}
 
               ${loadStatus === 'ready'
@@ -448,6 +568,13 @@ export function MigrateSubmitPage() {
                           ${serviceWarning
                             ? html`<p class="warning-banner" style="margin-top:8px">${serviceWarning}</p>`
                             : null}
+                          ${isSubjectScope
+                            ? html`<p class="info-banner" style="margin-top:8px">
+                                This ${endpoint} replacement will be proposed for
+                                ${currentRecords.length} assets; ${changedRecords.length}
+                                ${changedRecords.length === 1 ? 'asset needs' : 'assets need'} a change.
+                              </p>`
+                            : null}
                           <${DiffView}
                             entries=${sectionDiff}
                             title=${`Proposed changes to '${endpoint}' (DocDB ${dbDocdb} ← metadata-service ${dbSvc})`}
@@ -473,25 +600,33 @@ export function MigrateSubmitPage() {
                         class="btn-primary migrate-action-btn"
                         onClick=${user ? handleSubmit : startLogin}
                         disabled=${submitDisabled}
-                      >${submitState === 'submitting' ? 'Submitting…'
-                        : user ? 'Submit for review'
+                      >${submitState === 'submitting' ? `Submitting ${changedRecords.length}…`
+                        : user ? (changedRecords.length > 1 ? `Submit ${changedRecords.length} assets for review` : 'Submit for review')
                         : 'Log in to submit'}</button>
                       <button class="btn-secondary" onClick=${handleCopyUrl}>Copy shareable URL</button>
                       <a class="btn-secondary" href="/migrate/review">Open review queue →</a>
                     </div>
 
-                    ${submitState === 'submitted' && proposal
+                    ${submitState === 'submitted' && (proposals.length || duplicateIds.length)
                       ? html`
                           <div class="migrate-submit-banner migrate-pending">
-                            <strong>Submitted for review.</strong> Nothing has been
+                            <strong>${proposals.length + duplicateIds.length} proposal${proposals.length + duplicateIds.length === 1 ? '' : 's'} queued for review.</strong> Nothing has been
                             written to DocDB yet — a second QC-portal user has to
-                            approve it. Send them this link:
-                            ${' '}<a href=${`/migrate/review?focus=${encodeURIComponent(proposal.proposal_id)}`}>
-                              /migrate/review?focus=${proposal.proposal_id}
-                            </a>
-                            <div class="migrate-pending-poll">
-                              Body hash <code>${proposal.body_hash?.slice(0, 12)}…</code>
-                            </div>
+                            approve them. Send the reviewer this link:
+                            ${proposals[0]
+                              ? html` ${' '}<a href=${`/migrate/review?focus=${encodeURIComponent(proposals[0].proposal_id)}`}>
+                                  /migrate/review?focus=${proposals[0].proposal_id}
+                                </a>
+                                <div class="migrate-pending-poll">
+                                  The review page groups proposals with the same change.
+                                </div>`
+                              : null}
+                            ${duplicateIds.length
+                              ? html`<div class="migrate-pending-poll">
+                                  ${duplicateIds.length} matching proposal${duplicateIds.length === 1 ? ' already exists' : 's already exist'} in the queue.
+                                  ${duplicateIds.map((id) => html`<a href=${`/migrate/review?focus=${encodeURIComponent(id)}`}>Open ${id}</a>`)}
+                                </div>`
+                              : null}
                           </div>`
                       : null}
 
@@ -499,8 +634,8 @@ export function MigrateSubmitPage() {
                       ? html`
                           <div class="migrate-submit-banner migrate-error">
                             <strong>Submission error.</strong> ${submitError}
-                            ${duplicateId
-                              ? html` <a href=${`/migrate/review?focus=${encodeURIComponent(duplicateId)}`}>Open the existing proposal →</a>`
+                            ${duplicateIds.length
+                              ? html` ${duplicateIds.map((id) => html`<a href=${`/migrate/review?focus=${encodeURIComponent(id)}`}>Open existing proposal ${id} →</a>`)}`
                               : null}
                           </div>`
                       : null}

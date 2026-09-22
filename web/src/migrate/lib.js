@@ -251,6 +251,36 @@ export function topLevelChangedSections(oldRecord, newRecord) {
   return out;
 }
 
+/**
+ * Return a stable key for the actual change in a proposal.
+ *
+ * The old value is intentionally omitted: two assets can have different
+ * existing values while receiving the same replacement. The path, change
+ * kind, and proposed value are retained, so genuinely different repairs stay
+ * in separate review groups.
+ */
+export function proposalChangeSignature(proposal) {
+  const changes = diffJson(proposal?.base ?? null, proposal?.body ?? null)
+    .map(({ path, kind, newValue }) => ({
+      path,
+      kind,
+      newValue: newValue === undefined ? { __migrate_undefined__: true } : newValue,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind));
+  return canonicalJson({ version: proposal?.version ?? null, changes });
+}
+
+/** Group proposals that apply the same change, while retaining each proposal. */
+export function groupProposals(proposals = []) {
+  const groups = new Map();
+  for (const proposal of proposals) {
+    const key = proposalChangeSignature(proposal);
+    if (!groups.has(key)) groups.set(key, { key, proposals: [] });
+    groups.get(key).proposals.push(proposal);
+  }
+  return [...groups.values()];
+}
+
 // ---------------------------------------------------------------------------
 // Network helpers
 // ---------------------------------------------------------------------------
@@ -267,6 +297,15 @@ export async function fetchFullRecord(db, assetIdOrName, signal) {
   );
   if (!byId.length) throw new Error(`Asset "${assetIdOrName}" not found in DocDB ${db}.`);
   return byId[0];
+}
+
+/** Fetch every DocDB asset belonging to one subject_id. */
+export async function fetchRecordsForSubject(db, subjectId, signal) {
+  if (!subjectId) return [];
+  return queryDocDb(
+    { 'subject.subject_id': subjectId },
+    { baseUrl: DOCDB_BASES[db], limit: 10000, signal },
+  );
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -401,6 +440,21 @@ export async function createProposal({ version, id, body, note, supersedes }) {
     body: { version, id, body, note: note ?? '', ...(supersedes ? { supersedes } : {}) },
   });
   return resp?.proposal ?? null;
+}
+
+/**
+ * Create several independent proposals concurrently. Each proposal remains
+ * individually reviewable and conflict-checked by the QC portal; this helper
+ * only gives the submitter one batch operation and preserves partial results.
+ */
+export async function createProposalsBatch(inputs) {
+  const results = await Promise.allSettled(inputs.map((input) => createProposal(input)));
+  return results.map((result, index) => ({
+    input: inputs[index],
+    ...(result.status === 'fulfilled'
+      ? { proposal: result.value, error: null }
+      : { proposal: null, error: result.reason }),
+  }));
 }
 
 /**

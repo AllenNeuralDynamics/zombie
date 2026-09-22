@@ -16,15 +16,19 @@ import {
   approveProposal,
   buildMergedRecord,
   canonicalJson,
+  createProposalsBatch,
   deepEqual,
   diffJson,
   extractServicePayload,
+  fetchRecordsForSubject,
   formatDiffValue,
   getAtPath,
   lookupIdForEndpoint,
   createProposal,
   listProposals,
   normalizeServiceSection,
+  groupProposals,
+  proposalChangeSignature,
   QcError,
   rebaseOntoCurrent,
   setAtPath,
@@ -203,6 +207,37 @@ describe('topLevelChangedSections', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Proposal grouping
+// ---------------------------------------------------------------------------
+
+describe('proposalChangeSignature / groupProposals', () => {
+  const proposal = (id, oldValue, newValue) => ({
+    proposal_id: id,
+    version: 'v2',
+    base: { _id: id, subject: { subject_id: 'S', value: oldValue } },
+    body: { _id: id, subject: { subject_id: 'S', value: newValue } },
+  });
+
+  it('groups the same replacement even when old asset values differ', () => {
+    expect(proposalChangeSignature(proposal('a', 'old-a', 'new')))
+      .toBe(proposalChangeSignature(proposal('b', 'old-b', 'new')));
+    expect(groupProposals([
+      proposal('a', 'old-a', 'new'),
+      proposal('b', 'old-b', 'new'),
+      proposal('c', 'old-c', 'other'),
+    ]).map((group) => group.proposals.map((p) => p.proposal_id)))
+      .toEqual([['a', 'b'], ['c']]);
+  });
+
+  it('keeps different proposed replacements in separate groups', () => {
+    expect(groupProposals([
+      proposal('a', 'old', 'new-a'),
+      proposal('b', 'old', 'new-b'),
+    ])).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getAtPath / setAtPath
 // ---------------------------------------------------------------------------
 
@@ -367,6 +402,33 @@ describe('proposals API client', () => {
       'Content-Type': 'application/json',
     });
     expect(JSON.parse(opts.body)).toEqual({ version: 'v2', id: 'rec', body: { _id: 'rec' }, note: 'why' });
+  });
+
+  it('fetches all assets for a subject_id with the subject filter', async () => {
+    const fetchMock = mockFetch(200, [{ _id: 'rec-1' }, { _id: 'rec-2' }]);
+    const out = await fetchRecordsForSubject('v2', 'subject-1');
+
+    expect(out).toHaveLength(2);
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(JSON.parse(url.searchParams.get('filter'))).toEqual({ 'subject.subject_id': 'subject-1' });
+    expect(url.searchParams.get('limit')).toBe('10000');
+  });
+
+  it('creates a proposal batch concurrently and preserves per-record failures', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ proposal: { proposal_id: 'p1' } }) })
+      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: 'duplicate_proposal' }) });
+    globalThis.fetch = fetchMock;
+
+    const results = await createProposalsBatch([
+      { version: 'v2', id: 'a', body: { _id: 'a' } },
+      { version: 'v2', id: 'b', body: { _id: 'b' } },
+    ]);
+
+    expect(results[0].proposal).toEqual({ proposal_id: 'p1' });
+    expect(results[0].error).toBeNull();
+    expect(results[1].proposal).toBeNull();
+    expect(results[1].error).toMatchObject({ code: 'duplicate_proposal', status: 409 });
   });
 
   it('sends the reviewed hash on approve', async () => {
