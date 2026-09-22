@@ -12,6 +12,7 @@ import { arrowTableToRows } from '../lib/arrow.js';
 import { buildAssetsTable, fetchAssetsWithSources } from '../lib/assets-table.js';
 import { buildModalityHistogram } from '../lib/charts.js';
 import { createForagingSessionDetail } from '../lib/behaviors/dynamic-foraging.js';
+import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
 import { ensureTable } from '../lib/registry.js';
 import { escHtml } from '../lib/utils.js';
 import {
@@ -363,40 +364,11 @@ async function _loadProject(contentEl, projectName, coordinator, windowStart, si
     filterPanel.appendChild(panelTitle);
 
     if (allCurricula.length > 0) {
-      const curriculumGroup = document.createElement('div');
-      curriculumGroup.className = 'sessions-filter-group';
-      const curriculumLabel = document.createElement('div');
-      curriculumLabel.className = 'sessions-filter-label';
-      curriculumLabel.textContent = 'Curriculum';
-      curriculumGroup.appendChild(curriculumLabel);
-      const cbList = document.createElement('div');
-      cbList.className = 'sessions-checkbox-list';
       const localCurricula = new Set(selectedCurricula ?? []);
-      for (const name of allCurricula) {
-        const item = document.createElement('label');
-        item.className = 'sessions-checkbox-item';
-        const cb = document.createElement('input');
-        cb.type = 'checkbox';
-        cb.checked = localCurricula.has(name);
-        cb.addEventListener('change', () => {
-          if (cb.checked) localCurricula.add(name); else localCurricula.delete(name);
-          onCurriculaChange?.(new Set(localCurricula));
-        });
-        item.appendChild(cb);
-        item.appendChild(document.createTextNode('\u00a0' + name));
-        cbList.appendChild(item);
-      }
-      const clearCurrBtn = document.createElement('button');
-      clearCurrBtn.className = 'sessions-filter-clear';
-      clearCurrBtn.textContent = 'Clear';
-      clearCurrBtn.addEventListener('click', () => {
-        localCurricula.clear();
-        cbList.querySelectorAll('input').forEach((c) => { c.checked = false; });
-        onCurriculaChange?.(new Set());
-      });
-      curriculumGroup.appendChild(cbList);
-      curriculumGroup.appendChild(clearCurrBtn);
-      filterPanel.appendChild(curriculumGroup);
+      filterPanel.appendChild(buildCheckboxGroup(
+        'Curriculum', allCurricula, localCurricula,
+        () => onCurriculaChange?.(new Set(localCurricula)),
+      ).wrapper);
     }
 
     const windowGroup = document.createElement('div');

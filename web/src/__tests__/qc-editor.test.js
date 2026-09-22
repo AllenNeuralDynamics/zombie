@@ -105,6 +105,18 @@ describe('QC SPA edit helpers', () => {
     });
     expect(payload.evaluator).toBeUndefined();
   });
+
+  it('builds a curation append payload without replacing the history client-side', () => {
+    const curation = { unit_ids: [1, 2], labels: { quality: ['good'] } };
+    const payload = buildQcSubmitPayload(
+      { _id: 'record-1' },
+      {
+        expectedQcHash: 'b'.repeat(64),
+        pendingChanges: { 'Sorting Curation': { value: curation } },
+      },
+    );
+    expect(payload.changes).toEqual([{ metric_name: 'Sorting Curation', value: curation }]);
+  });
 });
 
 describe('review diff against the freshly-pulled record', () => {
@@ -114,6 +126,35 @@ describe('review diff against the freshly-pulled record', () => {
     const [row] = buildReviewRows(fresh, loaded, { pendingChanges: { drift: { value: 0.94 } } });
     expect(row.currentValue).toBe('0.77');
     expect(row.nextValue).toBe('0.94');
+  });
+
+  it.each([
+    ['dropdown', 'good', 'bad'],
+    ['checkbox', ['good'], ['bad']],
+  ])('only shows the value field for a changed %s metric', (type, current, next) => {
+    const loadedValue = { type, options: ['good', 'bad'], value: current, status: ['Pass', 'Fail'] };
+    const nextValue = { ...loadedValue, value: next };
+    const loaded = recordWith([metric('quality', loadedValue)]);
+    const fresh = recordWith([metric('quality', loadedValue)]);
+    const [row] = buildReviewRows(fresh, loaded, { pendingChanges: { quality: { value: nextValue } } });
+
+    expect(row.currentValue).toBe(`${JSON.stringify({ value: current })} …`);
+    expect(row.nextValue).toBe(`${JSON.stringify({ value: next })} …`);
+    expect(row.currentValue).not.toContain('options');
+    expect(row.nextValue).not.toContain('status');
+  });
+
+  it('only shows changed fields for an ordinary dictionary value', () => {
+    const loadedValue = { quality: 'good', count: 3, source: 'pipeline' };
+    const nextValue = { ...loadedValue, quality: 'bad' };
+    const loaded = recordWith([metric('quality', loadedValue)]);
+    const fresh = recordWith([metric('quality', loadedValue)]);
+    const [row] = buildReviewRows(fresh, loaded, { pendingChanges: { quality: { value: nextValue } } });
+
+    expect(row.currentValue).toBe('{"quality":"good"} …');
+    expect(row.nextValue).toBe('{"quality":"bad"} …');
+    expect(row.currentValue).not.toContain('count');
+    expect(row.nextValue).not.toContain('source');
   });
 
   it('flags a metric whose value moved underneath the edit', () => {
@@ -165,5 +206,17 @@ describe('review diff against the freshly-pulled record', () => {
     const fresh = recordWith([metric('drift', 0.5)], 'same');
     const rows = buildReviewRows(fresh, loaded, { pendingChanges: { drift: { value: 1 } } });
     expect(rows.some(row => row.isNotes)).toBe(false);
+  });
+
+  it('summarizes curation history in the review without expanding the full unit payload', () => {
+    const loaded = recordWith([metric('Sorting Curation', [{ unit_ids: [1] }])]);
+    loaded.quality_control.metrics[0].object_type = 'Curation metric';
+    const fresh = recordWith([metric('Sorting Curation', [{ unit_ids: [1] }])]);
+    fresh.quality_control.metrics[0].object_type = 'Curation metric';
+    const [row] = buildReviewRows(fresh, loaded, {
+      pendingChanges: { 'Sorting Curation': { value: { unit_ids: [1, 2] } } },
+    });
+    expect(row.currentValue).toBe('Curation data (1 entry)');
+    expect(row.nextValue).toBe('Curation data (1 entry)');
   });
 });

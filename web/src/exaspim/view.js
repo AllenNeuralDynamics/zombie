@@ -232,7 +232,9 @@ export function createExaSpimView(coord) {
           onSubjectChange();
         });
         item.appendChild(cb);
-        item.appendChild(document.createTextNode(' ' + sid));
+        const text = document.createElement('span');
+        text.textContent = sid;
+        item.appendChild(text);
         checkboxList.appendChild(item);
       }
     }

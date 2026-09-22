@@ -117,6 +117,29 @@ describe('QC status updates', () => {
 });
 
 describe('QC navigation state', () => {
+  it('renders null fields in scalar object metrics in table view', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        default_grouping: ['type'],
+        metrics: [
+          { name: 'safe', value: 1, tags: { type: 'safe' }, status_history: [{ status: 'Pass' }] },
+          {
+            name: 'photon statistics',
+            value: { 'Mean ROI Intensity': null, 'Photon Gain': 1.5 },
+            tags: { type: 'statistics' },
+            status_history: [{ status: 'Pass' }],
+          },
+        ],
+      },
+    });
+
+    expect(() => view.querySelectorAll('.qc-view-toggle button')[1].click()).not.toThrow();
+    expect(view.querySelector('.qc-metrics-table')).toBeTruthy();
+    expect(view.querySelector('.qc-value-key-table').textContent).toContain('—');
+  });
+
   it('round-trips the selected tree node and open accordion references', () => {
     const child = { key: 'type', value: 'drift', label: 'type: drift', metrics: [], children: [] };
     const parent = { key: 'probe', value: 'A', label: 'probe: A', metrics: [], children: [child] };

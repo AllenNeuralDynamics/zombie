@@ -19,16 +19,21 @@ const DEFAULT_PRE = -1.5;
 const DEFAULT_POST = 1;
 
 const RASTER_COLUMNS = [
-  { condition: 'visual_target', label: 'VIS+' },
-  { condition: 'auditory_target', label: 'AUD+' },
-  { condition: 'visual_nontarget', label: 'VIS-' },
-  { condition: 'auditory_nontarget', label: 'AUD-' },
+  { condition: 'visual_target', label: 'vis1' },
+  { condition: 'auditory_target', label: 'aud1' },
+  { condition: 'visual_nontarget', label: 'vis2' },
+  { condition: 'auditory_nontarget', label: 'aud2' },
 ];
 const CONTEXTS = ['vis', 'aud'];
+const CONTEXT_LABELS = {
+  vis: 'vis1 rewarded',
+  aud: 'aud1 rewarded',
+};
 const CONTEXT_COLORS = DR_CONTEXT_BACKGROUND_COLORS;
 const PSTH_COLORS = DR_CONTEXT_COLORS;
 const PSTH_BINS = 60;
 const UNIT_PARAM = 'unit_id';
+const PLOT_MARGIN_LEFT = 104;
 
 function finite(value, fallback) {
   if (value == null || value === '') return fallback;
@@ -142,7 +147,7 @@ function buildBlockRowSpans(trials) {
       y2: end + 0.5,
       midpoint: (start + end) / 2,
       context: CONTEXTS.includes(context) ? context : null,
-      label: CONTEXTS.includes(context) ? context : 'catch',
+      label: CONTEXT_LABELS[context] ?? 'catch',
     });
   };
 
@@ -358,7 +363,7 @@ function makePlot(
       height: rasterHeight,
       // Reserve the same y-axis gutter in every column so the time scales
       // and stimulus-onset lines remain visually aligned across conditions.
-      marginLeft: 62,
+      marginLeft: PLOT_MARGIN_LEFT,
       marginRight: 6,
       marginTop: 2,
       marginBottom: 2,
@@ -408,7 +413,7 @@ function makePlot(
     const psthPlot = Plot.plot({
       width: columnWidth,
       height: 170,
-      marginLeft: 62,
+      marginLeft: PLOT_MARGIN_LEFT,
       marginRight: 6,
       marginTop: 4,
       marginBottom: 42,

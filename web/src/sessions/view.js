@@ -9,6 +9,7 @@
  */
 
 import { queryRows } from '../lib/arrow.js';
+import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
 import { escHtml, formatDate, sortRows, uniqueValues, mergeKey, parseExperimenters, uniqueExperimenters, PAGE_SIZE, SELECT_THRESHOLD, downloadCsv } from '../lib/utils.js';
 import {
   fetchCamstimCompleted,
@@ -356,65 +357,6 @@ export function createSessionsView(coord) {
 
     // -- Filter panel --------------------------------------------------------
     filterPanel.innerHTML = `<h3 class="sessions-panel-title">Filters</h3>`;
-
-    function buildCheckboxGroup(title, options, selectedSet, onChange) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'sessions-filter-group';
-
-      const labelEl = document.createElement('div');
-      labelEl.className = 'sessions-filter-label';
-      labelEl.textContent = title;
-      wrapper.appendChild(labelEl);
-
-      const list = document.createElement('div');
-      list.className = 'sessions-checkbox-list';
-      wrapper.appendChild(list);
-
-      function renderOptions(opts) {
-        // Drop stale selections that are no longer in the option set
-        for (const v of [...selectedSet]) {
-          if (!opts.includes(v)) selectedSet.delete(v);
-        }
-        list.innerHTML = '';
-        if (opts.length === 0) {
-          const empty = document.createElement('span');
-          empty.className = 'sessions-filter-empty';
-          empty.textContent = 'No options';
-          list.appendChild(empty);
-          return;
-        }
-        for (const opt of opts) {
-          const item = document.createElement('label');
-          item.className = 'sessions-checkbox-item';
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.value = opt;
-          cb.checked = selectedSet.has(opt);
-          cb.addEventListener('change', () => {
-            if (cb.checked) selectedSet.add(opt);
-            else selectedSet.delete(opt);
-            onChange();
-          });
-          item.appendChild(cb);
-          item.appendChild(document.createTextNode('\u00a0' + opt));
-          list.appendChild(item);
-        }
-      }
-
-      renderOptions(options);
-
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'sessions-filter-clear';
-      clearBtn.textContent = 'Clear';
-      clearBtn.addEventListener('click', () => {
-        selectedSet.clear();
-        for (const cb of list.querySelectorAll('input[type=checkbox]')) cb.checked = false;
-        onChange();
-      });
-      wrapper.appendChild(clearBtn);
-
-      return { wrapper, renderOptions };
-    }
 
     // Progressive options: instruments and experimenters narrow as upstream filters change
     function getProjectFilteredRows() {

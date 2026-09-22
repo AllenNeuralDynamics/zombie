@@ -4,10 +4,11 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { getQcAccount } from '../lib/qc-spa-auth.js';
+import { accountDisplayName, getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
-import { getMetricStatus, parseQCRecord } from './data.js';
+import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
+import { isEphysCurationMetric } from './ephys-curation.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -38,6 +39,65 @@ export function buildQcSubmitPayload(record, {
   return payload;
 }
 
+function isDictionary(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function changedDictionaryKeys(current, next) {
+  const keys = new Set([...Object.keys(current), ...Object.keys(next)]);
+  return [...keys].filter(key => !sameValue(current[key], next[key]));
+}
+
+function partialDictionaryText(value, keys, allKeys) {
+  const shown = Object.fromEntries(
+    keys.filter(key => Object.prototype.hasOwnProperty.call(value, key))
+      .map(key => [key, value[key]]),
+  );
+  const text = Object.keys(shown).length ? JSON.stringify(shown) : '—';
+  return allKeys.length > keys.length ? `${text} …` : text;
+}
+
+function curationReviewText(value) {
+  const count = Array.isArray(value) ? value.length : value == null ? 0 : 1;
+  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'})`;
+}
+
+function latestCurationValue(metric) {
+  const values = parseCurationValues(metric.value);
+  return values[values.length - 1] ?? {};
+}
+
+/**
+ * Keep review values useful when the submitted value is a metadata dictionary.
+ * The edit still submits the complete dictionary; this only narrows its display
+ * to the fields that differ between the current and submitted values.
+ */
+export function reviewValueText(value, nextValue, previousValue) {
+  if (!isDictionary(value) || !isDictionary(nextValue)) {
+    return valueText(value);
+  }
+
+  // DropdownMetric and CheckboxMetric carry their options and status mapping
+  // alongside the actual selection. Only the selection is user-editable here.
+  let keys = isCustomMetric(value) && isCustomMetric(nextValue)
+    ? ['value']
+    : changedDictionaryKeys(value, nextValue);
+
+  // If the live record already contains the submitted value, retain the field
+  // that the user changed when the live value drifted to match it.
+  if (!keys.length && isDictionary(previousValue)) {
+    keys = changedDictionaryKeys(previousValue, nextValue);
+  }
+  if (!keys.length) return valueText(value);
+
+  const allKeys = [...new Set([
+    ...Object.keys(value),
+    ...Object.keys(nextValue),
+    ...(isDictionary(previousValue) ? Object.keys(previousValue) : []),
+  ])];
+  return partialDictionaryText(value, keys, allKeys);
+}
+
 /**
  * Diff pending edits against a freshly-fetched record rather than the copy
  * loaded when the page rendered, so the user reviews what will actually
@@ -59,8 +119,13 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     const was = loadedByName.get(name);
     const row = { name, missing: false };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      row.currentValue = valueText(live.value);
-      row.nextValue = valueText(change.value);
+      if (live.object_type === 'Curation metric') {
+        row.currentValue = curationReviewText(live.value);
+        row.nextValue = curationReviewText(change.value);
+      } else {
+        row.currentValue = reviewValueText(live.value, change.value, was?.value);
+        row.nextValue = reviewValueText(change.value, live.value, was?.value);
+      }
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {
@@ -93,16 +158,7 @@ function errorText(error) {
   return error.message || 'QC submission failed.';
 }
 
-function isOpaqueIdentity(value) {
-  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
-}
-
-function firstHumanIdentity(...values) {
-  return values.find(value => {
-    const text = typeof value === 'string' ? value.trim() : '';
-    return text && !isOpaqueIdentity(text);
-  })?.trim() || '';
-}
+export { accountDisplayName } from '../lib/qc-spa-auth.js';
 
 export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
 const QC_VIEW_MODES = new Set(['tree', 'table']);
@@ -152,25 +208,19 @@ export function clearQcPendingChanges(assetName, storage = browserStorage()) {
   try { storage?.removeItem(qcPendingChangesStorageKey(assetName)); } catch { /* storage may be unavailable */ }
 }
 
-export function accountDisplayName(account) {
-  const claims = account?.idTokenClaims ?? {};
-  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
-  return firstHumanIdentity(
-    claims.name,
-    claims.display_name,
-    composedName,
-    account?.name,
-    claims.preferred_username,
-    claims.email,
-    claims.upn,
-    account?.username,
-  ) || 'AIND account';
-}
-
 function restoreDrafts(defaults, saved, isValid) {
   const restored = { ...defaults };
   if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
   for (const name of Object.keys(defaults)) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
+function restoreNamedDrafts(names, saved, isValid) {
+  const restored = {};
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of names) {
     if (isValid(saved[name])) restored[name] = saved[name];
   }
   return restored;
@@ -184,6 +234,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
   const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
+  const curationMetrics = useMemo(() => parsed.metrics.filter(isEphysCurationMetric), [parsed]);
   const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
   ), [editableMetrics]);
@@ -201,6 +252,11 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     defaultStatusDrafts,
     savedDrafts?.statusDrafts,
     value => value === 'Pending' || value === 'Pass' || value === 'Fail',
+  ));
+  const [curationDrafts, setCurationDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDrafts,
+    value => value && typeof value === 'object' && !Array.isArray(value),
   ));
   const [fieldErrors, setFieldErrors] = useState({});
   const [notes, setNotes] = useState(() => (
@@ -238,25 +294,35 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       if (statusChanged) pendingChanges[metric.name].status = statusDrafts[metric.name];
     }
   }
+  for (const metric of curationMetrics) {
+    const draft = curationDrafts[metric.name];
+    if (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) {
+      pendingChanges[metric.name] = { value: draft };
+    }
+  }
   const notesChanged = notes !== parsed.notes;
   const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
   const hasPendingDrafts = editableMetrics.some(metric =>
     draftValueChanged(metric, valueDrafts[metric.name]) ||
     statusDrafts[metric.name] !== getMetricStatus(metric)
-  ) || notesChanged;
+  ) || curationMetrics.some(metric => {
+    const draft = curationDrafts[metric.name];
+    return draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+  }) || notesChanged;
 
   useEffect(() => {
     if (!hasPendingDrafts) {
       clearQcPendingChanges(record.name);
       return;
     }
-    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, notes });
-  }, [record.name, editableMetrics, valueDrafts, statusDrafts, notes, parsed.notes]);
+    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, notes });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, notes, parsed.notes]);
 
   const clearPendingChanges = () => {
     clearQcPendingChanges(record.name);
     setValueDrafts(defaultValueDrafts);
     setStatusDrafts(defaultStatusDrafts);
+    setCurationDrafts({});
     setFieldErrors({});
     setNotes(parsed.notes);
     setMessage('');
@@ -289,8 +355,14 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         if (metric) handleValue(metric, value);
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
+      curationDrafts,
+      onCuration: (name, value) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => ({ ...previous, [name]: value }));
+        }
+      },
     });
-  }, [account, editableMetrics, valueDrafts, statusDrafts, fieldErrors, allowEditingValues, draftRevision]);
+  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {

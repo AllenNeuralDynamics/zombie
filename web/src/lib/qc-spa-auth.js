@@ -15,6 +15,33 @@ const OIDC_SCOPES = ['openid', 'profile'];
 let client = null;
 let initPromise = null;
 
+function isOpaqueIdentity(value) {
+  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
+}
+
+function firstHumanIdentity(...values) {
+  return values.find(value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text && !isOpaqueIdentity(text);
+  })?.trim() || '';
+}
+
+/** Return a useful human name without exposing an opaque account identifier. */
+export function accountDisplayName(account) {
+  const claims = account?.idTokenClaims ?? {};
+  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
+  return firstHumanIdentity(
+    claims.name,
+    claims.display_name,
+    composedName,
+    account?.name,
+    claims.preferred_username,
+    claims.email,
+    claims.upn,
+    account?.username,
+  ) || 'AIND account';
+}
+
 function authConfig() {
   if (!QC_SPA_CLIENT_ID || !QC_SPA_TENANT_ID) return null;
   return {
