@@ -18,7 +18,12 @@
 
 import { html } from 'htm/preact';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
-import { getQcUser, loginToQcPortal, logoutQcPortal } from '../lib/qc-auth.js';
+import {
+  accountDisplayName,
+  getQcAccount,
+  loginForQc,
+  logoutQc,
+} from '../lib/qc-spa-auth.js';
 import {
   approveProposal,
   createProposal,
@@ -57,8 +62,9 @@ export function MigrateReviewPage() {
   );
   const [openId, setOpenId] = useState(initialFocus);
 
-  const [user, setUser] = useState(null);
+  const [account, setAccount] = useState(null);
   const [authStatus, setAuthStatus] = useState('loading');
+  const user = account ? accountDisplayName(account) : null;
 
   // Per-proposal review state, keyed by proposal_id:
   //   { live, liveStatus, liveError, action, error, drift, result }
@@ -72,9 +78,20 @@ export function MigrateReviewPage() {
   }, [openId]);
 
   const refreshUser = useCallback(async () => {
-    const me = await getQcUser();
-    setUser(me?.user ?? null);
-    setAuthStatus('ready');
+    try {
+      setAccount(await getQcAccount());
+    } catch {
+      setAccount(null);
+    } finally {
+      setAuthStatus('ready');
+    }
+  }, []);
+
+  const startLogin = useCallback(() => {
+    loginForQc().catch((error) => {
+      setAuthStatus('ready');
+      setListError(error.message || String(error));
+    });
   }, []);
 
   useEffect(() => { refreshUser(); }, [refreshUser]);
@@ -142,7 +159,7 @@ export function MigrateReviewPage() {
 
   function requireLogin() {
     if (user) return true;
-    loginToQcPortal();
+    startLogin();
     return false;
   }
 
@@ -165,7 +182,10 @@ export function MigrateReviewPage() {
         });
         return;
       }
-      if (err.code === 'not_authenticated') { loginToQcPortal(); return; }
+      if (err.code === 'not_authenticated' || err.status === 401) {
+        startLogin();
+        return;
+      }
       patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
       if (err.code === 'not_open' || err.code === 'hash_mismatch') refreshList();
     }
@@ -234,8 +254,8 @@ export function MigrateReviewPage() {
       <${QcLoginBar}
         user=${user}
         status=${authStatus}
-        onLogin=${() => loginToQcPortal()}
-        onLogout=${() => logoutQcPortal(refreshUser)}
+        onLogin=${startLogin}
+        onLogout=${() => logoutQc()}
       />
 
       <section class="migrate-section">

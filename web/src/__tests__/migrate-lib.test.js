@@ -6,7 +6,12 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { QC_PORTAL_BASE } from '../constants.js';
+vi.mock('../lib/qc-spa-auth.js', () => ({
+  getQcIdentityToken: vi.fn(async () => 'test-token'),
+}));
+
+import { QC_API_BASE } from '../constants.js';
+import { getQcIdentityToken } from '../lib/qc-spa-auth.js';
 import {
   approveProposal,
   buildMergedRecord,
@@ -341,9 +346,13 @@ function mockFetch(status, body) {
 }
 
 describe('proposals API client', () => {
-  afterEach(() => { vi.restoreAllMocks(); delete globalThis.fetch; });
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    delete globalThis.fetch;
+  });
 
-  it('creates a proposal with credentials and a JSON body', async () => {
+  it('creates a proposal with a bearer token and JSON body', async () => {
     const proposal = { proposal_id: 'p1', body_hash: 'abc' };
     const fetchMock = mockFetch(201, { proposal });
 
@@ -351,9 +360,12 @@ describe('proposals API client', () => {
 
     expect(out).toEqual(proposal);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${QC_PORTAL_BASE}/metadata/proposals`);
+    expect(url).toBe(`${QC_API_BASE}/metadata/proposals`);
     expect(opts.method).toBe('POST');
-    expect(opts.credentials).toBe('include');
+    expect(opts.headers).toEqual({
+      Authorization: 'Bearer test-token',
+      'Content-Type': 'application/json',
+    });
     expect(JSON.parse(opts.body)).toEqual({ version: 'v2', id: 'rec', body: { _id: 'rec' }, note: 'why' });
   });
 
@@ -361,8 +373,41 @@ describe('proposals API client', () => {
     const fetchMock = mockFetch(200, { status: 'applied' });
     await approveProposal('p1', 'hash-1');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${QC_PORTAL_BASE}/metadata/proposals/p1/approve`);
+    expect(url).toBe(`${QC_API_BASE}/metadata/proposals/p1/approve`);
+    expect(opts.headers.Authorization).toBe('Bearer test-token');
     expect(JSON.parse(opts.body)).toEqual({ body_hash: 'hash-1' });
+  });
+
+  it('leaves public queue reads unauthenticated', async () => {
+    const fetchMock = mockFetch(200, { proposals: [] });
+    await listProposals();
+    expect(getQcIdentityToken).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({});
+  });
+
+  it('renews the identity token once after a 401', async () => {
+    getQcIdentityToken
+      .mockResolvedValueOnce('stale-token')
+      .mockResolvedValueOnce('fresh-token');
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: async () => ({ error: 'not_authenticated' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ status: 'applied' }),
+      });
+    globalThis.fetch = fetchMock;
+
+    await approveProposal('p1', 'hash-1');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer stale-token');
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer fresh-token');
+    expect(getQcIdentityToken).toHaveBeenNthCalledWith(2, { forceRefresh: true });
   });
 
   it('defaults the queue to open proposals', async () => {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { getQcAccount } from '../lib/qc-spa-auth.js';
+import { accountDisplayName, getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
@@ -158,16 +158,7 @@ function errorText(error) {
   return error.message || 'QC submission failed.';
 }
 
-function isOpaqueIdentity(value) {
-  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
-}
-
-function firstHumanIdentity(...values) {
-  return values.find(value => {
-    const text = typeof value === 'string' ? value.trim() : '';
-    return text && !isOpaqueIdentity(text);
-  })?.trim() || '';
-}
+export { accountDisplayName } from '../lib/qc-spa-auth.js';
 
 export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
 const QC_VIEW_MODES = new Set(['tree', 'table']);
@@ -215,21 +206,6 @@ export function writeQcPendingChanges(assetName, drafts, storage = browserStorag
 
 export function clearQcPendingChanges(assetName, storage = browserStorage()) {
   try { storage?.removeItem(qcPendingChangesStorageKey(assetName)); } catch { /* storage may be unavailable */ }
-}
-
-export function accountDisplayName(account) {
-  const claims = account?.idTokenClaims ?? {};
-  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
-  return firstHumanIdentity(
-    claims.name,
-    claims.display_name,
-    composedName,
-    account?.name,
-    claims.preferred_username,
-    claims.email,
-    claims.upn,
-    account?.username,
-  ) || 'AIND account';
 }
 
 function restoreDrafts(defaults, saved, isValid) {

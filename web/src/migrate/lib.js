@@ -8,8 +8,9 @@
  */
 
 import { html } from 'htm/preact';
-import { QC_PORTAL_BASE } from '../constants.js';
+import { QC_API_BASE } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
+import { getQcIdentityToken } from '../lib/qc-spa-auth.js';
 
 export const DOCDB_BASES = {
   v1: 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets',
@@ -348,18 +349,34 @@ export class QcError extends Error {
 }
 
 async function qcFetch(path, { method = 'GET', body, signal } = {}) {
-  const resp = await fetch(`${QC_PORTAL_BASE}${path}`, {
-    method,
-    credentials: 'include',
-    signal,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  });
-  let parsed = null;
-  try { parsed = await resp.json(); } catch { /* empty or non-JSON body */ }
-  if (!resp.ok) throw new QcError(resp.status, parsed);
-  return parsed;
+  const verb = method.toUpperCase();
+  const requiresAuth = verb !== 'GET';
+  let token = requiresAuth ? await getQcIdentityToken() : null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = {};
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const resp = await fetch(`${QC_API_BASE}${path}`, {
+      method: verb,
+      signal,
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    let parsed = null;
+    try { parsed = await resp.json(); } catch { /* empty or non-JSON body */ }
+    if (resp.ok) return parsed;
+
+    const error = new QcError(resp.status, parsed);
+    if (requiresAuth && error.status === 401 && attempt === 0) {
+      token = await getQcIdentityToken({ forceRefresh: true });
+      continue;
+    }
+    throw error;
+  }
+
+  throw new QcError(401, { error: 'not_authenticated' });
 }
 
 /** List proposals. `status` accepts 'open', 'all', or a comma-separated list. */
@@ -430,13 +447,13 @@ export function QcLoginBar({ user, status, onLogin, onLogout }) {
   if (!user) {
     return html`
       <div class="migrate-login-bar">
-        <span class="text-secondary">Not logged in to the QC portal — you can browse, but not submit or approve.</span>
+        <span class="text-secondary">Not signed in — you can browse, but not submit or approve.</span>
         <button class="migrate-login-btn" onClick=${onLogin}>Log in</button>
       </div>`;
   }
   return html`
     <div class="migrate-login-bar">
-      <span>Logged in to the QC portal as <strong>${user}</strong></span>
+      <span>Signed in as <strong>${user}</strong></span>
       <button class="btn-secondary" onClick=${onLogout}>Log out</button>
     </div>`;
 }

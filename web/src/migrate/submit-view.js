@@ -17,7 +17,12 @@
 
 import { html } from 'htm/preact';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
-import { getQcUser, loginToQcPortal, logoutQcPortal } from '../lib/qc-auth.js';
+import {
+  accountDisplayName,
+  getQcAccount,
+  loginForQc,
+  logoutQc,
+} from '../lib/qc-spa-auth.js';
 import {
   clearMetadataCache,
   createProposal,
@@ -67,7 +72,7 @@ export function MigrateSubmitPage() {
   const [serviceWarning, setServiceWarning] = useState(null);
   const [cacheHit, setCacheHit] = useState(false);
 
-  const [user, setUser] = useState(null);
+  const [account, setAccount] = useState(null);
   const [authStatus, setAuthStatus] = useState('loading');
 
   const [submitState, setSubmitState] = useState('idle');
@@ -85,6 +90,7 @@ export function MigrateSubmitPage() {
 
   const isEdit = endpoint === EDIT;
   const targetPath = isEdit ? null : ENDPOINT_CONFIG[endpoint]?.targetPath ?? null;
+  const user = account ? accountDisplayName(account) : null;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -100,9 +106,21 @@ export function MigrateSubmitPage() {
   }, [dbDocdb, dbSvc, selectedId, endpoint]);
 
   const refreshUser = useCallback(async () => {
-    const me = await getQcUser();
-    setUser(me?.user ?? null);
-    setAuthStatus('ready');
+    try {
+      setAccount(await getQcAccount());
+    } catch {
+      setAccount(null);
+    } finally {
+      setAuthStatus('ready');
+    }
+  }, []);
+
+  const startLogin = useCallback(() => {
+    loginForQc().catch((error) => {
+      setAuthStatus('ready');
+      setSubmitState('error');
+      setSubmitError(error.message || String(error));
+    });
   }, []);
 
   useEffect(() => { refreshUser(); }, [refreshUser]);
@@ -224,8 +242,8 @@ export function MigrateSubmitPage() {
       setSubmitState('submitted');
     } catch (err) {
       console.error('[migrate/submit] submit failed:', err);
-      if (err.code === 'not_authenticated') {
-        loginToQcPortal();
+      if (err.code === 'not_authenticated' || err.status === 401) {
+        startLogin();
         return;
       }
       if (err.code === 'duplicate_proposal') {
@@ -280,8 +298,8 @@ export function MigrateSubmitPage() {
       <${QcLoginBar}
         user=${user}
         status=${authStatus}
-        onLogin=${() => loginToQcPortal()}
-        onLogout=${() => logoutQcPortal(refreshUser)}
+        onLogin=${startLogin}
+        onLogout=${() => logoutQc()}
       />
 
       <section class="migrate-section">
@@ -453,7 +471,7 @@ export function MigrateSubmitPage() {
                     <div class="migrate-submit-row">
                       <button
                         class="btn-primary migrate-action-btn"
-                        onClick=${user ? handleSubmit : () => loginToQcPortal()}
+                        onClick=${user ? handleSubmit : startLogin}
                         disabled=${submitDisabled}
                       >${submitState === 'submitting' ? 'Submitting…'
                         : user ? 'Submit for review'
