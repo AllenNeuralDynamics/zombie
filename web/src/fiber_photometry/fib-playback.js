@@ -579,6 +579,89 @@ function buildPsthCard(series, meta, borderColor, area, yDomain, width, baseline
  *   sibling behavior player (used to choose the timing adapter).
  * @returns {HTMLElement}
  */
+/**
+ * Load one session's fiber PSTH, event-aligned and averaged over trials.
+ *
+ * This is the single-session widget's own pipeline (derived-asset resolution →
+ * trace shards → behavior event timing → aligned samples → trial average),
+ * exposed so cross-session views can call it per session instead of forking it.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {object} opts
+ * @param {string} opts.subjectId
+ * @param {string} opts.rawAssetName - Raw acquisition name (not the derived fib asset).
+ * @param {string|null} [opts.eventKey] - Event stream to align on; defaults to the
+ *   platform's preferred stream.
+ * @param {number|null} [opts.fiberIdx] - Fiber to read; defaults to the lowest-numbered.
+ * @param {number} [opts.pre] / @param {number} [opts.post] - Window, seconds.
+ * @param {number} [opts.baselineSec] - Pre-event baseline to subtract (0 = none).
+ * @param {string|null} [opts.platform] - Behavior platform hint for event timing.
+ * @param {AbortSignal} [opts.signal]
+ * @returns {Promise<{allMean: object[], channels: string[], fiber: number, fibers: number[],
+ *   eventKey: string, eventLabel: string, nEvents: number}|null>} null when this
+ *   acquisition has no fiber traces, no events, or no samples in the window.
+ */
+export async function loadFibSessionPsth(coord, {
+  subjectId,
+  rawAssetName,
+  eventKey = null,
+  fiberIdx = null,
+  pre = PSTH_PRE,
+  post = PSTH_POST,
+  baselineSec = 0,
+  platform = null,
+  signal = null,
+} = {}) {
+  if (!coord || !rawAssetName) return null;
+
+  const derived = await resolveFibDerivedName(coord, rawAssetName);
+  if (!derived || signal?.aborted) return null;
+
+  const urls = await fibFiles(derived);
+  if (!urls.length || signal?.aborted) return null;
+
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  if (signal?.aborted) return null;
+  const streams = timing?.streams ?? [];
+  const stream = (eventKey && streams.find((s) => s.key === eventKey))
+    ?? chooseDefaultEventStream(streams);
+  if (!stream) return null;
+
+  const meta = await loadFiberMeta(coord, rawAssetName);
+  if (signal?.aborted) return null;
+  const fibers = [...meta.keys()].sort((a, b) => a - b);
+  const fiber = fiberIdx ?? fibers[0] ?? 0;
+
+  const rows = await loadPsthData(
+    coord, fibSource(urls), rawAssetName, stream, timing?.referenceTime ?? null,
+    fiber, pre, post,
+  );
+  if (!rows?.length || signal?.aborted) return null;
+
+  const { allMean, channels } = computePsthSeries(rows, baselineSec, { pre, post });
+  if (!allMean.length) return null;
+
+  return {
+    allMean,
+    channels,
+    fiber,
+    fibers,
+    eventKey: stream.key,
+    eventLabel: stream.label,
+    nEvents: stream.occurrences?.length ?? 0,
+  };
+}
+
+/**
+ * Event streams available for a session, for cross-session alignment pickers.
+ *
+ * @returns {Promise<Array<{key: string, label: string}>>}
+ */
+export async function listFibEventStreams(coord, { subjectId, rawAssetName, platform = null, signal = null } = {}) {
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  return (timing?.streams ?? []).map(({ key, label }) => ({ key, label }));
+}
+
 export function createFibPlayback(coord, subjectId, rawAssetName, opts = {}) {
   const section = document.createElement('section');
   section.className = 'fib-playback-section';
