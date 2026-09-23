@@ -226,6 +226,14 @@ describe('createMultiSessionView — dynamic foraging', () => {
     ];
     const fibEl = createMultiSessionView(fibEvents, { coordinator, subjectId: '844634' }, providers);
     await vi.waitFor(() => expect(fibEl.querySelector('.df-multi-fib')).toBeTruthy());
+
+    // Implant beside the session strip, plus the layout switch.
+    expect(fibEl.querySelector('.df-multi-fib-implant')).toBeTruthy();
+    expect(fibEl.querySelector('.df-multi-fib-strip')).toBeTruthy();
+    const layouts = [...fibEl.querySelectorAll('.df-multi-fib-controls option')]
+      .map((o) => o.value);
+    expect(layouts).toContain('columns');
+    expect(layouts).toContain('overlay');
   });
 
   it('queries the selected dates once', async () => {
