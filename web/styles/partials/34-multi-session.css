@@ -189,6 +189,23 @@
   gap: 8px;
 }
 
+/* Aggregate: one panel per fiber — sessions × time heatmap + pooled trace */
+.df-multi-fib-agg {
+  flex: 0 0 auto;
+  width: 480px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.session-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 @media (max-width: 900px) {
   .df-multi-fib-body {
     flex-direction: column;

@@ -35,6 +35,7 @@ import {
 } from './dynamic-foraging.js';
 import { queryForagingSessionsByDates } from './foraging-metadata.js';
 import { baselineSeries, buildPsthPlot, createBaselineControls } from '../psth.js';
+import { createSessionHeatmap } from './session-heatmap.js';
 
 /** Session-level metrics plotted across the selection, in display order. */
 export const FORAGING_METRICS = [
@@ -420,7 +421,7 @@ function buildFiberSection(sessions, context = {}) {
 
   const layoutSel = document.createElement('select');
   layoutSel.className = 'project-filter-select';
-  for (const [value, text] of [['columns', 'Columns'], ['overlay', 'Overlay']]) {
+  for (const [value, text] of [['aggregate', 'Aggregate'], ['columns', 'Columns'], ['overlay', 'Overlay']]) {
     const opt = document.createElement('option');
     opt.value = value;
     opt.textContent = text;
@@ -430,9 +431,15 @@ function buildFiberSection(sessions, context = {}) {
   layoutLabel.textContent = 'Layout ';
   layoutLabel.appendChild(layoutSel);
 
+  const channelSel = document.createElement('select');
+  channelSel.className = 'project-filter-select';
+  const channelLabel = document.createElement('label');
+  channelLabel.textContent = 'Channel ';
+  channelLabel.appendChild(channelSel);
+
   const baseline = createBaselineControls({ defaultOn: true, onChange: () => render() });
 
-  controls.append(eventLabel, layoutLabel, baseline.element);
+  controls.append(eventLabel, layoutLabel, channelLabel, baseline.element);
 
   const status = document.createElement('div');
   status.className = 'df-multi-fib-status';
@@ -458,6 +465,15 @@ function buildFiberSection(sessions, context = {}) {
   let loaded = [];
   let api = null;
   let generation = 0;
+  let lastYDomain = null;
+  let implantMounted = false;
+
+  /** Mount the subject-level implant view once, after the first data lands. */
+  function mountImplant() {
+    if (implantMounted || !api) return;
+    implantMounted = true;
+    implantCol.appendChild(api.createFibImplantPanel(String(subjectId)));
+  }
 
   function renderColumns() {
     const usable = loaded.filter((entry) => entry.set?.fibers?.length);
@@ -469,10 +485,29 @@ function buildFiberSection(sessions, context = {}) {
     const yDomain = api.fibPsthYDomain(usable.flatMap((e) => e.set.fibers.map((f) => f.series)));
     const baselineSec = baseline.getBaselineSec();
 
-    strip.replaceChildren();
+    // Sessions arrive one at a time. Redrawing every column on each arrival is
+    // quadratic, so only missing columns are added unless the shared axis (or
+    // the baseline) actually moved.
+    const sameAxis = lastYDomain
+      && lastYDomain[0] === yDomain[0]
+      && lastYDomain[1] === yDomain[1]
+      && lastYDomain[2] === baselineSec;
+    lastYDomain = [yDomain[0], yDomain[1], baselineSec];
+
+    const drawn = new Set(
+      [...strip.querySelectorAll('.df-multi-fib-col')].map((el) => el.dataset.date),
+    );
+    if (strip.querySelector('.df-multi-fib-agg')) drawn.clear();
+    if (!sameAxis || !drawn.size) {
+      strip.replaceChildren();
+      drawn.clear();
+    }
+
     for (const entry of usable) {
+      if (drawn.has(entry.session_date)) continue;
       const column = document.createElement('div');
       column.className = 'df-multi-fib-col';
+      column.dataset.date = entry.session_date;
 
       const caption = document.createElement('div');
       caption.className = 'df-multi-figure-caption';
@@ -488,7 +523,10 @@ function buildFiberSection(sessions, context = {}) {
           post: PSTH_POST,
         }));
       }
-      strip.appendChild(column);
+      // Columns stay in date order even when a later session lands first.
+      const next = [...strip.querySelectorAll('.df-multi-fib-col')]
+        .find((el) => el.dataset.date > entry.session_date);
+      strip.insertBefore(column, next ?? null);
     }
   }
 
@@ -526,10 +564,112 @@ function buildFiberSection(sessions, context = {}) {
     }));
   }
 
+  /** Channels present across the loaded sessions, in the cache's own order. */
+  function availableChannels() {
+    const seen = [];
+    for (const entry of loaded) {
+      for (const fiber of entry.set?.fibers ?? []) {
+        for (const channel of fiber.series.channels ?? []) {
+          if (!seen.includes(channel)) seen.push(channel);
+        }
+      }
+    }
+    return seen;
+  }
+
+  function syncChannelOptions() {
+    const channels = availableChannels();
+    const current = channelSel.value;
+    if (channels.join('|') !== [...channelSel.options].map((o) => o.value).join('|')) {
+      channelSel.replaceChildren(...channels.map((channel) => {
+        const opt = document.createElement('option');
+        opt.value = channel;
+        opt.textContent = channel;
+        return opt;
+      }));
+      // 'G' is the signal channel; 'Iso' is the isosbestic control.
+      channelSel.value = channels.includes(current) ? current
+        : (channels.find((c) => c !== 'Iso') ?? channels[0] ?? '');
+    }
+    channelLabel.hidden = layoutSel.value === 'columns' || channels.length < 2;
+    return channelSel.value;
+  }
+
+  /** Per-session mean traces for one fiber and channel, oldest first. */
+  function tracesFor(fiber, channel) {
+    const traces = [];
+    for (const entry of loaded) {
+      const match = entry.set?.fibers?.find((f) => f.fiber === fiber);
+      const points = (match?.series.allMean ?? [])
+        .filter((d) => d.channel === channel)
+        .map((d) => ({ t: d.t, mean: d.mean }));
+      if (points.length) traces.push({ label: entry.session_date, points });
+    }
+    return traces;
+  }
+
+  /**
+   * Aggregate: one panel per fiber — sessions × time heatmap over a pooled
+   * mean ± SEM. Traces are z-scored per session first, because raw ΔF/F is not
+   * comparable across days.
+   */
+  function renderAggregate(channel) {
+    const fibers = [...new Set(loaded.flatMap(
+      (entry) => (entry.set?.fibers ?? []).map((f) => f.fiber),
+    ))].sort((a, b) => a - b);
+    if (!fibers.length || !channel) {
+      strip.replaceChildren(placeholder('No fiber traces available for these sessions.'));
+      return;
+    }
+
+    strip.replaceChildren();
+    let unscaled = false;
+    for (const fiber of fibers) {
+      const traces = tracesFor(fiber, channel);
+      if (traces.length < 2) continue;
+
+      const card = document.createElement('div');
+      card.className = 'df-multi-fib-agg';
+
+      const sample = loaded.find((e) => e.set?.fibers?.some((f) => f.fiber === fiber))
+        ?.set.fibers.find((f) => f.fiber === fiber);
+      card.style.borderColor = sample?.color ?? 'var(--surface-border)';
+
+      const caption = document.createElement('div');
+      caption.className = 'df-multi-figure-caption';
+      caption.textContent = `Fiber ${fiber}${sample?.area ? ` · ${sample.area}` : ''} · ${channel}`;
+      card.appendChild(caption);
+
+      const panel = createSessionHeatmap(traces, {
+        pre: PSTH_PRE,
+        post: PSTH_POST,
+        width: 460,
+        xLabel: `Time rel. ${eventSel.selectedOptions[0]?.textContent ?? 'event'} (s)`,
+        unitLabel: 'z-scored ΔF/F',
+      });
+      if (!panel.allScaled) unscaled = true;
+      card.appendChild(panel.element);
+      strip.appendChild(card);
+    }
+
+    if (!strip.childElementCount) {
+      strip.replaceChildren(placeholder('At least two sessions with traces are needed to aggregate.'));
+      return;
+    }
+    if (unscaled) {
+      const note = document.createElement('p');
+      note.className = 'detail-placeholder';
+      note.textContent = 'Some sessions had a flat pre-event baseline; those are baseline-subtracted rather than z-scored.';
+      strip.appendChild(note);
+    }
+  }
+
   function render() {
     if (!loaded.length) return;
+    const channel = syncChannelOptions();
     if (layoutSel.value === 'overlay') renderOverlay();
-    else renderColumns();
+    else if (layoutSel.value === 'columns') renderColumns();
+    else renderAggregate(channel);
   }
 
   async function load() {
@@ -537,12 +677,18 @@ function buildFiberSection(sessions, context = {}) {
     api = api ?? await import('../../fiber_photometry/fib-playback.js');
     if (context.signal?.aborted || gen !== generation) return;
 
-    // The implant is subject-level: load it once, not on every event change.
-    if (!implantCol.querySelector('.fib-3d-inset')) {
-      implantCol.appendChild(api.createFibImplantPanel(String(subjectId)));
-    }
+    const assetNames = fibSessions.map((s) => s.assetName);
 
     if (!eventSel.value) {
+      // Resolve every session's derived asset and fiber metadata in one query
+      // each, rather than one per session inside the load loop below. Both
+      // populate fib-playback's own caches, so the per-session loads then skip
+      // straight to the trace shards.
+      const prefetch = Promise.all([
+        api.prefetchFibDerivedNames(coordinator, assetNames),
+        api.prefetchFiberMeta(coordinator, assetNames),
+      ]).catch((err) => console.warn('[DFMulti] fiber prefetch failed', err));
+
       const streams = await api.listFibEventStreams(coordinator, {
         subjectId,
         rawAssetName: fibSessions[0].assetName,
@@ -563,15 +709,16 @@ function buildFiberSection(sessions, context = {}) {
       }));
       // Go cue is the conventional foraging alignment when it exists.
       eventSel.value = streams.find((s) => s.key === 'go_cue')?.key ?? streams[0].key;
+      await prefetch;
+      if (context.signal?.aborted || gen !== generation) return;
     }
 
-    loaded = [];
+    loaded = fibSessions.map((session) => ({ session_date: session.session_date, set: null }));
+    lastYDomain = null;
     strip.replaceChildren(placeholder('Loading fiber traces…'));
 
     let done = 0;
-    for (const session of fibSessions) {
-      if (context.signal?.aborted || gen !== generation) return;
-      status.textContent = `Loading fiber traces… ${done}/${fibSessions.length} sessions`;
+    const loadOne = async (session, index) => {
       let set = null;
       try {
         set = await api.loadFibSessionPsthSet(coordinator, {
@@ -588,18 +735,36 @@ function buildFiberSection(sessions, context = {}) {
       }
       done += 1;
       if (context.signal?.aborted || gen !== generation) return;
-      loaded.push({ session_date: session.session_date, set });
-      // Re-render as each session lands — the shared y-axis moves with it.
+      loaded[index].set = set;
+      status.textContent = `Loading fiber traces… ${done}/${fibSessions.length} sessions`;
       render();
-    }
+      // The implant pulls in three.js and the CCF atlas; start it only once the
+      // first column's data is on screen so it is not competing for bandwidth.
+      mountImplant();
+    };
+
+    // A few sessions in flight at once: the shard reads are mostly waiting on
+    // S3, but an unbounded fan-out just queues behind DuckDB and delays the
+    // first column.
+    const queue = fibSessions.map((session, index) => () => loadOne(session, index));
+    const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
+      while (queue.length) {
+        if (context.signal?.aborted || gen !== generation) return;
+        await queue.shift()();
+      }
+    });
+    await Promise.all(workers);
+    if (context.signal?.aborted || gen !== generation) return;
 
     const withData = loaded.filter((entry) => entry.set?.fibers?.length).length;
     status.textContent =
       `${withData} of ${fibSessions.length} session${fibSessions.length === 1 ? '' : 's'} with fiber traces`;
+    mountImplant();
   }
 
   eventSel.addEventListener('change', () => { load(); });
   layoutSel.addEventListener('change', render);
+  channelSel.addEventListener('change', render);
   load().catch((err) => {
     console.warn('[DFMulti] fiber section failed:', err);
     status.textContent = '';

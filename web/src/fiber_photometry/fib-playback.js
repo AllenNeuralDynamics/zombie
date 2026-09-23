@@ -116,8 +116,61 @@ function fibSource(urls) {
 // The subject timeline only carries raw acquisitions, so we reverse-map raw →
 // derived via the source_data table. When an asset has been re-processed
 // multiple times, the most recent processing_time wins so we skip stale runs.
+const _derivedNameCache = new Map();
+
+/**
+ * Resolve several raw acquisitions to their derived fib assets in one query.
+ *
+ * A cross-session view otherwise pays one source_data join per session. The
+ * results land in the same cache resolveFibDerivedName() reads, so callers can
+ * prefetch and then resolve each name for free.
+ *
+ * @param {object} coord
+ * @param {string[]} rawAssetNames
+ */
+export async function prefetchFibDerivedNames(coord, rawAssetNames) {
+  const missing = [...new Set((rawAssetNames ?? []).filter(
+    (name) => name && !_derivedNameCache.has(name),
+  ))];
+  if (!missing.length) return;
+
+  const inList = missing.map((name) => `'${esc(name)}'`).join(', ');
+  const resolved = new Map();
+  try {
+    await ensureTable(coord, 'source_data');
+    const rows = await queryRows(coord, `
+      SELECT sd.source_data AS raw, sd.name
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.name
+      WHERE sd.source_data IN (${inList})
+        AND ab.data_level = 'derived'
+        AND list_contains(ab.modalities, 'fib')
+      QUALIFY row_number() OVER (
+        PARTITION BY sd.source_data ORDER BY sd.processing_time DESC
+      ) = 1
+    `);
+    for (const row of rows) {
+      if (row?.raw && row?.name) resolved.set(String(row.raw), String(row.name));
+    }
+  } catch (err) {
+    // Leave the cache untouched: each name falls back to its own query.
+    console.warn('[fib-playback] batched derived-name lookup failed', err);
+    return;
+  }
+  for (const name of missing) {
+    _derivedNameCache.set(name, Promise.resolve(resolved.get(name) ?? null));
+  }
+}
+
 async function resolveFibDerivedName(coord, rawAssetName) {
   if (!rawAssetName) return null;
+  if (_derivedNameCache.has(rawAssetName)) return _derivedNameCache.get(rawAssetName);
+  const promise = _resolveFibDerivedNameUncached(coord, rawAssetName);
+  _derivedNameCache.set(rawAssetName, promise);
+  return promise;
+}
+
+async function _resolveFibDerivedNameUncached(coord, rawAssetName) {
   try {
     await ensureTable(coord, 'source_data');
     const rows = await queryRows(coord, `
@@ -156,7 +209,53 @@ const CHANNEL_ORDER = ['G', 'Iso', 'R'];
  *
  * @returns {Promise<Map<number, {targetedStructure: string, channels: object}>>}
  */
+const _fiberMetaCache = new Map();
+
+/**
+ * Load fiber metadata for several acquisitions in one scan.
+ *
+ * platform_fib.pqt is one file covering every asset, so a per-session LIKE
+ * scan reads it once per session. Results are keyed into the same cache
+ * loadFiberMeta() reads.
+ *
+ * @param {object} coord
+ * @param {string[]} rawAssetNames
+ */
+export async function prefetchFiberMeta(coord, rawAssetNames) {
+  const missing = [...new Set((rawAssetNames ?? []).filter(
+    (name) => name && !_fiberMetaCache.has(name),
+  ))];
+  if (!missing.length) return;
+
+  const predicate = missing.map((name) => `asset_name LIKE '${esc(name)}%'`).join(' OR ');
+  let rows = [];
+  try {
+    rows = await queryRows(coord,
+      `SELECT DISTINCT asset_name, fiber, channel, targeted_structure, intended_measurement
+       FROM read_parquet('${fibMetaUrl()}')
+       WHERE ${predicate}`
+    );
+  } catch (err) {
+    console.warn('[fib-playback] batched fiber-meta lookup failed', err);
+    return;
+  }
+
+  // An asset_name in the cache is the derived name, which starts with the raw
+  // one — the same prefix rule the per-asset query uses.
+  for (const name of missing) {
+    const mine = rows.filter((r) => String(r.asset_name ?? '').startsWith(name));
+    _fiberMetaCache.set(name, Promise.resolve(fiberMetaFromRows(mine)));
+  }
+}
+
 async function loadFiberMeta(coord, rawAssetName) {
+  if (_fiberMetaCache.has(rawAssetName)) return _fiberMetaCache.get(rawAssetName);
+  const promise = _loadFiberMetaUncached(coord, rawAssetName);
+  _fiberMetaCache.set(rawAssetName, promise);
+  return promise;
+}
+
+async function _loadFiberMetaUncached(coord, rawAssetName) {
   const prefix = esc(rawAssetName);
   const url    = fibMetaUrl();
   let rows = [];
@@ -167,7 +266,10 @@ async function loadFiberMeta(coord, rawAssetName) {
        WHERE asset_name LIKE '${prefix}%'`
     );
   } catch { return new Map(); }
+  return fiberMetaFromRows(rows);
+}
 
+function fiberMetaFromRows(rows) {
   const map = new Map();
   for (const r of rows) {
     const fm = String(r.fiber).match(/(\d+)/);
@@ -183,6 +285,7 @@ async function loadFiberMeta(coord, rawAssetName) {
   }
   return map;
 }
+
 
 // ---------------------------------------------------------------------------
 // Fiber implant surgery (3D inset + per-fiber colours)
@@ -372,6 +475,35 @@ export function buildPsthEventValues(eventStream, referenceTime = null) {
       return Number.isFinite(absolute) ? `(${index}, ${absolute})` : null;
     })
     .filter(Boolean);
+}
+
+/**
+ * As loadPsthData, but for every fiber at once — the returned rows carry a
+ * `fiber` column so the caller can split them.
+ */
+async function loadPsthDataAllFibers(coord, fibSrc, rawAssetName, eventStream, referenceTime, fiberIdxs, pre = PSTH_PRE, post = PSTH_POST) {
+  const eventValues = buildPsthEventValues(eventStream, referenceTime);
+  if (!eventValues.length || !fiberIdxs?.length) return null;
+  const prefix = esc(rawAssetName);
+  const fiberList = fiberIdxs.map((f) => Number(f)).join(', ');
+
+  const sql = `
+    WITH events(trial, ev_t) AS (VALUES ${eventValues.join(', ')}),
+    fib AS (
+      SELECT timestamp, channel, CAST(fiber AS INT) AS fiber, "dff-bright_mc-iso-IRLS" AS v
+      FROM read_parquet(${fibSrc})
+      WHERE asset_name LIKE '${prefix}%'
+        AND CAST(fiber AS INT) IN (${fiberList})
+    )
+    SELECT f.fiber, e.trial, f.channel,
+           CAST(e.ev_t AS DOUBLE) AS ev_t,
+           CAST(f.timestamp - e.ev_t AS FLOAT) AS t_rel,
+           CAST(f.v AS FLOAT) AS v
+    FROM fib f
+    JOIN events e ON f.timestamp BETWEEN e.ev_t + ${pre} - ${PSTH_EDGE_MARGIN} AND e.ev_t + ${post} + ${PSTH_EDGE_MARGIN}
+    ORDER BY f.fiber, f.channel, e.trial, t_rel
+  `;
+  return queryRows(coord, sql);
 }
 
 async function loadPsthData(coord, fibSrc, rawAssetName, eventStream, referenceTime, fiberIdx, pre = PSTH_PRE, post = PSTH_POST) {
@@ -698,10 +830,15 @@ export async function loadFibSessionPsthSet(coord, {
   const fiberIdxs = [...fiberMeta.keys()].sort((a, b) => a - b);
   if (!fiberIdxs.length) return null;
 
-  const rowsPerFiber = await Promise.all(fiberIdxs.map((f) => loadPsthData(
-    coord, fibSrc, rawAssetName, stream, timing?.referenceTime ?? null, f, pre, post,
-  )));
+  // Every fiber in one pass: the shards are scanned once per session rather
+  // than once per fiber, and the rows are split back out below.
+  const allRows = await loadPsthDataAllFibers(
+    coord, fibSrc, rawAssetName, stream, timing?.referenceTime ?? null, fiberIdxs, pre, post,
+  );
   if (signal?.aborted) return null;
+  const rowsPerFiber = fiberIdxs.map(
+    (f) => (allRows ?? []).filter((row) => Number(row.fiber) === f),
+  );
 
   const fibers = [];
   fiberIdxs.forEach((fiber, order) => {
