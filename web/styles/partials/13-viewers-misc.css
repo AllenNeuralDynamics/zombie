@@ -1901,39 +1901,6 @@
 .migrate-diff-changed td:nth-child(3) { background: color-mix(in srgb, var(--color-red) 10%, transparent); }
 .migrate-diff-changed td:nth-child(4) { background: color-mix(in srgb, var(--color-green) 10%, transparent); }
 
-/* ---- Free-form edit mode ------------------------------------------------ */
-
-.migrate-edit { margin-top: 16px; }
-.migrate-edit-hint {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  margin: 0 0 8px;
-}
-.migrate-edit-textarea {
-  width: 100%;
-  height: 480px;
-  max-height: 70vh;
-  resize: vertical;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  font-family: var(--font-mono, monospace);
-  font-size: 0.8rem;
-  line-height: 1.45;
-  tab-size: 2;
-  white-space: pre;
-  overflow: auto;
-  border: 1px solid var(--surface-border);
-  border-radius: 6px;
-  background: var(--surface, var(--surface-bg));
-  color: var(--text-primary);
-}
-.migrate-edit-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-top: 10px;
-}
-
 /* ---- Submit / status ---------------------------------------------------- */
 
 .migrate-submit-row {
@@ -2330,6 +2297,10 @@
 .migrate-status-pill.is-rejected {
   background: color-mix(in srgb, var(--color-red) 20%, transparent);
   color: var(--color-red);
+}
+.migrate-status-pill.is-mixed {
+  background: color-mix(in srgb, var(--color-yellow) 20%, transparent);
+  color: var(--color-yellow);
 }
 .migrate-note-row {
   display: flex;

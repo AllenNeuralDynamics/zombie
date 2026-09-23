@@ -169,14 +169,14 @@ export function buildConditionPanels(trials, { includeCatch = true } = {}) {
     'vis_auditory_nontarget', 'aud_visual_target', 'aud_visual_nontarget',
     'aud_auditory_target', 'aud_auditory_nontarget'];
   const labels = {
-    vis_visual_target: 'VIS context · vis+',
-    vis_visual_nontarget: 'VIS context · vis-',
-    vis_auditory_target: 'VIS context · aud+',
-    vis_auditory_nontarget: 'VIS context · aud-',
-    aud_visual_target: 'AUD context · vis+',
-    aud_visual_nontarget: 'AUD context · vis-',
-    aud_auditory_target: 'AUD context · aud+',
-    aud_auditory_nontarget: 'AUD context · aud-',
+    vis_visual_target: 'VIS context · vis1',
+    vis_visual_nontarget: 'VIS context · vis2',
+    vis_auditory_target: 'VIS context · aud1',
+    vis_auditory_nontarget: 'VIS context · aud2',
+    aud_visual_target: 'AUD context · vis1',
+    aud_visual_nontarget: 'AUD context · vis2',
+    aud_auditory_target: 'AUD context · aud1',
+    aud_auditory_nontarget: 'AUD context · aud2',
     catch: 'Catch trials',
   };
   const map = new Map();

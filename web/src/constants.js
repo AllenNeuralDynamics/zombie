@@ -76,26 +76,28 @@ export const CONTRIBUTIONS_API_BASE = import.meta.env.DEV
   : '/metadata-viz';
 
 // ---------------------------------------------------------------------------
-// QC portal metadata proposals API (see METADATA-AUTH.md in aind-qc-portal/dev)
+// QC portal metadata proposals API (see METADATA-AUTH.md in aind-qc-portal)
 // ---------------------------------------------------------------------------
 
 /**
- * Base URL for the QC portal hosting the two-party metadata proposals flow:
- *   GET    /metadata/login?redirect=<url>   (top-level navigation)
- *   GET    /metadata/me
+ * Base URL for the QC portal hosting the two-party metadata proposals flow.
+ * Proposal reads are public; state-changing calls use the same Entra identity
+ * token bearer pattern as the inline QC API:
  *   GET    /metadata/proposals[?status=…]
  *   POST   /metadata/proposals
  *   POST   /metadata/proposals/<id>/approve|reject
  *   DELETE /metadata/proposals/<id>
- *
- * The session cookie is HttpOnly on `.allenneuraldynamics.org`, so the migrate
- * pages only work when served from an `*.allenneuraldynamics.org` host.
  */
 export const QC_PORTAL_BASE = 'https://qc.allenneuraldynamics.org';
 
 export const QC_API_BASE = import.meta.env.VITE_QC_API_BASE || QC_PORTAL_BASE;
-export const QC_SPA_CLIENT_ID = import.meta.env.VITE_QC_SPA_CLIENT_ID;
-export const QC_SPA_TENANT_ID = import.meta.env.VITE_QC_SPA_TENANT_ID;
+// These are public Entra identifiers, not credentials. Keep them aligned with
+// the container defaults so `npm run dev` can exercise the registered localhost
+// redirect URI; deployments may still override them at build time.
+export const QC_SPA_CLIENT_ID = import.meta.env.VITE_QC_SPA_CLIENT_ID ||
+  'a625f758-ee73-4fc0-8a4b-b7467f33d68c';
+export const QC_SPA_TENANT_ID = import.meta.env.VITE_QC_SPA_TENANT_ID ||
+  '32669cd6-737f-4b39-8bdd-d6951120d3fc';
 export const QC_AUTH_REDIRECT_URI = import.meta.env.VITE_QC_AUTH_REDIRECT_URI ||
   `${typeof window !== 'undefined' ? window.location.origin : 'http://localhost:5173'}/auth/callback`;
 // Local Vite sessions should be immediately testable; production remains
