@@ -232,8 +232,14 @@ describe('createMultiSessionView — dynamic foraging', () => {
     expect(fibEl.querySelector('.df-multi-fib-strip')).toBeTruthy();
     const layouts = [...fibEl.querySelectorAll('.df-multi-fib-controls option')]
       .map((o) => o.value);
+    expect(layouts).toContain('aggregate');
     expect(layouts).toContain('columns');
     expect(layouts).toContain('overlay');
+    // Aggregate is the default: per-session panels stop scaling past a few.
+    expect(fibEl.querySelector('.df-multi-fib-controls select:nth-of-type(1)')).toBeTruthy();
+    const layoutSel = [...fibEl.querySelectorAll('.df-multi-fib-controls select')]
+      .find((sel) => [...sel.options].some((o) => o.value === 'aggregate'));
+    expect(layoutSel.value).toBe('aggregate');
   });
 
   it('queries the selected dates once', async () => {
