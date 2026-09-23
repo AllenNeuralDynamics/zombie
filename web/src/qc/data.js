@@ -44,6 +44,40 @@ function decodeJsonField(val) {
   return val;
 }
 
+/**
+ * Decode references that were URL-encoded before being stored in DocDB.
+ *
+ * Ephys curation references are commonly encoded as one complete URL
+ * (`https%3A//...%3Fanalyzer_path%3D...`).  Decode at most twice so an
+ * already-normal URL is unchanged while nested encoding remains usable.
+ */
+export function decodeReferenceUrl(reference) {
+  let decoded = String(reference ?? '');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
+
+/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
+export function parseCurationValues(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
+  }
+  if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
+  return source.map(entry => {
+    if (typeof entry !== 'string') return entry;
+    try { return JSON.parse(entry.startsWith('json:') ? entry.slice(5) : entry); } catch { return null; }
+  }).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
+}
+
 function normalizeMetric(metric) {
   const tags = decodeJsonField(metric.tags ?? {});
   const value = decodeJsonField(metric.value);
@@ -78,15 +112,16 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url: reference, type: 'multi' };
   }
 
-  let url = reference;
+  const decodedReference = decodeReferenceUrl(reference);
+  let url = decodedReference;
 
-  if (reference.includes('s3://')) {
-    const match = reference.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (decodedReference.includes('s3://')) {
+    const match = decodedReference.match(/^s3:\/\/([^/]+)\/(.+)$/);
     if (match) {
       url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${encodeS3Key(match[2])}`;
     }
-  } else if (!reference.startsWith('http')) {
-    const cleaned = cleanRef(reference);
+  } else if (!/^https?:/i.test(decodedReference)) {
+    const cleaned = cleanRef(decodedReference);
     url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(cleaned)}`;
   }
 
@@ -94,7 +129,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
 
   if (lower.includes('ephys.allenneuraldynamics.org')) {
     // Decode URL-encoded placeholders, then substitute asset locations.
-    let processed = decodeURIComponent(url);
+    let processed = decodeReferenceUrl(url);
     processed = processed.replace(/\{derived_asset_location\}/g, `s3://${s3Bucket}/${s3Prefix}`);
     if (rawS3Loc) {
       processed = processed.replace(/\{raw_asset_location\}/g, rawS3Loc);
@@ -109,7 +144,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   }
 
   if (lower.includes('.rrd')) {
-    const verMatch = reference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
+    const verMatch = decodedReference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
     const version = verMatch ? verMatch[1] : '0.19.1';
     const iframeUrl = `https://app.rerun.io/version/${version}/index.html?url=${encodeURIComponent(url)}`;
     return { url: iframeUrl, type: 'iframe' };
@@ -130,7 +165,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url, type: 'h5' };
   }
 
-  if (reference.startsWith('http')) {
+  if (/^https?:/i.test(decodedReference)) {
     return { url, type: 'link' };
   }
 

@@ -10,6 +10,7 @@ import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
 import { arrowTableToRows, queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
+import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
 
 import {
   utcDay, addDays, isoDate,
@@ -235,55 +236,16 @@ async function _loadFiguresSection(coord, section, loadingEl) {
   tooltipEl.style.display = 'none';
   document.body.appendChild(tooltipEl);
 
-  // -- Checkbox helper -------------------------------------------------------
-  function buildCheckboxGroup(title, options, selectedSet) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'sessions-filter-group';
-
-    const labelEl = document.createElement('div');
-    labelEl.className = 'sessions-filter-label';
-    labelEl.textContent = title;
-    wrapper.appendChild(labelEl);
-
-    const list = document.createElement('div');
-    list.className = 'sessions-checkbox-list';
-    wrapper.appendChild(list);
-
-    for (const opt of options) {
-      const item = document.createElement('label');
-      item.className = 'sessions-checkbox-item';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.value = opt;
-      cb.checked = selectedSet.has(opt);
-      cb.addEventListener('change', () => {
-        if (cb.checked) selectedSet.add(opt);
-        else selectedSet.delete(opt);
-        _persist();
-        renderAll();
-      });
-      item.appendChild(cb);
-      item.appendChild(document.createTextNode('\u00a0' + opt));
-      list.appendChild(item);
-    }
-
-    const clearBtn = document.createElement('button');
-    clearBtn.className = 'sessions-filter-clear';
-    clearBtn.textContent = 'Clear';
-    clearBtn.addEventListener('click', () => {
-      selectedSet.clear();
-      for (const cb of list.querySelectorAll('input[type=checkbox]')) cb.checked = false;
-      _persist();
-      renderAll();
-    });
-    wrapper.appendChild(clearBtn);
-
-    return wrapper;
-  }
-
-  filterPanel.appendChild(buildCheckboxGroup('Trainer / Experimenter', allTrainers, selTrainers));
-  filterPanel.appendChild(buildCheckboxGroup('Curriculum', allCurricula, selCurricula));
-  filterPanel.appendChild(buildCheckboxGroup('Curriculum Stage', allStages, selStages));
+  const onCheckboxChange = () => { _persist(); renderAll(); };
+  filterPanel.appendChild(buildCheckboxGroup(
+    'Trainer / Experimenter', allTrainers, selTrainers, onCheckboxChange,
+  ).wrapper);
+  filterPanel.appendChild(buildCheckboxGroup(
+    'Curriculum', allCurricula, selCurricula, onCheckboxChange,
+  ).wrapper);
+  filterPanel.appendChild(buildCheckboxGroup(
+    'Curriculum Stage', allStages, selStages, onCheckboxChange,
+  ).wrapper);
   filterPanel.appendChild(_buildDateFilter(() => sinceDate, (d) => { sinceDate = d; _persist(); renderAll(); }));
 
   // Color-by selector (affects timeline only)

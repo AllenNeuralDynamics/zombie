@@ -1,0 +1,259 @@
+/* ---------------------------------------------------------------------------
+ * Record-consistency checks — experimental dev dashboard
+ * ------------------------------------------------------------------------ */
+
+.record-consistency-view {
+  padding: 20px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.record-consistency-intro,
+.record-consistency-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.record-consistency-intro {
+  margin: 0 0 14px;
+}
+
+.record-consistency-summary-panel {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  box-shadow: var(--shadow);
+}
+
+.record-consistency-summary-panel h3 {
+  margin: 0 0 12px;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.record-consistency-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.record-consistency-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.record-consistency-summary-label {
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.record-consistency-summary-stat strong {
+  color: var(--text-primary);
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.record-consistency-summary-stat .record-consistency-summary-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.record-consistency-checks {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--surface-border);
+}
+
+.record-consistency-checks h4 {
+  margin: 0 0 10px;
+  color: var(--text-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.record-consistency-check-card {
+  padding: 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+}
+
+.record-consistency-check-card + .record-consistency-check-card {
+  margin-top: 10px;
+}
+
+.record-consistency-check-key {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.record-consistency-check-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.record-consistency-check-card p {
+  margin: 10px 0;
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.record-consistency-implementation {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.record-consistency-implementation a {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.record-consistency-table-wrap {
+  overflow-x: auto;
+}
+
+.record-consistency-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.record-consistency-filter-count {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.record-consistency-export-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.record-consistency-export-btn:hover,
+.record-consistency-export-btn:focus-visible {
+  background: var(--surface-hover);
+}
+
+.record-consistency-table {
+  width: 100%;
+  min-width: 980px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  background: var(--surface-bg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.record-consistency-table thead {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-bottom: 2px solid var(--surface-border);
+}
+
+.record-consistency-table th,
+.record-consistency-table td {
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.record-consistency-table th {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.record-consistency-table th .col-label {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.record-consistency-table .col-filter {
+  width: 100%;
+  min-width: 90px;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  border: 1px solid var(--surface-border);
+  border-radius: 4px;
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 400;
+}
+
+.record-consistency-table tbody tr:nth-child(even) {
+  background: var(--surface-card);
+}
+
+.record-consistency-table code {
+  overflow-wrap: anywhere;
+}
+
+.record-consistency-table a {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.record-consistency-paging .paging-bar {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.record-consistency-paging-top .paging-bar {
+  margin-top: 0;
+}
+
+.record-consistency-paging .paging-bar button {
+  padding: 6px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  background: var(--surface-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.record-consistency-paging .paging-bar button:hover:not(:disabled) {
+  background: var(--surface-card);
+}
+
+.record-consistency-paging .paging-bar button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.record-consistency-paging .paging-info {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}

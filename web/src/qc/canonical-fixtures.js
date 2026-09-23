@@ -18,4 +18,10 @@ export const QC_HASH_FIXTURES = [
     value: { metrics: [{ name: 'fraction', value: 0.09898453602764382 }] },
     hash: '66f193cc785d12ede531c60c338d9009fc0fd186fe0f82d8765ee59296150c73',
   },
+  {
+    // UTF-16 ordering puts U+10000 (whose first surrogate is D800) before
+    // U+E000. This catches implementations that sort by Unicode code point.
+    value: { '\uE000': 2, '𐀀': 1 },
+    hash: '4045c21a23c8ae8f8d9add81f54bd506bee65885099876fb4afb378b1f2c3516',
+  },
 ];
