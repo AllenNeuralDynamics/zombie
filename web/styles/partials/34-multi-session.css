@@ -145,8 +145,59 @@
   margin-bottom: 6px;
 }
 
-.df-multi-fib-plot {
+/* The implant is subject-level, so it stays put beside the session strip. */
+.df-multi-fib-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.df-multi-fib-implant {
+  flex: 0 0 240px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.df-multi-fib-implant .fib-3d-inset {
+  height: 300px;
+}
+
+/* One boxed column per session, scrolled as a strip like the behavior plots */
+.df-multi-fib-strip {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
   overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.df-multi-fib-col {
+  flex: 0 0 auto;
+  width: 330px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 900px) {
+  .df-multi-fib-body {
+    flex-direction: column;
+  }
+
+  .df-multi-fib-implant {
+    flex: 0 0 auto;
+    width: 100%;
+  }
 }
 
 /* Pre-rendered figures, collapsed by default */

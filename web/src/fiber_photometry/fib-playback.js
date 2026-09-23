@@ -653,6 +653,139 @@ export async function loadFibSessionPsth(coord, {
 }
 
 /**
+ * Load every fiber's event-aligned PSTH for one session, with the same
+ * per-fiber colours, target areas and channel metadata the single-session
+ * panel draws — so a cross-session view can render identical cards per column
+ * instead of reimplementing them.
+ *
+ * @param {object} coord
+ * @param {object} opts - As `loadFibSessionPsth`, minus `fiberIdx` (all fibers).
+ * @returns {Promise<{fibers: Array<{fiber: number, series: object, meta: object|undefined,
+ *   color: string, area: string}>, streams: Array<{key: string, label: string}>,
+ *   eventKey: string, eventLabel: string}|null>}
+ */
+export async function loadFibSessionPsthSet(coord, {
+  subjectId,
+  rawAssetName,
+  eventKey = null,
+  pre = PSTH_PRE,
+  post = PSTH_POST,
+  baselineSec = 0,
+  platform = null,
+  signal = null,
+} = {}) {
+  if (!coord || !rawAssetName) return null;
+
+  const derived = await resolveFibDerivedName(coord, rawAssetName);
+  if (!derived || signal?.aborted) return null;
+  const urls = await fibFiles(derived);
+  if (!urls.length || signal?.aborted) return null;
+  const fibSrc = fibSource(urls);
+
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  if (signal?.aborted) return null;
+  const streams = timing?.streams ?? [];
+  const stream = (eventKey && streams.find((s) => s.key === eventKey))
+    ?? chooseDefaultEventStream(streams);
+  if (!stream) return null;
+
+  const [fiberMeta, surgery] = await Promise.all([
+    loadFiberMeta(coord, rawAssetName),
+    loadSurgery(subjectId),
+  ]);
+  if (signal?.aborted) return null;
+  const fiberInfoMap = buildFiberColorInfo(surgery);
+  const fiberIdxs = [...fiberMeta.keys()].sort((a, b) => a - b);
+  if (!fiberIdxs.length) return null;
+
+  const rowsPerFiber = await Promise.all(fiberIdxs.map((f) => loadPsthData(
+    coord, fibSrc, rawAssetName, stream, timing?.referenceTime ?? null, f, pre, post,
+  )));
+  if (signal?.aborted) return null;
+
+  const fibers = [];
+  fiberIdxs.forEach((fiber, order) => {
+    const rows = rowsPerFiber[order];
+    if (!rows?.length) return;
+    const info = fiberInfoMap.get(fiber);
+    fibers.push({
+      fiber,
+      series: computePsthSeries(rows, baselineSec, { pre, post }),
+      meta: fiberMeta.get(fiber),
+      color: fiberColor(fiberInfoMap, fiber, order),
+      area: fiberMeta.get(fiber)?.targetedStructure
+        || info?.structureAcronym || info?.structureName || '',
+    });
+  });
+  if (!fibers.length) return null;
+
+  return {
+    fibers,
+    streams: streams.map(({ key, label }) => ({ key, label })),
+    eventKey: stream.key,
+    eventLabel: stream.label,
+  };
+}
+
+/**
+ * Render one fiber's PSTH card — the same card the single-session panel uses.
+ *
+ * @param {{series: object, meta: object|undefined, color: string, area: string}} entry
+ * @param {object} opts - { yDomain, width, baselineSec, pre, post }
+ * @returns {HTMLElement}
+ */
+export function buildFibPsthCard(entry, {
+  yDomain, width = 320, baselineSec = 0, pre = PSTH_PRE, post = PSTH_POST,
+} = {}) {
+  return buildPsthCard(entry.series, entry.meta, entry.color, entry.area, yDomain, width, baselineSec, pre, post);
+}
+
+/**
+ * Shared [min, max] across several PSTH series, so cards (and columns) are
+ * read against one axis.
+ *
+ * @param {object[]} seriesList - `series` values from loadFibSessionPsthSet.
+ * @returns {[number, number]}
+ */
+export function fibPsthYDomain(seriesList) {
+  return psthYDomain(seriesList);
+}
+
+/**
+ * The implant view (3D fiber placement + per-fiber legend) for a subject.
+ *
+ * The implant belongs to the subject, not the session, so a cross-session view
+ * shows one of these beside the per-session columns.
+ *
+ * @param {string} subjectId
+ * @returns {HTMLElement} Self-loading; renders a message when there is no
+ *   implant surgery to show.
+ */
+export function createFibImplantPanel(subjectId) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fib-3d-inset';
+  wrap.innerHTML = '<p class="fib-loading">Loading…</p>';
+
+  loadSurgery(subjectId)
+    .then(async (surgery) => {
+      if (!surgery?.surgeryData) {
+        wrap.innerHTML = '<p class="fib-no-data">No implant surgery found.</p>';
+        return;
+      }
+      const { createBrainViz3D } = await import('../subject/brain-viz-3d.js');
+      const viz = createBrainViz3D(surgery.surgeryData, surgery.proceduresCoordSys);
+      viz.style.height = '100%';
+      wrap.replaceChildren(viz);
+    })
+    .catch((err) => {
+      console.error('[fib-playback] implant panel error', err);
+      wrap.innerHTML = '<p class="fib-no-data">3D view unavailable.</p>';
+    });
+
+  return wrap;
+}
+
+/**
  * Event streams available for a session, for cross-session alignment pickers.
  *
  * @returns {Promise<Array<{key: string, label: string}>>}

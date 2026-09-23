@@ -382,15 +382,32 @@ function hasFiberModality(session) {
   return (session.modalities ?? []).some((m) => /^fib/i.test(String(m)));
 }
 
+/**
+ * Fiber photometry across sessions.
+ *
+ * Two layouts, because two different questions get asked:
+ *   Columns — the single-session panel's per-fiber cards, one boxed column per
+ *     session, laid out like the behavior figures. Every fiber and channel
+ *     stays visible and sessions are read side by side against one shared
+ *     y-axis.
+ *   Overlay — one trace per session on shared axes, first fiber and channel
+ *     only. Better for seeing drift across many sessions at once.
+ *
+ * The implant belongs to the subject rather than the session, so one implant
+ * view sits beside the columns instead of repeating in each.
+ */
 function buildFiberSection(sessions, context = {}) {
   const coordinator = context.coordinator ?? null;
   const fibSessions = sessions.filter(hasFiberModality);
-  // Nothing to say when none of these acquisitions carry fiber data.
+  // Nothing to say when these acquisitions carry no fiber data.
   if (!coordinator || fibSessions.length < 2) return null;
+
+  const subjectId = context.subjectId ?? fibSessions[0].subject_id;
 
   const wrap = document.createElement('div');
   wrap.className = 'df-multi-fib';
 
+  // ── Controls ──────────────────────────────────────────────────────────────
   const controls = document.createElement('div');
   controls.className = 'df-multi-fib-controls';
 
@@ -401,67 +418,141 @@ function buildFiberSection(sessions, context = {}) {
   eventLabel.textContent = 'Align to ';
   eventLabel.appendChild(eventSel);
 
+  const layoutSel = document.createElement('select');
+  layoutSel.className = 'project-filter-select';
+  for (const [value, text] of [['columns', 'Columns'], ['overlay', 'Overlay']]) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = text;
+    layoutSel.appendChild(opt);
+  }
+  const layoutLabel = document.createElement('label');
+  layoutLabel.textContent = 'Layout ';
+  layoutLabel.appendChild(layoutSel);
+
   const baseline = createBaselineControls({ defaultOn: true, onChange: () => render() });
 
-  controls.append(eventLabel, baseline.element);
+  controls.append(eventLabel, layoutLabel, baseline.element);
 
   const status = document.createElement('div');
   status.className = 'df-multi-fib-status';
 
-  const plotEl = document.createElement('div');
-  plotEl.className = 'df-multi-fib-plot';
+  // ── Body: implant beside a horizontally-scrolled strip of session columns ──
+  const body = document.createElement('div');
+  body.className = 'df-multi-fib-body';
 
-  wrap.append(controls, status, plotEl);
+  const implantCol = document.createElement('div');
+  implantCol.className = 'df-multi-fib-implant';
+  const implantHeading = document.createElement('div');
+  implantHeading.className = 'df-multi-figure-caption';
+  implantHeading.textContent = 'Implant';
+  implantCol.appendChild(implantHeading);
 
-  // date → the session's mean trace for the selected event, or null
+  const strip = document.createElement('div');
+  strip.className = 'df-multi-fib-strip';
+
+  body.append(implantCol, strip);
+  wrap.append(controls, status, body);
+
+  // [{ session_date, set }] — set is null for a session with no fiber traces.
   let loaded = [];
-  let channel = null;
+  let api = null;
+  let generation = 0;
 
-  function render() {
-    const usable = loaded.filter((entry) => entry.series?.length);
+  function renderColumns() {
+    const usable = loaded.filter((entry) => entry.set?.fibers?.length);
     if (!usable.length) {
-      plotEl.replaceChildren(placeholder('No fiber traces available for these sessions.'));
+      strip.replaceChildren(placeholder('No fiber traces available for these sessions.'));
       return;
     }
+    // One y-axis across every fiber of every session, or the columns lie.
+    const yDomain = api.fibPsthYDomain(usable.flatMap((e) => e.set.fibers.map((f) => f.series)));
+    const baselineSec = baseline.getBaselineSec();
+
+    strip.replaceChildren();
+    for (const entry of usable) {
+      const column = document.createElement('div');
+      column.className = 'df-multi-fib-col';
+
+      const caption = document.createElement('div');
+      caption.className = 'df-multi-figure-caption';
+      caption.textContent = entry.session_date;
+      column.appendChild(caption);
+
+      for (const fiberEntry of entry.set.fibers) {
+        column.appendChild(api.buildFibPsthCard(fiberEntry, {
+          yDomain,
+          width: 300,
+          baselineSec,
+          pre: PSTH_PRE,
+          post: PSTH_POST,
+        }));
+      }
+      strip.appendChild(column);
+    }
+  }
+
+  function renderOverlay() {
+    const usable = loaded.filter((entry) => entry.set?.fibers?.length);
+    if (!usable.length) {
+      strip.replaceChildren(placeholder('No fiber traces available for these sessions.'));
+      return;
+    }
+    // One fiber and one channel, so the session traces are comparable.
+    const first = usable[0].set.fibers[0];
+    const channel = first.series.channels?.[0] ?? null;
     const dates = usable.map((entry) => entry.session_date);
-    const colors = sessionColors(dates.length);
     const series = baselineSeries(
-      usable.flatMap((entry) => entry.series),
+      usable.flatMap((entry) => (entry.set.fibers[0]?.series.allMean ?? [])
+        .filter((d) => d.channel === channel)
+        .map((d) => ({ t: d.t, mean: d.mean, session: entry.session_date }))),
       baseline.getBaselineSec(),
       { colorKey: 'session' },
     );
-    plotEl.replaceChildren(buildPsthPlot(series, {
+    strip.replaceChildren(buildPsthPlot(series, {
       pre: PSTH_PRE,
       post: PSTH_POST,
-      width: Math.max(320, Math.floor(plotEl.clientWidth) - 8),
+      width: Math.max(320, Math.floor(strip.clientWidth) - 8),
       height: 300,
       marginLeft: 60,
       xLabel: `Time rel. ${eventSel.selectedOptions[0]?.textContent ?? 'event'} (s)`,
-      yLabel: channel ? `ΔF/F (${channel})` : 'ΔF/F',
+      yLabel: `Mean ΔF/F — fiber ${first.fiber}${channel ? ` (${channel})` : ''}`,
       colorKey: 'session',
       colorDomain: dates,
-      colorRange: colors,
+      colorRange: sessionColors(dates.length),
       colorLegend: true,
       showArea: false,
       baselineSec: baseline.getBaselineSec(),
     }));
   }
 
+  function render() {
+    if (!loaded.length) return;
+    if (layoutSel.value === 'overlay') renderOverlay();
+    else renderColumns();
+  }
+
   async function load() {
-    const { loadFibSessionPsth, listFibEventStreams } =
-      await import('../../fiber_photometry/fib-playback.js');
+    const gen = ++generation;
+    api = api ?? await import('../../fiber_photometry/fib-playback.js');
+    if (context.signal?.aborted || gen !== generation) return;
+
+    // The implant is subject-level: load it once, not on every event change.
+    if (!implantCol.querySelector('.fib-3d-inset')) {
+      implantCol.appendChild(api.createFibImplantPanel(String(subjectId)));
+    }
 
     if (!eventSel.value) {
-      const streams = await listFibEventStreams(coordinator, {
-        subjectId: context.subjectId ?? fibSessions[0].subject_id,
+      const streams = await api.listFibEventStreams(coordinator, {
+        subjectId,
         rawAssetName: fibSessions[0].assetName,
         platform: 'dynamic_foraging',
         signal: context.signal,
       });
-      if (context.signal?.aborted) return;
+      if (context.signal?.aborted || gen !== generation) return;
       if (!streams.length) {
         status.textContent = '';
-        plotEl.replaceChildren(placeholder('No behavior events found to align these sessions on.'));
+        strip.replaceChildren(placeholder('No behavior events found to align these sessions on.'));
         return;
       }
       eventSel.replaceChildren(...streams.map(({ key, label }) => {
@@ -475,17 +566,16 @@ function buildFiberSection(sessions, context = {}) {
     }
 
     loaded = [];
-    channel = null;
-    plotEl.replaceChildren(placeholder('Loading fiber traces…'));
+    strip.replaceChildren(placeholder('Loading fiber traces…'));
 
     let done = 0;
     for (const session of fibSessions) {
-      if (context.signal?.aborted) return;
+      if (context.signal?.aborted || gen !== generation) return;
       status.textContent = `Loading fiber traces… ${done}/${fibSessions.length} sessions`;
-      let psth = null;
+      let set = null;
       try {
-        psth = await loadFibSessionPsth(coordinator, {
-          subjectId: context.subjectId ?? session.subject_id,
+        set = await api.loadFibSessionPsthSet(coordinator, {
+          subjectId,
           rawAssetName: session.assetName,
           eventKey: eventSel.value,
           platform: 'dynamic_foraging',
@@ -497,28 +587,23 @@ function buildFiberSection(sessions, context = {}) {
         console.warn('[DFMulti] fiber PSTH failed for', session.assetName, err);
       }
       done += 1;
-      if (context.signal?.aborted) return;
-
-      // One channel across every session, so the traces are comparable.
-      const ch = channel ?? psth?.channels?.[0] ?? null;
-      if (ch && !channel) channel = ch;
-      const series = (psth?.allMean ?? [])
-        .filter((d) => d.channel === ch)
-        .map((d) => ({ t: d.t, mean: d.mean, session: session.session_date }));
-      loaded.push({ session_date: session.session_date, series });
+      if (context.signal?.aborted || gen !== generation) return;
+      loaded.push({ session_date: session.session_date, set });
+      // Re-render as each session lands — the shared y-axis moves with it.
       render();
     }
 
-    const withData = loaded.filter((entry) => entry.series.length).length;
+    const withData = loaded.filter((entry) => entry.set?.fibers?.length).length;
     status.textContent =
       `${withData} of ${fibSessions.length} session${fibSessions.length === 1 ? '' : 's'} with fiber traces`;
   }
 
   eventSel.addEventListener('change', () => { load(); });
+  layoutSel.addEventListener('change', render);
   load().catch((err) => {
     console.warn('[DFMulti] fiber section failed:', err);
     status.textContent = '';
-    plotEl.replaceChildren(placeholder('Failed to load fiber photometry for these sessions.'));
+    strip.replaceChildren(placeholder('Failed to load fiber photometry for these sessions.'));
   });
 
   return wrap;
