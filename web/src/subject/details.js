@@ -28,6 +28,8 @@ import {
   extractForagingSessionInfo,
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
+import { createMultiSessionView } from '../lib/behaviors/multi-session.js';
+import { MULTI_SESSION_PROVIDERS } from '../lib/behaviors/multi-session-providers.js';
 import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
 import { isISIAcquisition, createISIViewer } from './isi-viewer.js';
 import { escHtml, normalizeProtocolId } from '../lib/utils.js';
@@ -764,5 +766,42 @@ export function renderEventDetail(event, container, context = {}) {
       } else {
         container.innerHTML = buildSubProcedureDetail(event);
       }
+  }
+}
+
+/**
+ * Render a multi-session view into `container`, replacing the single-event
+ * detail views.
+ *
+ * Reached from a shift-click range or a ctrl/cmd-click scatter on the subject
+ * timeline. Which platforms have a multi-session view, and what it contains,
+ * is the providers' business (lib/behaviors/multi-session-providers.js) — this
+ * only owns the swap.
+ *
+ * @param {object[]} events - Selected timeline events, chronological.
+ * @param {HTMLElement} container - Element to render into (will be cleared).
+ * @param {object} [context]
+ * @param {object} [context.coordinator] - DuckDB coordinator.
+ * @param {string} [context.subjectId]   - Subject ID.
+ * @param {AbortSignal} [context.signal] - Abort pending section loads.
+ */
+export function renderMultiEventDetail(events, container, context = {}) {
+  disposeDetail(container);
+  container.replaceChildren(
+    createMultiSessionView(events ?? [], context, MULTI_SESSION_PROVIDERS),
+  );
+}
+
+/**
+ * Release listeners held by a rendered multi-session view (session figures
+ * install brush and resize handlers) before its container is reused.
+ *
+ * @param {HTMLElement} container
+ */
+export function disposeDetail(container) {
+  for (const el of container?.querySelectorAll?.('*') ?? []) {
+    if (typeof el._dispose === 'function') {
+      try { el._dispose(); } catch { /* already gone */ }
+    }
   }
 }

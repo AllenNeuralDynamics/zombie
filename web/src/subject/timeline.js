@@ -10,6 +10,12 @@
  * The window and the bubble strip are bidirectionally synchronised: dragging
  * the window scrolls the strip and scrolling the strip moves the window.
  *
+ * Selection: a plain click selects one event. Shift+click extends a range of
+ * acquisitions from the anchor (the last plainly-clicked bubble); Ctrl/Cmd+click
+ * toggles a single acquisition in or out. Multi-selection is reported through the
+ * same `onSelect` callback, in its `selection` field, so the caller can swap the
+ * per-event detail panel for a multi-session one.
+ *
  * Pure helper `buildTimelineSvgParts` is exported for unit testing (Node-safe).
  */
 
@@ -97,10 +103,12 @@ export function buildTimelineSvgParts(events, totalWidth, totalHeight) {
  *
  * @param {Array<object>} events - Timeline event objects from buildTimelineEvents().
  * @param {object} [opts]
- * @param {(ev: object, info: {programmatic: boolean}) => void} [opts.onSelect] -
+ * @param {(ev: object, info: {programmatic: boolean, selection: object[]}) => void} [opts.onSelect] -
  *   Called with the event object on selection. `programmatic` is true when the
  *   selection came from `selectAcquisition()` (e.g. a deep link) rather than a
- *   user click or keypress.
+ *   user click or keypress. `selection` lists every currently-selected event in
+ *   chronological order (one entry for an ordinary click, more after a
+ *   shift/ctrl click); `ev` is always the event the user acted on last.
  * @param {Map<string, string[]>} [opts.assetSources] - name → its `source_data`
  *   parents, used to walk a derived asset back to the acquisition it came from.
  * @returns {HTMLElement}
@@ -192,29 +200,94 @@ export function createSubjectTimeline(events, opts = {}) {
   const bubbleScroll = document.createElement('div');
   bubbleScroll.className = 'subject-timeline-bubbles';
 
-  let selectedBubble = null;
   const bubbleEls = []; // parallel to sorted[]
 
-  function selectBubble(bubble, ev, { focus = false, programmatic = false } = {}) {
-    if (selectedBubble) selectedBubble.classList.remove('tl-bubble--selected');
-    bubble.classList.add('tl-bubble--selected');
-    selectedBubble = bubble;
+  // Selected indices into sorted[]; `anchorIdx` is the origin of a shift+click
+  // range (the last bubble selected by a plain click or a deep link).
+  const selectedIdxs = new Set();
+  let anchorIdx = -1;
+
+  const isAcquisition = (i) => sorted[i]?.type === 'Acquisition';
+
+  /** Currently-selected events, oldest → newest. */
+  function selectionEvents() {
+    return [...selectedIdxs].sort((a, b) => a - b).map((i) => sorted[i]);
+  }
+
+  function paintSelection() {
+    const multi = selectedIdxs.size > 1;
+    bubbleEls.forEach((bubble, i) => {
+      const on = selectedIdxs.has(i);
+      bubble.classList.toggle('tl-bubble--selected', on);
+      bubble.classList.toggle('tl-bubble--multi', on && multi);
+      bubble.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
+  /** Replace the selection with a single event and make it the range anchor. */
+  function selectIndex(idx, { focus = false, programmatic = false } = {}) {
+    selectedIdxs.clear();
+    selectedIdxs.add(idx);
+    anchorIdx = idx;
+    paintSelection();
+    const bubble = bubbleEls[idx];
     bubble.scrollIntoView?.({ behavior: 'smooth', inline: 'center', block: 'nearest' });
     // Keep keyboard focus on the selected bubble so arrow-key navigation keeps working.
     if (focus) bubble.focus?.({ preventScroll: true });
-    onSelect?.(ev, { programmatic });
+    onSelect?.(sorted[idx], { programmatic, selection: selectionEvents() });
+  }
+
+  /**
+   * Shift+click: select every acquisition between the anchor and `idx`.
+   *
+   * Only acquisitions take part — a surgery or specimen procedure sitting
+   * between two sessions is not a session, and the multi-session panels have
+   * nothing to show for it. A range that cannot be built (no acquisition
+   * anchor, or a non-acquisition target) degrades to a plain single select.
+   */
+  function extendSelection(idx) {
+    if (!isAcquisition(idx) || anchorIdx === -1 || !isAcquisition(anchorIdx)) {
+      selectIndex(idx);
+      return;
+    }
+    const lo = Math.min(anchorIdx, idx);
+    const hi = Math.max(anchorIdx, idx);
+    selectedIdxs.clear();
+    for (let i = lo; i <= hi; i++) {
+      if (isAcquisition(i)) selectedIdxs.add(i);
+    }
+    paintSelection();
+    onSelect?.(sorted[idx], { programmatic: false, selection: selectionEvents() });
+  }
+
+  /** Ctrl/Cmd+click: add or remove one acquisition, never emptying the selection. */
+  function toggleSelection(idx) {
+    if (!isAcquisition(idx) || ![...selectedIdxs].every(isAcquisition)) {
+      selectIndex(idx);
+      return;
+    }
+    if (selectedIdxs.has(idx)) {
+      if (selectedIdxs.size === 1) return; // keep at least one event selected
+      selectedIdxs.delete(idx);
+    } else {
+      selectedIdxs.add(idx);
+    }
+    paintSelection();
+    // Report the newest remaining event when the clicked one was removed.
+    const events = selectionEvents();
+    const focusEv = selectedIdxs.has(idx) ? sorted[idx] : events[events.length - 1];
+    onSelect?.(focusEv, { programmatic: false, selection: events });
   }
 
   // Arrow-key navigation: move one event into the past (←) or future (→).
   // Events (bubbleEls) are ordered oldest → newest, matching sorted[].
   bubbleScroll.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    const currentIdx = bubbleEls.indexOf(selectedBubble);
-    if (currentIdx === -1) return;
-    const nextIdx = e.key === 'ArrowLeft' ? currentIdx - 1 : currentIdx + 1;
+    if (anchorIdx === -1) return;
+    const nextIdx = e.key === 'ArrowLeft' ? anchorIdx - 1 : anchorIdx + 1;
     if (nextIdx < 0 || nextIdx >= sorted.length) return;
     e.preventDefault();
-    selectBubble(bubbleEls[nextIdx], sorted[nextIdx], { focus: true });
+    selectIndex(nextIdx, { focus: true });
   });
 
   for (const ev of sorted) {
@@ -268,11 +341,28 @@ export function createSubjectTimeline(events, opts = {}) {
       bubble.appendChild(modEl);
     }
 
-    bubble.addEventListener('click', () => selectBubble(bubble, ev));
+    bubble.addEventListener('click', (e) => {
+      const idx = bubbleEls.indexOf(bubble);
+      if (e.shiftKey) {
+        // Shift-clicking a strip of buttons also selects text; clear it so the
+        // range reads as a selection rather than a smear.
+        e.preventDefault();
+        window.getSelection?.()?.removeAllRanges?.();
+        extendSelection(idx);
+      } else if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        toggleSelection(idx);
+      } else {
+        selectIndex(idx);
+      }
+    });
 
     bubbleScroll.appendChild(bubble);
     bubbleEls.push(bubble);
   }
+
+  // Nothing is selected yet; this seeds aria-pressed on every bubble.
+  paintSelection();
 
   wrapper.appendChild(bubbleScroll);
 
@@ -333,7 +423,49 @@ export function createSubjectTimeline(events, opts = {}) {
     if (!assetName) return false;
     const idx = resolveAcqIndex(assetName);
     if (idx === -1 || idx == null) return false;
-    selectBubble(bubbleEls[idx], sorted[idx], { focus: true, programmatic: true });
+    selectIndex(idx, { focus: true, programmatic: true });
+    return true;
+  };
+
+  /** Currently-selected events, oldest → newest (exposed for callers/tests). */
+  wrapper.getSelection = () => selectionEvents();
+
+  /**
+   * Collapse a multi-selection back to one event — the anchor, which is the
+   * newest session after `selectLastAcquisitions()`. Reports the single
+   * selection so the caller swaps back to the per-event detail panel.
+   *
+   * @returns {boolean} false when the selection is already a single event.
+   */
+  wrapper.collapseSelection = () => {
+    if (selectedIdxs.size <= 1) return false;
+    const idx = selectedIdxs.has(anchorIdx)
+      ? anchorIdx
+      : [...selectedIdxs].sort((a, b) => a - b).pop();
+    selectIndex(idx, { programmatic: true });
+    return true;
+  };
+
+  /**
+   * Select the most recent `count` acquisitions — the "open a multi-session
+   * view by default" preference, and a quick way back to a recent range.
+   *
+   * @param {number} count
+   * @returns {boolean} false when there are too few acquisitions to compare.
+   */
+  wrapper.selectLastAcquisitions = (count) => {
+    const n = Math.floor(Number(count));
+    if (!Number.isFinite(n) || n < 2) return false;
+    const acqIdxs = sorted.map((ev, i) => (ev.type === 'Acquisition' ? i : -1)).filter((i) => i !== -1);
+    if (acqIdxs.length < 2) return false;
+    const picked = acqIdxs.slice(-n);
+    selectedIdxs.clear();
+    for (const i of picked) selectedIdxs.add(i);
+    // The newest session anchors, so a following shift+click extends backwards.
+    anchorIdx = picked[picked.length - 1];
+    paintSelection();
+    bubbleEls[anchorIdx].scrollIntoView?.({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    onSelect?.(sorted[anchorIdx], { programmatic: true, selection: selectionEvents() });
     return true;
   };
 

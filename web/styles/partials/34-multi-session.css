@@ -1,0 +1,229 @@
+/* ============================================================
+   Multi-session selection — timeline range, harness, DF sections
+   ============================================================ */
+
+/* Every bubble in a multi-selection keeps the selected ring (see
+   06-contributions-core.css) and gains a tint so the range reads as one group. */
+.tl-bubble--multi {
+  background: color-mix(in srgb, var(--bubble-color) 14%, var(--surface-card));
+}
+
+/* ---- Timeline header + default-selection setting ---- */
+
+.subject-timeline-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.multi-session-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.multi-session-setting-count {
+  width: 3.5rem;
+  font: inherit;
+  padding: 1px 4px;
+}
+
+/* ---- Harness scaffolding (platform-agnostic) ---- */
+
+.multi-session-header {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.multi-session-section + .multi-session-section {
+  margin-top: 20px;
+}
+
+.multi-session-section > h4 {
+  margin: 0 0 8px;
+}
+
+/* ---- Dynamic foraging sections ---- */
+
+.df-multi-trends {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.df-multi-trend-cell {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 6px;
+  overflow-x: auto;
+}
+
+.df-multi-table-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+
+.df-multi-table {
+  font-size: 0.78rem;
+}
+
+/* Session figures — the same plot the player draws, one boxed column per
+   session, concatenated left to right and scrolled as a strip. Rows line up
+   across columns, so only the first column carries the label gutter and the
+   rest are widened back to an equal plotting area. */
+.df-multi-plots {
+  --df-multi-col-w: 520px;
+  --df-multi-gutter-w: 74px;   /* prob-plot MARGIN.left (88) − its bare left margin (14) */
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.df-multi-plot-card {
+  flex: 0 0 auto;
+  width: var(--df-multi-col-w);
+}
+
+.df-multi-plot-card--labelled {
+  width: calc(var(--df-multi-col-w) + var(--df-multi-gutter-w));
+}
+
+.df-multi-figures {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.df-multi-plot-card,
+.df-multi-figure {
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.df-multi-plot-body {
+  min-height: 60px;
+}
+
+.df-multi-figure-caption {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.df-multi-figure-img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Fiber photometry across sessions */
+.df-multi-fib-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.df-multi-fib-status {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+/* The implant is subject-level, so it stays put beside the session strip. */
+.df-multi-fib-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.df-multi-fib-implant {
+  flex: 0 0 240px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.df-multi-fib-implant .fib-3d-inset {
+  height: 300px;
+}
+
+/* One boxed column per session, scrolled as a strip like the behavior plots */
+.df-multi-fib-strip {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.df-multi-fib-col {
+  flex: 0 0 auto;
+  width: 330px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Aggregate: one panel per fiber — sessions × time heatmap + pooled trace */
+.df-multi-fib-agg {
+  flex: 0 0 auto;
+  width: 480px;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.session-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+@media (max-width: 900px) {
+  .df-multi-fib-body {
+    flex-direction: column;
+  }
+
+  .df-multi-fib-implant {
+    flex: 0 0 auto;
+    width: 100%;
+  }
+}
+
+/* Pre-rendered figures, collapsed by default */
+.df-multi-choice-history > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.df-multi-choice-history > .df-multi-figures {
+  margin-top: 10px;
+}
