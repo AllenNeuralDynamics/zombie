@@ -76,6 +76,7 @@ export function MigrateSubmitPage() {
   const [authStatus, setAuthStatus] = useState('loading');
 
   const [submitState, setSubmitState] = useState('idle');
+  const [submitProgress, setSubmitProgress] = useState({ completed: 0, total: 0 });
   const [proposals, setProposals] = useState([]);
   const [submittedIds, setSubmittedIds] = useState([]);
   const [submitError, setSubmitError] = useState('');
@@ -139,6 +140,7 @@ export function MigrateSubmitPage() {
     setCurrentRecords([]);
     setCandidate(null);
     setSubmitState('idle');
+    setSubmitProgress({ completed: 0, total: 0 });
     setProposals([]);
     setSubmittedIds([]);
     setSubmitError('');
@@ -220,10 +222,18 @@ export function MigrateSubmitPage() {
     [recordChanges],
   );
 
+  const unsubmittedRecords = useMemo(
+    () => changedRecords.filter((item) => !submittedIds.includes(
+      String(item.record._id ?? item.record.name ?? selectedId),
+    )),
+    [changedRecords, selectedId, submittedIds],
+  );
+
   function handleFetch() {
     const name = assetInput.trim();
     if (!name) return;
     setSubmitState('idle');
+    setSubmitProgress({ completed: 0, total: 0 });
     setProposals([]);
     setSubmittedIds([]);
     setSubmitError('');
@@ -232,11 +242,10 @@ export function MigrateSubmitPage() {
   }
 
   async function handleSubmit() {
-    const pending = changedRecords.filter((item) => !submittedIds.includes(
-      String(item.record._id ?? item.record.name ?? selectedId),
-    ));
+    const pending = unsubmittedRecords;
     if (pending.length === 0) return;
     setSubmitState('submitting');
+    setSubmitProgress({ completed: 0, total: pending.length });
     setSubmitError('');
     setDuplicateIds([]);
     const inputs = pending.map(({ record, merged: next }) => ({
@@ -245,7 +254,9 @@ export function MigrateSubmitPage() {
       body: next,
       note,
     }));
-    const results = await createProposalsBatch(inputs);
+    const results = await createProposalsBatch(inputs, {
+      onProgress: ({ completed, total }) => setSubmitProgress({ completed, total }),
+    });
     const created = results.filter((result) => result.proposal).map((result) => result.proposal);
     const failed = results.filter((result) => result.error);
     const duplicate = failed
@@ -480,8 +491,9 @@ export function MigrateSubmitPage() {
                         class="btn-primary migrate-action-btn"
                         onClick=${user ? handleSubmit : startLogin}
                         disabled=${submitDisabled}
-                      >${submitState === 'submitting' ? `Submitting ${changedRecords.length}…`
-                        : user ? (changedRecords.length > 1 ? `Submit ${changedRecords.length} assets for review` : 'Submit for review')
+                      >${submitState === 'submitting'
+                        ? `Submitting ${submitProgress.completed} of ${submitProgress.total}…`
+                        : user ? (unsubmittedRecords.length > 1 ? `Submit ${unsubmittedRecords.length} assets for review` : 'Submit for review')
                         : 'Log in to submit'}</button>
                       <button class="btn-secondary" onClick=${handleCopyUrl}>Copy shareable URL</button>
                       <a class="btn-secondary" href="/migrate/review">Open review queue →</a>

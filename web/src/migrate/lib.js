@@ -17,7 +17,7 @@ export const DOCDB_BASES = {
   v2: 'https://api.allenneuraldynamics.org/v2/metadata_index/data_assets',
 };
 
-const METADATA_SERVICE_BASE = 'https://aind-metadata-service';
+const METADATA_SERVICE_BASE = '/metadata-service';
 export const METADATA_SERVICE_PATHS = {
   v1: {
     subject: (id) => `${METADATA_SERVICE_BASE}/subject/${encodeURIComponent(id)}`,
@@ -251,6 +251,13 @@ export function topLevelChangedSections(oldRecord, newRecord) {
   return out;
 }
 
+/** Read changed-section metadata from a queue summary, with full-record fallback. */
+export function proposalChangedSections(proposal) {
+  return Array.isArray(proposal?.changed_sections)
+    ? proposal.changed_sections
+    : topLevelChangedSections(proposal?.base, proposal?.body);
+}
+
 /**
  * Return a stable key for the actual change in a proposal.
  *
@@ -274,7 +281,7 @@ export function proposalChangeSignature(proposal) {
 export function groupProposals(proposals = []) {
   const groups = new Map();
   for (const proposal of proposals) {
-    const key = proposalChangeSignature(proposal);
+    const key = proposal?.change_key || proposalChangeSignature(proposal);
     if (!groups.has(key)) groups.set(key, { key, proposals: [] });
     groups.get(key).proposals.push(proposal);
   }
@@ -387,10 +394,12 @@ export class QcError extends Error {
   }
 }
 
-async function qcFetch(path, { method = 'GET', body, signal } = {}) {
+async function qcFetch(path, {
+  method = 'GET', body, signal, identityToken,
+} = {}) {
   const verb = method.toUpperCase();
   const requiresAuth = verb !== 'GET';
-  let token = requiresAuth ? await getQcIdentityToken() : null;
+  let token = requiresAuth ? identityToken ?? await getQcIdentityToken() : null;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const headers = {};
@@ -418,11 +427,12 @@ async function qcFetch(path, { method = 'GET', body, signal } = {}) {
   throw new QcError(401, { error: 'not_authenticated' });
 }
 
-/** List proposals. `status` accepts 'open', 'all', or a comma-separated list. */
-export async function listProposals({ status = 'open', version, id, signal } = {}) {
+/** List compact proposal summaries. `status` accepts 'open', 'all', or a comma-separated list. */
+export async function listProposals({ status = 'open', version, id, signal, summary = true } = {}) {
   const params = new URLSearchParams({ status });
   if (version) params.set('version', version);
   if (id) params.set('id', id);
+  if (summary) params.set('summary', 'true');
   const body = await qcFetch(`/metadata/proposals?${params}`, { signal });
   return Array.isArray(body?.proposals) ? body.proposals : [];
 }
@@ -434,21 +444,53 @@ export async function getProposal(proposalId, signal) {
 }
 
 /** Create a proposal. Throws QcError('duplicate_proposal' | 'no_changes' | …). */
-export async function createProposal({ version, id, body, note, supersedes }) {
-  const resp = await qcFetch('/metadata/proposals', {
+export async function createProposal({ version, id, body, note, supersedes }, { token } = {}) {
+  const resp = await qcFetch('/metadata/proposals?summary=true', {
     method: 'POST',
     body: { version, id, body, note: note ?? '', ...(supersedes ? { supersedes } : {}) },
+    identityToken: token,
   });
   return resp?.proposal ?? null;
 }
 
+/** Run an async worker with bounded concurrency while preserving input order. */
+export async function mapSettledWithConcurrency(items, worker, concurrency = 4, onSettled) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  let settledCount = 0;
+  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency) || 1));
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+      settledCount += 1;
+      onSettled?.(results[index], index, settledCount);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
 /**
- * Create several independent proposals concurrently. Each proposal remains
- * individually reviewable and conflict-checked by the QC portal; this helper
- * only gives the submitter one batch operation and preserves partial results.
+ * Create several independent proposals with a small amount of concurrency.
+ * Each proposal remains individually reviewable and conflict-checked by the
+ * QC portal; bounded fan-out prevents a large subject from overwhelming it.
  */
-export async function createProposalsBatch(inputs) {
-  const results = await Promise.allSettled(inputs.map((input) => createProposal(input)));
+export async function createProposalsBatch(inputs, { concurrency = 4, onProgress } = {}) {
+  const tokenPromise = getQcIdentityToken();
+  const results = await mapSettledWithConcurrency(
+    inputs,
+    async (input) => createProposal(input, { token: await tokenPromise }),
+    concurrency,
+    (result, index, completed) => onProgress?.({ completed, total: inputs.length, result, index }),
+  );
   return results.map((result, index) => ({
     input: inputs[index],
     ...(result.status === 'fulfilled'
@@ -462,26 +504,29 @@ export async function createProposalsBatch(inputs) {
  * displayed to the reviewer — that is what makes the approval mean "I approve
  * *this* payload".
  */
-export async function approveProposal(proposalId, bodyHash) {
-  return qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/approve`, {
+export async function approveProposal(proposalId, bodyHash, { token } = {}) {
+  return qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/approve?summary=true`, {
     method: 'POST',
     body: { body_hash: bodyHash },
+    identityToken: token,
   });
 }
 
 /** Reject a proposal with a reason. */
-export async function rejectProposal(proposalId, reason) {
-  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/reject`, {
+export async function rejectProposal(proposalId, reason, { token } = {}) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/reject?summary=true`, {
     method: 'POST',
     body: { reason: reason ?? '' },
+    identityToken: token,
   });
   return resp?.proposal ?? null;
 }
 
 /** Withdraw one's own open proposal. */
-export async function withdrawProposal(proposalId) {
-  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}`, {
+export async function withdrawProposal(proposalId, { token } = {}) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}?summary=true`, {
     method: 'DELETE',
+    identityToken: token,
   });
   return resp?.proposal ?? null;
 }
