@@ -23,6 +23,8 @@ import {
 } from './brain-viz-3d.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
 import { vizSceneBg, onVizThemeChange } from './viz-theme.js';
+import { ensureTable } from '../lib/registry.js';
+import { queryRows } from '../lib/arrow.js';
 // hasImagingConfig / extractImagingData live in ./imaging-data.js (three.js-free)
 // so the subject details panel can branch on imaging data without loading this
 // 3D module. Re-exported here for backwards compatibility with existing importers.
@@ -47,13 +49,76 @@ function esc(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const SMARTSPIM_LINKS = [
+  ['raw_link', 'Raw'],
+  ['stitched_link', 'Stitched'],
+  ['alignment_link', 'AlignedTissue'],
+  ['alignment_ccf_link', 'AlignedCCF'],
+];
+
+function smartSpimLinkButton(href, label) {
+  if (!href) return `<button class="smartspim-link-button" type="button" disabled>${label}</button>`;
+  const safeHref = esc(String(href)).replace(/'/g, '&#39;');
+  return `<a class="smartspim-link-button" href="${safeHref}" target="_blank" rel="noopener noreferrer">${label}</a>`;
+}
+
+/**
+ * Fetch the SmartSPIM rows associated with an acquisition asset.
+ * A failed optional platform lookup is treated as no links so the imaging
+ * details still render normally.
+ */
+export async function loadSmartSpimRows(coordinator, assetName) {
+  if (!coordinator || !assetName) return [];
+  const escaped = String(assetName).replace(/'/g, "''");
+  try {
+    await ensureTable(coordinator, 'platform_smartspim');
+    return await queryRows(coordinator, `
+      SELECT name, raw_name, channel, segmentation_link, quantification_link,
+             raw_link, stitched_link, alignment_link, alignment_ccf_link
+      FROM platform_smartspim
+      WHERE name = '${escaped}' OR raw_name = '${escaped}'
+      ORDER BY channel NULLS FIRST
+    `);
+  } catch (err) {
+    console.warn('[ImagingDetails] SmartSPIM links unavailable:', err);
+    return [];
+  }
+}
+
+/** Build the always-visible SmartSPIM link controls for the imaging tab. */
+export function buildSmartSpimLinksPanel(rows = []) {
+  const linkValue = (field, candidates = rows) =>
+    candidates.find((row) => row?.[field])?.[field] ?? null;
+  const channels = [...new Set(rows.map((row) => row.channel).filter(Boolean))];
+  const channelRows = channels.map((channel) => {
+    const channelRowsForName = rows.filter((row) => row.channel === channel);
+    return `<div class="smartspim-link-row">
+      <span class="smartspim-link-label">${esc(String(channel))}:</span>
+      <span class="smartspim-link-buttons">
+        ${smartSpimLinkButton(linkValue('segmentation_link', channelRowsForName), 'Seg')}
+        ${smartSpimLinkButton(linkValue('quantification_link', channelRowsForName), 'Quant')}
+      </span>
+    </div>`;
+  }).join('');
+
+  return `<div class="smartspim-imaging-links">
+    <div class="smartspim-link-row">
+      <span class="smartspim-link-label">Neuroglancer links:</span>
+      <span class="smartspim-link-buttons">
+        ${SMARTSPIM_LINKS.map(([field, label]) => smartSpimLinkButton(linkValue(field), label)).join('')}
+      </span>
+    </div>
+    ${channelRows}
+  </div>`;
+}
+
 /**
  * Build the imaging details HTML panel (config info + planes table).
  *
  * @param {object} acquisitionData
  * @returns {HTMLElement}
  */
-export function createImagingDetailsPanel(acquisitionData) {
+export function createImagingDetailsPanel(acquisitionData, smartSpimRows = []) {
   const container = document.createElement('div');
   const { configs, planes } = extractImagingData(acquisitionData);
 
@@ -61,6 +126,8 @@ export function createImagingDetailsPanel(acquisitionData) {
     container.innerHTML = '<p class="detail-empty">No imaging configuration found.</p>';
     return container;
   }
+
+  const smartSpimLinks = buildSmartSpimLinksPanel(smartSpimRows);
 
   // Config summary cards
   const configCards = configs.map(cfg => {
@@ -96,7 +163,7 @@ export function createImagingDetailsPanel(acquisitionData) {
       </tr>`).join('')}</tbody>
     </table>` : '';
 
-  container.innerHTML = configCards + planesTable;
+  container.innerHTML = configCards + smartSpimLinks + planesTable;
 
   // 3D viewer below the table
   const viz3d = createImagingViz3D(acquisitionData);

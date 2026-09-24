@@ -661,8 +661,9 @@ function renderAcquisitionDetail(event, container, context = {}) {
   if (hasImaging) {
     const imagingEl = document.createElement('div');
     mountLazy3D(imagingEl, async () => {
-      const { createImagingDetailsPanel } = await import('./imaging-viz-3d.js');
-      return createImagingDetailsPanel(data);
+      const { createImagingDetailsPanel, loadSmartSpimRows } = await import('./imaging-viz-3d.js');
+      const smartSpimRows = await loadSmartSpimRows(context.coordinator, data._assetName);
+      return createImagingDetailsPanel(data, smartSpimRows);
     });
     tabDefs.push({ label: 'Imaging Details', content: imagingEl });
   }
