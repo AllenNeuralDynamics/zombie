@@ -61,6 +61,7 @@ const ALL_AVAILABLE_COLUMNS = [
 ];
 
 const DEFAULT_DISPLAY_COLUMNS = [
+  'name',
   'subject_id',
   'acquisition_start_time',
   'project_name',
