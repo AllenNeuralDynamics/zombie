@@ -143,7 +143,7 @@ export function createPlatformOverview(coord, {
   const _pendingMetricsRaw = _urlMetricsRaw ?? _cookieMetricsRaw; // comma-separated string or null
 
   /** Persist current settings to cookie and URL. */
-  function _persistSettings() {
+  function _persistSettings({ writeUrl = true } = {}) {
     if (!_cookiePrefix) return;
     writeCookie(`${_cookiePrefix}_group`, settings.groupBy);
     const metricsVal = settings.visibleMetrics ? [...settings.visibleMetrics].join(',') : '';
@@ -156,22 +156,25 @@ export function createPlatformOverview(coord, {
     const expVal = settings.summaryExperimenters === null ? '*' : [...settings.summaryExperimenters].join(',');
     writeCookie(`${_cookiePrefix}_sum_instruments`, instrVal);
     writeCookie(`${_cookiePrefix}_sum_experimenters`, expVal);
+    if (!writeUrl) return;
     const p = new URLSearchParams(window.location.search);
-    p.set('ov_group', settings.groupBy);
+    const setOrDelete = (key, val, dflt) => (val === dflt ? p.delete(key) : p.set(key, val));
+    setOrDelete('ov_group', settings.groupBy, 'rig');
     if (metricsVal) {
       p.set('ov_metrics', metricsVal);
     } else {
       p.delete('ov_metrics');
     }
-    p.set('ov_since', settings.since ?? '');
-    p.set('ov_sum_by', settings.summaryRowBy);
+    setOrDelete('ov_since', settings.since ?? '', _sixMonthsAgo());
+    setOrDelete('ov_sum_by', settings.summaryRowBy, 'project');
     // Use '*' in URL too so the round-trip is consistent.
     if (instrVal && instrVal !== '*') { p.set('ov_sum_instruments', instrVal); } else { p.delete('ov_sum_instruments'); }
     if (expVal && expVal !== '*') { p.set('ov_sum_experimenters', expVal); } else { p.delete('ov_sum_experimenters'); }
-    history.replaceState({}, '', `?${p.toString()}`);
+    const qs = p.toString();
+    if (qs === window.location.search.replace(/^\?/, '')) return;
+    history.replaceState(history.state, '', qs ? `?${qs}` : window.location.pathname);
   }
-  // Push whatever was resolved (from URL or cookie) into the URL immediately.
-  _persistSettings();
+  _persistSettings({ writeUrl: false });
 
   // ─── Shared context + dropdowns ────────────────────────────────────────────
   const ctx = {
