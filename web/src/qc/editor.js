@@ -28,6 +28,9 @@ export function buildQcSubmitPayload(record, {
     const result = { metric_name };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) result.value = change.value;
     if (Object.prototype.hasOwnProperty.call(change, 'status')) result.status = change.status;
+    if (Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices')) {
+      result.delete_curation_indices = change.delete_curation_indices;
+    }
     return result;
   });
   const payload = {
@@ -57,14 +60,25 @@ function partialDictionaryText(value, keys, allKeys) {
   return allKeys.length > keys.length ? `${text} …` : text;
 }
 
-function curationReviewText(value) {
-  const count = Array.isArray(value) ? value.length : value == null ? 0 : 1;
-  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'})`;
+function curationReviewText(value, deletedCount = 0) {
+  const count = typeof value === 'number'
+    ? value
+    : Array.isArray(value)
+      ? value.length
+      : value == null
+        ? 0
+        : 1;
+  const deletionLabel = deletedCount ? `; ${deletedCount} deleted` : '';
+  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'}${deletionLabel})`;
 }
 
 function latestCurationValue(metric) {
   const values = parseCurationValues(metric.value);
   return values[values.length - 1] ?? {};
+}
+
+function curationEntryCount(metric) {
+  return parseCurationValues(metric.value).length;
 }
 
 /**
@@ -118,14 +132,19 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     if (!live) return { name, missing: true, drifted: true };
     const was = loadedByName.get(name);
     const row = { name, missing: false };
-    if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      if (live.object_type === 'Curation metric') {
-        row.currentValue = curationReviewText(live.value);
-        row.nextValue = curationReviewText(change.value);
-      } else {
-        row.currentValue = reviewValueText(live.value, change.value, was?.value);
-        row.nextValue = reviewValueText(change.value, live.value, was?.value);
-      }
+    const isCuration = live.object_type === 'Curation metric' || isEphysCurationMetric(live);
+    const hasCurationDeletion = Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices');
+    if (isCuration && (Object.prototype.hasOwnProperty.call(change, 'value') || hasCurationDeletion)) {
+      const currentCount = curationEntryCount(live);
+      const deletionCount = new Set(change.delete_curation_indices ?? []).size;
+      const nextCount = Math.max(0, currentCount - deletionCount) +
+        (Object.prototype.hasOwnProperty.call(change, 'value') ? 1 : 0);
+      row.currentValue = curationReviewText(currentCount);
+      row.nextValue = curationReviewText(nextCount, deletionCount);
+      row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
+    } else if (Object.prototype.hasOwnProperty.call(change, 'value')) {
+      row.currentValue = reviewValueText(live.value, change.value, was?.value);
+      row.nextValue = reviewValueText(change.value, live.value, was?.value);
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {
@@ -258,6 +277,11 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     savedDrafts?.curationDrafts,
     value => value && typeof value === 'object' && !Array.isArray(value),
   ));
+  const [curationDeleteDrafts, setCurationDeleteDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDeleteDrafts,
+    value => Array.isArray(value) && value.every(index => Number.isInteger(index) && index >= 0),
+  ));
   const [fieldErrors, setFieldErrors] = useState({});
   const [notes, setNotes] = useState(() => (
     typeof savedDrafts?.notes === 'string' ? savedDrafts.notes : parsed.notes
@@ -273,7 +297,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
 
   useEffect(() => {
     let alive = true;
-    getQcAccount().then(value => {
+    getQcAccount({ forceRefresh: true }).then(value => {
       if (alive) setAccount(value);
     }).catch(() => {
       if (alive) setAccount(null);
@@ -296,8 +320,12 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   }
   for (const metric of curationMetrics) {
     const draft = curationDrafts[metric.name];
-    if (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) {
-      pendingChanges[metric.name] = { value: draft };
+    const deletedIndices = curationDeleteDrafts[metric.name] ?? [];
+    const hasCurationDraft = draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+    if (hasCurationDraft || deletedIndices.length) {
+      pendingChanges[metric.name] = {};
+      if (hasCurationDraft) pendingChanges[metric.name].value = draft;
+      if (deletedIndices.length) pendingChanges[metric.name].delete_curation_indices = deletedIndices;
     }
   }
   const notesChanged = notes !== parsed.notes;
@@ -307,7 +335,8 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     statusDrafts[metric.name] !== getMetricStatus(metric)
   ) || curationMetrics.some(metric => {
     const draft = curationDrafts[metric.name];
-    return draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+    return (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) ||
+      (curationDeleteDrafts[metric.name]?.length ?? 0) > 0;
   }) || notesChanged;
 
   useEffect(() => {
@@ -315,14 +344,15 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       clearQcPendingChanges(record.name);
       return;
     }
-    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, notes });
-  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, notes, parsed.notes]);
+    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, parsed.notes]);
 
   const clearPendingChanges = () => {
     clearQcPendingChanges(record.name);
     setValueDrafts(defaultValueDrafts);
     setStatusDrafts(defaultStatusDrafts);
     setCurationDrafts({});
+    setCurationDeleteDrafts({});
     setFieldErrors({});
     setNotes(parsed.notes);
     setMessage('');
@@ -356,13 +386,31 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
       curationDrafts,
+      curationDeleteDrafts,
       onCuration: (name, value) => {
         if (curationMetrics.some(metric => metric.name === name)) {
           setCurationDrafts(previous => ({ ...previous, [name]: value }));
         }
       },
+      onDeleteCuration: (name, index) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDeleteDrafts(previous => ({
+            ...previous,
+            [name]: [...new Set([...(previous[name] ?? []), index])],
+          }));
+        }
+      },
+      onRemoveCurationDraft: name => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => {
+            const next = { ...previous };
+            delete next[name];
+            return next;
+          });
+        }
+      },
     });
-  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, fieldErrors, allowEditingValues, draftRevision]);
+  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {

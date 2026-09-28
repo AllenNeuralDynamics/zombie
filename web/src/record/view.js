@@ -53,16 +53,17 @@ function makeLink(href, text) {
  * Render a single JSON value (any type) as a DOM node.
  *
  * Special cases:
- *   - Objects and Arrays → <details open> tree
+ *   - Objects and Arrays → collapsible <details> tree
  *   - subject_id string values → linked to /view?subject_id=…
  *   - project_name string values → linked to /view?project=…
  *
  * @param {unknown} value - The JSON value to render.
  * @param {string|null} [parentKey=null] - The key under which this value lives
  *   (used to decide whether to linkify strings).
+ * @param {{expanded?: boolean}} [options] - Whether objects and arrays start expanded.
  * @returns {Node}
  */
-export function renderJsonValue(value, parentKey = null) {
+export function renderJsonValue(value, parentKey = null, { expanded = true } = {}) {
   if (value === null) {
     const span = document.createElement('span');
     span.className = 'json-null';
@@ -122,7 +123,7 @@ export function renderJsonValue(value, parentKey = null) {
     }
 
     const details = document.createElement('details');
-    details.open = true;
+    details.open = expanded;
     const summary = document.createElement('summary');
     summary.className = 'json-bracket';
     summary.textContent = `[ ${value.length} item${value.length !== 1 ? 's' : ''} ]`;
@@ -137,7 +138,7 @@ export function renderJsonValue(value, parentKey = null) {
       indexSpan.textContent = `${i}: `;
       li.appendChild(indexSpan);
       // Pass parentKey down so subject_id / project_name inside arrays are also linked
-      li.appendChild(renderJsonValue(item, parentKey));
+      li.appendChild(renderJsonValue(item, parentKey, { expanded }));
       ul.appendChild(li);
     });
     details.appendChild(ul);
@@ -153,8 +154,17 @@ export function renderJsonValue(value, parentKey = null) {
       return span;
     }
 
+    // In collapsed mode, a one-field dictionary with a scalar value is
+    // readable inline and does not need an extra disclosure row.
+    if (!expanded && keys.length === 1 && (value[keys[0]] === null || typeof value[keys[0]] !== 'object')) {
+      const span = document.createElement('span');
+      span.className = 'json-inline-object';
+      span.textContent = `{ ${keys.map(key => `${JSON.stringify(key)}: ${JSON.stringify(value[key])}`).join(', ')} }`;
+      return span;
+    }
+
     const details = document.createElement('details');
-    details.open = true;
+    details.open = expanded;
     const summary = document.createElement('summary');
     summary.className = 'json-bracket';
     summary.textContent = `{ ${keys.length} key${keys.length !== 1 ? 's' : ''} }`;
@@ -168,7 +178,7 @@ export function renderJsonValue(value, parentKey = null) {
       keySpan.className = 'json-key';
       keySpan.textContent = `"${k}": `;
       li.appendChild(keySpan);
-      li.appendChild(renderJsonValue(value[k], k));
+      li.appendChild(renderJsonValue(value[k], k, { expanded }));
       ul.appendChild(li);
     });
     details.appendChild(ul);

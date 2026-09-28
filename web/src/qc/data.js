@@ -65,17 +65,27 @@ export function decodeReferenceUrl(reference) {
   return decoded;
 }
 
-/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
-export function parseCurationValues(value) {
+/** Decode CurationMetric values and retain their original list indexes. */
+export function parseCurationEntries(value) {
   let source = value;
   if (typeof source === 'string') {
     try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
   }
   if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
-  return source.map(entry => {
-    if (typeof entry !== 'string') return entry;
-    try { return JSON.parse(entry.startsWith('json:') ? entry.slice(5) : entry); } catch { return null; }
-  }).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
+  return source.flatMap((entry, index) => {
+    let parsed = entry;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed.startsWith('json:') ? parsed.slice(5) : parsed); } catch { return []; }
+    }
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? [{ value: parsed, index }]
+      : [];
+  });
+}
+
+/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
+export function parseCurationValues(value) {
+  return parseCurationEntries(value).map(entry => entry.value);
 }
 
 function normalizeMetric(metric) {

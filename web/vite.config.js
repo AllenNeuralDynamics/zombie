@@ -118,6 +118,14 @@ export default defineConfig(({ command }) => {
       // Pure-function tests (metadata, constants) don't require DOM APIs.
       environment: 'node',
       globals: true,
+      // Node 22+ defines its own global localStorage (undefined without
+      // --localstorage-file), which shadows happy-dom's implementation.
+      poolOptions: {
+        forks: {
+          execArgv: Number(process.versions.node.split('.')[0]) >= 22
+            ? ['--no-experimental-webstorage'] : [],
+        },
+      },
       coverage: {
         provider: 'v8',
         reporter: ['text', 'lcov'],
