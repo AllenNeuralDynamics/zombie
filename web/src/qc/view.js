@@ -1,4 +1,4 @@
-import { parseQCRecord, buildTreeNodes } from './data.js';
+import { parseQCRecord, buildTreeNodes, aggregateStatus } from './data.js';
 import {
   createTree,
   encodeTreeNodePath,
@@ -90,9 +90,49 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
 
   const root = document.createElement('div');
+  const metricAlert = document.createElement('div');
+  metricAlert.className = 'qc-metric-alert';
+  metricAlert.setAttribute('role', 'alert');
+  metricAlert.setAttribute('aria-live', 'assertive');
+  metricAlert.hidden = true;
+  const metricErrors = new Set(parsed.metricErrors);
+  const updateMetricAlert = () => {
+    metricAlert.replaceChildren();
+    if (!metricErrors.size) {
+      metricAlert.hidden = true;
+      return;
+    }
+    const heading = document.createElement('strong');
+    heading.textContent = 'Some QC metrics could not be displayed.';
+    const list = document.createElement('ul');
+    for (const message of metricErrors) {
+      const item = document.createElement('li');
+      item.textContent = message;
+      list.appendChild(item);
+    }
+    metricAlert.append(heading, list);
+    metricAlert.hidden = false;
+  };
+  const reportMetricError = (metric, error) => {
+    const name = typeof metric?.name === 'string' && metric.name ? ` "${metric.name}"` : '';
+    metricErrors.add(`Metric${name} failed to render: ${error?.message ?? error}`);
+    updateMetricAlert();
+  };
+  updateMetricAlert();
   let viewMode = readQcViewMode();
   let editState = { enabled: false, draftRevision: 0 };
-  const treeNodes = buildTreeNodes(metrics, defaultGrouping);
+  const treeMetrics = [];
+  for (const metric of metrics) {
+    try {
+      buildTreeNodes([metric], defaultGrouping);
+      aggregateStatus([metric]);
+      treeMetrics.push(metric);
+    } catch (error) {
+      reportMetricError(metric, error);
+    }
+  }
+  const renderableMetrics = treeMetrics;
+  const treeNodes = buildTreeNodes(renderableMetrics, defaultGrouping);
   const initialNavigation = readQcNavigationState(treeNodes);
   let activeNode = initialNavigation.activeNode ?? treeNodes[0] ?? null;
   let openAccordionReferences = initialNavigation.openReferences;
@@ -106,7 +146,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       renderBody();
     },
   });
-  root.appendChild(header);
+  root.append(metricAlert, header);
 
   const editor = document.createElement('div');
   editor.className = 'qc-editor-host';
@@ -163,8 +203,8 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       body.classList.add('qc-container-table');
       const content = document.createElement('div');
       content.className = 'qc-table-content';
-      if (metrics.length) {
-        const table = renderMetricsTable(metrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes);
+      if (renderableMetrics.length) {
+        const table = renderMetricsTable(renderableMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, treeNodes, reportMetricError);
         content.appendChild(table);
         body._qcDestroy = () => table.qcDestroy?.();
       } else {
@@ -183,7 +223,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
     contentArea._qcDestroy = null;
 
     const renderSelectedMetrics = (node) => {
-      const selectedMetrics = node?.metrics ?? metrics;
+      const selectedMetrics = node?.metrics ?? renderableMetrics;
       if (!selectedMetrics.length) {
         const empty = document.createElement('p');
         empty.className = 'qc-empty';
@@ -193,6 +233,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       return renderMetrics(selectedMetrics, s3Bucket, s3Prefix, name, rawS3Loc, editState, {
         openReferences: openAccordionReferences,
         getEditState: () => editState,
+        onMetricError: reportMetricError,
         onAccordionStateChange: (references) => {
           openAccordionReferences = references;
           writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
@@ -222,21 +263,33 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   };
 
   renderBody();
-  mountQcEditor(editor, record, {
-    onReload,
-    onEditStateChange: (nextState) => {
-      const layoutChanged = nextState.enabled !== editState.enabled ||
-        nextState.allowEditingValues !== editState.allowEditingValues ||
-        nextState.draftRevision !== editState.draftRevision;
-      editState = nextState;
-      if (layoutChanged) renderBody();
-      else {
-        syncQcStatusShading(body, editState.statusDrafts);
-        treeElement?.syncStatuses?.(editState.statusDrafts);
-        syncEditErrors();
-      }
-    },
-  });
+  try {
+    mountQcEditor(editor, {
+      ...record,
+      quality_control: {
+        ...(record.quality_control ?? {}),
+        metrics: renderableMetrics,
+      },
+    }, {
+      onReload,
+      onEditStateChange: (nextState) => {
+        const layoutChanged = nextState.enabled !== editState.enabled ||
+          nextState.allowEditingValues !== editState.allowEditingValues ||
+          nextState.draftRevision !== editState.draftRevision;
+        editState = nextState;
+        if (layoutChanged) renderBody();
+        else {
+          syncQcStatusShading(body, editState.statusDrafts);
+          treeElement?.syncStatuses?.(editState.statusDrafts);
+          syncEditErrors();
+        }
+      },
+    });
+  } catch (error) {
+    editor.replaceChildren();
+    metricErrors.add(`QC editor failed to load: ${error?.message ?? error}`);
+    updateMetricAlert();
+  }
   return root;
 }
 

@@ -190,6 +190,23 @@ describe('inline editing', () => {
 });
 
 describe('table view', () => {
+  it('skips a failed metric row and reports the individual failure', () => {
+    const invalidValue = {};
+    Object.defineProperty(invalidValue, 'type', {
+      get() { throw new Error('synthetic table failure'); },
+    });
+    const onMetricError = vi.fn();
+    const table = renderMetricsTable([
+      baseMetric({ name: 'broken', value: invalidValue }),
+      baseMetric({ name: 'valid', value: 'still visible' }),
+    ], 'aind-open-data', 'prefix', 'asset', '', {}, [], onMetricError);
+
+    expect([...table.querySelectorAll('.qc-metrics-table-row td:nth-child(2)')].map(el => el.textContent)).toEqual(['valid']);
+    expect(onMetricError).toHaveBeenCalledOnce();
+    expect(onMetricError.mock.calls[0][0].name).toBe('broken');
+    expect(onMetricError.mock.calls[0][1].message).toBe('synthetic table failure');
+  });
+
   it('renders one metric row per metric and keeps leaf tree groups', () => {
     const metrics = [
       baseMetric({ name: 'drift', value: 0.5, tags: { probe: 'A', type: 'drift' }, reference: 'figures/drift.png' }),

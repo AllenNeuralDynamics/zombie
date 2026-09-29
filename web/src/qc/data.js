@@ -1,6 +1,41 @@
 export function parseQCRecord(record) {
   const qc = record.quality_control ?? {};
-  const metrics = (qc.metrics ?? []).map(normalizeMetric);
+  const metrics = [];
+  const metricErrors = [];
+  const rawMetrics = qc.metrics ?? [];
+  if (!Array.isArray(rawMetrics)) {
+    metricErrors.push('QC metrics could not be processed: expected an array.');
+  } else {
+    const normalized = [];
+    rawMetrics.forEach((metric, index) => {
+      try {
+        if (!metric || typeof metric !== 'object' || Array.isArray(metric)) {
+          throw new Error('Metric entry is not an object.');
+        }
+        normalized.push(normalizeMetric(metric));
+      } catch (error) {
+        let label = '';
+        try {
+          if (typeof metric?.name === 'string' && metric.name) label = ` "${metric.name}"`;
+        } catch {
+          // A malformed name accessor must not defeat per-metric error handling.
+        }
+        metricErrors.push(`Metric${label} at position ${index + 1} could not be processed: ${error?.message ?? error}`);
+      }
+    });
+
+    const counts = new Map();
+    for (const metric of normalized) {
+      if (typeof metric.name === 'string' && metric.name) {
+        counts.set(metric.name, (counts.get(metric.name) ?? 0) + 1);
+      }
+    }
+    const duplicateNames = new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+    for (const name of duplicateNames) {
+      metricErrors.push(`Duplicate QC metric name "${name}"; all metrics with this name were omitted.`);
+    }
+    metrics.push(...normalized.filter(metric => !duplicateNames.has(metric.name)));
+  }
   const defaultGrouping = qc.default_grouping ?? [];
 
   const location = record.location ?? '';
@@ -25,7 +60,7 @@ export function parseQCRecord(record) {
 
   const notes = qc.notes ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping, notes };
+  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, metricErrors, defaultGrouping, notes };
 }
 
 /**

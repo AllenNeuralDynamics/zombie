@@ -85,14 +85,69 @@ describe('parseQCRecord', () => {
     expect(parsed.metrics[0].value).toEqual([1, 2, 3]);
   });
 
+  it('preserves distinct metrics and their values in source order', () => {
+    const metrics = [
+      makeMetric({ name: 'first', value: true }),
+      makeMetric({ name: 'second', value: null }),
+    ];
+    const parsed = parseQCRecord({ quality_control: { metrics } });
+
+    expect(parsed.metrics.map(metric => [metric.name, metric.value])).toEqual([
+      ['first', true],
+      ['second', null],
+    ]);
+  });
+
+  it('omits every duplicate metric name and reports the duplicate', () => {
+    const parsed = parseQCRecord({
+      quality_control: {
+        metrics: [
+          makeMetric({ name: 'duplicate', value: true }),
+          makeMetric({ name: 'keep', value: 1 }),
+          makeMetric({ name: 'duplicate', value: null }),
+        ],
+      },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['keep']);
+    expect(parsed.metricErrors).toEqual([
+      'Duplicate QC metric name "duplicate"; all metrics with this name were omitted.',
+    ]);
+  });
+
+  it('skips an invalid metric while retaining valid metrics', () => {
+    const parsed = parseQCRecord({
+      quality_control: {
+        metrics: [makeMetric({ name: 'first' }), null, makeMetric({ name: 'last' })],
+      },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['first', 'last']);
+    expect(parsed.metricErrors).toHaveLength(1);
+    expect(parsed.metricErrors[0]).toContain('Metric at position 2 could not be processed');
+  });
+
+  it('does not let a throwing metric name accessor escape error handling', () => {
+    const brokenMetric = {
+      get name() { throw new Error('bad name'); },
+      get tags() { throw new Error('bad tags'); },
+    };
+    const parsed = parseQCRecord({
+      quality_control: { metrics: [brokenMetric, makeMetric({ name: 'valid' })] },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['valid']);
+    expect(parsed.metricErrors[0]).toContain('bad tags');
+  });
+
   it('collects unique modalities and stages', () => {
     const record = {
       name: 'x',
       location: 's3://bucket/prefix',
       quality_control: {
         metrics: [
-          makeMetric({ modality: { abbreviation: 'ecephys' }, stage: 'Raw data' }),
-          makeMetric({ modality: { abbreviation: 'fib' }, stage: 'Processed' }),
+          makeMetric({ name: 'first', modality: { abbreviation: 'ecephys' }, stage: 'Raw data' }),
+          makeMetric({ name: 'second', modality: { abbreviation: 'fib' }, stage: 'Processed' }),
         ],
       },
     };

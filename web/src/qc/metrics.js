@@ -625,7 +625,7 @@ function leafMetricGroups(nodes, path = []) {
   return groups;
 }
 
-export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc = '', edit = {}, treeNodes = []) {
+export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc = '', edit = {}, treeNodes = [], onMetricError = () => {}) {
   const table = document.createElement('table');
   table.className = 'qc-metrics-table';
   const thead = table.createTHead();
@@ -645,17 +645,22 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
     groupCell.colSpan = 4;
     groupCell.textContent = group.label;
     for (const metric of group.metrics) {
-      const row = tbody.insertRow();
-      const status = draftStatus(metric, edit);
-      const statusShade = statusShadeClass(status);
-      row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
-      row.dataset.qcStatusMetric = metric.name ?? '';
-      row.appendChild(renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit));
-      row.insertCell().textContent = metric.name ?? '';
-      const valueCell = row.insertCell();
-      valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
-      const statusCell = row.insertCell();
-      statusCell.appendChild(renderTableMetricStatus(metric, edit));
+      try {
+        const row = document.createElement('tr');
+        const status = draftStatus(metric, edit);
+        const statusShade = statusShadeClass(status);
+        row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
+        row.dataset.qcStatusMetric = metric.name ?? '';
+        row.appendChild(renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit));
+        row.insertCell().textContent = metric.name ?? '';
+        const valueCell = row.insertCell();
+        valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
+        const statusCell = row.insertCell();
+        statusCell.appendChild(renderTableMetricStatus(metric, edit));
+        tbody.appendChild(row);
+      } catch (error) {
+        onMetricError(metric, error);
+      }
     }
   }
   table.qcDestroy = () => {
@@ -668,6 +673,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
   openReferences = null,
   onAccordionStateChange = null,
   getEditState = () => edit,
+  onMetricError = () => {},
 } = {}) {
   const container = document.createElement('div');
   container.className = 'qc-accordion';
@@ -708,12 +714,16 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
       // without one they fill the width as a responsive grid instead of a single stack.
       leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
       for (const m of groupMetrics) {
-        leftCol.appendChild(buildMetricCard(
-          m,
-          currentEdit,
-          { s3Bucket, s3Prefix, assetName, rawS3Loc },
-          { suppressValue: isEphysCurationMetric(m) },
-        ));
+        try {
+          leftCol.appendChild(buildMetricCard(
+            m,
+            currentEdit,
+            { s3Bucket, s3Prefix, assetName, rawS3Loc },
+            { suppressValue: isEphysCurationMetric(m) },
+          ));
+        } catch (error) {
+          onMetricError(m, error);
+        }
       }
 
       body.appendChild(leftCol);
