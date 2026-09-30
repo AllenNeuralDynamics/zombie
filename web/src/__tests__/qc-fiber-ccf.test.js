@@ -3,15 +3,22 @@ import {
   buildFiberCcfMetrics,
   ccfConfigUrl,
   fetchCcfNeuroglancerLink,
-  fiberProbeNames,
-  missingFiberCcfNames,
+  fiberProbes,
+  missingFiberCcfProbes,
 } from '../qc/fiber-ccf.js';
 import { buildQcSubmitPayload, buildReviewRows } from '../qc/editor.js';
 
 const STITCHED = 'SmartSPIM_820651_2026-04-08_20-37-16_stitched_2026-05-19_07-46-11';
 
-function implant(name, deviceType = 'Fiber probe') {
-  return { object_type: 'Probe implant', implanted_device: { object_type: deviceType, name } };
+function implant(name, deviceType = 'Fiber probe', structure = { name: 'Nucleus accumbens', acronym: 'ACB' }) {
+  return {
+    object_type: 'Probe implant',
+    implanted_device: { object_type: deviceType, name },
+    device_config: {
+      primary_targeted_structure: structure,
+      transform: [{ object_type: 'Translation', translation: [1.3, 1.2, 0, -3.9] }],
+    },
+  };
 }
 
 function spimRecord(overrides = {}) {
@@ -21,8 +28,25 @@ function spimRecord(overrides = {}) {
     location: `s3://aind-open-data/${STITCHED}`,
     data_description: { modalities: [{ abbreviation: 'SPIM' }] },
     procedures: {
+      coordinate_system: {
+        name: 'BREGMA_ARID',
+        origin: 'Bregma',
+        axis_unit: 'millimeter',
+        axes: [
+          { name: 'AP', direction: 'Posterior_to_anterior' },
+          { name: 'ML', direction: 'Left_to_right' },
+          { name: 'SI', direction: 'Superior_to_inferior' },
+          { name: 'Depth', direction: 'Up_to_down' },
+        ],
+      },
       subject_procedures: [
-        { procedures: [implant('Fiber 0'), implant('Fiber 1'), implant('Probe A', 'Ephys probe')] },
+        {
+          procedures: [
+            implant('Fiber 0'),
+            implant('Fiber 1', 'Fiber probe', null),
+            implant('Probe A', 'Ephys probe'),
+          ],
+        },
       ],
     },
     quality_control: { metrics: [], default_grouping: ['type'] },
@@ -31,19 +55,31 @@ function spimRecord(overrides = {}) {
 }
 
 describe('fiber CCF metric eligibility', () => {
-  it('lists fiber probes only', () => {
-    expect(fiberProbeNames(spimRecord())).toEqual(['Fiber 0', 'Fiber 1']);
+  it('lists fiber probes with their targeted structure', () => {
+    expect(fiberProbes(spimRecord())).toEqual([
+      {
+        name: 'Fiber 0',
+        targetedStructure: 'Nucleus accumbens (ACB)',
+        targetedCoordinates: 'AP 1.3, ML 1.2, DV 0, depth 3.9 mm from Bregma',
+      },
+      {
+        name: 'Fiber 1',
+        targetedStructure: null,
+        targetedCoordinates: 'AP 1.3, ML 1.2, DV 0, depth 3.9 mm from Bregma',
+      },
+    ]);
   });
 
   it('requires a stitched SPIM asset', () => {
-    expect(missingFiberCcfNames(spimRecord())).toEqual(['Fiber 0', 'Fiber 1']);
-    expect(missingFiberCcfNames(spimRecord({ name: 'SmartSPIM_820651_2026-04-08_20-37-16' }))).toEqual([]);
-    expect(missingFiberCcfNames(spimRecord({ data_description: { modalities: [{ abbreviation: 'FIB' }] } })))
+    expect(missingFiberCcfProbes(spimRecord()).map(fiber => fiber.name)).toEqual(['Fiber 0', 'Fiber 1']);
+    expect(missingFiberCcfProbes(spimRecord({ name: 'SmartSPIM_820651_2026-04-08_20-37-16' }))).toEqual([]);
+    expect(missingFiberCcfProbes(spimRecord({ data_description: { modalities: [{ abbreviation: 'FIB' }] } })))
       .toEqual([]);
   });
 
   it('skips fibers that already have a metric', () => {
-    expect(missingFiberCcfNames(spimRecord(), new Set(['Fiber 0 CCF Location']))).toEqual(['Fiber 1']);
+    expect(missingFiberCcfProbes(spimRecord(), new Set(['Fiber 0 CCF Location'])).map(fiber => fiber.name))
+      .toEqual(['Fiber 1']);
   });
 });
 
@@ -68,7 +104,14 @@ describe('CCF neuroglancer link', () => {
 });
 
 describe('fiber CCF submission', () => {
-  const metrics = buildFiberCcfMetrics(['Fiber 0'], 'https://ng/#!x');
+  const metrics = buildFiberCcfMetrics(
+    [{
+      name: 'Fiber 0',
+      targetedStructure: 'Nucleus accumbens (ACB)',
+      targetedCoordinates: 'AP 1.3, ML 1.2, DV 0, depth 3.9 mm from Bregma',
+    }],
+    'https://ng/#!x',
+  );
 
   it('builds an unevaluated metric per fiber', () => {
     expect(metrics).toEqual([{
@@ -76,11 +119,16 @@ describe('fiber CCF submission', () => {
       modality: { name: 'Selective plane illumination microscopy', abbreviation: 'SPIM' },
       stage: 'Processing',
       value: { AP: null, ML: null, DV: null },
-      description: 'Location in the CCF-aligned SmartSPIM volume of the fiber probe tip in 25um index units',
+      description: 'Location in the CCF-aligned SmartSPIM volume of the fiber probe tip in 25um index units\n' +
+        'Targeted structure: Nucleus accumbens (ACB)\n' +
+        'Targeted coordinates: AP 1.3, ML 1.2, DV 0, depth 3.9 mm from Bregma\n' +
+        'AP (x), DV (y), ML (z)',
       reference: 'https://ng/#!x',
       tags: { type: 'Fiber CCF Location' },
     }]);
     expect(metrics[0]).not.toHaveProperty('status_history');
+    expect(buildFiberCcfMetrics([{ name: 'Fiber 1', targetedStructure: null }], 'x')[0].description)
+      .toMatch(/Targeted structure: unknown\nTargeted coordinates: unknown\n/);
   });
 
   it('sends added metrics as add_metrics', () => {

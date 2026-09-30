@@ -395,7 +395,7 @@
 .qc-accordion .accordion-metrics-grid .qc-metric-card { margin-bottom: 0; }
 .qc-metric-card { border: 1px solid var(--surface-border); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; background: var(--surface-card); }
 .qc-metric-card .metric-name { font-weight: 600; margin-bottom: 4px; }
-.qc-metric-card .metric-desc { font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
+.qc-metric-card .metric-desc { white-space: pre-line; font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
 .qc-metric-card .metric-tags { font-size: 0.8em; color: var(--text-muted); margin-bottom: 4px; }
 .qc-metric-card .metric-value { margin: 8px 0; font-size: 0.9em; }
 .qc-metric-card .metric-status { display: flex; align-items: center; gap: 6px; font-size: 0.85em; }

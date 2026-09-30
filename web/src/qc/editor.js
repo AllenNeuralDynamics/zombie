@@ -9,7 +9,7 @@ import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
-import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfNames } from './fiber-ccf.js';
+import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -330,9 +330,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftRevision, setDraftRevision] = useState(0);
   const [addingFiberCcf, setAddingFiberCcf] = useState(false);
-  const fiberCcfNames = useMemo(() => {
+  const fiberCcfProbes = useMemo(() => {
     const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
-    return missingFiberCcfNames(record, queued);
+    return missingFiberCcfProbes(record, queued);
   }, [record, existingMetricNames, addedMetrics]);
 
   useEffect(() => {
@@ -426,9 +426,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     setMessage('');
     try {
       const ngLink = await fetchCcfNeuroglancerLink(record.location);
-      setAddedMetrics(previous => [...previous, ...buildFiberCcfMetrics(fiberCcfNames, ngLink)]);
+      setAddedMetrics(previous => [...previous, ...buildFiberCcfMetrics(fiberCcfProbes, ngLink)]);
       setSettingsOpen(false);
-      setMessage(`Queued ${fiberCcfNames.length} fiber CCF metric${fiberCcfNames.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+      setMessage(`Queued ${fiberCcfProbes.length} fiber CCF metric${fiberCcfProbes.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
     } catch (error) {
       setMessage(`Could not add fiber CCF metrics: ${error?.message ?? error}`);
     } finally {
@@ -593,13 +593,13 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
               />
               Allow editing metrics with values
             </label>
-            ${fiberCcfNames.length ? html`
+            ${fiberCcfProbes.length ? html`
               <button
                 class="qc-editor-secondary"
                 onClick=${handleAddFiberCcf}
                 disabled=${addingFiberCcf || submitting}
               >
-                ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfNames.length})`}
+                ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfProbes.length})`}
               </button>
             ` : null}
             <div class="qc-settings-actions">
