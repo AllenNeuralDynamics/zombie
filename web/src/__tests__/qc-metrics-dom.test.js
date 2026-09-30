@@ -169,6 +169,27 @@ describe('inline editing', () => {
     expect(card.querySelector('.qc-inline-status').disabled).toBe(false);
   });
 
+  it('keeps every field of an unfilled dictionary as the user types, with status open', () => {
+    const onValue = vi.fn();
+    const empty = { AP: null, ML: null, DV: null };
+    const card = renderMetrics([baseMetric({ name: 'ccf', value: empty, status_history: [{ status: 'Pending' }] })],
+      'aind-open-data', 'prefix', 'asset', '', {
+        enabled: true,
+        editableMetricNames: new Set(['ccf']),
+        valueDrafts: { ccf: JSON.stringify(empty) },
+        statusDrafts: { ccf: 'Pending' },
+        onValue,
+        onStatus: () => {},
+      }).querySelector('.qc-metric-card');
+    const inputs = card.querySelectorAll('.qc-inline-dictionary-input');
+    ['25', '125', '250'].forEach((text, index) => {
+      inputs[index].value = text;
+      inputs[index].dispatchEvent(new Event('input'));
+    });
+    expect(JSON.parse(onValue.mock.calls.at(-1)[1])).toEqual({ AP: 25, ML: 125, DV: 250 });
+    expect(card.querySelector('.qc-inline-status').disabled).toBe(false);
+  });
+
   it('lets populated values opt into value edits while keeping auto status read-only', () => {
     const onValue = vi.fn();
     const metric = baseMetric({

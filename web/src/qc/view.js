@@ -131,8 +131,16 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       reportMetricError(metric, error);
     }
   }
-  const renderableMetrics = treeMetrics;
-  const treeNodes = buildTreeNodes(renderableMetrics, defaultGrouping);
+  let renderableMetrics = treeMetrics;
+  let treeNodes = buildTreeNodes(renderableMetrics, defaultGrouping);
+  // Metrics queued for creation render alongside live ones so they can be filled in before submit.
+  const syncAddedMetrics = (added = []) => {
+    const activePath = activeNode ? getTreeNodePath(treeNodes, activeNode) : null;
+    renderableMetrics = [...treeMetrics, ...added];
+    treeNodes = buildTreeNodes(renderableMetrics, defaultGrouping);
+    activeNode = (activePath?.length && findTreeNodeByPath(treeNodes, encodeTreeNodePath(activePath))) ||
+      treeNodes[0] || null;
+  };
   const initialNavigation = readQcNavigationState(treeNodes);
   let activeNode = initialNavigation.activeNode ?? treeNodes[0] ?? null;
   let openAccordionReferences = initialNavigation.openReferences;
@@ -268,7 +276,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       ...record,
       quality_control: {
         ...(record.quality_control ?? {}),
-        metrics: renderableMetrics,
+        metrics: treeMetrics,
       },
     }, {
       onReload,
@@ -276,8 +284,10 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
         const layoutChanged = nextState.enabled !== editState.enabled ||
           nextState.allowEditingValues !== editState.allowEditingValues ||
           nextState.draftRevision !== editState.draftRevision;
+        const addedChanged = nextState.addedMetrics !== editState.addedMetrics;
         editState = nextState;
-        if (layoutChanged) renderBody();
+        if (addedChanged) syncAddedMetrics(nextState.addedMetrics);
+        if (layoutChanged || addedChanged) renderBody();
         else {
           syncQcStatusShading(body, editState.statusDrafts);
           treeElement?.syncStatuses?.(editState.statusDrafts);

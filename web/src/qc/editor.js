@@ -9,6 +9,7 @@ import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
+import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfNames } from './fiber-ccf.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -23,6 +24,7 @@ export function buildQcSubmitPayload(record, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
 } = {}) {
   const changes = Object.entries(pendingChanges).map(([metric_name, change]) => {
     const result = { metric_name };
@@ -39,6 +41,7 @@ export function buildQcSubmitPayload(record, {
     changes,
   };
   if (notesChanged) payload.notes = notes;
+  if (addedMetrics.length) payload.add_metrics = addedMetrics;
   return payload;
 }
 
@@ -121,6 +124,8 @@ export function buildReviewRows(freshRecord, loadedRecord, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
+  addedStatuses = {},
 } = {}) {
   const fresh = parseQCRecord(freshRecord);
   const loaded = parseQCRecord(loadedRecord);
@@ -155,6 +160,18 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     row.drifted = Boolean(row.valueDrifted || row.statusDrifted);
     return row;
   });
+
+  for (const metric of addedMetrics) {
+    rows.unshift({
+      name: metric.name,
+      added: true,
+      // Another editor already created it; submitting would be rejected.
+      missing: liveByName.has(metric.name),
+      drifted: liveByName.has(metric.name),
+      nextValue: valueText(metric.value),
+      nextStatus: addedStatuses[metric.name] ?? 'Pending',
+    });
+  }
 
   if (notesChanged) {
     rows.push({
@@ -245,6 +262,15 @@ function restoreNamedDrafts(names, saved, isValid) {
   return restored;
 }
 
+/** Render a queued new metric like a live one until the server creates it. */
+function asPendingMetric(metric) {
+  return {
+    object_type: 'QC metric',
+    ...metric,
+    status_history: [{ object_type: 'QC status', evaluator: 'Pending submit', status: 'Pending', timestamp: '' }],
+  };
+}
+
 function draftValueChanged(metric, draft) {
   try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
 }
@@ -261,17 +287,26 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     editableMetrics.map(metric => [metric.name, getMetricStatus(metric)]),
   ), [editableMetrics]);
   const savedDrafts = useMemo(() => readQcPendingChanges(record.name), [record.name]);
+  const existingMetricNames = useMemo(() => new Set(parsed.metrics.map(metric => metric.name)), [parsed]);
+  const [addedMetrics, setAddedMetrics] = useState(() => (
+    Array.isArray(savedDrafts?.addedMetrics)
+      ? savedDrafts.addedMetrics.filter(metric => metric?.name && !existingMetricNames.has(metric.name))
+      : []
+  ));
+  const pendingAddedMetrics = useMemo(() => addedMetrics.map(asPendingMetric), [addedMetrics]);
   const [account, setAccount] = useState(null);
-  const [valueDrafts, setValueDrafts] = useState(() => restoreDrafts(
-    defaultValueDrafts,
-    savedDrafts?.valueDrafts,
-    value => typeof value === 'string',
-  ));
-  const [statusDrafts, setStatusDrafts] = useState(() => restoreDrafts(
-    defaultStatusDrafts,
-    savedDrafts?.statusDrafts,
-    value => value === 'Pending' || value === 'Pass' || value === 'Fail',
-  ));
+  const [valueDrafts, setValueDrafts] = useState(() => ({
+    ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.valueDrafts,
+      value => typeof value === 'string'),
+    ...restoreDrafts(defaultValueDrafts, savedDrafts?.valueDrafts, value => typeof value === 'string'),
+  }));
+  const [statusDrafts, setStatusDrafts] = useState(() => {
+    const isStatus = value => value === 'Pending' || value === 'Pass' || value === 'Fail';
+    return {
+      ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.statusDrafts, isStatus),
+      ...restoreDrafts(defaultStatusDrafts, savedDrafts?.statusDrafts, isStatus),
+    };
+  });
   const [curationDrafts, setCurationDrafts] = useState(() => restoreNamedDrafts(
     curationMetrics.map(metric => metric.name),
     savedDrafts?.curationDrafts,
@@ -294,6 +329,11 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const [allowEditingValues, setAllowEditingValues] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftRevision, setDraftRevision] = useState(0);
+  const [addingFiberCcf, setAddingFiberCcf] = useState(false);
+  const fiberCcfNames = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingFiberCcfNames(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
 
   useEffect(() => {
     let alive = true;
@@ -328,8 +368,25 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
       if (deletedIndices.length) pendingChanges[metric.name].delete_curation_indices = deletedIndices;
     }
   }
+  // Queued metrics are created with the drafted value; a drafted status is a
+  // same-request change, applied by the server after it stamps Pending.
+  const addPayload = pendingAddedMetrics.map((metric, index) => {
+    const draft = valueDrafts[metric.name];
+    let value = metric.value;
+    if (draft !== undefined && !fieldErrors[metric.name]) {
+      try { value = parseDraft(draft, metric.value); } catch { /* surfaced via fieldErrors */ }
+    }
+    return { ...addedMetrics[index], value };
+  });
+  const addedStatuses = Object.fromEntries(pendingAddedMetrics.map(metric => [
+    metric.name, statusDrafts[metric.name] ?? 'Pending',
+  ]));
+  const submitChanges = { ...pendingChanges };
+  for (const [name, status] of Object.entries(addedStatuses)) {
+    if (status !== 'Pending') submitChanges[name] = { status };
+  }
   const notesChanged = notes !== parsed.notes;
-  const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
+  const changeCount = Object.keys(pendingChanges).length + addedMetrics.length + (notesChanged ? 1 : 0);
   const hasPendingDrafts = editableMetrics.some(metric =>
     draftValueChanged(metric, valueDrafts[metric.name]) ||
     statusDrafts[metric.name] !== getMetricStatus(metric)
@@ -337,15 +394,17 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     const draft = curationDrafts[metric.name];
     return (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) ||
       (curationDeleteDrafts[metric.name]?.length ?? 0) > 0;
-  }) || notesChanged;
+  }) || notesChanged || addedMetrics.length > 0;
 
   useEffect(() => {
     if (!hasPendingDrafts) {
       clearQcPendingChanges(record.name);
       return;
     }
-    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes });
-  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, parsed.notes]);
+    writeQcPendingChanges(record.name, {
+      valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, addedMetrics,
+    });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, parsed.notes, addedMetrics]);
 
   const clearPendingChanges = () => {
     clearQcPendingChanges(record.name);
@@ -355,9 +414,30 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     setCurationDeleteDrafts({});
     setFieldErrors({});
     setNotes(parsed.notes);
+    setAddedMetrics([]);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
     setMessage('');
     setDraftRevision(revision => revision + 1);
   };
+
+  const handleAddFiberCcf = async () => {
+    setAddingFiberCcf(true);
+    setMessage('');
+    try {
+      const ngLink = await fetchCcfNeuroglancerLink(record.location);
+      setAddedMetrics(previous => [...previous, ...buildFiberCcfMetrics(fiberCcfNames, ngLink)]);
+      setSettingsOpen(false);
+      setMessage(`Queued ${fiberCcfNames.length} fiber CCF metric${fiberCcfNames.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+    } catch (error) {
+      setMessage(`Could not add fiber CCF metrics: ${error?.message ?? error}`);
+    } finally {
+      setAddingFiberCcf(false);
+    }
+  };
+
+  const findEditable = name => editableMetrics.find(candidate => candidate.name === name) ??
+    pendingAddedMetrics.find(candidate => candidate.name === name);
 
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
@@ -374,14 +454,15 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   useEffect(() => {
     onEditStateChange?.({
       enabled: Boolean(account),
-      editableMetricNames: new Set(editableMetrics.map(metric => metric.name)),
+      editableMetricNames: new Set([...editableMetrics, ...pendingAddedMetrics].map(metric => metric.name)),
+      addedMetrics: pendingAddedMetrics,
       valueDrafts,
       statusDrafts,
       fieldErrors,
       allowEditingValues,
       draftRevision,
       onValue: (name, value) => {
-        const metric = editableMetrics.find(candidate => candidate.name === name);
+        const metric = findEditable(name);
         if (metric) handleValue(metric, value);
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
@@ -410,7 +491,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         }
       },
     });
-  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, fieldErrors, allowEditingValues, draftRevision]);
+  }, [account, editableMetrics, pendingAddedMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -429,7 +510,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         freshRecord,
         freshHash,
         changedSinceLoad: freshHash !== loadedHash,
-        rows: buildReviewRows(freshRecord, record, { pendingChanges, notesChanged, notes }),
+        rows: buildReviewRows(freshRecord, record, {
+          pendingChanges, notesChanged, notes, addedMetrics: addPayload, addedStatuses,
+        }),
       });
       setPreview(true);
     } catch (error) {
@@ -446,9 +529,10 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     try {
       const payload = buildQcSubmitPayload(review.freshRecord, {
         expectedQcHash: review.freshHash,
-        pendingChanges,
+        pendingChanges: submitChanges,
         notesChanged,
         notes,
+        addedMetrics: addPayload,
       });
       await submitQcEdit(payload);
       clearQcPendingChanges(record.name);
@@ -509,6 +593,15 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
               />
               Allow editing metrics with values
             </label>
+            ${fiberCcfNames.length ? html`
+              <button
+                class="qc-editor-secondary"
+                onClick=${handleAddFiberCcf}
+                disabled=${addingFiberCcf || submitting}
+              >
+                ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfNames.length})`}
+              </button>
+            ` : null}
             <div class="qc-settings-actions">
               <button
                 class="qc-editor-secondary"
@@ -544,7 +637,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
                       ${row.drifted ? html`<span class="qc-editor-diff-flag"> changed</span>` : null}
                     </td>
                     <td>
-                      ${row.missing
+                      ${row.added
+                        ? html`<em>${row.missing ? 'already exists' : 'new metric'}</em>`
+                        : row.missing
                         ? html`<em>no longer present</em>`
                         : html`
                           ${row.currentValue !== undefined ? html`<div>${row.currentValue}</div>` : null}

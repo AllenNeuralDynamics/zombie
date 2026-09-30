@@ -325,6 +325,8 @@ function renderEditableDictionary(metric, edit) {
   appendHeaderCell(header, 'Field');
   appendHeaderCell(header, 'Value');
   const body = table.createTBody();
+  // Accumulate across fields so editing one input keeps the others' edits.
+  const current = { ...value };
   for (const [key, original] of entries) {
     const row = body.insertRow();
     row.insertCell().textContent = key;
@@ -340,9 +342,15 @@ function renderEditableDictionary(metric, edit) {
     input.addEventListener('input', () => {
       let nextValue = input.value;
       try { nextValue = parseDraft(input.value, original); } catch { /* keep the in-progress text */ }
-      const next = { ...value, [key]: nextValue };
-      edit.onValue(metric.name, JSON.stringify(next));
-      enableStatusForDraft(wrapper, metric, edit, next);
+      // An unfilled (null) field has no type to follow; keep numbers numeric.
+      if (original === null && input.value.trim() !== '' && Number.isFinite(Number(input.value))) {
+        nextValue = Number(input.value);
+      } else if (original === null && input.value.trim() === '') {
+        nextValue = null;
+      }
+      current[key] = nextValue;
+      edit.onValue(metric.name, JSON.stringify(current));
+      enableStatusForDraft(wrapper, metric, edit, current);
     });
     valueCell.appendChild(input);
   }

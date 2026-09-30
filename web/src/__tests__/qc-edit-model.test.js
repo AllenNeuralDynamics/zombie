@@ -18,6 +18,8 @@ describe('QC edit policy', () => {
     expect(hasMetricValue({})).toBe(false);
     expect(hasMetricValue(0)).toBe(true);
     expect(hasMetricValue(false)).toBe(true);
+    expect(hasMetricValue({ AP: null, ML: null, DV: null })).toBe(false);
+    expect(hasMetricValue({ AP: 0, ML: null, DV: null })).toBe(true);
   });
 
   it('opens empty value fields immediately and gates populated values behind settings', () => {
@@ -33,6 +35,7 @@ describe('QC edit policy', () => {
     expect(canEditMetricStatus(metric('', [{ status: 'Pass' }]))).toBe(true);
     expect(canEditMetricStatus(metric('value'))).toBe(true);
     expect(canEditMetricStatus(metric('value', [{ status: 'Pass' }]))).toBe(false);
+    expect(canEditMetricStatus(metric(null, [{ status: 'Pending' }]), { draftValue: 'typed' })).toBe(true);
     expect(canEditMetricStatus(metric('value', [{ status: 'Pass' }]), { allowEditingValues: true })).toBe(true);
 
     const dropdown = metric({ type: 'dropdown', options: ['good', 'bad'], value: 'good', status: ['Pass', 'Fail'] });

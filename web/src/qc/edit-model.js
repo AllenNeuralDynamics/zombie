@@ -12,7 +12,9 @@ export function hasMetricValue(value) {
   if (actual === null || actual === undefined) return false;
   if (typeof actual === 'string') return actual.trim() !== '';
   if (Array.isArray(actual)) return actual.length > 0;
-  if (typeof actual === 'object') return Object.keys(actual).length > 0;
+  // A dict of unfilled fields (e.g. {"AP": null, "ML": null, "DV": null}) is a
+  // template awaiting input, not a recorded value.
+  if (typeof actual === 'object') return Object.values(actual).some(hasMetricValue);
   return true;
 }
 
@@ -41,7 +43,8 @@ export function canEditMetricStatus(
   { allowEditingValues = false, draftValue = metric?.value } = {},
 ) {
   if (!isEditableMetric(metric) || isAutoStatusMetric(metric)) return false;
-  if (!hasMetricValue(draftValue)) return true;
+  // Metrics that were empty when loaded stay open while their value is filled in.
+  if (!hasMetricValue(draftValue) || !hasMetricValue(metric?.value)) return true;
   return !hasMetricStatus(metric) || allowEditingValues;
 }
 
