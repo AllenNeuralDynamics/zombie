@@ -485,7 +485,8 @@ function buildMetricCard(metric, edit = {}, media = {}, { suppressValue = false 
     const meta = document.createElement('div');
     meta.className = 'metric-tags';
     const parts = [];
-    if (metric.modality?.name) parts.push(`modality: ${metric.modality.name}`);
+    const modality = metric.modality?.abbreviation ?? metric.modality?.name;
+    if (modality) parts.push(`modality: ${modality}`);
     if (metric.stage) parts.push(`stage: ${metric.stage}`);
     meta.textContent = parts.join(' · ');
     card.appendChild(meta);

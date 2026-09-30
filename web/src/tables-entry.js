@@ -18,6 +18,11 @@ function buildPythonSnippet(acornName, version, partValue) {
   const versionRange = `"biodata-cache>=${major}.${minor},<${major}.${minor + 1}"`;
   const lines = [
     `# pip install ${versionRange}`,
+    'import os',
+    '',
+    // biodata_cache picks its backend at import time; without S3 it rebuilds tables in memory.
+    'os.environ["BIODATA_CACHE_BACKEND"] = "S3"',
+    '',
     `from biodata_cache import ${fnName}`,
   ];
   if (partValue !== null) {
