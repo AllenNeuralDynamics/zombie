@@ -25,16 +25,59 @@ async function fetchPresignedUrl(assetName, reference) {
   }
 }
 
-function applyPresignedUrl(el, tagName, assetName, reference) {
+function applyPresignedUrl(el, tagName, assetName, reference, onError = null) {
   fetchPresignedUrl(assetName, reference)
     .then(signed => { el.src = signed; })
     .catch((e) => {
       console.error('Presign error for', reference, e);
-      const err = document.createElement('p');
-      err.className = 'qc-media-error';
-      err.textContent = 'Failed to load media (access denied or not found).';
-      el.replaceWith(err);
+      if (onError) {
+        onError();
+        return;
+      }
+      const error = document.createElement('p');
+      error.className = 'qc-media-error';
+      error.textContent = 'Failed to load media (access denied or not found).';
+      el.replaceWith(error);
     });
+}
+
+function buildMediaLoading() {
+  const loading = document.createElement('div');
+  loading.className = 'qc-media-loading';
+  loading.setAttribute('role', 'status');
+  loading.setAttribute('aria-live', 'polite');
+  loading.textContent = 'Loading image…';
+  return loading;
+}
+
+function materializeMediaError(wrapper, message = 'Failed to load image.') {
+  if (!wrapper || wrapper.querySelector('.qc-media-error')) return;
+  wrapper.querySelectorAll('img, .qc-media-loading, .qc-fullscreen-btn, .qc-swipe-handle, .qc-swipe-slider')
+    .forEach(element => element.remove());
+  const error = document.createElement('p');
+  error.className = 'qc-media-error';
+  error.setAttribute('role', 'alert');
+  error.textContent = message;
+  wrapper.appendChild(error);
+}
+
+function appendImageWithState(wrapper, img, url, presign, assetName, reference, fullscreen = false) {
+  const loading = buildMediaLoading();
+  wrapper.appendChild(loading);
+  wrapper.appendChild(img);
+  if (fullscreen) wrapper.appendChild(buildFullscreenBtn(img));
+
+  const fail = () => materializeMediaError(wrapper);
+  img.addEventListener('load', () => loading.remove(), { once: true });
+  img.addEventListener('error', fail, { once: true });
+
+  if (presign) {
+    applyPresignedUrl(img, 'img', assetName, reference, () => {
+      materializeMediaError(wrapper, 'Failed to load image (access denied or not found).');
+    });
+  } else {
+    img.src = url;
+  }
 }
 
 export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc = '') {
@@ -68,12 +111,9 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc =
 
   if (type === 'image') {
     const img = document.createElement('img');
-    img.src = presign ? '' : url;
     img.loading = 'lazy';
     img.alt = reference;
-    wrapper.appendChild(img);
-    wrapper.appendChild(buildFullscreenBtn(img));
-    if (presign) applyPresignedUrl(img, 'img', assetName, reference);
+    appendImageWithState(wrapper, img, url, presign, assetName, reference, true);
   } else if (type === 'video') {
     const video = document.createElement('video');
     video.src = presign ? '' : url;
@@ -144,10 +184,9 @@ function buildSwipe(references, resolved, s3Bucket, assetName) {
   const imgs = resolved.map((r, i) => {
     const img = document.createElement('img');
     const presign = needsPresign(references[i], s3Bucket, r.type);
-    img.src = presign ? '' : r.url;
     img.loading = 'lazy';
     img.alt = references[i];
-    if (presign) applyPresignedUrl(img, 'img', assetName, references[i]);
+    appendImageWithState(wrapper, img, r.url, presign, assetName, references[i]);
     return img;
   });
 

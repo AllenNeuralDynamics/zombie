@@ -1,5 +1,9 @@
 /**
- * qc-auth.js — QC-portal login helpers for the /migrate pages.
+ * qc-auth.js — legacy QC-portal session-cookie compatibility helpers.
+ *
+ * The migration pages now use `qc-spa-auth.js` and bearer identity tokens,
+ * matching the inline QC editor. These helpers remain only for any older
+ * caller that still uses the portal's legacy `/metadata/login` session flow.
  *
  * The mirror image of `lib/auth.js` (ORCID login for the contributions pages).
  * The QC portal issues an HttpOnly session cookie on

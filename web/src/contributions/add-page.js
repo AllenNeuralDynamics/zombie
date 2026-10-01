@@ -491,7 +491,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 function StepFullEditor({
   doi, draftId, anonymous, authorName, orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
-  allRows, projectData, sections, affiliations, onBack, allowLead, allowLevels,
+  allRows, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
@@ -560,27 +560,6 @@ function StepFullEditor({
     return row;
   }, [editName, authorName, editRoles]);
 
-  const mergedRows = useMemo(() => {
-    const nameKey = editName.trim() || authorName;
-    const existing = allRows.findIndex((r) => r.name === nameKey || r.name === authorName);
-    if (existing >= 0) {
-      // This wizard only models the author's own name and CRediT roles, so the
-      // replacement row must not carry its blank defaults over the display
-      // properties an admin set on this author (byline position, author level,
-      // admin rights). Keep those from the loaded row.
-      const prev = allRows[existing];
-      const preserved = {
-        ...myRow,
-        author_level: prev.author_level ?? null,
-        publication_order: prev.publication_order ?? null,
-        is_admin: prev.is_admin ?? false,
-        ...(prev._passthrough ? { _passthrough: prev._passthrough } : {}),
-      };
-      return allRows.map((r, i) => i === existing ? preserved : r);
-    }
-    return [...allRows, myRow];
-  }, [allRows, myRow, editName, authorName]);
-
   // An anonymous visitor has no identity to own a row, so a name that matches
   // an existing contributor would be an attempt to overwrite that person's
   // record — which the backend won't apply. Catch it here: block the save and
@@ -621,28 +600,6 @@ function StepFullEditor({
         .map(([section, v]) => ({ section, level: v.level, ...(v.description ? { description: v.description } : {}) }));
       if (mySectionLevels.length) authorSectionLevels[finalName] = mySectionLevels;
 
-      for (const contributor of projectData?.contributors || []) {
-        const name = contributor.author?.name;
-        if (!name || name === authorName) continue;
-        const orc = contributor.author?.registry_identifier;
-        if (orc) authorOrcids[name] = orc;
-        const eml = contributor.author?.email;
-        if (eml) authorEmails[name] = eml;
-        const affRaw = contributor.author?.affiliation;
-        if (Array.isArray(affRaw) && affRaw.length) {
-          authorAffIds[name] = affRaw.map((n) => n.toLowerCase().replace(/[^a-z0-9]+/g, '-'));
-        }
-        for (const cl of contributor.credit_levels || []) {
-          if (cl.description) {
-            if (!creditDescriptions[name]) creditDescriptions[name] = {};
-            creditDescriptions[name][cl.role] = cl.description;
-          }
-        }
-        if (contributor.start_date) authorStartDates[name] = contributor.start_date;
-        if (contributor.end_date) authorEndDates[name] = contributor.end_date;
-        if (contributor.section_levels?.length) authorSectionLevels[name] = contributor.section_levels;
-      }
-
       const allAffs = [...affiliations];
       for (const n of myAffNames) {
         if (!allAffs.find((a) => a.name === n)) {
@@ -650,7 +607,17 @@ function StepFullEditor({
         }
       }
 
-      const payload = toEndpointPayload(mergedRows, doi, {
+      // The add workflow has an intentionally narrow API contract: send only
+      // this author's row. The server owns the project copy and merges the row
+      // into it, so future project/admin validation cannot reject or clobber a
+      // lossy client-side reconstruction of other authors.
+      const storedOwnRow = allRows.find(
+        (row) => row.name === authorName || row.name === finalName,
+      );
+      const [authorPayload] = toEndpointPayload([{
+        ...myRow,
+        ...(storedOwnRow?._passthrough ? { _passthrough: storedOwnRow._passthrough } : {}),
+      }], doi, {
         authorOrcids,
         authorEmails,
         authorAffIds,
@@ -660,19 +627,16 @@ function StepFullEditor({
         authorStartDates,
         authorEndDates,
         authorSectionLevels,
-        assets: projectData?.assets || [],
-        doi: projectData?.doi || [],
-      });
+      }).contributors;
 
-      // Members/admins save via their ORCID session cookie. Anonymous
-      // submitters rely on the project being publicly writable; no editable
-      // link is issued to them.
-      const url = `${CONTRIBUTIONS_API_BASE}/contributions/post?project=${encodeURIComponent(doi)}`;
+      // Members save via their ORCID session cookie. Anonymous submitters may
+      // append one row, but never receive a full project write path.
+      const url = `${CONTRIBUTIONS_API_BASE}/contributions/author?project=${encodeURIComponent(doi)}`;
 
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(authorPayload),
         credentials: 'include',
       });
       if (!res.ok) {
@@ -959,7 +923,7 @@ function AddApp({ project, doi, existingAuthor }) {
     (async () => {
       try {
         // Contribution data is publicly readable; no password/token needed.
-        const getUrl = `${CONTRIBUTIONS_API_BASE}/contributions/get?project=${encodeURIComponent(effProject)}`;
+        const getUrl = `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(effProject)}`;
         const res = await fetch(getUrl, { credentials: 'include' });
         if (cancelled) return;
         if (res.status === 404) throw new Error(`Project "${effProject}" not found.`);
@@ -1173,7 +1137,7 @@ function AddApp({ project, doi, existingAuthor }) {
           setRoles=${setRoles} setDescriptions=${setDescriptions}
           setJoinDate=${setJoinDate} setLeaveDate=${setLeaveDate} setSectionLevels=${setSectionLevels}
           allRows=${allRows}
-          projectData=${projectData} sections=${sections} affiliations=${affiliations}
+          sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}
           allowLead=${allowLead} allowLevels=${allowLevels}
         />

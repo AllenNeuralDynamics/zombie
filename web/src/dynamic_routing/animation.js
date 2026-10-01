@@ -17,6 +17,7 @@
  */
 
 import { findStimAt, findBlockAt } from './data-loader.js';
+import { DR_CONTEXT_COLORS } from './colors.js';
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -53,8 +54,8 @@ const RESPONSE_DECAY_S = 0.18;
 const REWARD_DECAY_S = 0.5;
 const STIM_DECAY_S   = 0.5;       // extra fade-out after stim_end_t
 
-const VIS_COLOR   = '#7c3aed';    // purple — visual rule
-const AUD_COLOR   = '#f59e0b';    // amber  — auditory rule
+const VIS_COLOR   = DR_CONTEXT_COLORS.vis; // green — visual rule
+const AUD_COLOR   = DR_CONTEXT_COLORS.aud; // amber — auditory rule
 const TARGET_RING = '#16a34a';    // green
 const NONTG_RING  = '#dc2626';    // red
 

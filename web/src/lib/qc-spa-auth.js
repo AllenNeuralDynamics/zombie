@@ -8,11 +8,39 @@ import {
 } from '../constants.js';
 
 const RETURN_PATH_KEY = 'qc-spa-return-path';
-// Sign-in only. Do not request profile, email, offline_access, Graph, or a
-// custom API permission: tenant membership is the authorization boundary.
-const OIDC_SCOPES = ['openid'];
+// Request only sign-in plus standard OIDC profile claims so the editor can
+// show the user's human display name. Do not request email, offline_access,
+// Graph, or a custom API permission: tenant membership is the authorization boundary.
+const OIDC_SCOPES = ['openid', 'profile'];
 let client = null;
 let initPromise = null;
+
+function isOpaqueIdentity(value) {
+  return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
+}
+
+function firstHumanIdentity(...values) {
+  return values.find(value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    return text && !isOpaqueIdentity(text);
+  })?.trim() || '';
+}
+
+/** Return a useful human name without exposing an opaque account identifier. */
+export function accountDisplayName(account) {
+  const claims = account?.idTokenClaims ?? {};
+  const composedName = [claims.given_name, claims.family_name].filter(Boolean).join(' ');
+  return firstHumanIdentity(
+    claims.name,
+    claims.display_name,
+    composedName,
+    account?.name,
+    claims.preferred_username,
+    claims.email,
+    claims.upn,
+    account?.username,
+  ) || 'AIND account';
+}
 
 function authConfig() {
   if (!QC_SPA_CLIENT_ID || !QC_SPA_TENANT_ID) return null;
@@ -25,7 +53,7 @@ function authConfig() {
       protocolMode: 'OIDC',
       OIDCOptions: { defaultScopes: OIDC_SCOPES },
     },
-    cache: { cacheLocation: 'sessionStorage' },
+    cache: { cacheLocation: 'localStorage' },
   };
 }
 
@@ -59,7 +87,24 @@ export async function initQcAuth() {
 
 export async function getQcAccount() {
   await initQcAuth();
-  return client?.getActiveAccount() ?? client?.getAllAccounts()[0] ?? null;
+  const account = client?.getActiveAccount() ?? client?.getAllAccounts()[0] ?? null;
+  if (!client || !account) return null;
+
+  // Refresh the cached account's standard profile claims when possible. This
+  // also upgrades sessions created before the profile scope was requested.
+  try {
+    const result = await client.acquireTokenSilent({ account, scopes: OIDC_SCOPES });
+    if (result?.account || result?.idTokenClaims) {
+      return {
+        ...account,
+        ...(result.account || {}),
+        idTokenClaims: result.idTokenClaims || result.account?.idTokenClaims || account.idTokenClaims,
+      };
+    }
+  } catch {
+    // The cached account is still a valid signed-in state if silent refresh is unavailable.
+  }
+  return account;
 }
 
 export async function loginForQc(nextPath = window.location.pathname + window.location.search) {

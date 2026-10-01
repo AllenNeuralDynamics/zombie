@@ -48,6 +48,44 @@ export async function queryForagingSession(coordinator, subjectId, sessionDate) 
 }
 
 /**
+ * Query foraging session metadata for several dates of one subject at once.
+ *
+ * Used by the multi-session comparison panel, which needs one row per selected
+ * acquisition and must not fire a query per session.
+ *
+ * @param {import('@uwdata/mosaic-core').Coordinator} coordinator
+ * @param {string} subjectId
+ * Rows carry an extra `session_date_iso` column: `session_date` is not a plain
+ * string in the cache, so Arrow hands the raw column back as a date value that
+ * no caller can match against a `YYYY-MM-DD` key. Casting in SQL keeps the
+ * join on the JS side honest.
+ *
+ * @param {string[]} sessionDates - ISO date strings (YYYY-MM-DD)
+ * @returns {Promise<object[]>} Rows for the dates that exist, oldest first.
+ */
+export async function queryForagingSessionsByDates(coordinator, subjectId, sessionDates) {
+  const dates = [...new Set((sessionDates ?? []).filter(Boolean))];
+  if (!dates.length) return [];
+  try {
+    await ensureForagingTable(coordinator);
+
+    const safeId = String(subjectId).replace(/'/g, "''");
+    const inList = dates.map((d) => `'${String(d).replace(/'/g, "''")}'`).join(', ');
+
+    return await queryRows(
+      coordinator,
+      `SELECT *, CAST(session_date AS VARCHAR) AS session_date_iso
+         FROM ${TABLE_NAME}
+        WHERE subject_id = '${safeId}' AND session_date IN (${inList})
+        ORDER BY session_date`,
+    );
+  } catch (err) {
+    console.warn('[ForagingMetadata] queryByDates failed:', err);
+    return [];
+  }
+}
+
+/**
  * Query all foraging sessions for a given subject.
  *
  * @param {import('@uwdata/mosaic-core').Coordinator} coordinator

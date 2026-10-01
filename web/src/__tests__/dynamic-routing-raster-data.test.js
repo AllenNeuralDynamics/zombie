@@ -40,6 +40,9 @@ describe('dynamic-routing raster condition adapter', () => {
     expect(buildConditionPanels(trials).map((panel) => panel.key)).toEqual([
       'vis_visual_target', 'aud_auditory_nontarget',
     ]);
+    expect(buildConditionPanels(trials).map((panel) => panel.label)).toEqual([
+      'VIS context · vis1', 'AUD context · aud2',
+    ]);
   });
 
   it('builds onset-relative raster rows for each trial', () => {

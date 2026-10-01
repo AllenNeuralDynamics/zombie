@@ -62,7 +62,7 @@ async function mount(doi) {
 function routeFetch({ access, get }) {
   fetchContributions.mockImplementation((url) => {
     if (url.includes('/contributions/access')) return Promise.resolve(access);
-    if (url.includes('/contributions/get')) return Promise.resolve(get);
+    if (url.includes('/contributions/project')) return Promise.resolve(get);
     return Promise.resolve(res(200, {}));
   });
 }

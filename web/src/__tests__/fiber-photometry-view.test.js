@@ -4,7 +4,52 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildMissingTable, pivotLongFormRows } from '../fiber_photometry/view.js';
+import {
+  applyFiberSidebarFilters,
+  buildMissingTable,
+  pivotLongFormRows,
+} from '../fiber_photometry/view.js';
+
+describe('applyFiberSidebarFilters', () => {
+  const rows = [
+    {
+      asset_name: 'asset_a',
+      instrument_id_normalized: 'FiberRig-1',
+      'Fiber_0/Target': 'VTA',
+      'Fiber_0/Green': 'calcium',
+    },
+    {
+      asset_name: 'asset_b',
+      instrument_id_normalized: 'FiberRig-2',
+      'Fiber_0/Target': 'NAc',
+      'Fiber_0/Green': 'dopamine',
+    },
+  ];
+
+  it('filters by normalized instrument ID', () => {
+    const result = applyFiberSidebarFilters(
+      rows,
+      new Set(),
+      new Set(),
+      ['Fiber_0/Target'],
+      ['Fiber_0/Green'],
+      new Set(['FiberRig-1']),
+    );
+    expect(result.map((row) => row.asset_name)).toEqual(['asset_a']);
+  });
+
+  it('combines instrument and fiber filters', () => {
+    const result = applyFiberSidebarFilters(
+      rows,
+      new Set(['NAc']),
+      new Set(),
+      ['Fiber_0/Target'],
+      ['Fiber_0/Green'],
+      new Set(['FiberRig-1']),
+    );
+    expect(result).toHaveLength(0);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // buildMissingTable — uses pre-normalized investigators_normalized column
@@ -129,12 +174,14 @@ describe('pivotLongFormRows with investigators_normalized', () => {
         genotype: 'wt/wt',
         location: 's3://bucket/path',
         code_ocean: null,
+        instrument_id_normalized: 'FiberRig-1',
         investigators: 'Nick Ponvert',   // already normalized
         experimenters: 'Anna Mcdougal',
       },
     ];
     const wideRows = pivotLongFormRows(longRows);
     expect(wideRows).toHaveLength(1);
+    expect(wideRows[0].instrument_id_normalized).toBe('FiberRig-1');
     expect(wideRows[0].investigators).toBe('Nick Ponvert');
   });
 });

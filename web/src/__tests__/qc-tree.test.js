@@ -5,7 +5,12 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-import { createTree } from '../qc/tree.js';
+import {
+  createTree,
+  encodeTreeNodePath,
+  findTreeNodeByPath,
+  getTreeNodePath,
+} from '../qc/tree.js';
 
 const makeMetric = (status = 'Pass') => ({
   name: 'metric',
@@ -73,5 +78,18 @@ describe('createTree', () => {
     const nodes = [makeNode('probeA', [makeMetric('Pass'), makeMetric('Fail')])];
     const el = createTree(nodes, () => {});
     expect(el.querySelector('.tree-icon').classList.contains('fail')).toBe(true);
+  });
+
+  it('marks and reveals a node selected from a nested URL path', () => {
+    const child = makeNode('drift', [makeMetric()], []);
+    const parent = makeNode('probeA', [makeMetric()], [child]);
+    const path = getTreeNodePath([parent], child);
+    const encoded = encodeTreeNodePath(path);
+    const selected = findTreeNodeByPath([parent], encoded);
+    const el = createTree([parent], () => {}, { selectedNode: selected });
+
+    expect(selected).toBe(child);
+    expect(el.querySelector('.tree-node.selected').textContent).toContain('drift');
+    expect(el.querySelector('.tree-children').classList.contains('expanded')).toBe(true);
   });
 });

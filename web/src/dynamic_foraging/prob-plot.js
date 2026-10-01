@@ -73,9 +73,16 @@ const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
  * Build the probability + raster plot for one session.
  *
  * @param {{trials:object[], licks:{t,side}, rewards:{t,side}, goCues, sessionEndS:number}} data
+ * @param {object} [opts]
+ * @param {boolean} [opts.showRowLabels=true] - Draw the row-label gutter. Set
+ *   false for every column but the first when several sessions are placed
+ *   side by side: the rows line up, so one gutter labels them all.
  * @returns {{ element: HTMLElement, updatePlayhead:(t:number)=>void, setOnScrub:(cb:(t:number)=>void)=>void, dispose:()=>void }}
  */
-export function createProbPlot(data) {
+export function createProbPlot(data, opts = {}) {
+  const { showRowLabels = true } = opts;
+  // Without the gutter the plot keeps only enough left margin for the y-edge.
+  const margin = { ...MARGIN, left: showRowLabels ? MARGIN.left : 14 };
   const { trials, rewards, sessionEndS } = data;
   const stepData = _buildStepData(trials, sessionEndS);
   const { rewardL, rewardR } = _splitRewards(rewards);
@@ -109,8 +116,8 @@ export function createProbPlot(data) {
   // zoom/pan brush, playheads and scrubbing).
   // ===========================================================================
 
-  const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const yToPx  = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
+  const innerH = PLOT_HEIGHT - margin.top - margin.bottom;
+  const yToPx  = (yData) => margin.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
 
   let xMode = 'time';
 
@@ -118,8 +125,8 @@ export function createProbPlot(data) {
     const plot = Plot.plot({
       width: w,
       height: OVERVIEW_HEIGHT,
-      marginLeft:   MARGIN.left,
-      marginRight:  MARGIN.right,
+      marginLeft:   margin.left,
+      marginRight:  margin.right,
       marginTop:    3,
       marginBottom: 3,
       style: { background: 'transparent', fontFamily: 'inherit', overflow: 'hidden' },
@@ -139,10 +146,10 @@ export function createProbPlot(data) {
     const plot = Plot.plot({
       width: w,
       height: PLOT_HEIGHT,
-      marginLeft:   MARGIN.left,
-      marginRight:  MARGIN.right,
-      marginTop:    MARGIN.top,
-      marginBottom: MARGIN.bottom,
+      marginLeft:   margin.left,
+      marginRight:  margin.right,
+      marginTop:    margin.top,
+      marginBottom: margin.bottom,
       style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-primary, #111111)' },
       clip: true,
       x: {
@@ -197,20 +204,23 @@ export function createProbPlot(data) {
 
   const bz = createBrushOverview({
     sessionEndS,
-    margin: { left: MARGIN.left, right: MARGIN.right },
+    margin: { left: margin.left, right: margin.right },
     overviewHeight: OVERVIEW_HEIGHT,
     minPlotW: MIN_PLOT_W,
-    scrubInset: { top: MARGIN.top - 6, bottom: MARGIN.bottom - 4 },
+    scrubInset: { top: margin.top - 6, bottom: margin.bottom - 4 },
     wrapperClass: 'df-prob-plot-wrap',
     renderOverview,
     renderMain,
   });
 
-  // Overview hint overlay (kept from the original DF look).
-  const overviewHint = document.createElement('div');
-  overviewHint.className = 'df-brush-hint';
-  overviewHint.innerHTML = 'Click + drag<br>to zoom';
-  bz.overviewWrap.appendChild(overviewHint);
+  // Overview hint overlay (kept from the original DF look). It sits in the
+  // label gutter, so it goes when the gutter does.
+  if (showRowLabels) {
+    const overviewHint = document.createElement('div');
+    overviewHint.className = 'df-brush-hint';
+    overviewHint.innerHTML = 'Click + drag<br>to zoom';
+    bz.overviewWrap.appendChild(overviewHint);
+  }
 
   // Row-label overlays positioned in the gutter.
   const ROW_LABELS = [
@@ -222,8 +232,10 @@ export function createProbPlot(data) {
     ['L Choice', COLOR_L,       Y_LABEL_LCHO],
     ['L Reward', COLOR_L,       Y_LABEL_LREW],
   ];
-  for (const [text, color, yData] of ROW_LABELS) {
-    bz.mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, yToPx(yData)));
+  if (showRowLabels) {
+    for (const [text, color, yData] of ROW_LABELS) {
+      bz.mainWrap.appendChild(_makeRowLabel(text, color, margin.left - 6, yToPx(yData)));
+    }
   }
 
   // X-axis mode toggle — returned so the caller can place it wherever it likes.

@@ -136,12 +136,21 @@ async function loadDynamicForagingTiming(coord, subjectId, rawAssetName) {
     `session_date = ${sqlString(date)}`,
     suffix == null ? null : `nwb_suffix = ${suffix}`,
   ].filter(Boolean).join(' AND ');
-  const rows = await queryRows(coord, `
-    SELECT *
-    FROM read_parquet(${sqlString(dfTrialsUrl(subjectId))})
-    WHERE ${where}
-    ORDER BY trial
-  `);
+  // Only the event columns are read downstream, and the trials parquet is
+  // wide — naming them lets parquet column pruning skip the rest instead of
+  // pulling every trial field over HTTPS. Older caches may lack a column, so
+  // fall back to the whole row rather than failing the session.
+  const wanted = ['trial', DF_REFERENCE_COLUMN, ...DF_EVENT_SPECS.map((spec) => spec.column)];
+  const select = [...new Set(wanted)].map((col) => `"${col}"`).join(', ');
+  const from = `FROM read_parquet(${sqlString(dfTrialsUrl(subjectId))}) WHERE ${where} ORDER BY trial`;
+
+  let rows;
+  try {
+    rows = await queryRows(coord, `SELECT ${select} ${from}`);
+  } catch (err) {
+    console.debug('[event-timing] pruned DF trials query failed, reading all columns:', err?.message);
+    rows = await queryRows(coord, `SELECT * ${from}`);
+  }
   if (!rows.length) return null;
 
   const referenceTime = rows

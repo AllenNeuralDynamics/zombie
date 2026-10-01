@@ -191,6 +191,13 @@ describe('resolveReference', () => {
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
   });
 
+  it('decodes fully encoded ephys references before classifying them', () => {
+    const ref = 'https%3A//ephys.allenneuraldynamics.org/ephys_gui_app%3Fanalyzer_path%3D%7Bderived_asset_location%7D/foo.zarr';
+    const resolved = resolveReference(ref, bucket, prefix);
+    expect(resolved.type).toBe('iframe');
+    expect(resolved.url).toBe(`https://ephys.allenneuraldynamics.org/ephys_gui_app?analyzer_path=s3://${bucket}/${prefix}/foo.zarr`);
+  });
+
   it('substitutes {derived_asset_location} placeholder in ephys URLs', () => {
     const ref = 'https://ephys.allenneuraldynamics.org/app?loc=%7Bderived_asset_location%7D';
     const { url } = resolveReference(ref, 'my-bucket', 'my-prefix');

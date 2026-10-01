@@ -101,7 +101,7 @@ export const ROUTES = [
   }),
   page({
     route: '/quality_control', html: 'quality_control.html', inputKey: 'quality_control',
-    header: { sub: 'quality control' }, nav: { group: 'dashboards', label: 'Quality Control' },
+    header: { sub: 'quality control' },
   }),
   page({ route: '/auth/callback', html: 'auth/callback.html', inputKey: 'auth_callback' }),
   page({

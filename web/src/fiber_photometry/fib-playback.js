@@ -116,8 +116,61 @@ function fibSource(urls) {
 // The subject timeline only carries raw acquisitions, so we reverse-map raw →
 // derived via the source_data table. When an asset has been re-processed
 // multiple times, the most recent processing_time wins so we skip stale runs.
+const _derivedNameCache = new Map();
+
+/**
+ * Resolve several raw acquisitions to their derived fib assets in one query.
+ *
+ * A cross-session view otherwise pays one source_data join per session. The
+ * results land in the same cache resolveFibDerivedName() reads, so callers can
+ * prefetch and then resolve each name for free.
+ *
+ * @param {object} coord
+ * @param {string[]} rawAssetNames
+ */
+export async function prefetchFibDerivedNames(coord, rawAssetNames) {
+  const missing = [...new Set((rawAssetNames ?? []).filter(
+    (name) => name && !_derivedNameCache.has(name),
+  ))];
+  if (!missing.length) return;
+
+  const inList = missing.map((name) => `'${esc(name)}'`).join(', ');
+  const resolved = new Map();
+  try {
+    await ensureTable(coord, 'source_data');
+    const rows = await queryRows(coord, `
+      SELECT sd.source_data AS raw, sd.name
+      FROM source_data sd
+      JOIN asset_basics ab ON ab.name = sd.name
+      WHERE sd.source_data IN (${inList})
+        AND ab.data_level = 'derived'
+        AND list_contains(ab.modalities, 'fib')
+      QUALIFY row_number() OVER (
+        PARTITION BY sd.source_data ORDER BY sd.processing_time DESC
+      ) = 1
+    `);
+    for (const row of rows) {
+      if (row?.raw && row?.name) resolved.set(String(row.raw), String(row.name));
+    }
+  } catch (err) {
+    // Leave the cache untouched: each name falls back to its own query.
+    console.warn('[fib-playback] batched derived-name lookup failed', err);
+    return;
+  }
+  for (const name of missing) {
+    _derivedNameCache.set(name, Promise.resolve(resolved.get(name) ?? null));
+  }
+}
+
 async function resolveFibDerivedName(coord, rawAssetName) {
   if (!rawAssetName) return null;
+  if (_derivedNameCache.has(rawAssetName)) return _derivedNameCache.get(rawAssetName);
+  const promise = _resolveFibDerivedNameUncached(coord, rawAssetName);
+  _derivedNameCache.set(rawAssetName, promise);
+  return promise;
+}
+
+async function _resolveFibDerivedNameUncached(coord, rawAssetName) {
   try {
     await ensureTable(coord, 'source_data');
     const rows = await queryRows(coord, `
@@ -156,7 +209,53 @@ const CHANNEL_ORDER = ['G', 'Iso', 'R'];
  *
  * @returns {Promise<Map<number, {targetedStructure: string, channels: object}>>}
  */
+const _fiberMetaCache = new Map();
+
+/**
+ * Load fiber metadata for several acquisitions in one scan.
+ *
+ * platform_fib.pqt is one file covering every asset, so a per-session LIKE
+ * scan reads it once per session. Results are keyed into the same cache
+ * loadFiberMeta() reads.
+ *
+ * @param {object} coord
+ * @param {string[]} rawAssetNames
+ */
+export async function prefetchFiberMeta(coord, rawAssetNames) {
+  const missing = [...new Set((rawAssetNames ?? []).filter(
+    (name) => name && !_fiberMetaCache.has(name),
+  ))];
+  if (!missing.length) return;
+
+  const predicate = missing.map((name) => `asset_name LIKE '${esc(name)}%'`).join(' OR ');
+  let rows = [];
+  try {
+    rows = await queryRows(coord,
+      `SELECT DISTINCT asset_name, fiber, channel, targeted_structure, intended_measurement
+       FROM read_parquet('${fibMetaUrl()}')
+       WHERE ${predicate}`
+    );
+  } catch (err) {
+    console.warn('[fib-playback] batched fiber-meta lookup failed', err);
+    return;
+  }
+
+  // An asset_name in the cache is the derived name, which starts with the raw
+  // one — the same prefix rule the per-asset query uses.
+  for (const name of missing) {
+    const mine = rows.filter((r) => String(r.asset_name ?? '').startsWith(name));
+    _fiberMetaCache.set(name, Promise.resolve(fiberMetaFromRows(mine)));
+  }
+}
+
 async function loadFiberMeta(coord, rawAssetName) {
+  if (_fiberMetaCache.has(rawAssetName)) return _fiberMetaCache.get(rawAssetName);
+  const promise = _loadFiberMetaUncached(coord, rawAssetName);
+  _fiberMetaCache.set(rawAssetName, promise);
+  return promise;
+}
+
+async function _loadFiberMetaUncached(coord, rawAssetName) {
   const prefix = esc(rawAssetName);
   const url    = fibMetaUrl();
   let rows = [];
@@ -167,7 +266,10 @@ async function loadFiberMeta(coord, rawAssetName) {
        WHERE asset_name LIKE '${prefix}%'`
     );
   } catch { return new Map(); }
+  return fiberMetaFromRows(rows);
+}
 
+function fiberMetaFromRows(rows) {
   const map = new Map();
   for (const r of rows) {
     const fm = String(r.fiber).match(/(\d+)/);
@@ -183,6 +285,7 @@ async function loadFiberMeta(coord, rawAssetName) {
   }
   return map;
 }
+
 
 // ---------------------------------------------------------------------------
 // Fiber implant surgery (3D inset + per-fiber colours)
@@ -372,6 +475,35 @@ export function buildPsthEventValues(eventStream, referenceTime = null) {
       return Number.isFinite(absolute) ? `(${index}, ${absolute})` : null;
     })
     .filter(Boolean);
+}
+
+/**
+ * As loadPsthData, but for every fiber at once — the returned rows carry a
+ * `fiber` column so the caller can split them.
+ */
+async function loadPsthDataAllFibers(coord, fibSrc, rawAssetName, eventStream, referenceTime, fiberIdxs, pre = PSTH_PRE, post = PSTH_POST) {
+  const eventValues = buildPsthEventValues(eventStream, referenceTime);
+  if (!eventValues.length || !fiberIdxs?.length) return null;
+  const prefix = esc(rawAssetName);
+  const fiberList = fiberIdxs.map((f) => Number(f)).join(', ');
+
+  const sql = `
+    WITH events(trial, ev_t) AS (VALUES ${eventValues.join(', ')}),
+    fib AS (
+      SELECT timestamp, channel, CAST(fiber AS INT) AS fiber, "dff-bright_mc-iso-IRLS" AS v
+      FROM read_parquet(${fibSrc})
+      WHERE asset_name LIKE '${prefix}%'
+        AND CAST(fiber AS INT) IN (${fiberList})
+    )
+    SELECT f.fiber, e.trial, f.channel,
+           CAST(e.ev_t AS DOUBLE) AS ev_t,
+           CAST(f.timestamp - e.ev_t AS FLOAT) AS t_rel,
+           CAST(f.v AS FLOAT) AS v
+    FROM fib f
+    JOIN events e ON f.timestamp BETWEEN e.ev_t + ${pre} - ${PSTH_EDGE_MARGIN} AND e.ev_t + ${post} + ${PSTH_EDGE_MARGIN}
+    ORDER BY f.fiber, f.channel, e.trial, t_rel
+  `;
+  return queryRows(coord, sql);
 }
 
 async function loadPsthData(coord, fibSrc, rawAssetName, eventStream, referenceTime, fiberIdx, pre = PSTH_PRE, post = PSTH_POST) {
@@ -579,6 +711,227 @@ function buildPsthCard(series, meta, borderColor, area, yDomain, width, baseline
  *   sibling behavior player (used to choose the timing adapter).
  * @returns {HTMLElement}
  */
+/**
+ * Load one session's fiber PSTH, event-aligned and averaged over trials.
+ *
+ * This is the single-session widget's own pipeline (derived-asset resolution →
+ * trace shards → behavior event timing → aligned samples → trial average),
+ * exposed so cross-session views can call it per session instead of forking it.
+ *
+ * @param {object} coord - DuckDB coordinator.
+ * @param {object} opts
+ * @param {string} opts.subjectId
+ * @param {string} opts.rawAssetName - Raw acquisition name (not the derived fib asset).
+ * @param {string|null} [opts.eventKey] - Event stream to align on; defaults to the
+ *   platform's preferred stream.
+ * @param {number|null} [opts.fiberIdx] - Fiber to read; defaults to the lowest-numbered.
+ * @param {number} [opts.pre] / @param {number} [opts.post] - Window, seconds.
+ * @param {number} [opts.baselineSec] - Pre-event baseline to subtract (0 = none).
+ * @param {string|null} [opts.platform] - Behavior platform hint for event timing.
+ * @param {AbortSignal} [opts.signal]
+ * @returns {Promise<{allMean: object[], channels: string[], fiber: number, fibers: number[],
+ *   eventKey: string, eventLabel: string, nEvents: number}|null>} null when this
+ *   acquisition has no fiber traces, no events, or no samples in the window.
+ */
+export async function loadFibSessionPsth(coord, {
+  subjectId,
+  rawAssetName,
+  eventKey = null,
+  fiberIdx = null,
+  pre = PSTH_PRE,
+  post = PSTH_POST,
+  baselineSec = 0,
+  platform = null,
+  signal = null,
+} = {}) {
+  if (!coord || !rawAssetName) return null;
+
+  const derived = await resolveFibDerivedName(coord, rawAssetName);
+  if (!derived || signal?.aborted) return null;
+
+  const urls = await fibFiles(derived);
+  if (!urls.length || signal?.aborted) return null;
+
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  if (signal?.aborted) return null;
+  const streams = timing?.streams ?? [];
+  const stream = (eventKey && streams.find((s) => s.key === eventKey))
+    ?? chooseDefaultEventStream(streams);
+  if (!stream) return null;
+
+  const meta = await loadFiberMeta(coord, rawAssetName);
+  if (signal?.aborted) return null;
+  const fibers = [...meta.keys()].sort((a, b) => a - b);
+  const fiber = fiberIdx ?? fibers[0] ?? 0;
+
+  const rows = await loadPsthData(
+    coord, fibSource(urls), rawAssetName, stream, timing?.referenceTime ?? null,
+    fiber, pre, post,
+  );
+  if (!rows?.length || signal?.aborted) return null;
+
+  const { allMean, channels } = computePsthSeries(rows, baselineSec, { pre, post });
+  if (!allMean.length) return null;
+
+  return {
+    allMean,
+    channels,
+    fiber,
+    fibers,
+    eventKey: stream.key,
+    eventLabel: stream.label,
+    nEvents: stream.occurrences?.length ?? 0,
+  };
+}
+
+/**
+ * Load every fiber's event-aligned PSTH for one session, with the same
+ * per-fiber colours, target areas and channel metadata the single-session
+ * panel draws — so a cross-session view can render identical cards per column
+ * instead of reimplementing them.
+ *
+ * @param {object} coord
+ * @param {object} opts - As `loadFibSessionPsth`, minus `fiberIdx` (all fibers).
+ * @returns {Promise<{fibers: Array<{fiber: number, series: object, meta: object|undefined,
+ *   color: string, area: string}>, streams: Array<{key: string, label: string}>,
+ *   eventKey: string, eventLabel: string}|null>}
+ */
+export async function loadFibSessionPsthSet(coord, {
+  subjectId,
+  rawAssetName,
+  eventKey = null,
+  pre = PSTH_PRE,
+  post = PSTH_POST,
+  baselineSec = 0,
+  platform = null,
+  signal = null,
+} = {}) {
+  if (!coord || !rawAssetName) return null;
+
+  const derived = await resolveFibDerivedName(coord, rawAssetName);
+  if (!derived || signal?.aborted) return null;
+  const urls = await fibFiles(derived);
+  if (!urls.length || signal?.aborted) return null;
+  const fibSrc = fibSource(urls);
+
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  if (signal?.aborted) return null;
+  const streams = timing?.streams ?? [];
+  const stream = (eventKey && streams.find((s) => s.key === eventKey))
+    ?? chooseDefaultEventStream(streams);
+  if (!stream) return null;
+
+  const [fiberMeta, surgery] = await Promise.all([
+    loadFiberMeta(coord, rawAssetName),
+    loadSurgery(subjectId),
+  ]);
+  if (signal?.aborted) return null;
+  const fiberInfoMap = buildFiberColorInfo(surgery);
+  const fiberIdxs = [...fiberMeta.keys()].sort((a, b) => a - b);
+  if (!fiberIdxs.length) return null;
+
+  // Every fiber in one pass: the shards are scanned once per session rather
+  // than once per fiber, and the rows are split back out below.
+  const allRows = await loadPsthDataAllFibers(
+    coord, fibSrc, rawAssetName, stream, timing?.referenceTime ?? null, fiberIdxs, pre, post,
+  );
+  if (signal?.aborted) return null;
+  const rowsPerFiber = fiberIdxs.map(
+    (f) => (allRows ?? []).filter((row) => Number(row.fiber) === f),
+  );
+
+  const fibers = [];
+  fiberIdxs.forEach((fiber, order) => {
+    const rows = rowsPerFiber[order];
+    if (!rows?.length) return;
+    const info = fiberInfoMap.get(fiber);
+    fibers.push({
+      fiber,
+      series: computePsthSeries(rows, baselineSec, { pre, post }),
+      meta: fiberMeta.get(fiber),
+      color: fiberColor(fiberInfoMap, fiber, order),
+      area: fiberMeta.get(fiber)?.targetedStructure
+        || info?.structureAcronym || info?.structureName || '',
+    });
+  });
+  if (!fibers.length) return null;
+
+  return {
+    fibers,
+    streams: streams.map(({ key, label }) => ({ key, label })),
+    eventKey: stream.key,
+    eventLabel: stream.label,
+  };
+}
+
+/**
+ * Render one fiber's PSTH card — the same card the single-session panel uses.
+ *
+ * @param {{series: object, meta: object|undefined, color: string, area: string}} entry
+ * @param {object} opts - { yDomain, width, baselineSec, pre, post }
+ * @returns {HTMLElement}
+ */
+export function buildFibPsthCard(entry, {
+  yDomain, width = 320, baselineSec = 0, pre = PSTH_PRE, post = PSTH_POST,
+} = {}) {
+  return buildPsthCard(entry.series, entry.meta, entry.color, entry.area, yDomain, width, baselineSec, pre, post);
+}
+
+/**
+ * Shared [min, max] across several PSTH series, so cards (and columns) are
+ * read against one axis.
+ *
+ * @param {object[]} seriesList - `series` values from loadFibSessionPsthSet.
+ * @returns {[number, number]}
+ */
+export function fibPsthYDomain(seriesList) {
+  return psthYDomain(seriesList);
+}
+
+/**
+ * The implant view (3D fiber placement + per-fiber legend) for a subject.
+ *
+ * The implant belongs to the subject, not the session, so a cross-session view
+ * shows one of these beside the per-session columns.
+ *
+ * @param {string} subjectId
+ * @returns {HTMLElement} Self-loading; renders a message when there is no
+ *   implant surgery to show.
+ */
+export function createFibImplantPanel(subjectId) {
+  const wrap = document.createElement('div');
+  wrap.className = 'fib-3d-inset';
+  wrap.innerHTML = '<p class="fib-loading">Loading…</p>';
+
+  loadSurgery(subjectId)
+    .then(async (surgery) => {
+      if (!surgery?.surgeryData) {
+        wrap.innerHTML = '<p class="fib-no-data">No implant surgery found.</p>';
+        return;
+      }
+      const { createBrainViz3D } = await import('../subject/brain-viz-3d.js');
+      const viz = createBrainViz3D(surgery.surgeryData, surgery.proceduresCoordSys);
+      viz.style.height = '100%';
+      wrap.replaceChildren(viz);
+    })
+    .catch((err) => {
+      console.error('[fib-playback] implant panel error', err);
+      wrap.innerHTML = '<p class="fib-no-data">3D view unavailable.</p>';
+    });
+
+  return wrap;
+}
+
+/**
+ * Event streams available for a session, for cross-session alignment pickers.
+ *
+ * @returns {Promise<Array<{key: string, label: string}>>}
+ */
+export async function listFibEventStreams(coord, { subjectId, rawAssetName, platform = null, signal = null } = {}) {
+  const timing = await loadBehaviorEventTiming(coord, { subjectId, rawAssetName, platform, signal });
+  return (timing?.streams ?? []).map(({ key, label }) => ({ key, label }));
+}
+
 export function createFibPlayback(coord, subjectId, rawAssetName, opts = {}) {
   const section = document.createElement('section');
   section.className = 'fib-playback-section';

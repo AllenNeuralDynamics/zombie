@@ -32,6 +32,7 @@ const STORED = {
         email: 'alice@example.org',
       },
       credit_levels: [{ role: 'software', level: 'lead' }],
+      is_admin: true,
     },
     {
       author: { name: 'Bob Jones', email: 'bob@example.org' },
@@ -87,11 +88,12 @@ describe('AddApp — author email', () => {
     );
     expect(postCall).toBeDefined();
     const payload = JSON.parse(postCall[1].body);
-    const alice = payload.contributors.find((c) => c.author.name === 'Alice Smith');
-    expect(alice.author.email).toBe('alice.smith@allen.org');
+    expect(postCall[0]).toContain('/contributions/author?project=proj');
+    expect(payload.author.name).toBe('Alice Smith');
+    expect(payload.author.email).toBe('alice.smith@allen.org');
   });
 
-  it('preserves other contributors’ emails on save', async () => {
+  it('sends only the edited author, leaving project preservation to the server', async () => {
     const el = await mountAsAlice();
     el.querySelector('.cv-wizard-nav .btn-primary')?.click();
     await flush();
@@ -100,7 +102,9 @@ describe('AddApp — author email', () => {
       ([, opts]) => (opts?.method || 'GET') === 'POST',
     );
     const payload = JSON.parse(postCall[1].body);
-    const bob = payload.contributors.find((c) => c.author.name === 'Bob Jones');
-    expect(bob.author.email).toBe('bob@example.org');
+    expect(payload).not.toHaveProperty('contributors');
+    expect(payload.author.name).toBe('Alice Smith');
+    expect(payload.author.email).toBe('alice@example.org');
+    expect(JSON.stringify(payload)).not.toContain('Bob Jones');
   });
 });

@@ -164,6 +164,12 @@
   min-width: 0;
 }
 
+/* Dynamic Routing keeps the changing trial readout out of the stage column,
+   so its height cannot affect the adjacent event plot. */
+.pb-player--dr .pb-trial-info {
+  width: 100%;
+}
+
 /* ---- Scrubber (click / drag to seek; playhead marker) ------------------- */
 .pb-scrub-row {
   display: flex;
