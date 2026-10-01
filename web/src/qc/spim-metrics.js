@@ -34,7 +34,7 @@ const BASE_METRICS = [
   },
   {
     name: 'Tissue perfusion',
-    stage: 'Raw',
+    stage: 'Raw data',
     description: [
       'Pass when tissue is sufficiently well-perfused and extracted to meet experimental needs.',
       'Good tissue perfusion will preserve gross anatomical structures without cracks in tissue, and will be free of perfusion-related artifacts.',
@@ -130,7 +130,7 @@ export function buildSpimQcMetrics(record) {
     metrics.splice(1 + metrics.filter(metric => metric.tags.channel).length, 0, {
       name: `${channel} brightness`,
       modality: SPIM_MODALITY,
-      stage: 'Raw',
+      stage: 'Raw data',
       description: CHANNEL_DESCRIPTION,
       value: GOOD_SUFFICIENT_BAD,
       reference,
@@ -143,4 +143,15 @@ export function buildSpimQcMetrics(record) {
 /** Return standard SPIM metrics that are not present or already queued. */
 export function missingSpimQcMetrics(record, existingNames = new Set()) {
   return buildSpimQcMetrics(record).filter(metric => !existingNames.has(metric.name));
+}
+
+/** Repair queued SPIM metrics saved before the stage matched the QC schema. */
+export function normalizeSavedSpimQcMetrics(record, metrics) {
+  const stagesByName = new Map(buildSpimQcMetrics(record).map(metric => [metric.name, metric.stage]));
+  return metrics.map(metric => (
+    metric.modality?.abbreviation === 'SPIM' && metric.stage === 'Raw' &&
+      stagesByName.get(metric.name) === 'Raw data'
+      ? { ...metric, stage: 'Raw data' }
+      : metric
+  ));
 }

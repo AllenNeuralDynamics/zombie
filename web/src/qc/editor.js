@@ -10,7 +10,7 @@ import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
 import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
-import { missingSpimQcMetrics } from './spim-metrics.js';
+import { missingSpimQcMetrics, normalizeSavedSpimQcMetrics } from './spim-metrics.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -291,7 +291,8 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const existingMetricNames = useMemo(() => new Set(parsed.metrics.map(metric => metric.name)), [parsed]);
   const [addedMetrics, setAddedMetrics] = useState(() => (
     Array.isArray(savedDrafts?.addedMetrics)
-      ? savedDrafts.addedMetrics.filter(metric => metric?.name && !existingMetricNames.has(metric.name))
+      ? normalizeSavedSpimQcMetrics(record, savedDrafts.addedMetrics
+        .filter(metric => metric?.name && !existingMetricNames.has(metric.name)))
       : []
   ));
   const pendingAddedMetrics = useMemo(() => addedMetrics.map(asPendingMetric), [addedMetrics]);
