@@ -130,6 +130,11 @@ export const ROUTES = [
     header: { sub: 'asset timeline' }, nav: { group: 'dashboards', label: 'Time to portal' },
     stability: 'experimental',
   }),
+  page({
+    route: '/record-consistency', html: 'record-consistency.html', inputKey: 'record_consistency',
+    header: { sub: 'record consistency' }, nav: { group: 'dashboards', label: 'Record Consistency' },
+    stability: 'experimental',
+  }),
 
   // ---- SWDB sub-page (linked from the cards, not the nav; highlight the
   // Dashboards ▸ SWDB entry via active: '/swdb') ----
