@@ -99,8 +99,8 @@ build-arg, defaulting to off, and `.github/workflows/publish_dev.yml` passes
 `ZOMBIE_EXPERIMENTAL=1`. The default is deliberately the safe direction: a
 missed flag under-ships rather than leaking an unfinished page to production.
 
-Currently experimental: `/analysis-framework`, `/size`, `/swdb`, `/swdb/set`,
-`/timeline`.
+Currently experimental: `/analysis-framework`, `/record-consistency`, `/size`,
+`/swdb`, `/swdb/set`, `/timeline`.
 
 ## Adding a New Page — Checklist
 

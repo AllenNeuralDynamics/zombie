@@ -131,8 +131,8 @@ export const ROUTES = [
     stability: 'experimental',
   }),
   page({
-    route: '/record-consistency', html: 'record-consistency.html', inputKey: 'record_consistency_checks',
-    header: { sub: 'record-consistency checks' }, nav: { group: 'dashboards', label: 'Record-consistency' },
+    route: '/record-consistency', html: 'record-consistency.html', inputKey: 'record_consistency',
+    header: { sub: 'record consistency' }, nav: { group: 'dashboards', label: 'Record Consistency' },
     stability: 'experimental',
   }),
 
