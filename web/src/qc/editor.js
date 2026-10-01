@@ -10,6 +10,7 @@ import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
 import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
+import { missingSpimQcMetrics } from './spim-metrics.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -334,6 +335,10 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
     return missingFiberCcfProbes(record, queued);
   }, [record, existingMetricNames, addedMetrics]);
+  const spimQcMetrics = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingSpimQcMetrics(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
 
   useEffect(() => {
     let alive = true;
@@ -434,6 +439,13 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     } finally {
       setAddingFiberCcf(false);
     }
+  };
+
+  const handleAddSpimQc = () => {
+    if (!spimQcMetrics.length) return;
+    setAddedMetrics(previous => [...previous, ...spimQcMetrics]);
+    setSettingsOpen(false);
+    setMessage(`Queued ${spimQcMetrics.length} SPIM QC metric${spimQcMetrics.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
   };
 
   const findEditable = name => editableMetrics.find(candidate => candidate.name === name) ??
@@ -593,15 +605,25 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
               />
               Allow editing metrics with values
             </label>
-            ${fiberCcfProbes.length ? html`
-              <button
-                class="qc-editor-secondary"
-                onClick=${handleAddFiberCcf}
-                disabled=${addingFiberCcf || submitting}
-              >
-                ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfProbes.length})`}
-              </button>
-            ` : null}
+            <section class="qc-settings-metric-section">
+              <h4>Add QC metrics</h4>
+              <div class="qc-settings-metric-actions">
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddFiberCcf}
+                  disabled=${!fiberCcfProbes.length || addingFiberCcf || submitting}
+                >
+                  ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfProbes.length})`}
+                </button>
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddSpimQc}
+                  disabled=${!spimQcMetrics.length || submitting}
+                >
+                  Add SPIM QC metrics (${spimQcMetrics.length})
+                </button>
+              </div>
+            </section>
             <div class="qc-settings-actions">
               <button
                 class="qc-editor-secondary"
