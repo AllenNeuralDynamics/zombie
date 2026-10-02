@@ -89,21 +89,48 @@ function qualifiesForSpimMetrics(record) {
     /smart|exa/i.test(record?.instrument?.instrument_id ?? '');
 }
 
+function channelName(channel) {
+  const name = typeof channel === 'string' ? channel : channel?.channel_name;
+  return typeof name === 'string' ? name.trim() : '';
+}
+
+function imageChannelName(image) {
+  if (typeof image?.file_name !== 'string') return '';
+  return image.file_name.split(/[\\/]/).find(name => /^Ex_.+_Em_.+$/i.test(name)) ?? '';
+}
+
 function channelNames(record) {
   const acquisition = record?.acquisition;
-  const channels = Array.isArray(acquisition?.channels) ? [...acquisition.channels] : [];
+  const channels = [];
 
   for (const stream of (Array.isArray(acquisition?.data_streams) ? acquisition.data_streams : [])) {
     for (const configuration of (Array.isArray(stream?.configurations) ? stream.configurations : [])) {
-      if (configuration?.object_type !== 'Imaging config' || !Array.isArray(configuration.channels)) continue;
-      channels.push(...configuration.channels);
+      if (configuration?.object_type !== 'Imaging config') continue;
+
+      const namesWithImageLabels = new Set();
+      for (const image of (Array.isArray(configuration.images) ? configuration.images : [])) {
+        const declaredName = channelName(image);
+        const imageName = imageChannelName(image);
+        if (imageName) {
+          channels.push(imageName);
+          if (declaredName) namesWithImageLabels.add(declaredName);
+        } else if (declaredName) {
+          channels.push(declaredName);
+        }
+      }
+
+      for (const channel of (Array.isArray(configuration.channels) ? configuration.channels : [])) {
+        const name = channelName(channel);
+        if (name && !namesWithImageLabels.has(name)) channels.push(name);
+      }
     }
   }
 
-  return [...new Set(channels.map(channel => {
-    const name = typeof channel === 'string' ? channel : channel?.channel_name;
-    return typeof name === 'string' ? name.trim() : '';
-  }).filter(Boolean))];
+  if (!channels.length && Array.isArray(acquisition?.channels)) {
+    channels.push(...acquisition.channels.map(channelName));
+  }
+
+  return [...new Set(channels.filter(Boolean))];
 }
 
 function isGenericNeuroglancerReference(reference) {
