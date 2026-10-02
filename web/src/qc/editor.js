@@ -10,7 +10,11 @@ import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
 import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
-import { missingSpimQcMetrics, normalizeSavedSpimQcMetrics } from './spim-metrics.js';
+import {
+  allowedTagFailuresForSpimMetrics,
+  missingSpimQcMetrics,
+  normalizeSavedSpimQcMetrics,
+} from './spim-metrics.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -26,7 +30,7 @@ export function buildQcSubmitPayload(record, {
   notesChanged = false,
   notes = '',
   addedMetrics = [],
-} = {}) {
+  } = {}) {
   const changes = Object.entries(pendingChanges).map(([metric_name, change]) => {
     const result = { metric_name };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) result.value = change.value;
@@ -43,6 +47,8 @@ export function buildQcSubmitPayload(record, {
   };
   if (notesChanged) payload.notes = notes;
   if (addedMetrics.length) payload.add_metrics = addedMetrics;
+  const allowTagFailures = allowedTagFailuresForSpimMetrics(addedMetrics);
+  if (allowTagFailures.length) payload.allow_tag_failures = allowTagFailures;
   return payload;
 }
 
@@ -171,6 +177,19 @@ export function buildReviewRows(freshRecord, loadedRecord, {
       drifted: liveByName.has(metric.name),
       nextValue: valueText(metric.value),
       nextStatus: addedStatuses[metric.name] ?? 'Pending',
+    });
+  }
+
+  const existingAllowedFailures = Array.isArray(freshRecord.quality_control?.allow_tag_failures)
+    ? freshRecord.quality_control.allow_tag_failures
+    : [];
+  const addedAllowedFailures = allowedTagFailuresForSpimMetrics(addedMetrics)
+    .filter(value => !existingAllowedFailures.includes(value));
+  if (addedAllowedFailures.length) {
+    rows.push({
+      name: 'allowed tag failures',
+      currentValue: existingAllowedFailures.length ? JSON.stringify(existingAllowedFailures) : '—',
+      nextValue: JSON.stringify([...existingAllowedFailures, ...addedAllowedFailures]),
     });
   }
 

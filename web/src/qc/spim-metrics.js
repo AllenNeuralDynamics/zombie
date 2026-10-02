@@ -5,6 +5,8 @@ const SPIM_MODALITY = {
   abbreviation: 'SPIM',
 };
 
+export const SPIM_CHANNEL_FAILURE_TAG = 'channel brightness';
+
 const GOOD_SUFFICIENT_BAD = {
   value: null,
   options: ['Good', 'Sufficient', 'Bad'],
@@ -170,10 +172,17 @@ export function buildSpimQcMetrics(record) {
       description: CHANNEL_DESCRIPTION,
       value: GOOD_SUFFICIENT_BAD,
       reference,
-      tags: { type: 'image quality', channel },
+      tags: { type: SPIM_CHANNEL_FAILURE_TAG, channel },
     });
   }
   return metrics;
+}
+
+/** Return allowed-failure tag values carried by newly added SPIM metrics. */
+export function allowedTagFailuresForSpimMetrics(metrics = []) {
+  return metrics.some(metric => metric?.tags?.type === SPIM_CHANNEL_FAILURE_TAG)
+    ? [SPIM_CHANNEL_FAILURE_TAG]
+    : [];
 }
 
 /** Return standard SPIM metrics that are not present or already queued. */

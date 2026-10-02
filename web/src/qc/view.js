@@ -87,7 +87,19 @@ export function syncQcStatusShading(container, statusDrafts = {}) {
 
 export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   const parsed = parseQCRecord(record);
-  const { name, s3Bucket, s3Prefix, projectName, codeOceanId, modalities, stages, metrics, defaultGrouping, notes } = parsed;
+  const {
+    name,
+    s3Bucket,
+    s3Prefix,
+    projectName,
+    codeOceanId,
+    modalities,
+    stages,
+    metrics,
+    defaultGrouping,
+    allowTagFailures,
+    notes,
+  } = parsed;
 
   const root = document.createElement('div');
   const metricAlert = document.createElement('div');
@@ -260,7 +272,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       openAccordionReferences = readRenderedAccordionReferences(contentArea);
       writeQcNavigationState(activeNode, treeNodes, openAccordionReferences);
     };
-    treeElement = createTree(treeNodes, onSelect, { selectedNode: activeNode });
+    treeElement = createTree(treeNodes, onSelect, { selectedNode: activeNode, allowTagFailures });
     body.appendChild(treeElement);
     body.appendChild(contentArea);
 

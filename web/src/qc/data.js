@@ -37,6 +37,9 @@ export function parseQCRecord(record) {
     metrics.push(...normalized.filter(metric => !duplicateNames.has(metric.name)));
   }
   const defaultGrouping = qc.default_grouping ?? [];
+  const allowTagFailures = Array.isArray(qc.allow_tag_failures)
+    ? qc.allow_tag_failures.filter(value => typeof value === 'string')
+    : [];
 
   const location = record.location ?? '';
   let s3Bucket = '';
@@ -60,7 +63,21 @@ export function parseQCRecord(record) {
 
   const notes = qc.notes ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, metricErrors, defaultGrouping, notes };
+  return {
+    name: record.name ?? '',
+    s3Bucket,
+    s3Prefix,
+    projectName,
+    codeOceanId,
+    rawAssetName,
+    modalities,
+    stages,
+    metrics,
+    metricErrors,
+    defaultGrouping,
+    allowTagFailures,
+    notes,
+  };
 }
 
 /**
@@ -135,8 +152,11 @@ export function getMetricStatus(metric) {
   return history[history.length - 1].status ?? 'Pending';
 }
 
-export function aggregateStatus(metrics) {
-  const statuses = metrics.map(getMetricStatus);
+export function aggregateStatus(metrics, allowTagFailures = [], statusOverrides = {}) {
+  const allowedValues = new Set(allowTagFailures);
+  const statuses = metrics
+    .filter(metric => !Object.values(metric.tags ?? {}).some(value => allowedValues.has(value)))
+    .map(metric => statusOverrides[metric.name] ?? getMetricStatus(metric));
   if (statuses.includes('Fail')) return 'Fail';
   if (statuses.includes('Pending')) return 'Pending';
   return 'Pass';
