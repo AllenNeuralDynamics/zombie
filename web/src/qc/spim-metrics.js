@@ -190,13 +190,25 @@ export function missingSpimQcMetrics(record, existingNames = new Set()) {
   return buildSpimQcMetrics(record).filter(metric => !existingNames.has(metric.name));
 }
 
-/** Repair queued SPIM metrics saved before the stage matched the QC schema. */
+/** Repair queued SPIM metrics saved before the current definitions were added. */
 export function normalizeSavedSpimQcMetrics(record, metrics) {
-  const stagesByName = new Map(buildSpimQcMetrics(record).map(metric => [metric.name, metric.stage]));
-  return metrics.map(metric => (
-    metric.modality?.abbreviation === 'SPIM' && metric.stage === 'Raw' &&
-      stagesByName.get(metric.name) === 'Raw data'
-      ? { ...metric, stage: 'Raw data' }
-      : metric
-  ));
+  const standardMetrics = new Map(buildSpimQcMetrics(record).map(metric => [metric.name, metric]));
+  return metrics.map(metric => {
+    if (metric.modality?.abbreviation !== 'SPIM') return metric;
+    const standard = standardMetrics.get(metric.name);
+    if (!standard) return metric;
+
+    let normalized = metric;
+    if (metric.stage === 'Raw' && standard.stage === 'Raw data') {
+      normalized = { ...normalized, stage: standard.stage };
+    }
+    if (
+      standard.tags?.type === SPIM_CHANNEL_FAILURE_TAG &&
+      metric.tags?.type === 'image quality' &&
+      metric.tags?.channel === standard.tags.channel
+    ) {
+      normalized = { ...normalized, tags: standard.tags };
+    }
+    return normalized;
+  });
 }

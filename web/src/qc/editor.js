@@ -30,7 +30,7 @@ export function buildQcSubmitPayload(record, {
   notesChanged = false,
   notes = '',
   addedMetrics = [],
-  } = {}) {
+} = {}) {
   const changes = Object.entries(pendingChanges).map(([metric_name, change]) => {
     const result = { metric_name };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) result.value = change.value;

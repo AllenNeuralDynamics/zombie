@@ -91,7 +91,7 @@ export function createTree(treeNodes, onSelect, { selectedNode = null, allowTagF
 
   const ul = document.createElement('ul');
   for (const node of treeNodes) {
-    ul.appendChild(buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows));
+    ul.appendChild(buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows, allowTagFailures));
   }
 
   container.appendChild(ul);
