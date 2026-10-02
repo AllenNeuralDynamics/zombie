@@ -90,11 +90,20 @@ function qualifiesForSpimMetrics(record) {
 }
 
 function channelNames(record) {
-  const channels = record?.acquisition?.channels;
-  if (!Array.isArray(channels)) return [];
-  return [...new Set(channels.map(channel => (
-    typeof channel === 'string' ? channel : channel?.channel_name
-  )).filter(channel => typeof channel === 'string' && channel.trim()))];
+  const acquisition = record?.acquisition;
+  const channels = Array.isArray(acquisition?.channels) ? [...acquisition.channels] : [];
+
+  for (const stream of (Array.isArray(acquisition?.data_streams) ? acquisition.data_streams : [])) {
+    for (const configuration of (Array.isArray(stream?.configurations) ? stream.configurations : [])) {
+      if (configuration?.object_type !== 'Imaging config' || !Array.isArray(configuration.channels)) continue;
+      channels.push(...configuration.channels);
+    }
+  }
+
+  return [...new Set(channels.map(channel => {
+    const name = typeof channel === 'string' ? channel : channel?.channel_name;
+    return typeof name === 'string' ? name.trim() : '';
+  }).filter(Boolean))];
 }
 
 function isGenericNeuroglancerReference(reference) {
