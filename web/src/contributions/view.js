@@ -15,6 +15,9 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
+import { AuthorEditor } from './author-editor.js';
+import { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
+export { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
 import {
   CREDIT_ROLES,
   LEVEL_LABELS,
@@ -39,27 +42,6 @@ export const LEVEL_DISPLAY = Object.fromEntries(
   CONTRIBUTION_LEVELS.map((l) => [l, LEVEL_LABELS[l.toLowerCase()]]),
 );
 
-
-export const CREDIT_ROLE_ENUM = {
-  'Conceptualization':               'conceptualization',
-  'Methodology':                     'methodology',
-  'Software':                        'software',
-  'Validation':                      'validation',
-  'Formal analysis':                 'formal-analysis',
-  'Investigation':                   'investigation',
-  'Resources':                       'resources',
-  'Data curation':                   'data-curation',
-  'Writing \u2013 original draft':   'writing-original-draft',
-  'Writing \u2013 review & editing': 'writing-review-editing',
-  'Visualization':                   'visualization',
-  'Supervision':                     'supervision',
-  'Project Administration':          'project-administration',
-  'Funding Acquisition':             'funding-acquisition',
-};
-
-export const CREDIT_ROLE_ENUM_REVERSE = Object.fromEntries(
-  Object.entries(CREDIT_ROLE_ENUM).map(([k, v]) => [v, k]),
-);
 
 const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\mid', Lead: '\\hi' };
 
@@ -684,285 +666,6 @@ function extractAuthorsWithOrcids(records) {
 // Preact components
 // ---------------------------------------------------------------------------
 
-// ── ChipSelect ──────────────────────────────────────────────────────────────
-
-function ChipSelect({ options, selectedIds, onChange, ariaLabel }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
-
-  const selected  = options.filter((o) => selectedIds.includes(o.id));
-  const remaining = options.filter((o) => !selectedIds.includes(o.id));
-
-  return html`
-    <div class="cv-chip-select" ref=${wrapRef} aria-label=${ariaLabel}>
-      ${selected.map((opt) => html`
-        <span key=${opt.id} class="cv-chip" title=${opt.name}>
-          <span class="cv-chip-text">${opt.name}</span>
-          <button type="button" class="cv-chip-remove" aria-label=${'Remove ' + opt.name}
-                  onClick=${(e) => { e.stopPropagation(); onChange(selectedIds.filter((i) => i !== opt.id)); }}>
-            ×
-          </button>
-        </span>
-      `)}
-      ${remaining.length > 0 && html`
-        <div style="position:relative;display:inline-block">
-          <button type="button" class="cv-chip-add"
-                  onClick=${(e) => { e.stopPropagation(); setOpen((o) => !o); }}>+</button>
-          ${open && html`
-            <div class="cv-chip-dropdown">
-              ${remaining.map((opt) => html`
-                <button key=${opt.id} type="button" class="cv-chip-dropdown-item"
-                        onMouseDown=${(e) => { e.preventDefault(); onChange([...selectedIds, opt.id]); setOpen(false); }}>
-                  ${opt.name}
-                </button>
-              `)}
-            </div>
-          `}
-        </div>
-      `}
-    </div>
-  `;
-}
-
-// ── OrcidSearch ─────────────────────────────────────────────────────────────
-
-function OrcidSearch({ authorName, value, onChange }) {
-  const [open, setOpen]       = useState(false);
-  const [results, setResults] = useState([]);
-  const [busy, setBusy]       = useState(false);
-  const [searchMsg, setSearchMsg] = useState('Search');
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
-
-  async function search() {
-    setBusy(true); setSearchMsg('…');
-    try {
-      const parts = authorName.trim().split(/\s+/);
-      const familyName  = parts[parts.length - 1];
-      const givenNames  = parts.slice(0, -1).join('+');
-      const q = givenNames
-        ? `family-name:${encodeURIComponent(familyName)}+AND+given-names:${encodeURIComponent(givenNames)}`
-        : `family-name:${encodeURIComponent(familyName)}`;
-      const res = await fetch(`https://pub.orcid.org/v3.0/search/?q=${q}&rows=5`, {
-        headers: { Accept: 'application/vnd.orcid+json' },
-      });
-      if (!res.ok) throw new Error(`ORCID API ${res.status}`);
-      const data = await res.json();
-      const orcids = (data.result || []).map((r) => r['orcid-identifier']?.path).filter(Boolean);
-      setResults(orcids);
-      setOpen(orcids.length > 0);
-      setSearchMsg(orcids.length ? 'Search' : 'No results');
-    } catch (e) {
-      setSearchMsg('Error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return html`
-    <div class="cv-orcid-row" ref=${wrapRef} style="position:relative">
-      <input id="cv-detail-orcid" type="text" class="cv-orcid-input"
-             placeholder="0000-0000-0000-0000" value=${value || ''}
-             onInput=${(e) => onChange(e.target.value)} />
-      <button type="button" id="cv-orcid-search-btn" class="btn-secondary cv-orcid-search-btn"
-              disabled=${busy} onClick=${search}>${searchMsg}</button>
-      ${open && results.length > 0 && html`
-        <div class="cv-chip-dropdown cv-orcid-dropdown">
-          ${results.map((orcid) => html`
-            <div key=${orcid} class="cv-orcid-dropdown-row">
-              <button type="button" class="cv-chip-dropdown-item"
-                      onMouseDown=${(e) => { e.preventDefault(); onChange(orcid); setOpen(false); }}>
-                ${orcid}
-              </button>
-              <a href=${`https://orcid.org/${orcid}`} target="_blank" rel="noopener noreferrer"
-                 class="cv-orcid-verify-link" title="Verify on orcid.org"
-                 onMouseDown=${(e) => e.stopPropagation()}>verify ↗</a>
-            </div>
-          `)}
-        </div>
-      `}
-    </div>
-  `;
-}
-
-// ── AuthorDetailSection ──────────────────────────────────────────────────────
-
-function AuthorDetailSection({
-  row, selectedAuthor, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
-  creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
-  allowLead, allowLevels,
-}) {
-  if (!selectedAuthor || !row) {
-    return html`
-      <section class="cv-section cv-author-detail-section" id="cv-author-detail-section">
-        <p class="cv-placeholder">Select an author from the matrix to edit details.</p>
-      </section>
-    `;
-  }
-
-  const activeRoles = CREDIT_CATEGORIES.filter((cat) => row[cat] && row[cat] !== 'None');
-  const currentSectionLevels = authorSectionLevels[selectedAuthor] || [];
-
-  function getSectionLevel(sectionTitle) {
-    const level = currentSectionLevels.find((sl) => sl.section === sectionTitle)?.level;
-    if (!level || String(level).toLowerCase() === 'none') return 'None';
-    // Stored values are lowercase, but accepting the display-case values here
-    // keeps old drafts readable and ensures the controlled select stays in
-    // sync with the checkbox below.
-    return String(level).toLowerCase();
-  }
-  function getSectionDescription(sectionTitle) {
-    return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.description || '';
-  }
-
-  return html`
-    <section class="cv-section cv-author-detail-section" id="cv-author-detail-section">
-      <div class="cv-author-detail-header">
-        <h3 class="cv-section-heading">
-          Editing: <span class="cv-detail-name-badge">${selectedAuthor}</span>
-        </h3>
-      </div>
-
-      <div class="cv-detail-meta-grid">
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-orcid">ORCID iD</label>
-          <${OrcidSearch}
-            authorName=${selectedAuthor}
-            value=${authorOrcids[selectedAuthor] || ''}
-            onChange=${(val) => onChange('orcid', val)}
-          />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-email">Email</label>
-          <input id="cv-detail-email" type="email"
-                 class="cv-wizard-input"
-                 placeholder="name@example.org"
-                 value=${authorEmails[selectedAuthor] || ''}
-                 onInput=${(e) => onChange('email', e.target.value)} />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-author-level">Author level</label>
-          <select id="cv-detail-author-level" class="cv-author-level-select"
-                  value=${row.author_level || ''}
-                  onChange=${(e) => onChange('authorLevel', e.target.value || null)}>
-            <option value="">\u2014 none \u2014</option>
-            <option value="first">first</option>
-            <option value="senior">senior</option>
-          </select>
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-start-date">Join Date</label>
-          <input id="cv-detail-start-date" type="date"
-                 class="cv-wizard-input"
-                 value=${authorStartDates[selectedAuthor] || ''}
-                 onChange=${(e) => onChange('startDate', e.target.value || null)} />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-end-date">End Date</label>
-          <input id="cv-detail-end-date" type="date"
-                 class="cv-wizard-input"
-                 value=${authorEndDates[selectedAuthor] || ''}
-                 onChange=${(e) => onChange('endDate', e.target.value || null)} />
-        </div>
-        <div class="cv-detail-meta-item cv-detail-aff-item">
-          <label class="cv-detail-label">Affiliations</label>
-          <${ChipSelect}
-            options=${affiliations}
-            selectedIds=${authorAffIds[selectedAuthor] || []}
-            onChange=${(ids) => onChange('affiliations', ids)}
-            ariaLabel="${selectedAuthor} affiliations"
-          />
-        </div>
-      </div>
-
-      <h4 class="cv-subsection-heading">Contribution Details</h4>
-      ${activeRoles.length === 0
-        ? html`<p class="cv-placeholder cv-detail-hint">
-            No contributions assigned yet — set levels in the matrix above.
-          </p>`
-        : activeRoles.map((cat) => {
-          const roleEnum = CREDIT_ROLE_ENUM[cat];
-          return html`
-            <div key=${cat} class="cv-credit-card">
-              <div class="cv-credit-card-header">
-                <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + row[cat].toLowerCase()}>${LEVEL_DISPLAY[row[cat]] || row[cat]}</span>`}
-              </div>
-              <label class="cv-detail-label">Description</label>
-              <textarea class="cv-credit-desc-textarea" rows="2"
-                        placeholder="Describe your specific contribution\u2026"
-                        onInput=${(e) => onChange('creditDesc', { roleEnum, value: e.target.value })}>
-                ${creditDescriptions[selectedAuthor]?.[roleEnum] || ''}
-              </textarea>
-            </div>
-          `;
-        })
-      }
-
-        ${sections.length > 0 && html`
-        <h4 class="cv-subsection-heading">Section Contributions</h4>
-        ${sections.map((sec) => {
-          const level = getSectionLevel(sec.title);
-          const selected = level !== 'None';
-          const description = getSectionDescription(sec.title);
-          return html`
-            <div key=${sec.id} class="cv-section-contrib-row">
-              <label class="cv-section-contrib-check">
-                <input type="checkbox"
-                       aria-label=${selectedAuthor + ' contributed to ' + sec.title}
-                       checked=${selected}
-                       onChange=${() => onChange('sectionLevel', {
-                         section: sec.title,
-                         level: selected ? 'None' : 'equal',
-                         description,
-                       })} />
-                <span class="cv-section-contrib-title">${sec.title}</span>
-              </label>
-              <select class="cv-section-contrib-level"
-                      value=${level}
-                      onChange=${(e) => onChange('sectionLevel', {
-                        section: sec.title,
-                        level: e.target.value,
-                        description,
-                      })}>
-                <option value="None">\u2014 none \u2014</option>
-                ${allowLevels
-                  ? enabledLevels({ allowLevels, allowLead }).map((lvl) => html`
-                      <option key=${lvl} value=${lvl}>${LEVEL_LABELS[lvl]}</option>
-                    `)
-                  : html`<option value="equal">contributed</option>`}
-              </select>
-              ${level !== 'None' && html`
-                <input type="text" class="cv-section-contrib-desc"
-                       placeholder="Description (optional)"
-                       value=${description}
-                       onInput=${(e) => onChange('sectionLevel', {
-                         section: sec.title,
-                         level,
-                         description: e.target.value,
-                       })} />
-              `}
-            </div>
-          `;
-        })}
-      `}
-    </section>
-  `;
-}
-
 // ── PublicationOrderEditor ────────────────────────────────────────────────
 
 /**
@@ -1379,15 +1082,16 @@ function OutputSection({
 // ── HistorySection ─────────────────────────────────────────────────────────
 
 function HistorySection({ commits, selectedCommit, onSelectCommit }) {
-  if (!commits.length) return null;
   return html`
     <section class="cv-history-section">
       <div class="cv-history-header">
-        <span class="cv-section-title">Version History</span>
+        <h2 class="cv-section-title">Version History</h2>
         <span class="cv-history-hint">${commits.length} version${commits.length !== 1 ? 's' : ''}</span>
       </div>
-      <div class="subject-timeline-bubbles">
-        ${commits.map((entry, i) => {
+      ${commits.length === 0
+        ? html`<p class="cv-placeholder">No saved versions.</p>`
+        : html`<div class="subject-timeline-bubbles">
+          ${commits.map((entry, i) => {
           const hash    = entry.commit ?? entry.sha ?? entry.hash ?? '';
           const rawDate = entry.date ?? entry.committed_date ?? entry.timestamp ?? entry.authored_date ?? '';
           const date    = rawDate ? new Date(rawDate) : null;
@@ -1405,8 +1109,8 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
               </span>
             </button>
           `;
-        })}
-      </div>
+          })}
+        </div>`}
     </section>
   `;
 }
@@ -1415,19 +1119,21 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
 
 function ProjectWidget({
   projectName, onProjectNameChange, endpointStatus,
-  canLoad, canSave, onLoad, onSave, localPreview,
+  canLoad, canSave, onLoad, onSave, currentUser, historyOpen, onHistoryToggle, localPreview,
 }) {
+  const accountName = currentUser?.name || currentUser?.orcid || 'Signed in';
   return html`
     <div class="cv-project-widget">
-      <div class="cv-pw-name-row">
+      <div class="cv-pw-controls">
         <label for="cv-project-name">Project</label>
         <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024"
                value=${projectName}
                onInput=${(e) => onProjectNameChange(e.target.value)}
                onKeyDown=${(e) => e.key === 'Enter' && canLoad && onLoad()} />
-      </div>
-      <div class="cv-pw-btn-row">
         <button id="cv-get-btn" class="btn-secondary" disabled=${!canLoad} onClick=${onLoad}>Load</button>
+        <span class="cv-account-identity">${accountName}</span>
+        <button id="cv-history-btn" type="button" class="btn-secondary"
+                aria-expanded=${String(historyOpen)} onClick=${onHistoryToggle}>History</button>
         <button id="cv-post-btn" class="btn-primary" disabled=${!canSave || localPreview}
                 onClick=${onSave}>Save</button>
       </div>
@@ -1435,7 +1141,7 @@ function ProjectWidget({
         <div class="cv-local-preview-note" role="status">Local preview — server saves disabled</div>
       `}
       ${endpointStatus.text && html`
-        <div class=${'contributions-endpoint-status ' + endpointStatus.cls} aria-live="polite">
+        <div class=${'cv-header-status contributions-endpoint-status ' + endpointStatus.cls} aria-live="polite">
           ${endpointStatus.text}
         </div>
       `}
@@ -1445,7 +1151,7 @@ function ProjectWidget({
 
 // ── AuthorRow ──────────────────────────────────────────────────────────────
 
-function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, allowLead, allowLevels, canRemove = true }) {
+function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onToggleDetails, onCategoryChange, allowLead, allowLevels, canRemove = true }) {
   const levels = allowLevels
     ? (allowLead ? CONTRIBUTION_LEVELS : CONTRIBUTION_LEVELS.filter((l) => l !== 'Lead'))
     : ['None', 'Equal'];
@@ -1457,9 +1163,14 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
                 disabled=${!canRemove}
                 onClick=${() => onRemove(rowIdx)}>×</button>
       </td>
-      <td>
+      <td class=${isActive ? 'cv-author-name-cell cv-row-active' : 'cv-author-name-cell'}>
         <input type="text" value=${row.name} class="cv-author-name-input"
                onBlur=${(e) => onRename(rowIdx, e.target.value)} />
+        <button type="button" class="cv-author-expand-btn"
+                aria-label=${(isActive ? 'Collapse details for ' : 'Edit details for ') + row.name}
+                aria-expanded=${String(isActive)} onClick=${() => onToggleDetails(row.name)}>
+          ${isActive ? '▾' : '▸'}
+        </button>
       </td>
       ${CREDIT_CATEGORIES.map((cat) => html`
         <td key=${cat} class=${'cell-center cell-' + (row[cat] || 'None').toLowerCase()}>
@@ -1532,6 +1243,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     Array.isArray(initialDraft?.doi) ? initialDraft.doi
       : (initialDraft?.doi ? [initialDraft.doi] : []));
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
+  const [activeSection, setActiveSection]     = useState('contributors');
+  const [historyOpen, setHistoryOpen]         = useState(false);
   const [assetsOpen, setAssetsOpen]           = useState(true);
   const [sharedOpen, setSharedOpen]           = useState(false);
   const [settingsOpen, setSettingsOpen]       = useState(false);
@@ -1782,7 +1495,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   function renameRow(idx, newName) {
     const { rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
-      creditDescs: cds, authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
+      creditDescs: cds, authorStartDates: startDates, authorEndDates: endDates,
+      authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
     const oldName = r[idx]?.name;
     if (!newName || !oldName || newName === oldName) return;
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, name: newName } : row));
@@ -1790,6 +1504,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (eml[oldName])  setAuthorEmails((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (affIds[oldName]) setAuthorAffIds((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (cds[oldName])  setCreditDescs((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (startDates[oldName]) setAuthorStartDates((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (endDates[oldName]) setAuthorEndDates((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (secLevs[oldName]) setAuthorSectionLevels((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (srcs[oldName]) setAuthorSources((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (sel === oldName) setSelectedAuthor(newName);
@@ -1799,8 +1515,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, [cat]: value } : row));
   }
 
-  function handleDetailChange(kind, payload) {
-    const author = sr.current.selectedAuthor;
+  function handleDetailChange(author, kind, payload) {
     if (!author) return;
     if (kind === 'orcid') {
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
@@ -1837,6 +1552,34 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
+  function handleAuthorProfileChange(author, rowIdx, field, value) {
+    if (field === 'name') {
+      renameRow(rowIdx, value);
+      return;
+    }
+    handleDetailChange(author, field, value);
+  }
+
+  function updateAuthorAffiliations(author, names) {
+    const ids = names.map((name) => {
+      const existing = sr.current.affiliations.find((affiliation) => affiliation.name === name);
+      return existing?.id || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    });
+    setAffiliations((prev) => {
+      const knownNames = new Set(prev.map((affiliation) => affiliation.name));
+      const additions = names.filter((name) => !knownNames.has(name)).map((name) => ({
+        id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        name,
+      }));
+      return additions.length ? [...prev, ...additions] : prev;
+    });
+    setAuthorAffIds((prev) => ({ ...prev, [author]: ids }));
+  }
+
+  function updateAuthorSection(author, section, level, description) {
+    handleDetailChange(author, 'sectionLevel', { section, level, description });
+  }
+
   // Create a brand-new project: seed the logged-in user as the project's admin
   // contributor, then save so that admin membership is persisted explicitly
   // (not relying on any backend side effect).
@@ -1871,18 +1614,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const canLoad    = hasProject;
   const canSave    = hasProject && rows.length > 0;
   const adminCount = rows.filter((r) => r.is_admin).length;
-  const selectedRow = rows.find((r) => r.name === selectedAuthor) || null;
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return html`
     <div class="contributions-view">
 
       <div class="cv-topbar">
-        <${HistorySection}
-          commits=${historyCommits}
-          selectedCommit=${selectedCommit}
-          onSelectCommit=${(hash) => { setSelectedCommit(hash); loadVersion(hash); }}
-        />
         <${ProjectWidget}
           projectName=${projectName}
           onProjectNameChange=${setProjectName}
@@ -1892,8 +1628,34 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           onLoad=${loadFromServer}
           onSave=${saveToServer}
           localPreview=${localPreview}
+          currentUser=${currentUser}
+          historyOpen=${historyOpen}
+          onHistoryToggle=${() => setHistoryOpen((open) => !open)}
         />
       </div>
+
+      <nav class="cv-primary-nav" aria-label="Contribution editor sections">
+        ${[
+          ['contributors', 'Contributors'],
+          ['setup', 'Project setup'],
+          ['output', 'Preview & export'],
+        ].map(([id, label]) => html`
+          <button key=${id} type="button"
+                  class=${'cv-primary-nav-item' + (activeSection === id ? ' cv-primary-nav-active' : '')}
+                  aria-current=${activeSection === id ? 'page' : null}
+                  onClick=${() => setActiveSection(id)}>${label}</button>
+        `)}
+      </nav>
+
+      ${historyOpen && html`
+        <${HistorySection}
+          commits=${historyCommits}
+          selectedCommit=${selectedCommit}
+          onSelectCommit=${(hash) => { setSelectedCommit(hash); loadVersion(hash); }}
+        />
+      `}
+
+      ${activeSection === 'setup' && html`
 
       <section class="cv-section cv-assets-section">
         <button class="cv-section-toggle" id="cv-assets-toggle"
@@ -1987,20 +1749,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           setRows((prev) => prev.map((r) => ({ ...r, publication_order: null })))}
       />
 
+      `}
+
+      ${activeSection === 'contributors' && html`
       <section class="cv-section cv-contributors-section">
         <div class="cv-contributors-header">
           <h3 class="cv-section-heading">Contributors</h3>
-          ${rows.length > 0 && html`
-            <div class="cv-author-selector-wrap">
-              <label for="cv-author-selector" class="cv-selector-label">Edit as:</label>
-              <select id="cv-author-selector" class="cv-author-select"
-                      value=${selectedAuthor || ''}
-                      onChange=${(e) => setSelectedAuthor(e.target.value || null)}>
-                <option value="">\u2014 select author \u2014</option>
-                ${rows.map((r) => html`<option key=${r.name} value=${r.name}>${r.name}</option>`)}
-              </select>
-            </div>
-          `}
         </div>
         <div class="cv-authors-table-wrap">
           <div class="cv-table-scroll" id="cv-authors-table-scroll">
@@ -2014,18 +1768,57 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               </thead>
               <tbody id="cv-authors-tbody">
                 ${rows.map((row, idx) => html`
-                  <${AuthorRow}
-                    key=${row.name + '-' + idx}
-                    row=${row}
-                    rowIdx=${idx}
-                    isActive=${selectedAuthor === row.name}
-                    onRemove=${removeRow}
-                    onRename=${renameRow}
-                    onCategoryChange=${updateCategory}
-                    allowLead=${allowLead}
-                    allowLevels=${allowLevels}
-                    canRemove=${!(row.is_admin && adminCount === 1)}
-                  />
+                  <${Fragment} key=${idx}>
+                    <${AuthorRow}
+                      row=${row}
+                      rowIdx=${idx}
+                      isActive=${selectedAuthor === row.name}
+                      onRemove=${removeRow}
+                      onRename=${renameRow}
+                      onToggleDetails=${(name) => setSelectedAuthor((current) => current === name ? null : name)}
+                      onCategoryChange=${updateCategory}
+                      allowLead=${allowLead}
+                      allowLevels=${allowLevels}
+                      canRemove=${!(row.is_admin && adminCount === 1)}
+                    />
+                    ${selectedAuthor === row.name && html`
+                      <tr class="cv-expanded-author-row">
+                        <td colspan=${CREDIT_CATEGORIES.length + 2} class="cv-expanded-author-cell">
+                          <${AuthorEditor}
+                            idPrefix=${'cv-author-' + idx}
+                            authorName=${row.name}
+                            authorLevel=${row.author_level}
+                            orcid=${authorOrcids[row.name] || ''}
+                            email=${authorEmails[row.name] || ''}
+                            startDate=${authorStartDates[row.name] || ''}
+                            endDate=${authorEndDates[row.name] || ''}
+                            affiliations=${affiliations}
+                            selectedAffiliationNames=${(authorAffIds[row.name] || []).map((id) =>
+                              affiliations.find((affiliation) => affiliation.id === id)?.name).filter(Boolean)}
+                            roles=${row}
+                            descriptions=${creditDescs[row.name] || {}}
+                            sections=${sections.filter((section) => section.title.trim())}
+                            sectionLevels=${Object.fromEntries((authorSectionLevels[row.name] || []).map((item) => [
+                              item.section,
+                              { level: String(item.level || 'None').toLowerCase(), description: item.description || '' },
+                            ]))}
+                            allowLead=${allowLead}
+                            allowLevels=${allowLevels}
+                            showAuthorLevel=${true}
+                            onProfileChange=${(field, value) => handleAuthorProfileChange(row.name, idx, field, value)}
+                            onAffiliationsChange=${(names) => updateAuthorAffiliations(row.name, names)}
+                            onRoleChange=${(category, value) => updateCategory(idx, category,
+                              value === 'none' || value === 'None' ? 'None' : value[0].toUpperCase() + value.slice(1))}
+                            onDescriptionChange=${(category, value) => handleDetailChange(row.name, 'creditDesc', {
+                              roleEnum: CREDIT_ROLE_ENUM[category], value,
+                            })}
+                            onSectionChange=${(section, level, description) =>
+                              updateAuthorSection(row.name, section, level, description)}
+                          />
+                        </td>
+                      </tr>
+                    `}
+                  </${Fragment}>
                 `)}
               </tbody>
             </table>
@@ -2035,29 +1828,15 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               const newRow = { name: 'New Author', isFirst: false, author_level: null };
               for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
               setRows((prev) => [...prev, newRow]);
+              setSelectedAuthor(newRow.name);
             }}>+ Add author</button>
             ${isAdmin && projectName && html`<${CopyContributorLink} project=${projectName} />`}
           </div>
         </div>
       </section>
+      `}
 
-      <${AuthorDetailSection}
-        row=${selectedRow}
-        selectedAuthor=${selectedAuthor}
-        authorOrcids=${authorOrcids}
-        authorEmails=${authorEmails}
-        authorAffIds=${authorAffIds}
-        affiliations=${affiliations}
-        sections=${sections}
-        creditDescriptions=${creditDescs}
-        authorStartDates=${authorStartDates}
-        authorEndDates=${authorEndDates}
-        authorSectionLevels=${authorSectionLevels}
-        onChange=${handleDetailChange}
-        allowLead=${allowLead}
-        allowLevels=${allowLevels}
-      />
-
+      ${activeSection === 'output' && html`
       <${OutputSection}
         activeTab=${activeOutputTab}
         onTabChange=${setActiveOutputTab}
@@ -2075,6 +1854,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         allowLead=${allowLead}
         allowLevels=${allowLevels}
       />
+      `}
 
     </div>
   `;

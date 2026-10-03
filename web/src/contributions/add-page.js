@@ -8,11 +8,8 @@
  * separate membership; a logged-in user may only add/edit their own row.
  * Local Vite development skips the login screen and disables server saves.
  *
- * Flow for new visitors (no per-project cookie):
- *   Step 1: Personal info (name, ORCID, email, affiliations)
- *   Step 2: High-level CRediT role selection
- *   Step 3: Per-role details (descriptions + linked sections)
- *   Step 4: Full editor view (same as admin, scoped to this author)
+ * Flow for new visitors (no per-project cookie): Profile, Roles & details,
+ * optional Sections, then the full shared author editor.
  *
  * Returning visitors (cookie set) and existing authors skip to the full editor.
  * Saves go through the ORCID session cookie. A visitor may also opt to continue
@@ -21,22 +18,24 @@
  */
 
 import { html, render } from 'htm/preact';
-import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import { isLocalDevelopment } from '../lib/local-dev.js';
 import {
   CREDIT_CATEGORIES,
-  CONTRIBUTION_LEVELS,
-  LEVEL_DISPLAY,
   CREDIT_ROLE_ENUM,
   CREDIT_ROLE_ENUM_REVERSE,
   fromEndpointPayload,
   toEndpointPayload,
   authorNameExists,
 } from './view.js';
-import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
-import { RoleTip } from './role-tooltip.js';
+import {
+  AuthorEditor,
+  AuthorProfileSection,
+  AuthorRolesSection,
+  AuthorSectionsSection,
+} from './author-editor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,139 +124,34 @@ function extractPayloadMeta(data) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1: Personal Info
+// Step 1: Profile
 // ---------------------------------------------------------------------------
 
-function StepPersonalInfo({ name, setName, orcid, setOrcid, email, setEmail, selectedAffNames, setSelectedAffNames, projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext }) {
-  const [orcidResults, setOrcidResults] = useState([]);
-  const [searching, setSearching] = useState(false);
-  const [customAff, setCustomAff] = useState('');
-
-  function toggleAff(affName) {
-    setSelectedAffNames((prev) =>
-      prev.includes(affName) ? prev.filter((n) => n !== affName) : [...prev, affName]
-    );
-  }
-
-  function addCustom() {
-    const trimmed = customAff.trim();
-    if (!trimmed) return;
-    setSelectedAffNames((prev) => prev.includes(trimmed) ? prev : [...prev, trimmed]);
-    setCustomAff('');
-  }
-
-  async function searchOrcid() {
-    if (!name.trim()) return;
-    setSearching(true);
-    try {
-      const parts = name.trim().split(/\s+/);
-      const familyName = parts[parts.length - 1];
-      const givenNames = parts.slice(0, -1).join('+');
-      const q = givenNames
-        ? `family-name:${encodeURIComponent(familyName)}+AND+given-names:${encodeURIComponent(givenNames)}`
-        : `family-name:${encodeURIComponent(familyName)}`;
-      const res = await fetch(`https://pub.orcid.org/v3.0/search/?q=${q}&rows=5`, {
-        headers: { Accept: 'application/vnd.orcid+json' },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      setOrcidResults((data.result || []).map((r) => r['orcid-identifier']?.path).filter(Boolean));
-    } catch (_) {} finally {
-      setSearching(false);
-    }
-  }
-
+function StepPersonalInfo({
+  name, setName, orcid, setOrcid, email, setEmail, selectedAffNames, setSelectedAffNames,
+  projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext,
+}) {
   const canNext = name.trim().length > 0;
 
   return html`
     <div class="cv-wizard-step">
       <h2 class="cv-wizard-step-title">About You</h2>
       <p class="cv-wizard-step-desc">Let's start with your basic information.</p>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cw-name">Full Name *</label>
-        <input id="cw-name" type="text" class="cv-wizard-input"
-               placeholder="e.g. Jane Smith" value=${name}
-               onInput=${(e) => setName(e.target.value)} />
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cw-orcid">ORCID iD</label>
-        <div class="cv-orcid-row">
-          <input id="cw-orcid" type="text" class="cv-wizard-input"
-                 placeholder="0000-0000-0000-0000" value=${orcid}
-                 onInput=${(e) => setOrcid(e.target.value)} />
-          <button type="button" class="btn-secondary" onClick=${searchOrcid}
-                  disabled=${searching || !name.trim()}>
-            ${searching ? '…' : 'Search'}
-          </button>
-        </div>
-        ${orcidResults.length > 0 && html`
-          <div class="cv-wizard-orcid-results">
-            ${orcidResults.map((id) => html`
-              <span key=${id} class="cv-orcid-result-row">
-                <button type="button" class="cv-chip"
-                        onClick=${() => { setOrcid(id); setOrcidResults([]); }}>
-                  ${id}
-                </button>
-                <a href=${`https://orcid.org/${id}`} target="_blank" rel="noopener noreferrer"
-                   class="cv-orcid-verify-link" title="Verify on orcid.org">verify ↗</a>
-              </span>
-            `)}
-          </div>
-        `}
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cw-email">Email</label>
-        <input id="cw-email" type="email" class="cv-wizard-input"
-               placeholder="name@example.org" value=${email}
-               onInput=${(e) => setEmail(e.target.value)} />
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label">Affiliations</label>
-        ${projectAffiliations.length > 0 && html`
-          <div class="cv-wizard-aff-list">
-            ${projectAffiliations.map((aff) => html`
-              <label key=${aff.id} class="cv-wizard-aff-item">
-                <input type="checkbox" checked=${selectedAffNames.includes(aff.name)}
-                       onChange=${() => toggleAff(aff.name)} />
-                <span>${aff.name}</span>
-              </label>
-            `)}
-          </div>
-        `}
-        ${selectedAffNames.filter((n) => !projectAffiliations.find((a) => a.name === n)).map((n) => html`
-          <div key=${n} class="cv-wizard-custom-aff-tag">
-            <span>${n}</span>
-            <button type="button" class="cv-x-btn" onClick=${() => toggleAff(n)}>×</button>
-          </div>
-        `)}
-        <div class="cv-wizard-aff-add-row">
-          <input type="text" class="cv-wizard-input"
-                 placeholder="Add affiliation not listed above…"
-                 value=${customAff}
-                 onInput=${(e) => setCustomAff(e.target.value)}
-                 onKeyDown=${(e) => e.key === 'Enter' && addCustom()} />
-          <button type="button" class="btn-secondary" onClick=${addCustom}
-                  disabled=${!customAff.trim()}>Add</button>
-        </div>
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cw-join-date">Join Date (optional)</label>
-        <input id="cw-join-date" type="date" class="cv-wizard-input"
-               value=${joinDate || ''}
-               onInput=${(e) => setJoinDate(e.target.value || null)} />
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cw-leave-date">End Date (optional)</label>
-        <input id="cw-leave-date" type="date" class="cv-wizard-input"
-               value=${leaveDate || ''}
-               onInput=${(e) => setLeaveDate(e.target.value || null)} />
-      </div>
+      <${AuthorProfileSection}
+        idPrefix="cw"
+        name=${name} orcid=${orcid} email=${email}
+        startDate=${joinDate} endDate=${leaveDate}
+        affiliations=${projectAffiliations}
+        selectedAffiliationNames=${selectedAffNames}
+        onChange=${(field, value) => {
+          if (field === 'name') setName(value);
+          else if (field === 'orcid') setOrcid(value);
+          else if (field === 'email') setEmail(value);
+          else if (field === 'startDate') setJoinDate(value);
+          else if (field === 'endDate') setLeaveDate(value);
+        }}
+        onAffiliationsChange=${setSelectedAffNames}
+      />
 
       <div class="cv-wizard-nav">
         <span></span>
@@ -295,64 +189,30 @@ function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
 }
 
 // ---------------------------------------------------------------------------
-// Step 2: High-level CRediT roles
+// Step 2: CRediT roles and descriptions
 // ---------------------------------------------------------------------------
 
-function StepCreditRoles({ roles, setRoles, onBack, onNext, allowLead, allowLevels }) {
-  function toggle(cat) {
-    setRoles((prev) => {
-      const next = { ...prev };
-      if (next[cat] && next[cat] !== 'None') {
-        next[cat] = 'None';
-      } else {
-        next[cat] = 'Equal';
-      }
-      return next;
-    });
-  }
-
-  function setLevel(cat, level) {
-    setRoles((prev) => ({ ...prev, [cat]: level }));
-  }
-
+function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBack, onNext, allowLead, allowLevels }) {
   const hasAnyRole = CREDIT_CATEGORIES.some((cat) => roles[cat] && roles[cat] !== 'None');
-  const levelOptions = CONTRIBUTION_LEVELS.filter((l) => {
-    if (l === 'None') return false;
-    if (l === 'Lead' && !allowLead) return false;
-    return true;
-  });
 
   return html`
     <div class="cv-wizard-layout">
       <div class="cv-wizard-step">
         <h2 class="cv-wizard-step-title">Your Contributions</h2>
         <p class="cv-wizard-step-desc">
-          Select the CRediT roles that apply to your work on this project${allowLevels ? ', and indicate your level of contribution' : ''}.
+          Select the CRediT roles that apply to your work on this project and add any details.
         </p>
-
-        <div class="cv-wizard-roles-grid">
-          ${CREDIT_CATEGORIES.map((cat) => {
-            const active = roles[cat] && roles[cat] !== 'None';
-            return html`
-              <div key=${cat} class=${'cv-wizard-role-card' + (active ? ' cv-wizard-role-active' : '')}
-                   onClick=${() => toggle(cat)}>
-                <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
-                  <input type="checkbox" checked=${active} onChange=${() => toggle(cat)} />
-                  <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
-                </label>
-                ${active && allowLevels && html`
-                  <select class="cv-wizard-role-level" value=${roles[cat]}
-                          onClick=${(e) => e.stopPropagation()}
-                          onChange=${(e) => setLevel(cat, e.target.value)}>
-                    ${levelOptions.map((l) => html`
-                      <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
-                    `)}
-                  </select>
-                `}
-              </div>
-            `;
-          })}
-        </div>
+        <${AuthorRolesSection}
+          roles=${roles} descriptions=${descriptions}
+          allowLead=${allowLead} allowLevels=${allowLevels}
+          onRoleChange=${(role, level) => setRoles((prev) => ({
+            ...prev, [role]: level === 'none' || level === 'None'
+              ? 'None' : level[0].toUpperCase() + level.slice(1),
+          }))}
+          onDescriptionChange=${(role, value) => setDescriptions((prev) => ({
+            ...prev, [CREDIT_ROLE_ENUM[role]]: value,
+          }))}
+        />
 
         <div class="cv-wizard-nav">
           <button class="btn-secondary" onClick=${onBack}>← Back</button>
@@ -365,80 +225,10 @@ function StepCreditRoles({ roles, setRoles, onBack, onNext, allowLead, allowLeve
 }
 
 // ---------------------------------------------------------------------------
-// Step 3: Per-role details
-// ---------------------------------------------------------------------------
-
-function StepRoleDetails({ roles, descriptions, setDescriptions, onBack, onNext, allowLevels }) {
-  const activeRoles = CREDIT_CATEGORIES.filter((cat) => roles[cat] && roles[cat] !== 'None');
-
-  return html`
-    <div class="cv-wizard-step">
-      <h2 class="cv-wizard-step-title">Contribution Details</h2>
-      <p class="cv-wizard-step-desc">
-        For each role, describe your specific contribution (optional)
-      </p>
-
-      ${activeRoles.map((cat) => {
-        const roleEnum = CREDIT_ROLE_ENUM[cat];
-        return html`
-          <div key=${cat} class="cv-credit-card">
-            <div class="cv-credit-card-header">
-              <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-              ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + roles[cat].toLowerCase()}>${LEVEL_DISPLAY[roles[cat]] || roles[cat]}</span>`}
-            </div>
-            <label class="cv-detail-label">Description</label>
-            <textarea class="cv-credit-desc-textarea" rows="2"
-                      placeholder="Describe your specific contribution…"
-                      value=${descriptions[roleEnum] || ''}
-                      onInput=${(e) => setDescriptions((prev) => ({ ...prev, [roleEnum]: e.target.value }))}></textarea>
-          </div>
-        `;
-      })}
-
-      <div class="cv-wizard-nav">
-        <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${onNext}>Next →</button>
-      </div>
-    </div>
-  `;
-}
-
-// ---------------------------------------------------------------------------
-// Step 4: Sections (only shown when sections exist)
+// Step 3: Sections (only shown when sections exist)
 // ---------------------------------------------------------------------------
 
 function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext, allowLead, allowLevels }) {
-  function getLevel(title) {
-    return sectionLevels[title]?.level || 'None';
-  }
-  function getDescription(title) {
-    return sectionLevels[title]?.description || '';
-  }
-  function setLevel(title, level) {
-    setSectionLevels((prev) => {
-      if (!level || level === 'None') {
-        const next = { ...prev };
-        delete next[title];
-        return next;
-      }
-      return { ...prev, [title]: { level, description: prev[title]?.description || '' } };
-    });
-  }
-  function setDescription(title, description) {
-    setSectionLevels((prev) => ({
-      ...prev,
-      [title]: { level: prev[title]?.level || 'equal', description },
-    }));
-  }
-  function toggle(title) {
-    const current = getLevel(title);
-    if (current && current !== 'None') setLevel(title, 'None');
-    else setLevel(title, 'equal');
-  }
-
-  const levelOptions = enabledLevels({ allowLevels, allowLead })
-    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
-
   return html`
     <div class="cv-wizard-layout">
       <div class="cv-wizard-step">
@@ -447,34 +237,18 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
           Check the sections you contributed to${allowLevels ? ', and indicate your level of contribution' : ''}.
         </p>
 
-        ${sections.map((sec) => {
-          const level = getLevel(sec.title);
-          const active = level !== 'None';
-          const description = getDescription(sec.title);
-          return html`
-            <div key=${sec.id} class="cv-section-contrib-row">
-              <label class="cv-section-contrib-check">
-                <input type="checkbox" checked=${active} onChange=${() => toggle(sec.title)} />
-                <span class="cv-section-contrib-title">${sec.title}</span>
-              </label>
-              ${active && allowLevels && html`
-                <select class="cv-section-contrib-level"
-                        value=${level}
-                        onChange=${(e) => setLevel(sec.title, e.target.value)}>
-                  ${levelOptions.map((opt) => html`
-                    <option key=${opt.value} value=${opt.value}>${opt.label}</option>
-                  `)}
-                </select>
-              `}
-              ${active && html`
-                <input type="text" class="cv-section-contrib-desc"
-                       placeholder="Description (optional)"
-                       value=${description}
-                       onInput=${(e) => setDescription(sec.title, e.target.value)} />
-              `}
-            </div>
-          `;
-        })}
+        <${AuthorSectionsSection}
+          sections=${sections} sectionLevels=${sectionLevels}
+          allowLead=${allowLead} allowLevels=${allowLevels}
+          onSectionChange=${(title, level, description) => setSectionLevels((prev) => {
+            if (!level || level === 'none') {
+              const next = { ...prev };
+              delete next[title];
+              return next;
+            }
+            return { ...prev, [title]: { level, description } };
+          })}
+        />
 
         <div class="cv-wizard-nav">
           <button class="btn-secondary" onClick=${onBack}>← Back</button>
@@ -487,90 +261,20 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 }
 
 // ---------------------------------------------------------------------------
-// Step 5: Full editor (scoped to this author)
+// Full editor (scoped to this author)
 // ---------------------------------------------------------------------------
 
 function StepFullEditor({
-  doi, draftId, anonymous, authorName, orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
+  doi, draftId, anonymous, authorName, ownAuthorName,
+  orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, sections, affiliations, onBack, allowLead, allowLevels,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
   const localPreview = isLocalDevelopment();
-
-  const [editName, setEditName]               = useState(authorName);
-  const [editOrcid, setEditOrcid]             = useState(orcid);
-  const [editEmail, setEditEmail]             = useState(email || '');
-  const [editAffNames, setEditAffNames]       = useState(selectedAffNames);
-  const [editRoles, setEditRoles]             = useState(() => ({ ...roles }));
-  const [editDescs, setEditDescs]             = useState(() => ({ ...descriptions }));
-  const [editJoinDate, setEditJoinDate]       = useState(joinDate || null);
-  const [editLeaveDate, setEditLeaveDate]     = useState(leaveDate || null);
-  const [editSectionLevels, setEditSectionLevels] = useState(() => ({ ...sectionLevels }));
-  const [customAff, setCustomAff]             = useState('');
-
-  useEffect(() => { setAuthorName?.(editName); }, [editName]);
-  useEffect(() => { setOrcid?.(editOrcid); }, [editOrcid]);
-  useEffect(() => { setEmail?.(editEmail); }, [editEmail]);
-  useEffect(() => { setSelectedAffNames?.(editAffNames); }, [editAffNames]);
-  useEffect(() => { setRoles?.(editRoles); }, [editRoles]);
-  useEffect(() => { setDescriptions?.(editDescs); }, [editDescs]);
-  useEffect(() => { setJoinDate?.(editJoinDate); }, [editJoinDate]);
-  useEffect(() => { setLeaveDate?.(editLeaveDate); }, [editLeaveDate]);
-  useEffect(() => { setSectionLevels?.(editSectionLevels); }, [editSectionLevels]);
-
-  function toggleAff(affName) {
-    setEditAffNames((prev) =>
-      prev.includes(affName) ? prev.filter((n) => n !== affName) : [...prev, affName]
-    );
-  }
-  function addCustomAff() {
-    const t = customAff.trim();
-    if (!t) return;
-    setEditAffNames((prev) => prev.includes(t) ? prev : [...prev, t]);
-    setCustomAff('');
-  }
-
-  function getSectionLevel(title) { return editSectionLevels[title]?.level || 'None'; }
-  function getSectionDescription(title) { return editSectionLevels[title]?.description || ''; }
-  function updateSectionLevel(title, level) {
-    setEditSectionLevels((prev) => {
-      if (!level || level === 'None') { const n = { ...prev }; delete n[title]; return n; }
-      return { ...prev, [title]: { level, description: prev[title]?.description || '' } };
-    });
-  }
-  function toggleSection(title) {
-    const current = getSectionLevel(title);
-    if (current && current !== 'None') updateSectionLevel(title, 'None');
-    else updateSectionLevel(title, 'equal');
-  }
-  function updateSectionDescription(title, description) {
-    setEditSectionLevels((prev) => ({
-      ...prev,
-      [title]: { level: prev[title]?.level || 'equal', description },
-    }));
-  }
-
-  const activeRoles = CREDIT_CATEGORIES.filter((cat) => editRoles[cat] && editRoles[cat] !== 'None');
-
-  const sectionLevelOptions = enabledLevels({ allowLevels, allowLead })
-    .map((value) => ({ value, label: LEVEL_LABELS[value] }));
-
-  const myRow = useMemo(() => {
-    const row = { name: editName.trim() || authorName, isFirst: false, author_level: null };
-    for (const cat of CREDIT_CATEGORIES) row[cat] = editRoles[cat] || 'None';
-    return row;
-  }, [editName, authorName, editRoles]);
-
-  // An anonymous visitor has no identity to own a row, so a name that matches
-  // an existing contributor would be an attempt to overwrite that person's
-  // record — which the backend won't apply. Catch it here: block the save and
-  // tell them to use a different name or contact an admin.
-  const nameCollision = useMemo(
-    () => anonymous && authorNameExists(allRows, editName.trim() || authorName),
-    [anonymous, allRows, editName, authorName],
-  );
+  const finalName = authorName.trim() || ownAuthorName;
+  const nameCollision = anonymous && authorNameExists(allRows, finalName);
 
   async function save() {
     if (localPreview) {
@@ -580,7 +284,6 @@ function StepFullEditor({
     setSaving(true);
     setSaveStatus({ text: 'Saving…', cls: 'status-loading' });
     try {
-      const myAffNames = editAffNames;
       const authorOrcids = {};
       const authorEmails = {};
       const authorAffIds = {};
@@ -588,47 +291,50 @@ function StepFullEditor({
       const authorStartDates = {};
       const authorEndDates = {};
       const authorSectionLevels = {};
-
-      const finalName = editName.trim() || authorName;
-      if (editOrcid) authorOrcids[finalName] = editOrcid;
-      if (editEmail.trim()) authorEmails[finalName] = editEmail.trim();
-      if (myAffNames.length) {
-        const myAffIds = myAffNames.map((n) => {
-          const existing = affiliations.find((a) => a.name === n);
-          return existing ? existing.id : n.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      if (orcid) authorOrcids[finalName] = orcid;
+      if (email.trim()) authorEmails[finalName] = email.trim();
+      if (selectedAffNames.length) {
+        authorAffIds[finalName] = selectedAffNames.map((name) => {
+          const existing = affiliations.find((affiliation) => affiliation.name === name);
+          return existing ? existing.id : name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
         });
-        authorAffIds[finalName] = myAffIds;
       }
-      if (Object.keys(editDescs).length) creditDescriptions[finalName] = editDescs;
-      if (editJoinDate) authorStartDates[finalName] = editJoinDate;
-      if (editLeaveDate) authorEndDates[finalName] = editLeaveDate;
-      const mySectionLevels = Object.entries(editSectionLevels)
-        .filter(([, v]) => v.level && v.level !== 'None')
-        .map(([section, v]) => ({ section, level: v.level, ...(v.description ? { description: v.description } : {}) }));
+      if (Object.keys(descriptions).length) creditDescriptions[finalName] = descriptions;
+      if (joinDate) authorStartDates[finalName] = joinDate;
+      if (leaveDate) authorEndDates[finalName] = leaveDate;
+      const mySectionLevels = Object.entries(sectionLevels)
+        .filter(([, contribution]) => contribution.level && contribution.level !== 'None' && contribution.level !== 'none')
+        .map(([section, contribution]) => ({
+          section,
+          level: contribution.level,
+          ...(contribution.description ? { description: contribution.description } : {}),
+        }));
       if (mySectionLevels.length) authorSectionLevels[finalName] = mySectionLevels;
 
-      const allAffs = [...affiliations];
-      for (const n of myAffNames) {
-        if (!allAffs.find((a) => a.name === n)) {
-          allAffs.push({ id: n.toLowerCase().replace(/[^a-z0-9]+/g, '-'), name: n });
+      const allAffiliations = [...affiliations];
+      for (const name of selectedAffNames) {
+        if (!allAffiliations.some((affiliation) => affiliation.name === name)) {
+          allAffiliations.push({
+            id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            name,
+          });
         }
       }
 
-      // The add workflow has an intentionally narrow API contract: send only
-      // this author's row. The server owns the project copy and merges the row
-      // into it, so future project/admin validation cannot reject or clobber a
-      // lossy client-side reconstruction of other authors.
+      // The self-service endpoint accepts only this author's contributor object.
+      const ownRow = { name: finalName, isFirst: false, author_level: null };
+      for (const category of CREDIT_CATEGORIES) ownRow[category] = roles[category] || 'None';
       const storedOwnRow = allRows.find(
-        (row) => row.name === authorName || row.name === finalName,
+        (row) => row.name === ownAuthorName || row.name === finalName,
       );
       const [authorPayload] = toEndpointPayload([{
-        ...myRow,
+        ...ownRow,
         ...(storedOwnRow?._passthrough ? { _passthrough: storedOwnRow._passthrough } : {}),
       }], doi, {
         authorOrcids,
         authorEmails,
         authorAffIds,
-        affiliations: allAffs,
+        affiliations: allAffiliations,
         sections,
         creditDescriptions,
         authorStartDates,
@@ -636,31 +342,26 @@ function StepFullEditor({
         authorSectionLevels,
       }).contributors;
 
-      // Members save via their ORCID session cookie. Anonymous submitters may
-      // append one row, but never receive a full project write path.
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/author?project=${encodeURIComponent(doi)}`;
-
-      const res = await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(authorPayload),
         credentials: 'include',
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        const raw = body.error || `Server error ${res.status}`;
-        const friendly = translateSaveError(raw, anonymous);
-        throw new Error(friendly);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(translateSaveError(body.error || `Server error ${response.status}`, anonymous));
       }
-      const result = await res.json();
+      const result = await response.json();
       const commit = result.commit ? ` (commit: ${result.commit.slice(0, 8)})` : '';
       setSaveStatus({ text: `✓ Saved${commit}`, cls: 'status-success' });
       clearDraft(draftId);
       setTimeout(() => {
         window.location.href = `/contributions/view?doi=${encodeURIComponent(doi)}`;
       }, 1200);
-    } catch (err) {
-      setSaveStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
+    } catch (error) {
+      setSaveStatus({ text: `Error: ${error.message}`, cls: 'status-error' });
     } finally {
       setSaving(false);
     }
@@ -671,7 +372,6 @@ function StepFullEditor({
       <div class="cv-wizard-step cv-wizard-step-editor">
         <h2 class="cv-wizard-step-title">Review & Edit</h2>
         <p class="cv-wizard-step-desc">Edit anything below before saving.</p>
-
         ${anonymous && html`
           <div class="cv-anon-warning" role="alert">
             <strong>You are not logged in.</strong> Your contribution will be
@@ -680,178 +380,64 @@ function StepFullEditor({
             Log in with ORCID instead if you want to keep editing access.
           </div>
         `}
-
-        <h3 class="cv-subsection-heading">Your Information</h3>
-
-        <div class="cv-wizard-field">
-          <label class="cv-detail-label" for="cwe-name">Full Name *</label>
-          <input id="cwe-name" type="text" class="cv-wizard-input"
-                 value=${editName} onInput=${(e) => setEditName(e.target.value)} />
-          ${nameCollision && html`
-            <div class="cv-anon-warning" role="alert">
-              <strong>“${editName.trim() || authorName}” already exists on this
-              project.</strong> Without logging in you can only add a new author,
-              not change an existing one. Use a different name, or contact a
-              project admin to update that entry.
-            </div>
-          `}
-        </div>
-
-        <div class="cv-wizard-field">
-          <label class="cv-detail-label" for="cwe-orcid">ORCID iD</label>
-          <input id="cwe-orcid" type="text" class="cv-wizard-input"
-                 placeholder="0000-0000-0000-0000"
-                 value=${editOrcid} onInput=${(e) => setEditOrcid(e.target.value)} />
-        </div>
-
-        <div class="cv-wizard-field">
-          <label class="cv-detail-label" for="cwe-email">Email</label>
-          <input id="cwe-email" type="email" class="cv-wizard-input"
-                 placeholder="name@example.org"
-                 value=${editEmail} onInput=${(e) => setEditEmail(e.target.value)} />
-        </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cwe-join-date">Join Date (optional)</label>
-        <input id="cwe-join-date" type="date" class="cv-wizard-input"
-               value=${editJoinDate || ''}
-               onInput=${(e) => setEditJoinDate(e.target.value || null)} />
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label" for="cwe-leave-date">End Date (optional)</label>
-        <input id="cwe-leave-date" type="date" class="cv-wizard-input"
-               value=${editLeaveDate || ''}
-               onInput=${(e) => setEditLeaveDate(e.target.value || null)} />
-      </div>
-
-      <div class="cv-wizard-field">
-        <label class="cv-detail-label">Affiliations</label>
-        ${affiliations.length > 0 && html`
-          <div class="cv-wizard-aff-list">
-            ${affiliations.map((aff) => html`
-              <label key=${aff.id} class="cv-wizard-aff-item">
-                <input type="checkbox" checked=${editAffNames.includes(aff.name)}
-                       onChange=${() => toggleAff(aff.name)} />
-                <span>${aff.name}</span>
-              </label>
-            `)}
+        ${nameCollision && html`
+          <div class="cv-anon-warning" role="alert">
+            <strong>“${finalName}” already exists on this project.</strong>
+            Without logging in you can only add a new author. Use a different
+            name, or contact a project admin to update that entry.
           </div>
         `}
-        ${editAffNames.filter((n) => !affiliations.find((a) => a.name === n)).map((n) => html`
-          <div key=${n} class="cv-wizard-custom-aff-tag">
-            <span>${n}</span>
-            <button type="button" class="cv-x-btn" onClick=${() => toggleAff(n)}>×</button>
+        <${AuthorEditor}
+          idPrefix="cwe"
+          authorName=${authorName}
+          orcid=${orcid}
+          email=${email}
+          startDate=${joinDate}
+          endDate=${leaveDate}
+          affiliations=${affiliations}
+          selectedAffiliationNames=${selectedAffNames}
+          roles=${roles}
+          descriptions=${descriptions}
+          sections=${sections}
+          sectionLevels=${sectionLevels}
+          allowLead=${allowLead}
+          allowLevels=${allowLevels}
+          onProfileChange=${(field, value) => {
+            if (field === 'name') setAuthorName(value);
+            else if (field === 'orcid') setOrcid(value);
+            else if (field === 'email') setEmail(value);
+            else if (field === 'startDate') setJoinDate(value);
+            else if (field === 'endDate') setLeaveDate(value);
+          }}
+          onAffiliationsChange=${setSelectedAffNames}
+          onRoleChange=${(role, level) => setRoles((prev) => ({
+            ...prev, [role]: level === 'none' || level === 'None'
+              ? 'None' : level[0].toUpperCase() + level.slice(1),
+          }))}
+          onDescriptionChange=${(role, value) => setDescriptions((prev) => ({
+            ...prev, [CREDIT_ROLE_ENUM[role]]: value,
+          }))}
+          onSectionChange=${(title, level, description) => setSectionLevels((prev) => {
+            if (!level || level === 'none') {
+              const next = { ...prev };
+              delete next[title];
+              return next;
+            }
+            return { ...prev, [title]: { level, description } };
+          })}
+        />
+        <div class="cv-wizard-nav">
+          <button class="btn-secondary" onClick=${onBack}>← Back</button>
+          <button class="btn-primary" onClick=${save}
+                  disabled=${localPreview || saving || !finalName || nameCollision}>
+            ${localPreview ? 'Local preview' : saving ? 'Saving…' : 'Save Contributions'}
+          </button>
+        </div>
+        ${saveStatus.text && html`
+          <div class=${'contributions-endpoint-status ' + saveStatus.cls} aria-live="polite">
+            ${saveStatus.text}
           </div>
-        `)}
-        <div class="cv-wizard-aff-add-row">
-          <input type="text" class="cv-wizard-input"
-                 placeholder="Add affiliation not listed above…"
-                 value=${customAff}
-                 onInput=${(e) => setCustomAff(e.target.value)}
-                 onKeyDown=${(e) => e.key === 'Enter' && addCustomAff()} />
-          <button type="button" class="btn-secondary" onClick=${addCustomAff}
-                  disabled=${!customAff.trim()}>Add</button>
-        </div>
-      </div>
-
-      <h3 class="cv-subsection-heading">Contribution Roles</h3>
-      <div class="cv-wizard-roles-grid" style="margin-bottom:20px">
-        ${CREDIT_CATEGORIES.map((cat) => {
-          const active = editRoles[cat] && editRoles[cat] !== 'None';
-          const levelOptions = CONTRIBUTION_LEVELS.filter((l) => {
-            if (l === 'None') return false;
-            if (l === 'Lead' && !allowLead) return false;
-            return true;
-          });
-          return html`
-            <div key=${cat} class=${'cv-wizard-role-card' + (active ? ' cv-wizard-role-active' : '')}
-                 onClick=${() => setEditRoles((prev) => ({ ...prev, [cat]: prev[cat] && prev[cat] !== 'None' ? 'None' : 'Equal' }))}>
-              <label class="cv-wizard-role-check" onClick=${(e) => e.stopPropagation()}>
-                <input type="checkbox" checked=${active}
-                       onChange=${() => setEditRoles((prev) => ({ ...prev, [cat]: prev[cat] && prev[cat] !== 'None' ? 'None' : 'Equal' }))} />
-                <span class="cv-wizard-role-name"><${RoleTip} name=${cat} /></span>
-              </label>
-              ${active && allowLevels && html`
-                <select class="cv-wizard-role-level" value=${editRoles[cat]}
-                        onClick=${(e) => e.stopPropagation()}
-                        onChange=${(e) => setEditRoles((prev) => ({ ...prev, [cat]: e.target.value }))}>
-                  ${levelOptions.map((l) => html`
-                    <option key=${l} value=${l}>${LEVEL_DISPLAY[l] || l}</option>
-                  `)}
-                </select>
-              `}
-            </div>
-          `;
-        })}
-      </div>
-
-      ${activeRoles.length > 0 && html`
-        <h3 class="cv-subsection-heading">Contribution Details</h3>
-        ${activeRoles.map((cat) => {
-          const roleEnum = CREDIT_ROLE_ENUM[cat];
-          return html`
-            <div key=${cat} class="cv-credit-card">
-              <div class="cv-credit-card-header">
-                <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + editRoles[cat].toLowerCase()}>${LEVEL_DISPLAY[editRoles[cat]] || editRoles[cat]}</span>`}
-              </div>
-              <label class="cv-detail-label">Description</label>
-              <textarea class="cv-credit-desc-textarea" rows="2"
-                        placeholder="Describe your specific contribution…"
-                        onInput=${(e) => setEditDescs((prev) => ({ ...prev, [roleEnum]: e.target.value }))}>
-                ${editDescs[roleEnum] || ''}
-              </textarea>
-            </div>
-          `;
-        })}
-      `}
-
-      ${sections.length > 0 && html`
-        <h3 class="cv-subsection-heading">Section Contributions</h3>
-        ${sections.map((sec) => {
-          const level = getSectionLevel(sec.title);
-          const active = level !== 'None';
-          const description = getSectionDescription(sec.title);
-          return html`
-            <div key=${sec.id} class="cv-section-contrib-row">
-              <label class="cv-section-contrib-check">
-                <input type="checkbox" checked=${active} onChange=${() => toggleSection(sec.title)} />
-                <span class="cv-section-contrib-title">${sec.title}</span>
-              </label>
-              ${active && allowLevels && html`
-                <select class="cv-section-contrib-level"
-                        value=${level}
-                        onChange=${(e) => updateSectionLevel(sec.title, e.target.value)}>
-                  ${sectionLevelOptions.map((opt) => html`
-                    <option key=${opt.value} value=${opt.value}>${opt.label}</option>
-                  `)}
-                </select>
-              `}
-              ${active && html`
-                <input type="text" class="cv-section-contrib-desc"
-                       placeholder="Description (optional)"
-                       value=${description}
-                       onInput=${(e) => updateSectionDescription(sec.title, e.target.value)} />
-              `}
-            </div>
-          `;
-        })}
-      `}
-
-      <div class="cv-wizard-nav">
-        <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${save}
-                disabled=${localPreview || saving || !editName.trim() || nameCollision}>
-          ${localPreview ? 'Local preview' : saving ? 'Saving…' : 'Save Contributions'}
-        </button>
-      </div>
-      ${saveStatus.text && html`
-        <div class=${'contributions-endpoint-status ' + saveStatus.cls} aria-live="polite">
-          ${saveStatus.text}
-        </div>
-      `}
-      </div>
+        `}      </div>
       <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
     </div>
   `;
@@ -884,6 +470,9 @@ function AddApp({ project, doi, existingAuthor }) {
   const isExisting = Boolean(existingAuthor);
 
   const [name, setName] = useState(_draft?.name || (isExisting ? existingAuthor : ''));
+  const [ownAuthorName, setOwnAuthorName] = useState(
+    _draft?.ownAuthorName || _draft?.name || (isExisting ? existingAuthor : ''),
+  );
   const [orcid, setOrcid] = useState(_draft?.orcid || '');
   const [email, setEmail] = useState(_draft?.email || '');
   const [selectedAffNames, setSelectedAffNames] = useState(_draft?.selectedAffNames || []);
@@ -901,8 +490,8 @@ function AddApp({ project, doi, existingAuthor }) {
 
   useEffect(() => {
     if (loading) return;
-    saveDraft(draftId, { step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
-  }, [step, name, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
+    saveDraft(draftId, { step, name, ownAuthorName, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels });
+  }, [step, name, ownAuthorName, orcid, email, selectedAffNames, joinDate, leaveDate, roles, descriptions, sectionLevels, loading]);
 
   // Require ORCID login (with an opt-out). The logged-in user is recognised by
   // their session and matched to their own row on load; edit access is derived
@@ -968,8 +557,12 @@ function AddApp({ project, doi, existingAuthor }) {
 
         // Default the ORCID/name fields to the logged-in identity so a newly
         // created record is tied to their account (and stays editable later).
+        if (ownContributor) setOwnAuthorName(ownContributor.author.name);
         if (user?.orcid && !_draft?.orcid) setOrcid(user.orcid);
-        if (user?.name && !_draft?.name && !ownContributor && !existingAuthor) setName(user.name);
+        if (user?.name && !_draft?.name && !ownContributor && !existingAuthor) {
+          setName(user.name);
+          setOwnAuthorName(user.name);
+        }
 
         if (ownContributor && !_draft && !prefilled) {
           setName(ownContributor.author.name);
@@ -1011,7 +604,10 @@ function AddApp({ project, doi, existingAuthor }) {
         }
 
         if (_draft?.step) {
-          setStep(_draft.step);
+          const legacyStep = _draft.step;
+          setStep(legacyStep === 3 || legacyStep === 4
+            ? (meta.sections.length > 0 ? 4 : 5)
+            : legacyStep);
         } else if (ownContributor || hasVisitedCookie(effProject)) {
           setStep(5);
         } else {
@@ -1031,7 +627,7 @@ function AddApp({ project, doi, existingAuthor }) {
     if (n === 5) setVisitedCookie(effProject);
   }
 
-  function goNextFromRoleDetails() {
+  function goNextFromRoles() {
     if (sections.length > 0) {
       goToStep(4);
     } else {
@@ -1039,7 +635,8 @@ function AddApp({ project, doi, existingAuthor }) {
     }
   }
 
-  const totalWizardSteps = sections.length > 0 ? 4 : 3;
+  const wizardSteps = sections.length > 0 ? [1, 2, 4] : [1, 2];
+  const activeWizardStep = wizardSteps.indexOf(step);
 
   if (!effProject) {
     return html`<div class="contributions-add-page">
@@ -1092,8 +689,8 @@ function AddApp({ project, doi, existingAuthor }) {
     <div class="contributions-add-page">
       ${step > 0 && step < 5 && html`
         <div class="cv-wizard-progress">
-          ${Array.from({ length: totalWizardSteps }, (_, i) => i + 1).map((s) => html`
-            <span key=${s} class=${'cv-wizard-dot' + (s === step ? ' cv-wizard-dot-active' : '') + (s < step ? ' cv-wizard-dot-done' : '')}>${s}</span>
+          ${wizardSteps.map((wizardStep, index) => html`
+            <span key=${wizardStep} class=${'cv-wizard-dot' + (index === activeWizardStep ? ' cv-wizard-dot-active' : '') + (index < activeWizardStep ? ' cv-wizard-dot-done' : '')}>${index + 1}</span>
           `)}
         </div>
       `}
@@ -1114,19 +711,10 @@ function AddApp({ project, doi, existingAuthor }) {
       ${step === 2 && html`
         <${StepCreditRoles}
           roles=${roles} setRoles=${setRoles}
-          onBack=${() => goToStep(1)}
-          onNext=${() => goToStep(3)}
-          allowLead=${allowLead} allowLevels=${allowLevels}
-        />
-      `}
-
-      ${step === 3 && html`
-        <${StepRoleDetails}
-          roles=${roles}
           descriptions=${descriptions} setDescriptions=${setDescriptions}
-          onBack=${() => goToStep(2)}
-          onNext=${goNextFromRoleDetails}
-          allowLevels=${allowLevels}
+          onBack=${() => goToStep(1)}
+          onNext=${goNextFromRoles}
+          allowLead=${allowLead} allowLevels=${allowLevels}
         />
       `}
 
@@ -1134,7 +722,7 @@ function AddApp({ project, doi, existingAuthor }) {
         <${StepSections}
           sections=${sections}
           sectionLevels=${sectionLevels} setSectionLevels=${setSectionLevels}
-          onBack=${() => goToStep(3)}
+          onBack=${() => goToStep(2)}
           onNext=${() => goToStep(5)}
           allowLead=${allowLead} allowLevels=${allowLevels}
         />
@@ -1143,7 +731,8 @@ function AddApp({ project, doi, existingAuthor }) {
       ${step === 5 && html`
         <${StepFullEditor}
           doi=${effProject} draftId=${draftId} anonymous=${anonymous}
-          authorName=${name} orcid=${orcid} email=${email} selectedAffNames=${selectedAffNames}
+          authorName=${name} ownAuthorName=${ownAuthorName}
+          orcid=${orcid} email=${email} selectedAffNames=${selectedAffNames}
           roles=${roles} descriptions=${descriptions}
           joinDate=${joinDate} leaveDate=${leaveDate} sectionLevels=${sectionLevels}
           setAuthorName=${setName} setOrcid=${setOrcid} setEmail=${setEmail} setSelectedAffNames=${setSelectedAffNames}
@@ -1151,7 +740,7 @@ function AddApp({ project, doi, existingAuthor }) {
           setJoinDate=${setJoinDate} setLeaveDate=${setLeaveDate} setSectionLevels=${setSectionLevels}
           allRows=${allRows}
           sections=${sections} affiliations=${affiliations}
-          onBack=${() => goToStep(sections.length > 0 ? 4 : 3)}
+          onBack=${() => goToStep(sections.length > 0 ? 4 : 2)}
           allowLead=${allowLead} allowLevels=${allowLevels}
         />
       `}

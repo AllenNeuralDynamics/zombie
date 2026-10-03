@@ -729,6 +729,14 @@
   font-size: 1rem;
 }
 
+@media (max-width: 980px) {
+  .cv-wizard-layout .cv-level-sidebar {
+    position: static;
+    width: auto;
+    margin-top: 20px;
+  }
+}
+
 .cv-wizard-orcid-badge {
   font-size: 0.8rem;
   color: var(--text-secondary);
@@ -750,4 +758,3 @@
 .contributions-edit-page {
   padding: 0;
 }
-

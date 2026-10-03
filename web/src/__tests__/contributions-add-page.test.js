@@ -105,6 +105,20 @@ describe('AddApp — author email', () => {
     expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
   });
 
+  it('uses the shared author sections while keeping admin-only author level hidden', async () => {
+    const el = await mountAsAlice();
+    const editor = el.querySelector('.cv-author-editor');
+    expect(editor.textContent).toContain('Profile');
+    expect(editor.textContent).toContain('Roles & details');
+    expect(editor.textContent).toContain('Sections');
+    expect(editor.querySelector('#cwe-name')).not.toBeNull();
+    expect(editor.querySelector('#cwe-orcid')).not.toBeNull();
+    expect(editor.querySelector('#cwe-join-date')).not.toBeNull();
+    expect(editor.querySelector('#cwe-leave-date')).not.toBeNull();
+    expect(editor.querySelector('#cwe-author-level')).toBeNull();
+    expect(editor.querySelector('[aria-label="Software description"]')).not.toBeNull();
+  });
+
   it('prefills the email stored on the visitor’s own contributor record', async () => {
     const el = await mountAsAlice();
     expect(el.querySelector('#cwe-email').value).toBe('alice@example.org');
