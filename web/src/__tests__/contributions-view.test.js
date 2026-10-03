@@ -1345,3 +1345,44 @@ describe('createContributionsView — per-author section editing', () => {
     ]);
   });
 });
+
+describe('createContributionsView — local preview', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('shows every project asset and prevents server saves', async () => {
+    const project = {
+      project_name: 'local-project',
+      contributors: [{ author: { name: 'Ada Lovelace' }, credit_levels: [] }],
+      assets: ['asset-one', 'asset-two'],
+    };
+    global.fetch = vi.fn().mockImplementation((url) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => (url.includes('history=true') ? [] : project),
+    }));
+
+    const root = createContributionsView({
+      projectName: 'local-project',
+      isAdmin: true,
+      localPreview: true,
+    });
+    document.body.appendChild(root);
+    for (let i = 0; i < 15; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(root.querySelector('#cv-assets-toggle').getAttribute('aria-expanded')).toBe('true');
+    expect([...root.querySelectorAll('.cv-assets-table tbody tr')].map((row) => row.textContent.trim()))
+      .toEqual(['asset-one', 'asset-two']);
+    expect(root.querySelector('#cv-post-btn').disabled).toBe(true);
+    expect(root.querySelector('.cv-local-preview-note').textContent).toContain('Local preview');
+
+    const saveButton = root.querySelector('#cv-post-btn');
+    saveButton.disabled = false;
+    saveButton.click();
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+  });
+});

@@ -14,7 +14,12 @@ vi.mock('../lib/auth.js', () => ({
   logout: vi.fn(),
 }));
 
+vi.mock('../lib/local-dev.js', () => ({
+  isLocalDevelopment: vi.fn(() => false),
+}));
+
 import { getCurrentUser } from '../lib/auth.js';
+import { isLocalDevelopment } from '../lib/local-dev.js';
 import { createContributionsAddPage } from '../contributions/add-page.js';
 
 /** Flush microtasks + macrotasks so Preact effects and fetches settle. */
@@ -62,12 +67,44 @@ async function mountAsAlice() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isLocalDevelopment.mockReturnValue(false);
   localStorage.clear();
   document.body.innerHTML = '';
   document.cookie = '';
 });
 
 describe('AddApp — author email', () => {
+  it('skips the login gate on localhost development', async () => {
+    isLocalDevelopment.mockReturnValue(true);
+    mockFetch();
+
+    const el = createContributionsAddPage({ project: 'proj' });
+    document.body.appendChild(el);
+    await flush();
+
+    expect(getCurrentUser).not.toHaveBeenCalled();
+    expect(el.querySelector('.cv-modal-title')).toBeNull();
+    expect(el.querySelector('.cv-wizard-step-title')).not.toBeNull();
+  });
+
+  it('keeps local self-service edits in preview without posting to the service', async () => {
+    isLocalDevelopment.mockReturnValue(true);
+    mockFetch();
+
+    const el = createContributionsAddPage({ project: 'proj', author: 'Alice Smith' });
+    document.body.appendChild(el);
+    await flush();
+
+    const saveButton = [...el.querySelectorAll('button')]
+      .find((button) => button.textContent.trim() === 'Local preview');
+    expect(saveButton).toBeDefined();
+    expect(saveButton.disabled).toBe(true);
+    saveButton.disabled = false;
+    saveButton.click();
+    await flush();
+    expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
+  });
+
   it('prefills the email stored on the visitor’s own contributor record', async () => {
     const el = await mountAsAlice();
     expect(el.querySelector('#cwe-email').value).toBe('alice@example.org');

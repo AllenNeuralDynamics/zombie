@@ -1415,7 +1415,7 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
 
 function ProjectWidget({
   projectName, onProjectNameChange, endpointStatus,
-  canLoad, canSave, onLoad, onSave,
+  canLoad, canSave, onLoad, onSave, localPreview,
 }) {
   return html`
     <div class="cv-project-widget">
@@ -1428,8 +1428,12 @@ function ProjectWidget({
       </div>
       <div class="cv-pw-btn-row">
         <button id="cv-get-btn" class="btn-secondary" disabled=${!canLoad} onClick=${onLoad}>Load</button>
-        <button id="cv-post-btn" class="btn-primary"  disabled=${!canSave} onClick=${onSave}>Save</button>
+        <button id="cv-post-btn" class="btn-primary" disabled=${!canSave || localPreview}
+                onClick=${onSave}>Save</button>
       </div>
+      ${localPreview && html`
+        <div class="cv-local-preview-note" role="status">Local preview — server saves disabled</div>
+      `}
       ${endpointStatus.text && html`
         <div class=${'contributions-endpoint-status ' + endpointStatus.cls} aria-live="polite">
           ${endpointStatus.text}
@@ -1507,7 +1511,7 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser, localPreview }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1654,7 +1658,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setAllowLevels(data.allow_levels ?? true);
       setEditLocked(data.edit_locked ?? false);
       setExistsOnServer(true);
-      setAssetsOpen(false);
+      setAssetsOpen(localPreview);
       fetchHistory(project);
     } catch (err) {
       console.error('[contributions] load failed:', err);
@@ -1664,6 +1668,10 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   // ── Project save ──────────────────────────────────────────────────────────
   async function saveToServer({ allowEmpty = false } = {}) {
+    if (localPreview) {
+      setEndpointStatus({ text: 'Local preview — server saving is disabled.', cls: 'status-info' });
+      return;
+    }
     const { projectName: project, rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
@@ -1883,6 +1891,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           canSave=${canSave}
           onLoad=${loadFromServer}
           onSave=${saveToServer}
+          localPreview=${localPreview}
         />
       </div>
 
@@ -2085,7 +2094,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null, localPreview = false } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -2124,6 +2133,7 @@ export function createContributionsView(options = {}) {
       isAdmin=${isAdmin}
       isNew=${isNew}
       currentUser=${currentUser}
+      localPreview=${localPreview}
     />`,
     container,
   );

@@ -6,6 +6,7 @@
  * ORCID (adding a new row if they have none). Edit access is derived purely
  * from the contributor metadata on the backend — there is no invite token or
  * separate membership; a logged-in user may only add/edit their own row.
+ * Local Vite development skips the login screen and disables server saves.
  *
  * Flow for new visitors (no per-project cookie):
  *   Step 1: Personal info (name, ORCID, email, affiliations)
@@ -23,6 +24,7 @@ import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
+import { isLocalDevelopment } from '../lib/local-dev.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,
@@ -495,6 +497,7 @@ function StepFullEditor({
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
+  const localPreview = isLocalDevelopment();
 
   const [editName, setEditName]               = useState(authorName);
   const [editOrcid, setEditOrcid]             = useState(orcid);
@@ -570,6 +573,10 @@ function StepFullEditor({
   );
 
   async function save() {
+    if (localPreview) {
+      setSaveStatus({ text: 'Local preview — server saving is disabled.', cls: 'status-info' });
+      return;
+    }
     setSaving(true);
     setSaveStatus({ text: 'Saving…', cls: 'status-loading' });
     try {
@@ -834,8 +841,9 @@ function StepFullEditor({
 
       <div class="cv-wizard-nav">
         <button class="btn-secondary" onClick=${onBack}>← Back</button>
-        <button class="btn-primary" onClick=${save} disabled=${saving || !editName.trim() || nameCollision}>
-          ${saving ? 'Saving…' : 'Save Contributions'}
+        <button class="btn-primary" onClick=${save}
+                disabled=${localPreview || saving || !editName.trim() || nameCollision}>
+          ${localPreview ? 'Local preview' : saving ? 'Saving…' : 'Save Contributions'}
         </button>
       </div>
       ${saveStatus.text && html`
@@ -903,6 +911,11 @@ function AddApp({ project, doi, existingAuthor }) {
     if (!effProject) { setAuthGate('ready'); return; }
     let cancelled = false;
     (async () => {
+      if (isLocalDevelopment()) {
+        setAuthGate('ready');
+        return;
+      }
+
       const me = await getCurrentUser();
       if (cancelled) return;
       setUser(me);

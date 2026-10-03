@@ -1,10 +1,11 @@
 /**
  * edit-page.js — Admin-only full editor for contributions.
  *
- * Access is gated by ORCID login (via the aind-metadata-viz backend):
+ * Production access is gated by ORCID login (via the aind-metadata-viz backend):
  *   - Not logged in   → "Log in with ORCID" prompt.
  *   - Admin           → the full contributions editor (session-based save).
  *   - Logged in, not admin → "no access" prompt pointing at the add page.
+ * Local Vite development opens a preview without enabling server writes.
  *
  * "Admin" means a global admin (ADMIN_ORCIDS) or a contributor whose ORCID is
  * flagged is_admin on this project. Non-admins edit their own author row via
@@ -15,6 +16,7 @@ import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid, logout } from '../lib/auth.js';
+import { isLocalDevelopment } from '../lib/local-dev.js';
 import { createContributionsView } from './view.js';
 import { fetchContributions } from './fetch.js';
 
@@ -77,6 +79,13 @@ function EditApp({ doi }) {
     if (!doi) return;
     let cancelled = false;
     (async () => {
+      if (isLocalDevelopment()) {
+        setIsAdmin(true);
+        setIsNew(false);
+        setGate('editor');
+        return;
+      }
+
       const me = await getCurrentUser();
       if (cancelled) return;
       setUser(me);
@@ -139,6 +148,7 @@ function EditApp({ doi }) {
       isAdmin,
       isNew,
       currentUser: user,
+      localPreview: isLocalDevelopment(),
     });
     editorRef.current.appendChild(el);
     setEditorMounted(true);

@@ -881,6 +881,10 @@
   gap: 6px;
 }
 .cv-pw-btn-row button { flex: 1; }
+.cv-local-preview-note {
+  color: var(--color-muted, var(--text-secondary));
+  font-size: 0.78rem;
+}
 
 [data-theme="dark"] .cv-pw-name-row input[type="text"],
 [data-theme="dark"] .cv-pw-password-row input[type="password"] {
