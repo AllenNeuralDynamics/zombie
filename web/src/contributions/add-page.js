@@ -36,6 +36,12 @@ import {
   AuthorRolesSection,
   AuthorSectionsSection,
 } from './author-editor.js';
+import {
+  availableAuthorWorkflowLevels,
+  enabledAuthorWorkflowLevels,
+  normalizeAuthorWorkflowLevels,
+  workflowValueToUiValue,
+} from './author-workflow-levels.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -167,8 +173,9 @@ function StepPersonalInfo({
 
 const ALLEN_AUTHORSHIP_URL = 'https://alleninstitute.sharepoint.com/sites/AC-Science-Innovation/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents%2Fauthorship%5Fguidelines%2Epdf&parent=%2Fsites%2FAC%2DScience%2DInnovation%2FShared%20Documents';
 
-function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
-  if (!allowLevels) return null;
+function LevelDefinitionsSidebar({ workflowLevels = [] }) {
+  const availableLevels = availableAuthorWorkflowLevels(workflowLevels);
+  if (availableLevels.length === 0) return null;
   return html`
     <aside class="cv-level-sidebar">
       <h3 class="cv-level-sidebar-heading">Level definitions</h3>
@@ -176,9 +183,12 @@ function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
         Levels are optional, you can leave your contribution as the default or choose from the following options:
       </p>
       <ul class="cv-level-sidebar-list">
-        <li><strong>++</strong> indicates a major contribution to a specific CRediT role</li>
-        <li><strong>+</strong> indicates a supporting contribution, which may not warrant authorship</li>
-        ${allowLead && html`<li><strong>Lead</strong> indicates that the author was both a major contributor and the primary coordinator of this CRediT role, not all papers have authors at the lead level</li>`}
+        ${availableLevels.map((level) => html`
+          <li key=${level.value}>
+            <span class="cv-level-swatch" style=${{ backgroundColor: level.color }}></span>
+            <strong>${level.label}</strong>${level.description ? ` ${level.description}` : ''}
+          </li>
+        `)}
       </ul>
       <p class="cv-level-sidebar-guidelines">
         Please also see the Allen Institute guidelines and appendix for further details:${' '}
@@ -192,7 +202,7 @@ function LevelDefinitionsSidebar({ allowLead = true, allowLevels = true }) {
 // Step 2: CRediT roles and descriptions
 // ---------------------------------------------------------------------------
 
-function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBack, onNext, allowLead, allowLevels }) {
+function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBack, onNext, workflowLevels }) {
   const hasAnyRole = CREDIT_CATEGORIES.some((cat) => roles[cat] && roles[cat] !== 'None');
 
   return html`
@@ -204,10 +214,9 @@ function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBac
         </p>
         <${AuthorRolesSection}
           roles=${roles} descriptions=${descriptions}
-          allowLead=${allowLead} allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
           onRoleChange=${(role, level) => setRoles((prev) => ({
-            ...prev, [role]: level === 'none' || level === 'None'
-              ? 'None' : level[0].toUpperCase() + level.slice(1),
+            ...prev, [role]: level === 'none' || level === 'None' ? 'None' : level,
           }))}
           onDescriptionChange=${(role, value) => setDescriptions((prev) => ({
             ...prev, [CREDIT_ROLE_ENUM[role]]: value,
@@ -219,7 +228,7 @@ function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBac
           <button class="btn-primary" disabled=${!hasAnyRole} onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
+      <${LevelDefinitionsSidebar} workflowLevels=${workflowLevels} />
     </div>
   `;
 }
@@ -228,7 +237,8 @@ function StepCreditRoles({ roles, setRoles, descriptions, setDescriptions, onBac
 // Step 3: Sections (only shown when sections exist)
 // ---------------------------------------------------------------------------
 
-function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext, allowLead, allowLevels }) {
+function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNext, workflowLevels }) {
+  const allowLevels = enabledAuthorWorkflowLevels(workflowLevels).length > 0;
   return html`
     <div class="cv-wizard-layout">
       <div class="cv-wizard-step">
@@ -239,7 +249,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
 
         <${AuthorSectionsSection}
           sections=${sections} sectionLevels=${sectionLevels}
-          allowLead=${allowLead} allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
           onSectionChange=${(title, level, description) => setSectionLevels((prev) => {
             if (!level || level === 'none') {
               const next = { ...prev };
@@ -255,7 +265,7 @@ function StepSections({ sections, sectionLevels, setSectionLevels, onBack, onNex
           <button class="btn-primary" onClick=${onNext}>Next →</button>
         </div>
       </div>
-      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
+      <${LevelDefinitionsSidebar} workflowLevels=${workflowLevels} />
     </div>
   `;
 }
@@ -268,7 +278,7 @@ function StepFullEditor({
   doi, draftId, anonymous, authorName, ownAuthorName,
   orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
-  allRows, sections, affiliations, onBack, allowLead, allowLevels,
+  allRows, sections, affiliations, onBack, workflowLevels,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
@@ -400,8 +410,7 @@ function StepFullEditor({
           descriptions=${descriptions}
           sections=${sections}
           sectionLevels=${sectionLevels}
-          allowLead=${allowLead}
-          allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
           onProfileChange=${(field, value) => {
             if (field === 'name') setAuthorName(value);
             else if (field === 'orcid') setOrcid(value);
@@ -411,8 +420,7 @@ function StepFullEditor({
           }}
           onAffiliationsChange=${setSelectedAffNames}
           onRoleChange=${(role, level) => setRoles((prev) => ({
-            ...prev, [role]: level === 'none' || level === 'None'
-              ? 'None' : level[0].toUpperCase() + level.slice(1),
+            ...prev, [role]: level === 'none' || level === 'None' ? 'None' : level,
           }))}
           onDescriptionChange=${(role, value) => setDescriptions((prev) => ({
             ...prev, [CREDIT_ROLE_ENUM[role]]: value,
@@ -438,7 +446,7 @@ function StepFullEditor({
             ${saveStatus.text}
           </div>
         `}      </div>
-      <${LevelDefinitionsSidebar} allowLead=${allowLead} allowLevels=${allowLevels} />
+      <${LevelDefinitionsSidebar} workflowLevels=${workflowLevels} />
     </div>
   `;
 }
@@ -534,6 +542,7 @@ function AddApp({ project, doi, existingAuthor }) {
           throw new Error(body.error || `Access denied (${res.status})`);
         }
         const data = await res.json();
+        const dataWorkflowLevels = normalizeAuthorWorkflowLevels(data.author_workflow_levels, data);
         setProjectData(data);
         setAllRows(fromEndpointPayload(data));
         const meta = extractPayloadMeta(data);
@@ -585,7 +594,7 @@ function AddApp({ project, doi, existingAuthor }) {
           for (const cl of ownContributor.credit_levels || []) {
             const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
             if (displayRole) {
-              newRoles[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
+              newRoles[displayRole] = workflowValueToUiValue(cl.level, dataWorkflowLevels);
             }
             if (cl.description) newDescs[cl.role] = cl.description;
           }
@@ -682,8 +691,10 @@ function AddApp({ project, doi, existingAuthor }) {
     </div>`;
   }
 
-  const allowLead   = projectData?.allow_lead   ?? true;
-  const allowLevels = projectData?.allow_levels ?? true;
+  const workflowLevels = normalizeAuthorWorkflowLevels(
+    projectData?.author_workflow_levels,
+    projectData || {},
+  );
 
   return html`
     <div class="contributions-add-page">
@@ -714,7 +725,7 @@ function AddApp({ project, doi, existingAuthor }) {
           descriptions=${descriptions} setDescriptions=${setDescriptions}
           onBack=${() => goToStep(1)}
           onNext=${goNextFromRoles}
-          allowLead=${allowLead} allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
         />
       `}
 
@@ -724,7 +735,7 @@ function AddApp({ project, doi, existingAuthor }) {
           sectionLevels=${sectionLevels} setSectionLevels=${setSectionLevels}
           onBack=${() => goToStep(2)}
           onNext=${() => goToStep(5)}
-          allowLead=${allowLead} allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
         />
       `}
 
@@ -741,7 +752,7 @@ function AddApp({ project, doi, existingAuthor }) {
           allRows=${allRows}
           sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 2)}
-          allowLead=${allowLead} allowLevels=${allowLevels}
+          workflowLevels=${workflowLevels}
         />
       `}
     </div>

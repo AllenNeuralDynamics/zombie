@@ -1,8 +1,15 @@
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
-import { CREDIT_ROLES, LEVEL_LABELS, enabledLevels } from './credit-helpers.js';
+import { CREDIT_ROLES } from './credit-helpers.js';
 import { CREDIT_ROLE_ENUM } from './credit-roles.js';
 import { RoleTip } from './role-tooltip.js';
+import {
+  DEFAULT_AUTHOR_WORKFLOW_LEVELS,
+  availableAuthorWorkflowLevels,
+  workflowUiValueToStored,
+  workflowLevelLabel,
+  workflowValueToUiValue,
+} from './author-workflow-levels.js';
 
 function inputId(prefix, field) {
   return `${prefix}-${field}`;
@@ -181,16 +188,18 @@ export function AuthorProfileSection({
 export function AuthorRolesSection({
   roles = {},
   descriptions = {},
-  allowLead = true,
-  allowLevels = true,
+  workflowLevels = DEFAULT_AUTHOR_WORKFLOW_LEVELS,
   onRoleChange = () => {},
   onDescriptionChange = () => {},
 }) {
-  const levels = enabledLevels({ allowLevels, allowLead });
+  const levels = availableAuthorWorkflowLevels(workflowLevels);
   const activeRoles = CREDIT_ROLES.filter((role) => roles[role] && roles[role] !== 'None');
 
   function toggleRole(role) {
-    onRoleChange(role, roles[role] && roles[role] !== 'None' ? 'None' : 'Equal');
+    const next = roles[role] && roles[role] !== 'None'
+      ? 'None'
+      : workflowValueToUiValue(levels.find((level) => level.value === 'equal')?.value || levels[0]?.value || 'equal', workflowLevels);
+    onRoleChange(role, next);
   }
 
   return html`
@@ -199,7 +208,10 @@ export function AuthorRolesSection({
       <div class="cv-author-role-list">
         ${CREDIT_ROLES.map((role) => {
           const active = activeRoles.includes(role);
-          const level = String(roles[role] || 'None').toLowerCase();
+          const selected = workflowUiValueToStored(roles[role] || 'None', workflowLevels);
+          const choices = levels.some((option) => option.value === selected)
+            ? levels
+            : [...levels, { value: selected, label: workflowLevelLabel(roles[role], workflowLevels), enabled: false }].filter((option) => option.value);
           const roleEnum = CREDIT_ROLE_ENUM[role];
           return html`
             <article key=${role}
@@ -209,14 +221,14 @@ export function AuthorRolesSection({
                   <input type="checkbox" checked=${active} onChange=${() => toggleRole(role)} />
                   <span><${RoleTip} name=${role} /></span>
                 </label>
-                ${active && allowLevels && html`
+                ${active && levels.length > 0 && html`
                   <label class="cv-author-role-level-wrap">
                     <span class="cv-author-role-level-label">Level</span>
                     <select class="cv-wizard-role-level" aria-label=${role + ' level'}
-                            value=${level}
-                            onChange=${(event) => onRoleChange(role, event.target.value)}>
-                      ${levels.map((option) => html`
-                        <option key=${option} value=${option}>${LEVEL_LABELS[option]}</option>
+                            value=${selected}
+                            onChange=${(event) => onRoleChange(role, workflowValueToUiValue(event.target.value, workflowLevels))}>
+                      ${choices.map((option) => html`
+                        <option key=${option.value} value=${option.value} disabled=${option.enabled === false}>${option.label}</option>
                       `)}
                     </select>
                   </label>
@@ -244,11 +256,10 @@ export function AuthorSectionsSection({
   authorName = '',
   sections = [],
   sectionLevels = {},
-  allowLead = true,
-  allowLevels = true,
+  workflowLevels = DEFAULT_AUTHOR_WORKFLOW_LEVELS,
   onSectionChange = () => {},
 }) {
-  const options = enabledLevels({ allowLevels, allowLead });
+  const options = availableAuthorWorkflowLevels(workflowLevels);
   return html`
     <section class="cv-author-form-section cv-author-sections-section">
       <h3 class="cv-subsection-heading">Sections</h3>
@@ -256,23 +267,26 @@ export function AuthorSectionsSection({
         ? html`<p class="cv-placeholder">No paper sections are set up.</p>`
         : sections.map((section) => {
           const contribution = sectionLevels[section.title] || {};
-          const level = String(contribution.level || 'None').toLowerCase();
-          const active = level !== 'none';
+          const level = workflowUiValueToStored(contribution.level || 'None', workflowLevels);
+          const active = level !== '';
+          const choices = options.some((option) => option.value === level)
+            ? options
+            : [...options, { value: level, label: workflowLevelLabel(contribution.level, workflowLevels), enabled: false }].filter((option) => option.value);
           return html`
             <div key=${section.id || section.title} class="cv-section-contrib-row">
               <label class="cv-section-contrib-check">
                 <input type="checkbox"
                        aria-label=${authorName + ' contributed to ' + section.title}
                        checked=${active}
-                       onChange=${() => onSectionChange(section.title, active ? 'none' : 'equal', contribution.description || '')} />
+                       onChange=${() => onSectionChange(section.title, active ? 'none' : (options.find((option) => option.value === 'equal')?.value || options[0]?.value || 'equal'), contribution.description || '')} />
                 <span class="cv-section-contrib-title">${section.title}</span>
               </label>
-              ${active && allowLevels && html`
+              ${active && options.length > 0 && html`
                 <select class="cv-section-contrib-level" value=${level}
                         aria-label=${section.title + ' contribution level'}
                         onChange=${(event) => onSectionChange(section.title, event.target.value, contribution.description || '')}>
-                  ${options.map((option) => html`
-                    <option key=${option} value=${option}>${LEVEL_LABELS[option]}</option>
+                  ${choices.map((option) => html`
+                    <option key=${option.value} value=${option.value} disabled=${option.enabled === false}>${option.label}</option>
                   `)}
                 </select>
               `}
@@ -281,7 +295,7 @@ export function AuthorSectionsSection({
                        placeholder="Description (optional)"
                        aria-label=${section.title + ' contribution description'}
                        value=${contribution.description || ''}
-                       onInput=${(event) => onSectionChange(section.title, level || 'equal', event.target.value)} />
+                       onInput=${(event) => onSectionChange(section.title, level || (options[0]?.value || 'equal'), event.target.value)} />
               `}
             </div>
           `;
@@ -304,8 +318,7 @@ export function AuthorEditor({
   descriptions,
   sections,
   sectionLevels,
-  allowLead,
-  allowLevels,
+  workflowLevels = DEFAULT_AUTHOR_WORKFLOW_LEVELS,
   canEditName = true,
   showAuthorLevel = false,
   onProfileChange,
@@ -337,8 +350,7 @@ export function AuthorEditor({
       <${AuthorRolesSection}
         roles=${roles}
         descriptions=${descriptions}
-        allowLead=${allowLead}
-        allowLevels=${allowLevels}
+        workflowLevels=${workflowLevels}
         onRoleChange=${onRoleChange}
         onDescriptionChange=${onDescriptionChange}
       />
@@ -346,8 +358,7 @@ export function AuthorEditor({
         authorName=${authorName}
         sections=${sections}
         sectionLevels=${sectionLevels}
-        allowLead=${allowLead}
-        allowLevels=${allowLevels}
+        workflowLevels=${workflowLevels}
         onSectionChange=${onSectionChange}
       />
     </div>

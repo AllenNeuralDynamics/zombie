@@ -828,6 +828,24 @@ describe('fromEndpointPayload', () => {
     expect(rows[0]['Methodology']).toBe('None');
   });
 
+  it('round-trips a project-defined author workflow level', () => {
+    const data = {
+      project_name: 'custom-levels',
+      author_workflow_levels: [{
+        value: 'custom-substantial', label: 'Substantial', description: 'A substantial contribution',
+        color: '#123456', enabled: true,
+      }],
+      contributors: [{
+        author: { name: 'Alice Smith' },
+        credit_levels: [{ role: 'software', level: 'custom-substantial' }],
+      }],
+    };
+    const rows = fromEndpointPayload(data);
+    expect(rows[0].Software).toBe('custom-substantial');
+    expect(toEndpointPayload(rows, 'custom-levels').contributors[0].credit_levels[0].level)
+      .toBe('custom-substantial');
+  });
+
   it('returns empty array for empty contributors', () => {
     expect(fromEndpointPayload({ project_name: 'p', contributors: [] })).toEqual([]);
   });

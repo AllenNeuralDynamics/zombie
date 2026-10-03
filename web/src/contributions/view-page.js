@@ -13,6 +13,7 @@ import { isLocalDevelopment } from '../lib/local-dev.js';
 import { createPreview } from './preview.js';
 import { fromEndpointPayload, rowsToWidgetAuthors, CREDIT_ROLE_ENUM } from './view.js';
 import { fetchContributions } from './fetch.js';
+import { normalizeAuthorWorkflowLevels } from './author-workflow-levels.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,7 +103,7 @@ function ViewApp({ doi }) {
   // tabs must match them, not the widget defaults.
   const [settings, setSettings] = useState({
     showSections: false, showLevels: true, showTimeline: false,
-    allowLead: true, allowLevels: true,
+    authorWorkflowLevels: normalizeAuthorWorkflowLevels(null),
   });
   const previewRef = useRef(null);
 
@@ -123,8 +124,7 @@ function ViewApp({ doi }) {
         showSections: data.show_sections ?? false,
         showLevels: data.show_levels ?? true,
         showTimeline: data.show_timeline ?? false,
-        allowLead: data.allow_lead ?? true,
-        allowLevels: data.allow_levels ?? true,
+        authorWorkflowLevels: normalizeAuthorWorkflowLevels(data.author_workflow_levels, data),
       });
       setAuthors(buildPreviewAuthors(rows, meta));
     } catch (e) {

@@ -142,6 +142,7 @@
 .contributions-matrix select {
   border: none;
   background: transparent;
+  color: inherit;
   font-size: 0.8rem;
   cursor: pointer;
   width: 100%;
