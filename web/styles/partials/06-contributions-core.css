@@ -908,7 +908,10 @@
   border-radius: 5px;
   background: var(--surface-bg);
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3rem;
   line-height: 1;
   cursor: pointer;
 }
