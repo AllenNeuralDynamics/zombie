@@ -117,6 +117,7 @@ describe('ephys curation iframe communication', () => {
     expect(onCuration).toHaveBeenCalledWith(metric().name, next);
     expect(panel.querySelector('.qc-ephys-curation-select').options).toHaveLength(2);
     expect(panel.querySelector('.qc-ephys-curation-metadata').textContent).toBe('Pending curation');
-    expect(panel.querySelector('.qc-ephys-curation-json').textContent).toContain('"unit_ids"');
+    expect(panel.querySelector('.record-tree').textContent).toContain('"unit_ids"');
+    expect(panel.querySelector('.record-tree .json-number').textContent).toBe('3');
   });
 });

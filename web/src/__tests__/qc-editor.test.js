@@ -217,6 +217,6 @@ describe('review diff against the freshly-pulled record', () => {
       pendingChanges: { 'Sorting Curation': { value: { unit_ids: [1, 2] } } },
     });
     expect(row.currentValue).toBe('Curation data (1 entry)');
-    expect(row.nextValue).toBe('Curation data (1 entry)');
+    expect(row.nextValue).toBe('Curation data (2 entries)');
   });
 });
