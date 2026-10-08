@@ -13,6 +13,7 @@ import {
 
 beforeEach(() => {
   window.localStorage.clear();
+  document.body.replaceChildren();
 });
 
 describe('readMultiSessionSetting', () => {
@@ -41,9 +42,23 @@ describe('readMultiSessionSetting', () => {
 });
 
 describe('createMultiSessionSetting', () => {
-  const parts = (el) => ({
-    checkbox: el.querySelector('input[type=checkbox]'),
-    count: el.querySelector('input[type=number]'),
+  const parts = (el) => {
+    document.body.append(el);
+    el.querySelector('button').click();
+    return {
+      checkbox: el.querySelector('input[type=checkbox]'),
+      count: el.querySelector('input[type=number]'),
+    };
+  };
+
+  it('opens settings from a gear and closes the dialog', () => {
+    const el = createMultiSessionSetting();
+    expect(el.querySelector('input')).toBeNull();
+    parts(el);
+    expect(el.querySelector('dialog').open).toBe(true);
+    el.querySelector('[aria-label="Close settings"]').click();
+    expect(el.querySelector('dialog')).toBeNull();
+    expect(readMultiSessionSetting().enabled).toBe(false);
   });
 
   it('applies and persists when switched on', () => {

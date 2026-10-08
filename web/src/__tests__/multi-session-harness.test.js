@@ -129,6 +129,16 @@ describe('createMultiSessionView', () => {
     });
   });
 
+  it('ignores enrichment after disposal', async () => {
+    let resolve;
+    const provider = fakeProvider('a', { enrich: () => new Promise((r) => { resolve = r; }) });
+    const el = createMultiSessionView(A_EVENTS, {}, [provider]);
+    el._dispose();
+    resolve([]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.querySelector('.fake-section')).toBeNull();
+  });
+
   it('renders nothing further once the signal is aborted', async () => {
     const controller = new AbortController();
     const provider = fakeProvider('a', { enrich: async (s) => s });

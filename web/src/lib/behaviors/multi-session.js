@@ -1,43 +1,4 @@
-/**
- * multi-session.js — platform-agnostic harness for multi-session views.
- *
- * When the subject timeline reports a multi-selection, the per-session detail
- * panel is replaced by one of these. Everything platform-specific lives in a
- * *provider*; this module owns only the parts every platform shares:
- *
- *   - mapping selected timeline events to sessions (dedupe + chronological),
- *   - picking the provider that covers the selection,
- *   - the header line and the titled section scaffolding,
- *   - one shared async enrichment pass, with abort and error handling,
- *   - the placeholder shown when no provider covers the selection.
- *
- * A provider is a plain object:
- *
- *   {
- *     key: 'dynamic_foraging',
- *     label: 'dynamic foraging',          // used in the header line
- *     matchSession(event) -> session|null, // one selected event → a session
- *     sessionKey(session) -> string,       // dedupe key (default: date|suffix)
- *     async enrich(sessions, ctx) -> sessions,  // optional shared load
- *     sections: [{ key, title, build(sessions, ctx) -> Element|null }],
- *   }
- *
- * `build` may return null to omit its section (e.g. no fiber data for these
- * sessions), and may kick off its own async work — the harness only guarantees
- * that `enrich` has already run.
- *
- * To support a new platform: write a provider and add it to `PROVIDERS` in
- * multi-session-providers.js. Nothing in this file should learn about it.
- */
-
-/**
- * Map selected events to this provider's sessions, deduplicated and ordered
- * oldest → newest.
- *
- * @param {object} provider
- * @param {object[]} events - Selected subject-timeline events.
- * @returns {object[]}
- */
+// Map selections to ordered sessions and render the matching behavior provider.
 export function sessionsForProvider(provider, events) {
   const keyOf = provider.sessionKey
     ?? ((s) => `${s.session_date ?? ''}|${s.nwb_suffix ?? ''}`);
@@ -54,14 +15,7 @@ export function sessionsForProvider(provider, events) {
   return sessions.sort((a, b) => String(a.session_date ?? '').localeCompare(String(b.session_date ?? '')));
 }
 
-/**
- * Pick the provider covering the most of this selection, requiring at least
- * two sessions — one session is what the per-event detail panel is for.
- *
- * @param {object[]} events
- * @param {object[]} providers
- * @returns {{provider: object, sessions: object[]}|null}
- */
+
 export function pickProvider(events, providers) {
   let best = null;
   for (const provider of providers ?? []) {
@@ -98,18 +52,13 @@ function placeholderEl(text) {
   return el;
 }
 
-/**
- * Build the multi-session view for a selection, or a placeholder explaining
- * why there isn't one.
- *
- * @param {object[]} events - Selected timeline events.
- * @param {object} [context] - { coordinator, subjectId, signal, … } passed to the provider.
- * @param {object[]} providers - Provider list (injected so tests can supply fakes).
- * @returns {HTMLElement}
- */
+
 export function createMultiSessionView(events, context = {}, providers = []) {
   const root = document.createElement('div');
   root.className = 'multi-session-view';
+  let disposed = false;
+  root._dispose = () => { disposed = true; };
+  const stopped = () => disposed || context.signal?.aborted;
 
   const picked = pickProvider(events, providers);
   if (!picked) {
@@ -117,7 +66,7 @@ export function createMultiSessionView(events, context = {}, providers = []) {
     const platforms = providers.map((p) => p.label).join(', ');
     root.appendChild(placeholderEl(
       `${acquisitions} acquisition${acquisitions === 1 ? '' : 's'} selected. `
-      + `Cross-session comparison currently covers ${platforms || 'no platforms'}.`,
+      + `Multi-session behavior currently covers ${platforms || 'no platforms'}.`,
     ));
     return root;
   }
@@ -131,6 +80,7 @@ export function createMultiSessionView(events, context = {}, providers = []) {
   root.appendChild(body);
 
   const renderSections = (enriched) => {
+    if (stopped()) return;
     body.replaceChildren();
     for (const section of provider.sections ?? []) {
       let el = null;
@@ -156,11 +106,11 @@ export function createMultiSessionView(events, context = {}, providers = []) {
 
   Promise.resolve(provider.enrich(sessions, context))
     .then((enriched) => {
-      if (context.signal?.aborted) return;
+      if (stopped()) return;
       renderSections(enriched ?? sessions);
     })
     .catch((err) => {
-      if (context.signal?.aborted) return;
+      if (stopped()) return;
       console.warn('[MultiSession] enrich failed:', err);
       // Sections that need no enrichment still work, so render them anyway.
       renderSections(sessions);

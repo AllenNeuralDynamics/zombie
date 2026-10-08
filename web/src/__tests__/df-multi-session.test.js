@@ -1,21 +1,24 @@
 /**
  * df-multi-session.test.js — the dynamic-foraging multi-session provider:
- * event → session mapping, metadata join, metric series, session colours, and
- * the rendered sections with a mocked coordinator.
+ * session mapping, concatenation, layout switching, and stale-load cleanup.
  *
  * @vitest-environment happy-dom
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   dynamicForagingProvider,
   matchForagingSession,
   joinSessionMetadata,
-  buildMetricSeries,
-  sessionColors,
+  concatenateSessions,
   rowSessionDate,
 } from '../lib/behaviors/dynamic-foraging-multi.js';
 import { createMultiSessionView, sessionsForProvider } from '../lib/behaviors/multi-session.js';
 import { renderMultiEventDetail } from '../subject/details.js';
+
+vi.mock('../dynamic_foraging/data-loader.js', () => ({ loadDfSession: vi.fn() }));
+vi.mock('../dynamic_foraging/prob-plot.js', () => ({ createProbPlot: vi.fn() }));
+import { loadDfSession } from '../dynamic_foraging/data-loader.js';
+import { createProbPlot } from '../dynamic_foraging/prob-plot.js';
 
 // The table is registered during bootstrap in the real app.
 vi.mock('../lib/registry.js', () => ({ ensureTable: vi.fn() }));
@@ -51,7 +54,7 @@ describe('matchForagingSession', () => {
     })).toBeNull();
   });
 
-  it('carries modalities through, so the fiber section can gate on them', () => {
+  it('accepts behavior sessions that also carry fiber data', () => {
     expect(matchForagingSession(dfAcq('2026-05-01', '120000', ['behavior', 'fib'])).modalities)
       .toEqual(['behavior', 'fib']);
   });
@@ -107,189 +110,118 @@ describe('joinSessionMetadata', () => {
   });
 });
 
-describe('buildMetricSeries', () => {
-  const joined = [
-    { session_date: '2026-05-01', meta: { foraging_eff: 0.4 } },
-    { session_date: '2026-05-02', meta: { foraging_eff: null } },
-    { session_date: '2026-05-03', meta: null },
-    { session_date: '2026-05-04', meta: { foraging_eff: 0.8 } },
-  ];
+const sessionData = () => ({
+  trials: [{ goCue_t: 1, pL: 0.2, pR: 0.8, response: 0 },
+    { goCue_t: 4, pL: 0.8, pR: 0.2, response: 1 }],
+  rewards: { t: new Float64Array([2]), side: new Uint8Array([0]) },
+  sessionEndS: 10,
+});
+const coordinator = { query: vi.fn(async () => ({ numRows: 0, schema: { fields: [] } })) };
 
-  it('keeps only sessions with a finite value', () => {
-    const series = buildMetricSeries(joined, 'foraging_eff');
-    expect(series.map((d) => d.value)).toEqual([0.4, 0.8]);
-    expect(series[0].date.toISOString()).toBe('2026-05-01T00:00:00.000Z');
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  loadDfSession.mockImplementation(async () => sessionData());
+  createProbPlot.mockImplementation(() => ({ element: document.createElement('div'), dispose: vi.fn() }));
+});
 
-  it('returns an empty series for an unknown metric', () => {
-    expect(buildMetricSeries(joined, 'nope')).toEqual([]);
+const buildView = (events = EVENTS, context = {}) => createMultiSessionView(
+  events, { coordinator, ...context }, [dynamicForagingProvider],
+);
+const ready = (el) => vi.waitFor(() => expect(el.querySelectorAll('.df-multi-plot-card')).toHaveLength(1));
+
+describe('concatenateSessions', () => {
+  it('shifts trials and typed reward timestamps without mutating either session', async () => {
+    const sources = SESSIONS.map((session) => ({ session, data: sessionData() }));
+    const combined = concatenateSessions(sources);
+    expect(combined.sessionEndS).toBe(20);
+    expect(combined.trials.map((tr) => tr.goCue_t)).toEqual([1, 4, 11, 14]);
+    expect(combined.rewards).toEqual({ t: [2, 12], side: [0, 0] });
+    expect(combined.sessionStarts.map((start) => start.t)).toEqual([0, 10]);
+    expect(sources[1].data.trials[0].goCue_t).toBe(1);
+    const { _buildStepData, _choiceSpans } = await vi.importActual('../dynamic_foraging/prob-plot.js');
+    expect(_buildStepData(combined.trials, 20).map((p) => p.t)).toEqual([1, 4, 10, 11, 14, 20]);
+    expect(_choiceSpans(combined.trials, 20).choiceR).toEqual([{ x1: 4, x2: 10 }, { x1: 14, x2: 20 }]);
   });
 });
 
-describe('sessionColors', () => {
-  it('walks a single-hue ramp, one step per session', () => {
-    const colors = sessionColors(3, ['#000000', '#ffffff']);
-    expect(colors).toEqual(['#000000', '#808080', '#ffffff']);
-  });
-
-  it('never cycles: n sessions give n distinct steps', () => {
-    const colors = sessionColors(12, ['#3aa76d', '#08331d']);
-    expect(new Set(colors).size).toBe(12);
-  });
+it('extends each probability series to its own session end when the last trial has missing probabilities', async () => {
+  const sources = SESSIONS.map((session) => ({ session, data: sessionData() }));
+  sources[0].data.trials[1].pL = null;
+  sources[1].data.sessionEndS = 20;
+  const combined = concatenateSessions(sources);
+  const { _buildStepData } = await vi.importActual('../dynamic_foraging/prob-plot.js');
+  expect(_buildStepData(combined.trials, 30).map((p) => p.t)).toEqual([1, 10, 11, 14, 30]);
 });
 
-// ---------------------------------------------------------------------------
-// DOM
-// ---------------------------------------------------------------------------
-
-function mockCoordinator(rows) {
-  return {
-    query: vi.fn(async () => ({
-      numRows: rows.length,
-      schema: { fields: Object.keys(rows[0] ?? {}).map((name) => ({ name })) },
-      getChild: (name) => ({ get: (i) => rows[i][name] }),
-    })),
-  };
-}
-
-const ROWS = [
-  {
-    subject_id: '844634', session_date: '2026-05-01', nwb_suffix: '120000',
-    current_stage_actual: 'STAGE_2', task: 'Coupled Baiting',
-    foraging_eff: 0.41, finished_trials: 300, finished_rate: 0.9, bias_naive: 0.1,
-  },
-  {
-    subject_id: '844634', session_date: '2026-05-02', nwb_suffix: '120000',
-    current_stage_actual: 'STAGE_3', task: 'Coupled Baiting',
-    foraging_eff: 0.62, finished_trials: 420, finished_rate: 0.95, bias_naive: -0.05,
-  },
-];
-
-const providers = [dynamicForagingProvider];
-
-describe('createMultiSessionView — dynamic foraging', () => {
-  it('names the platform and the date span', async () => {
-    const el = createMultiSessionView(EVENTS, { coordinator: null }, providers);
-    expect(el.dataset.platform).toBe('dynamic_foraging');
-    expect(el.querySelector('.multi-session-header').textContent)
-      .toBe('2 dynamic foraging sessions · 2026-05-01 → 2026-05-02');
+describe('multi-session behavior plots', () => {
+  it('shows only a single concatenated behavior plot by default', async () => {
+    const el = buildView();
+    await ready(el);
+    expect([...el.querySelectorAll('h4')].map((h) => h.textContent)).toEqual(['Behavior']);
+    expect(el.querySelector('table, img, .df-multi-fib')).toBeNull();
+    expect(el.querySelector('.df-multi-plots--fixed')).toBeNull();
+    expect(createProbPlot.mock.calls[0][0].sessionEndS).toBe(20);
+    expect(loadDfSession.mock.calls.map(([, options]) => options.sessionDate))
+      .toEqual(['2026-05-01', '2026-05-02']);
   });
 
-  it('renders metrics, session figures and the collapsed pre-rendered block', async () => {
-    const coordinator = mockCoordinator(ROWS);
-    const el = createMultiSessionView(EVENTS, { coordinator, subjectId: '844634' }, providers);
-    await vi.waitFor(() => {
-      expect(el.querySelector('.df-multi-table')).toBeTruthy();
-    });
-
-    const titles = [...el.querySelectorAll('.multi-session-section > h4')].map((h) => h.textContent);
-    expect(titles).toEqual(['Across sessions', 'Session figures', 'Choice history']);
-
-    // One trend chart per metric that has at least two points.
-    expect(el.querySelectorAll('.df-multi-trend-cell')).toHaveLength(4);
-    const bodyText = el.querySelector('.df-multi-table tbody').textContent;
-    expect(bodyText).toContain('STAGE_2');
-    expect(bodyText).toContain('0.620');
-
-    // One boxed column per session, captioned with the stage from the cache,
-    // and only the leftmost carrying the shared row-label gutter.
-    const columns = el.querySelectorAll('.df-multi-plot-card');
-    expect(columns).toHaveLength(2);
-    expect([...columns].map((c) => c.classList.contains('df-multi-plot-card--labelled')))
-      .toEqual([true, false]);
-    expect(el.querySelector('.df-multi-figure-caption').textContent).toBe('2026-05-01 · STAGE_2');
-  });
-
-  it('defers the pre-rendered images until the block is opened', async () => {
-    const coordinator = mockCoordinator(ROWS);
-    const el = createMultiSessionView(EVENTS, { coordinator, subjectId: '844634' }, providers);
-    await vi.waitFor(() => expect(el.querySelector('.df-multi-choice-history')).toBeTruthy());
-
-    const details = el.querySelector('.df-multi-choice-history');
-    expect(details.querySelectorAll('img')).toHaveLength(0);
-    details.open = true;
-    details.dispatchEvent(new Event('toggle'));
-    const imgs = details.querySelectorAll('img');
-    expect(imgs).toHaveLength(2);
-    expect(imgs[0].src).toContain('844634_2026-05-01_120000_choice_history.png');
-  });
-
-  it('omits the fiber section unless the sessions carry fib data', async () => {
-    const coordinator = mockCoordinator(ROWS);
-    const el = createMultiSessionView(EVENTS, { coordinator, subjectId: '844634' }, providers);
-    await vi.waitFor(() => expect(el.querySelector('.df-multi-table')).toBeTruthy());
-    expect(el.querySelector('.df-multi-fib')).toBeNull();
-
-    const fibEvents = [
-      dfAcq('2026-05-01', '120000', ['behavior', 'fib']),
-      dfAcq('2026-05-02', '120000', ['behavior', 'fib']),
-    ];
-    const fibEl = createMultiSessionView(fibEvents, { coordinator, subjectId: '844634' }, providers);
-    await vi.waitFor(() => expect(fibEl.querySelector('.df-multi-fib')).toBeTruthy());
-
-    // Implant beside the session strip, plus the layout switch.
-    expect(fibEl.querySelector('.df-multi-fib-implant')).toBeTruthy();
-    expect(fibEl.querySelector('.df-multi-fib-strip')).toBeTruthy();
-    const layouts = [...fibEl.querySelectorAll('.df-multi-fib-controls option')]
-      .map((o) => o.value);
-    expect(layouts).toContain('aggregate');
-    expect(layouts).toContain('columns');
-    expect(layouts).toContain('overlay');
-    // Aggregate is the default: per-session panels stop scaling past a few.
-    expect(fibEl.querySelector('.df-multi-fib-controls select:nth-of-type(1)')).toBeTruthy();
-    const layoutSel = [...fibEl.querySelectorAll('.df-multi-fib-controls select')]
-      .find((sel) => [...sel.options].some((o) => o.value === 'aggregate'));
-    expect(layoutSel.value).toBe('aggregate');
-  });
-
-  it('queries the selected dates once', async () => {
-    const coordinator = mockCoordinator(ROWS);
-    createMultiSessionView(EVENTS, { coordinator, subjectId: '844634' }, providers);
-    await vi.waitFor(() => {
-      const sql = coordinator.query.mock.calls.map(([q]) => q).join('\n');
-      expect(sql).toContain("session_date IN ('2026-05-01', '2026-05-02')");
-    });
-  });
-
-  it('still renders sections when the metric query fails', async () => {
-    const coordinator = { query: vi.fn(async () => { throw new Error('boom'); }) };
-    const el = createMultiSessionView(EVENTS, { coordinator }, providers);
-    await vi.waitFor(() => {
-      expect(el.textContent).toContain('No foraging cache rows found');
-    });
+  it('switches to fixed session columns and back without reloading data, disposing old plots', async () => {
+    const el = buildView();
+    await ready(el);
+    const first = createProbPlot.mock.results[0].value;
+    const toggle = el.querySelector('input[type=checkbox]');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(first.dispose).toHaveBeenCalledOnce();
+    expect(el.querySelector('.df-multi-plots--fixed')).toBeTruthy();
     expect(el.querySelectorAll('.df-multi-plot-card')).toHaveLength(2);
-  });
-});
-
-describe('renderMultiEventDetail', () => {
-  it('renders the multi-session view for two or more foraging sessions', () => {
-    const container = document.createElement('div');
-    renderMultiEventDetail(EVENTS, container, {});
-    expect(container.querySelector('.multi-session-view')).toBeTruthy();
-    expect(container.querySelector('[data-platform="dynamic_foraging"]')).toBeTruthy();
+    expect([...el.querySelectorAll('.df-multi-figure-caption')].map((c) => c.textContent))
+      .toEqual(['2026-05-01', '2026-05-02']);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    expect(el.querySelectorAll('.df-multi-plot-card')).toHaveLength(1);
+    expect(el.querySelector('.df-multi-plots--fixed')).toBeNull();
+    expect(loadDfSession).toHaveBeenCalledTimes(2);
   });
 
-  it('explains itself when no provider covers the selection', () => {
-    const container = document.createElement('div');
-    renderMultiEventDetail(
-      [
-        { type: 'Acquisition', event: 'ecephys_1_2026-05-01', start: new Date('2026-05-01'), data: { _assetName: 'ecephys_1_2026-05-01' } },
-        { type: 'Acquisition', event: 'ecephys_1_2026-05-02', start: new Date('2026-05-02'), data: { _assetName: 'ecephys_1_2026-05-02' } },
-      ],
-      container,
-      {},
-    );
-    expect(container.querySelector('[data-platform]')).toBeNull();
-    expect(container.textContent).toContain('2 acquisitions selected');
-    expect(container.textContent).toContain('dynamic foraging');
+  it('offers no layout toggle for single sessions or non-behavior acquisitions', () => {
+    expect(buildView([EVENTS[0]]).querySelector('input')).toBeNull();
+    const nonBehavior = (date) => ({ type: 'Acquisition', data: { _assetName: `ecephys_123456_${date}_120000` } });
+    expect(buildView([nonBehavior('2026-05-01'), nonBehavior('2026-05-02')]).querySelector('input')).toBeNull();
+    expect(buildView([EVENTS[0], nonBehavior('2026-05-02')]).querySelector('input')).toBeNull();
   });
 
-  it('disposes the previous view before rendering a new one', () => {
+  it('keeps available sessions when another load fails', async () => {
+    loadDfSession.mockRejectedValueOnce(new Error('unavailable'));
+    const el = buildView();
+    await ready(el);
+    expect(el.textContent).toContain('2026-05-01: session data unavailable.');
+    expect(createProbPlot.mock.calls[0][0].sessionEndS).toBe(10);
+  });
+
+  it('ignores pending results when the view is replaced', async () => {
+    let resolve;
+    loadDfSession.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
     const container = document.createElement('div');
-    renderMultiEventDetail(EVENTS, container, {});
-    const dispose = vi.fn();
-    container.querySelector('.multi-session-view')._dispose = dispose;
-    renderMultiEventDetail(EVENTS, container, {});
-    expect(dispose).toHaveBeenCalled();
+    renderMultiEventDetail(EVENTS, container, { coordinator });
+    await vi.waitFor(() => expect(resolve).toBeTruthy());
+    renderMultiEventDetail([], container, { coordinator });
+    resolve(sessionData());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(createProbPlot).not.toHaveBeenCalled();
+    expect(loadDfSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores pending results after abort', async () => {
+    let resolve;
+    loadDfSession.mockImplementationOnce(() => new Promise((r) => { resolve = r; }));
+    const controller = new AbortController();
+    const el = buildView(EVENTS, { signal: controller.signal });
+    await vi.waitFor(() => expect(resolve).toBeTruthy());
+    controller.abort();
+    resolve(sessionData());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(el.querySelector('.df-multi-plot-card')).toBeNull();
+    expect(createProbPlot).not.toHaveBeenCalled();
   });
 });

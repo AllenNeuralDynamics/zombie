@@ -80,11 +80,12 @@ const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
  * @returns {{ element: HTMLElement, updatePlayhead:(t:number)=>void, setOnScrub:(cb:(t:number)=>void)=>void, dispose:()=>void }}
  */
 export function createProbPlot(data, opts = {}) {
-  const { showRowLabels = true } = opts;
+  const { showRowLabels = true, minPlotW = MIN_PLOT_W } = opts;
   // Without the gutter the plot keeps only enough left margin for the y-edge.
   const margin = { ...MARGIN, left: showRowLabels ? MARGIN.left : 14 };
   const { trials, rewards, sessionEndS } = data;
   const stepData = _buildStepData(trials, sessionEndS);
+  const sessionGroup = data.sessionStarts ? { z: 'session' } : {};
   const { rewardL, rewardR } = _splitRewards(rewards);
   const ignoredTicks         = _ignoredTrialTicks(trials);
   const { choiceL, choiceR } = _choiceSpans(trials, sessionEndS);
@@ -107,7 +108,7 @@ export function createProbPlot(data, opts = {}) {
     .filter((tr) => Number.isFinite(tr.goCue_t))
     .map((tr, i, arr) => ({
       x1: tr.goCue_t,
-      x2: i + 1 < arr.length ? arr[i + 1].goCue_t : sessionEndS,
+      x2: Math.min(tr.sessionEnd_t ?? sessionEndS, i + 1 < arr.length ? arr[i + 1].goCue_t : sessionEndS),
       even: i % 2 === 0,
     }));
 
@@ -133,9 +134,9 @@ export function createProbPlot(data, opts = {}) {
       x: { axis: null, domain: [0, sessionEndS] },
       y: { axis: null, domain: [0, 1] },
       marks: [
-        Plot.lineY(stepData, { x: 't', y: 'pL', stroke: COLOR_L,
+        Plot.lineY(stepData, { x: 't', y: 'pL', ...sessionGroup, stroke: COLOR_L,
           strokeWidth: 1.5, curve: 'step-after' }),
-        Plot.lineY(stepData, { x: 't', y: 'pR', stroke: COLOR_R,
+        Plot.lineY(stepData, { x: 't', y: 'pR', ...sessionGroup, stroke: COLOR_R,
           strokeWidth: 1.5, curve: 'step-after' }),
       ],
     });
@@ -175,24 +176,30 @@ export function createProbPlot(data, opts = {}) {
           stroke: COLOR_EVENT, strokeWidth: 1 }),
         Plot.rect(choiceL, { x1: 'x1', x2: 'x2', y1: Y_LCHO_BOT, y2: Y_LCHO_TOP,
           fill: COLOR_CHOICE, fillOpacity: 0.85, stroke: 'none' }),
-        Plot.areaY(stepData, { x: 't', y1: Y_PL_TOP,
+        Plot.areaY(stepData, { x: 't', ...sessionGroup, y1: Y_PL_TOP,
           y2: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
           curve: 'step-after', fill: COLOR_L, fillOpacity: 0.35 }),
-        Plot.lineY(stepData, { x: 't',
+        Plot.lineY(stepData, { x: 't', ...sessionGroup,
           y: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
           stroke: COLOR_L, strokeWidth: 1.4, curve: 'step-after' }),
 
         // --- Right side (top) ---
-        Plot.areaY(stepData, { x: 't', y1: Y_PR_BOT,
+        Plot.areaY(stepData, { x: 't', ...sessionGroup, y1: Y_PR_BOT,
           y2: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
           curve: 'step-after', fill: COLOR_R, fillOpacity: 0.35 }),
-        Plot.lineY(stepData, { x: 't',
+        Plot.lineY(stepData, { x: 't', ...sessionGroup,
           y: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
           stroke: COLOR_R, strokeWidth: 1.4, curve: 'step-after' }),
         Plot.rect(choiceR, { x1: 'x1', x2: 'x2', y1: Y_RCHO_BOT, y2: Y_RCHO_TOP,
           fill: COLOR_CHOICE, fillOpacity: 0.85, stroke: 'none' }),
         Plot.ruleX(rewardR, { x: 't', y1: Y_RREW_BOT, y2: Y_RREW_TOP,
           stroke: COLOR_EVENT, strokeWidth: 1 }),
+
+        ...(data.sessionStarts ? [
+          Plot.ruleX(data.sessionStarts.slice(1), { x: 't', stroke: '#999', strokeDasharray: '3,3' }),
+          Plot.text(data.sessionStarts, { x: 't', y: Y_DOMAIN_MAX, text: 'label',
+            textAnchor: 'start', dx: 4, dy: 6, fontSize: 10 }),
+        ] : []),
 
         // Ignored trials (top)
         Plot.ruleX(ignoredTicks, { x: 't', y1: Y_IGN_BOT, y2: Y_IGN_TOP,
@@ -206,7 +213,7 @@ export function createProbPlot(data, opts = {}) {
     sessionEndS,
     margin: { left: margin.left, right: margin.right },
     overviewHeight: OVERVIEW_HEIGHT,
-    minPlotW: MIN_PLOT_W,
+    minPlotW,
     scrubInset: { top: margin.top - 6, bottom: margin.bottom - 4 },
     wrapperClass: 'df-prob-plot-wrap',
     renderOverview,
@@ -307,13 +314,18 @@ function _makeRowLabel(text, color, rightPx, topPx) {
  */
 export function _buildStepData(trials, sessionEndS) {
   const out = [];
-  for (const tr of trials) {
-    if (!Number.isFinite(tr.goCue_t) || !Number.isFinite(tr.pL) || !Number.isFinite(tr.pR)) continue;
-    out.push({ t: tr.goCue_t, pL: tr.pL, pR: tr.pR });
+  const valid = trials.filter((tr) => Number.isFinite(tr.goCue_t) && Number.isFinite(tr.pL) && Number.isFinite(tr.pR));
+  for (let i = 0; i < valid.length; i++) {
+    const tr = valid[i];
+    const point = { t: tr.goCue_t, pL: tr.pL, pR: tr.pR };
+    if (tr.session != null) point.session = tr.session;
+    out.push(point);
+    if (tr.sessionEnd_t != null && valid[i + 1]?.session !== tr.session) {
+      out.push({ ...point, t: tr.sessionEnd_t });
+    }
   }
-  if (out.length > 0) {
-    const last = out[out.length - 1];
-    out.push({ t: sessionEndS, pL: last.pL, pR: last.pR });
+  if (out.length > 0 && trials.every((tr) => tr.sessionEnd_t == null)) {
+    out.push({ ...out[out.length - 1], t: sessionEndS });
   }
   return out;
 }
@@ -394,7 +406,7 @@ export function _choiceSpans(trials, sessionEndS) {
   for (let i = 0; i < cues.length; i++) {
     const tr = cues[i];
     const x1 = tr.goCue_t;
-    const x2 = i + 1 < cues.length ? cues[i + 1].goCue_t : sessionEndS;
+    const x2 = Math.min(tr.sessionEnd_t ?? sessionEndS, i + 1 < cues.length ? cues[i + 1].goCue_t : sessionEndS);
     if (tr.response === 0) choiceL.push({ x1, x2 });
     else if (tr.response === 1) choiceR.push({ x1, x2 });
   }
