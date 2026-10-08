@@ -22,6 +22,8 @@ import { useState, useEffect } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
 import { isLocalDevelopment } from '../lib/local-dev.js';
+import { findUnlinkedAuthorMatches, normalizeOrcidId } from './orcid-identity.js';
+import { OrcidIdentityModal } from './orcid-identity-modal.js';
 import {
   CREDIT_CATEGORIES,
   CREDIT_ROLE_ENUM,
@@ -136,6 +138,7 @@ function extractPayloadMeta(data) {
 function StepPersonalInfo({
   name, setName, orcid, setOrcid, email, setEmail, selectedAffNames, setSelectedAffNames,
   projectAffiliations, joinDate, setJoinDate, leaveDate, setLeaveDate, onNext,
+  onIdentityResolved,
 }) {
   const canNext = name.trim().length > 0;
 
@@ -149,6 +152,7 @@ function StepPersonalInfo({
         startDate=${joinDate} endDate=${leaveDate}
         affiliations=${projectAffiliations}
         selectedAffiliationNames=${selectedAffNames}
+        onIdentityResolved=${onIdentityResolved}
         onChange=${(field, value) => {
           if (field === 'name') setName(value);
           else if (field === 'orcid') setOrcid(value);
@@ -279,6 +283,7 @@ function StepFullEditor({
   orcid, email, selectedAffNames, roles, descriptions, joinDate, leaveDate, sectionLevels,
   setAuthorName, setOrcid, setEmail, setSelectedAffNames, setRoles, setDescriptions, setJoinDate, setLeaveDate, setSectionLevels,
   allRows, sections, affiliations, onBack, workflowLevels,
+  onIdentityResolved,
 }) {
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState({ text: '', cls: '' });
@@ -411,6 +416,7 @@ function StepFullEditor({
           sections=${sections}
           sectionLevels=${sectionLevels}
           workflowLevels=${workflowLevels}
+          onIdentityResolved=${onIdentityResolved}
           onProfileChange=${(field, value) => {
             if (field === 'name') setAuthorName(value);
             else if (field === 'orcid') setOrcid(value);
@@ -473,6 +479,8 @@ function AddApp({ project, doi, existingAuthor }) {
   // True when the visitor opted to continue without logging in: their entry is
   // saved but they are given no way to edit it later.
   const [anonymous, setAnonymous] = useState(false);
+  const [identityCandidates, setIdentityCandidates] = useState([]);
+  const [linkedAuthorName, setLinkedAuthorName] = useState('');
 
   const _draft = loadDraft(draftId);
   const isExisting = Boolean(existingAuthor);
@@ -495,6 +503,56 @@ function AddApp({ project, doi, existingAuthor }) {
   const [descriptions, setDescriptions] = useState(_draft?.descriptions || {});
   const [sectionLevels, setSectionLevels] = useState(_draft?.sectionLevels || {});
   const [prefilled, setPrefilled] = useState(Boolean(_draft));
+
+  function prefillContributor(contributor, dataWorkflowLevels) {
+    setName(contributor.author.name);
+    setOwnAuthorName(contributor.author.name);
+    const existingOrcid = contributor.author?.registry_identifier || '';
+    setOrcid(existingOrcid || user?.orcid || '');
+    const existingEmail = contributor.author?.email || '';
+    setEmail(existingEmail);
+
+    const affRaw = contributor.author?.affiliation;
+    const affArr = Array.isArray(affRaw) ? affRaw
+      : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
+    setSelectedAffNames(affArr);
+
+    setJoinDate(contributor.start_date || null);
+    setLeaveDate(contributor.end_date || null);
+
+    const newRoles = {};
+    for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
+    const newDescs = {};
+    for (const cl of contributor.credit_levels || []) {
+      const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
+      if (displayRole) newRoles[displayRole] = workflowValueToUiValue(cl.level, dataWorkflowLevels);
+      if (cl.description) newDescs[cl.role] = cl.description;
+    }
+    setRoles(newRoles);
+    setDescriptions(newDescs);
+
+    const newSectionLevels = {};
+    for (const sl of contributor.section_levels || []) {
+      newSectionLevels[sl.section] = { level: sl.level, description: sl.description || '' };
+    }
+    setSectionLevels(newSectionLevels);
+    setPrefilled(true);
+  }
+
+  async function resolveIdentity(identity) {
+    const resolvedName = String(identity.name || name).trim();
+    if (user?.orcid
+      && normalizeOrcidId(identity.orcid) !== normalizeOrcidId(user.orcid)) {
+      throw new Error('Use the ORCID account you signed in with.');
+    }
+    const duplicate = allRows.some((row) => row.name !== linkedAuthorName
+      && String(row.name || '').trim().toLocaleLowerCase() === resolvedName.toLocaleLowerCase());
+    if (duplicate) {
+      throw new Error('A contributor with this name is already listed. Choose that record from the link prompt.');
+    }
+    if (resolvedName) setName(resolvedName);
+    setOrcid(identity.orcid);
+  }
 
   useEffect(() => {
     if (loading) return;
@@ -549,67 +607,43 @@ function AddApp({ project, doi, existingAuthor }) {
         setSections(meta.sections);
         setAffiliations(meta.affiliations);
 
-        // Which existing row belongs to this visitor? A logged-in user is
-        // matched by their ORCID; otherwise fall back to the author name in the
-        // URL (legacy prefill hint).
+        // Only an exact ORCID match can be selected without user confirmation.
         const contributors = data.contributors || [];
         let ownContributor = null;
         if (user?.orcid) {
           ownContributor = contributors.find(
-            (c) => c.author?.registry_identifier
-              && c.author.registry_identifier === user.orcid,
+            (c) => normalizeOrcidId(c.author?.registry_identifier)
+              && normalizeOrcidId(c.author.registry_identifier) === normalizeOrcidId(user.orcid),
           ) || null;
-        }
-        if (!ownContributor && existingAuthor) {
+          if (ownContributor) {
+            setIdentityCandidates([]);
+            setLinkedAuthorName(ownContributor.author.name);
+          } else {
+            setLinkedAuthorName('');
+            setIdentityCandidates(findUnlinkedAuthorMatches(
+              contributors,
+              user.name,
+              { legacyName: existingAuthor },
+            ));
+          }
+        } else if (existingAuthor) {
+          setLinkedAuthorName('');
           ownContributor = contributors.find((c) => c.author?.name === existingAuthor) || null;
+        } else {
+          setLinkedAuthorName('');
         }
 
         // Default the ORCID/name fields to the logged-in identity so a newly
         // created record is tied to their account (and stays editable later).
         if (ownContributor) setOwnAuthorName(ownContributor.author.name);
         if (user?.orcid && !_draft?.orcid) setOrcid(user.orcid);
-        if (user?.name && !_draft?.name && !ownContributor && !existingAuthor) {
+        if (user?.name && !_draft?.name && !ownContributor) {
           setName(user.name);
           setOwnAuthorName(user.name);
         }
 
         if (ownContributor && !_draft && !prefilled) {
-          setName(ownContributor.author.name);
-          const existingOrcid = ownContributor.author?.registry_identifier || '';
-          if (existingOrcid) setOrcid(existingOrcid);
-          const existingEmail = ownContributor.author?.email || '';
-          if (existingEmail) setEmail(existingEmail);
-
-          const affRaw = ownContributor.author?.affiliation;
-          const affArr = Array.isArray(affRaw) ? affRaw
-            : (typeof affRaw === 'string' && affRaw ? [affRaw] : []);
-          if (affArr.length) setSelectedAffNames(affArr);
-
-          if (ownContributor.start_date) setJoinDate(ownContributor.start_date);
-          if (ownContributor.end_date) setLeaveDate(ownContributor.end_date);
-
-          const newRoles = {};
-          for (const cat of CREDIT_CATEGORIES) newRoles[cat] = 'None';
-          const newDescs = {};
-          for (const cl of ownContributor.credit_levels || []) {
-            const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
-            if (displayRole) {
-              newRoles[displayRole] = workflowValueToUiValue(cl.level, dataWorkflowLevels);
-            }
-            if (cl.description) newDescs[cl.role] = cl.description;
-          }
-          setRoles(newRoles);
-          if (Object.keys(newDescs).length) setDescriptions(newDescs);
-
-          if (ownContributor.section_levels?.length) {
-            const newSectionLevels = {};
-            for (const sl of ownContributor.section_levels) {
-              newSectionLevels[sl.section] = { level: sl.level, description: sl.description || '' };
-            }
-            setSectionLevels(newSectionLevels);
-          }
-
-          setPrefilled(true);
+          prefillContributor(ownContributor, dataWorkflowLevels);
         }
 
         if (_draft?.step) {
@@ -642,6 +676,31 @@ function AddApp({ project, doi, existingAuthor }) {
     } else {
       goToStep(5);
     }
+  }
+
+  async function linkCandidate(candidate) {
+    const url = `${CONTRIBUTIONS_API_BASE}/contributions/author/link?project=${encodeURIComponent(effProject)}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ author_name: candidate.name }),
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `Unable to link this record (${response.status}).`);
+    }
+    if (_draft) {
+      setName(candidate.name);
+      setOwnAuthorName(candidate.name);
+      setOrcid(user?.orcid || '');
+    } else {
+      prefillContributor(candidate.contributor, workflowLevels);
+    }
+    setLinkedAuthorName(candidate.name);
+    setIdentityCandidates([]);
+    setStep(5);
+    setVisitedCookie(effProject);
   }
 
   const wizardSteps = sections.length > 0 ? [1, 2, 4] : [1, 2];
@@ -715,6 +774,7 @@ function AddApp({ project, doi, existingAuthor }) {
           projectAffiliations=${affiliations}
           joinDate=${joinDate} setJoinDate=${setJoinDate}
           leaveDate=${leaveDate} setLeaveDate=${setLeaveDate}
+          onIdentityResolved=${resolveIdentity}
           onNext=${() => goToStep(2)}
         />
       `}
@@ -753,6 +813,16 @@ function AddApp({ project, doi, existingAuthor }) {
           sections=${sections} affiliations=${affiliations}
           onBack=${() => goToStep(sections.length > 0 ? 4 : 2)}
           workflowLevels=${workflowLevels}
+          onIdentityResolved=${resolveIdentity}
+        />
+      `}
+      ${identityCandidates.length > 0 && html`
+        <${OrcidIdentityModal}
+          mode="link"
+          user=${user}
+          candidates=${identityCandidates}
+          onLink=${linkCandidate}
+          onCancel=${() => setIdentityCandidates([])}
         />
       `}
     </div>

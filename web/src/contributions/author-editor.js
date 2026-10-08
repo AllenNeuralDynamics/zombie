@@ -1,5 +1,7 @@
 import { html } from 'htm/preact';
 import { useState } from 'preact/hooks';
+import { isOrcidId, normalizeOrcidId } from './orcid-identity.js';
+import { OrcidIdentityModal } from './orcid-identity-modal.js';
 import { CREDIT_ROLES } from './credit-helpers.js';
 import { CREDIT_ROLE_ENUM } from './credit-roles.js';
 import { RoleTip } from './role-tooltip.js';
@@ -26,13 +28,15 @@ export function AuthorProfileSection({
   affiliations = [],
   selectedAffiliationNames = [],
   onChange = () => {},
+  onIdentityResolved = null,
   onAffiliationsChange = () => {},
   canEditName = true,
   showAuthorLevel = false,
 }) {
   const [customAffiliation, setCustomAffiliation] = useState('');
-  const [orcidResults, setOrcidResults] = useState([]);
-  const [searching, setSearching] = useState(false);
+  const [identityModalOpen, setIdentityModalOpen] = useState(false);
+  const [identityModalMode, setIdentityModalMode] = useState('search');
+  const [identityOrcid, setIdentityOrcid] = useState('');
 
   function toggleAffiliation(affiliationName) {
     onAffiliationsChange(selectedAffiliationNames.includes(affiliationName)
@@ -47,31 +51,6 @@ export function AuthorProfileSection({
       onAffiliationsChange([...selectedAffiliationNames, trimmed]);
     }
     setCustomAffiliation('');
-  }
-
-  async function searchOrcid() {
-    if (!name.trim()) return;
-    setSearching(true);
-    try {
-      const parts = name.trim().split(/\s+/);
-      const familyName = parts[parts.length - 1];
-      const givenNames = parts.slice(0, -1).join('+');
-      const query = givenNames
-        ? `family-name:${encodeURIComponent(familyName)}+AND+given-names:${encodeURIComponent(givenNames)}`
-        : `family-name:${encodeURIComponent(familyName)}`;
-      const response = await fetch(`https://pub.orcid.org/v3.0/search/?q=${query}&rows=5`, {
-        headers: { Accept: 'application/vnd.orcid+json' },
-      });
-      if (!response.ok) return;
-      const data = await response.json();
-      setOrcidResults((data.result || [])
-        .map((result) => result['orcid-identifier']?.path)
-        .filter(Boolean));
-    } catch (_) {
-      setOrcidResults([]);
-    } finally {
-      setSearching(false);
-    }
   }
 
   const knownAffiliations = affiliations.map((affiliation) => affiliation.name);
@@ -100,26 +79,23 @@ export function AuthorProfileSection({
           <div class="cv-orcid-row">
             <input id=${orcidId} type="text" class="cv-wizard-input"
                    placeholder="0000-0000-0000-0000" value=${orcid}
-                   onInput=${(event) => onChange('orcid', event.target.value)} />
+                   onInput=${(event) => {
+                     const value = event.target.value;
+                     onChange('orcid', value);
+                     if (isOrcidId(value)) {
+                       setIdentityOrcid(normalizeOrcidId(value));
+                       setIdentityModalMode('resolve');
+                       setIdentityModalOpen(true);
+                     }
+                   }} />
             <button type="button" class="btn-secondary"
-                    disabled=${searching || !name.trim()} onClick=${searchOrcid}>
-              ${searching ? '…' : 'Search'}
+                    disabled=${!name.trim()} onClick=${() => {
+                      setIdentityModalMode('search');
+                      setIdentityModalOpen(true);
+                    }}>
+              Search ORCID
             </button>
           </div>
-          ${orcidResults.length > 0 && html`
-            <div class="cv-wizard-orcid-results">
-              ${orcidResults.map((result) => html`
-                <span key=${result} class="cv-orcid-result-row">
-                  <button type="button" class="cv-chip"
-                          onClick=${() => { onChange('orcid', result); setOrcidResults([]); }}>
-                    ${result}
-                  </button>
-                  <a href=${`https://orcid.org/${result}`} target="_blank"
-                     rel="noopener noreferrer" class="cv-orcid-verify-link">verify ↗</a>
-                </span>
-              `)}
-            </div>
-          `}
         </div>
         <div class="cv-wizard-field">
           <label class="cv-detail-label" for=${emailId}>Email</label>
@@ -181,6 +157,22 @@ export function AuthorProfileSection({
           </div>
         </div>
       </div>
+      ${identityModalOpen && html`
+        <${OrcidIdentityModal}
+          mode=${identityModalMode}
+          name=${name}
+          orcid=${identityOrcid}
+          onResolve=${async (identity) => {
+            if (onIdentityResolved) {
+              await onIdentityResolved(identity);
+            } else {
+              if (canEditName && identity.name) onChange('name', identity.name);
+              onChange('orcid', identity.orcid);
+            }
+          }}
+          onCancel=${() => setIdentityModalOpen(false)}
+        />
+      `}
     </section>
   `;
 }
@@ -322,6 +314,7 @@ export function AuthorEditor({
   canEditName = true,
   showAuthorLevel = false,
   onProfileChange,
+  onIdentityResolved,
   onAffiliationsChange,
   onRoleChange,
   onDescriptionChange,
@@ -345,6 +338,7 @@ export function AuthorEditor({
         canEditName=${canEditName}
         showAuthorLevel=${showAuthorLevel}
         onChange=${onProfileChange}
+        onIdentityResolved=${onIdentityResolved}
         onAffiliationsChange=${onAffiliationsChange}
       />
       <${AuthorRolesSection}

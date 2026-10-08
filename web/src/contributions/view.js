@@ -16,6 +16,7 @@ import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
 import { AuthorEditor } from './author-editor.js';
+import { normalizeOrcidId } from './orcid-identity.js';
 import { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
 export { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
 import {
@@ -1483,7 +1484,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setEndpointStatus({ text: 'Local preview — server saving is disabled.', cls: 'status-info' });
       return;
     }
-    if (authorWorkflowLevels.some((level) => !level.label.trim())) {
+    if (sr.current.authorWorkflowLevels.some((level) => !level.label.trim())) {
       setEndpointStatus({ text: 'Every author workflow level needs a label.', cls: 'status-error' });
       return;
     }
@@ -1661,6 +1662,29 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       return;
     }
     handleDetailChange(author, field, value);
+  }
+
+  function handleAuthorIdentityResolved(rowIdx, identity) {
+    const oldName = sr.current.rows[rowIdx]?.name;
+    const newName = String(identity.name || '').trim();
+    const newOrcid = normalizeOrcidId(identity.orcid);
+    if (!oldName || !newName || !newOrcid) {
+      throw new Error('The ORCID match is missing a name or iD.');
+    }
+    const nameTaken = sr.current.rows.some((row, index) => index !== rowIdx
+      && row.name.trim().toLocaleLowerCase() === newName.toLocaleLowerCase());
+    if (nameTaken) throw new Error('Another contributor already uses this name.');
+    const orcidTaken = Object.entries(sr.current.authorOrcids).some(([authorName, orcid]) =>
+      authorName !== oldName && normalizeOrcidId(orcid) === newOrcid);
+    if (orcidTaken) throw new Error('This ORCID iD is already assigned to another contributor.');
+
+    if (oldName !== newName) renameRow(rowIdx, newName);
+    setAuthorOrcids((prev) => {
+      const next = { ...prev };
+      if (oldName !== newName) delete next[oldName];
+      next[newName] = newOrcid;
+      return next;
+    });
   }
 
   function updateAuthorAffiliations(author, names) {
@@ -1907,6 +1931,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
                             workflowLevels=${authorWorkflowLevels}
                             showAuthorLevel=${true}
                             onProfileChange=${(field, value) => handleAuthorProfileChange(row.name, idx, field, value)}
+                            onIdentityResolved=${(identity) => handleAuthorIdentityResolved(idx, identity)}
                             onAffiliationsChange=${(names) => updateAuthorAffiliations(row.name, names)}
                             onRoleChange=${(category, value) => updateCategory(idx, category, value)}
                             onDescriptionChange=${(category, value) => handleDetailChange(row.name, 'creditDesc', {

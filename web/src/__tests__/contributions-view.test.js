@@ -1228,10 +1228,16 @@ describe('createContributionsView — author email', () => {
 
   function mockFetch() {
     global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const requestUrl = String(url);
       if ((opts.method || 'GET') === 'POST') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ commit: 'abc1234567' }) });
       }
-      if (url.includes('history=true')) {
+      if (requestUrl.includes('/contributions/orcid/search')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ results: [
+          { orcid: '0000-0002-1825-0097', name: 'Alice Canonical' },
+        ] }) });
+      }
+      if (requestUrl.includes('history=true')) {
         return Promise.resolve({ ok: true, status: 200, json: async () => [] });
       }
       return Promise.resolve({ ok: true, status: 200, json: async () => loaded });
@@ -1286,6 +1292,26 @@ describe('createContributionsView — author email', () => {
     expect(editor.querySelector('#cv-author-0-join-date')).not.toBeNull();
     expect(editor.querySelector('#cv-author-0-leave-date')).not.toBeNull();
     expect(editor.querySelector('#cv-author-0-author-level')).not.toBeNull();
+  });
+
+  it('applies the selected ORCID name and identifier to the admin author row', async () => {
+    const root = await mountAndExpand();
+    root.querySelector('#cv-author-0-orcid').closest('.cv-orcid-row')
+      .querySelector('button').click();
+    await flush();
+    [...root.querySelectorAll('button')]
+      .find((button) => button.textContent.includes('Use ORCID name')).click();
+    await flush();
+
+    expect(root.querySelector('#cv-author-0-name').value).toBe('Alice Canonical');
+    root.querySelector('#cv-post-btn').click();
+    await flush();
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.contributors[0].author.name).toBe('Alice Canonical');
+    expect(payload.contributors[0].author.registry_identifier).toBe('0000-0002-1825-0097');
   });
 });
 

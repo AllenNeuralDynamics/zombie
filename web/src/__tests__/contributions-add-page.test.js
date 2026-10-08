@@ -158,4 +158,145 @@ describe('AddApp — author email', () => {
     expect(payload.author.email).toBe('alice@example.org');
     expect(JSON.stringify(payload)).not.toContain('Bob Jones');
   });
+
+  it('sets the entered name to the selected ORCID public name', async () => {
+    getCurrentUser.mockResolvedValue({ orcid: '0000-0002-1825-0097', name: 'Jane Example' });
+    const project = {
+      project_name: 'proj',
+      contributors: [{ author: { name: 'Project Admin', registry_identifier: '0000-0002' }, is_admin: true }],
+    };
+    global.fetch = vi.fn().mockImplementation((url) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes('/contributions/orcid/search')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ results: [
+            { orcid: '0000-0002-1825-0097', name: 'Jane Canonical' },
+          ] }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => project });
+    });
+
+    const el = createContributionsAddPage({ project: 'proj' });
+    document.body.appendChild(el);
+    await flush();
+    [...el.querySelectorAll('button')].find((button) => button.textContent.includes('Search ORCID')).click();
+    await flush();
+    [...el.querySelectorAll('button')].find((button) => button.textContent.includes('Use ORCID name')).click();
+    await flush();
+
+    expect(el.querySelector('#cw-name').value).toBe('Jane Canonical');
+    expect(el.querySelector('#cw-orcid').value).toBe('0000-0002-1825-0097');
+  });
+
+  it('shows the public name in the shared modal when an ORCID iD is pasted', async () => {
+    getCurrentUser.mockResolvedValue({ orcid: '0000-0002-1825-0097', name: 'Jane Example' });
+    const project = {
+      project_name: 'proj',
+      contributors: [{ author: { name: 'Project Admin', registry_identifier: '0000-0002' }, is_admin: true }],
+    };
+    global.fetch = vi.fn().mockImplementation((url) => {
+      if (String(url).includes('/contributions/orcid/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ orcid: '0000-0002-1825-0097', name: 'Jane Canonical' }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => project });
+    });
+
+    const el = createContributionsAddPage({ project: 'proj' });
+    document.body.appendChild(el);
+    await flush();
+    const orcidInput = el.querySelector('#cw-orcid');
+    orcidInput.value = '0000-0002-1825-0097';
+    orcidInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    expect(el.querySelector('[role="dialog"]').textContent).toContain('Jane Canonical');
+    expect(el.querySelector('[role="dialog"]').textContent).toContain('Confirm ORCID identity');
+    [...el.querySelectorAll('button')].find((button) => button.textContent.includes('Use ORCID name')).click();
+    await flush();
+    expect(el.querySelector('#cw-name').value).toBe('Jane Canonical');
+  });
+
+  it('asks before linking a fuzzy-matched unlinked contributor record', async () => {
+    getCurrentUser.mockResolvedValue({ orcid: '0000-0007', name: 'Carol Smith' });
+    const project = {
+      project_name: 'proj',
+      contributors: [
+        {
+          author: { name: 'Project Admin', registry_identifier: '0000-0002' },
+          credit_levels: [],
+          is_admin: true,
+        },
+        {
+          author: { name: 'Carol Smyth', affiliation: ['AIND'] },
+          credit_levels: [{ role: 'software', level: 'lead' }],
+          is_admin: false,
+        },
+      ],
+    };
+    global.fetch = vi.fn().mockImplementation((url, options = {}) => {
+      if ((options.method || 'GET') === 'POST') {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ commit: 'linked123' }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => project });
+    });
+
+    const el = createContributionsAddPage({ project: 'proj' });
+    document.body.appendChild(el);
+    await flush();
+    expect(el.querySelector('[role="dialog"]').textContent).toContain('Is this your contributor record?');
+    expect(el.querySelector('[role="dialog"]').textContent).toContain('Carol Smyth');
+
+    [...el.querySelectorAll('button')].find((button) => button.textContent.includes('Link this record')).click();
+    await flush();
+
+    const linkCall = global.fetch.mock.calls.find(([url]) => String(url).includes('/contributions/author/link'));
+    expect(linkCall).toBeDefined();
+    expect(JSON.parse(linkCall[1].body)).toEqual({ author_name: 'Carol Smyth' });
+    expect(el.querySelector('#cwe-name').value).toBe('Carol Smyth');
+    expect(el.querySelector('#cwe-orcid').value).toBe('0000-0007');
+    expect(el.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('prevents ORCID resolution from creating a duplicate contributor name', async () => {
+    const orcid = '0000-0002-1825-0097';
+    getCurrentUser.mockResolvedValue({ orcid, name: 'Carol Smith' });
+    const project = {
+      project_name: 'proj',
+      contributors: [
+        { author: { name: 'Project Admin', registry_identifier: '0000-0002' }, is_admin: true },
+        { author: { name: 'Carol Smith' }, credit_levels: [], is_admin: false },
+      ],
+    };
+    global.fetch = vi.fn().mockImplementation((url) => {
+      if (String(url).includes('/contributions/orcid/profile')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ orcid, name: 'Carol Smith' }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => project });
+    });
+
+    const el = createContributionsAddPage({ project: 'proj' });
+    document.body.appendChild(el);
+    await flush();
+    [...el.querySelectorAll('button')]
+      .find((button) => button.textContent.includes('Continue as a new contributor')).click();
+    await flush();
+    const input = el.querySelector('#cw-orcid, #cwe-orcid');
+    input.value = orcid;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+    [...el.querySelectorAll('button')]
+      .find((button) => button.textContent.includes('Use ORCID name')).click();
+    await flush();
+
+    expect(el.querySelector('[role="alert"]').textContent)
+      .toContain('A contributor with this name is already listed');
+  });
 });
