@@ -1154,18 +1154,27 @@ function openNeuronSearchModal(ctx) {
  * @returns {HTMLElement}
  */
 export function createExaSpimMorphologySection(options = {}) {
+  const storageKey = 'zombie.exaspim.morphologyExpanded';
   const section = document.createElement('details');
   section.className = 'exaspim-morphology';
+  try { section.open = localStorage.getItem(storageKey) === 'true'; }
+  catch { /* Default to closed when storage is unavailable. */ }
   const summary = document.createElement('summary');
   summary.className = 'exaspim-morphology-summary';
   summary.textContent = 'Neuron morphology viewer';
   section.appendChild(summary);
   let content = null;
-  section.addEventListener('toggle', () => {
+  function initialize() {
     if (!section.open || content || options.signal?.aborted) return;
     content = createMorphologyContent(options);
     section.appendChild(content);
+  }
+  section.addEventListener('toggle', () => {
+    try { localStorage.setItem(storageKey, String(section.open)); }
+    catch { /* The viewer still works without storage. */ }
+    initialize();
   });
+  initialize();
   return section;
 }
 
