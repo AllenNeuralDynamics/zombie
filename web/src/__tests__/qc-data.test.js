@@ -14,6 +14,33 @@ const makeMetric = (overrides = {}) => ({
 });
 
 describe('parseQCRecord', () => {
+  it.each([
+    'results/figures/foo.png',
+    '///figures/foo.png',
+    '/code/results/figures/foo.png',
+    './figures//foo.png',
+    'https%3A%2F%2Fexample.com%2Ffoo.png',
+    'figures/foo.png;results/figures/bar.png',
+  ])('reports repaired references while preserving the source: %s', reference => {
+    const metric = makeMetric({ reference });
+    const parsed = parseQCRecord({ quality_control: { metrics: [metric] } });
+    expect(parsed.metrics[0].reference).toBe(reference);
+    expect(metric.reference).toBe(reference);
+    expect(parsed.metricErrors).toHaveLength(1);
+    expect(parsed.metricErrors[0]).toContain('Metric "test metric": the media path had to be normalized');
+    expect(parsed.metricErrors[0]).toContain('report this to the owner of the processing pipeline');
+  });
+
+  it('does not warn for valid relative, HTTP, S3, or comparison references', () => {
+    const metrics = [
+      'figures/foo.png',
+      'https://example.com/results/foo.png',
+      's3://bucket/results/foo.png',
+      'figures/foo.png; figures/bar.png',
+    ].map((reference, index) => makeMetric({ name: `metric ${index}`, reference }));
+    expect(parseQCRecord({ quality_control: { metrics } }).metricErrors).toEqual([]);
+  });
+
   it('extracts name, s3Bucket, s3Prefix', () => {
     const record = {
       name: 'my-asset',
@@ -220,6 +247,25 @@ describe('resolveReference', () => {
   it('strips results/ prefix from relative reference', () => {
     const { url } = resolveReference('results/figures/img.png', bucket, prefix);
     expect(url).toContain('my-asset/figures/img.png');
+  });
+
+  it.each([
+    '///figures/img.png',
+    '/code/results/figures/img.png',
+    './figures//img.png',
+  ])('repairs Portal-compatible relative paths: %s', reference => {
+    expect(resolveReference(reference, bucket, prefix)).toEqual({
+      url: 'https://aind-open-data.s3.us-west-2.amazonaws.com/my-asset/figures/img.png',
+      type: 'image',
+    });
+  });
+
+  it('decodes encoded HTTP media without stripping its results directory', () => {
+    expect(resolveReference('https%3A%2F%2Fexample.com%2Fresults%2Fimg.png', bucket, prefix)).toEqual({
+      url: 'https://example.com/results/img.png', type: 'image',
+    });
+    expect(resolveReference('s3://other-bucket/results/img.png', bucket, prefix).url)
+      .toBe('https://other-bucket.s3.us-west-2.amazonaws.com/results/img.png');
   });
 
   it('classifies video extensions', () => {

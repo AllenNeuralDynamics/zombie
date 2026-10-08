@@ -117,6 +117,27 @@ describe('QC status updates', () => {
 });
 
 describe('QC navigation state', () => {
+  it('shows path repairs in the error header and displays the repaired image', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const reference = '/code/results/figures/image.png';
+    const view = createQCView({
+      name: 'asset-1',
+      location: 's3://aind-open-data/asset-1',
+      quality_control: { metrics: [{ name: 'image metric', reference, value: true }] },
+    });
+    const alert = view.querySelector('.qc-metric-alert');
+    expect(view.firstElementChild).toBe(alert);
+    expect(alert.hidden).toBe(false);
+    expect(alert.textContent).toContain('Metric "image metric": the media path had to be normalized');
+    expect(alert.textContent).toContain('report this to the owner of the processing pipeline');
+    expect(view.querySelector('img').src).toBe('https://aind-open-data.s3.us-west-2.amazonaws.com/asset-1/figures/image.png');
+    expect(mountQcEditor.mock.calls.at(-1)[1].quality_control.metrics[0].reference).toBe(reference);
+
+    view.querySelectorAll('.qc-view-toggle button')[1].click();
+    expect(alert.hidden).toBe(false);
+    expect(view.querySelector('.qc-reference-link').href).toContain('/asset-1/figures/image.png');
+  });
+
   it('omits duplicate names and shows a top-of-page alert', () => {
     window.history.replaceState({}, '', '/quality_control?name=asset-1');
     const view = createQCView({

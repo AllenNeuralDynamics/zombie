@@ -344,6 +344,18 @@ describe('media rendering', () => {
     expect(el.querySelector('.qc-media-error').getAttribute('role')).toBe('alert');
   });
 
+  it('loads encoded HTTP images directly even when the asset bucket is private', () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    try {
+      const el = renderMedia('https%3A%2F%2Fexample.com%2Fresults%2Fimage.png', 'private-bucket', 'prefix', 'asset');
+      expect(el.querySelector('img').src).toBe('https://example.com/results/image.png');
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('shows a visible error when a private image cannot be presigned', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('denied')));

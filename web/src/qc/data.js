@@ -12,7 +12,14 @@ export function parseQCRecord(record) {
         if (!metric || typeof metric !== 'object' || Array.isArray(metric)) {
           throw new Error('Metric entry is not an object.');
         }
-        normalized.push(normalizeMetric(metric));
+        const parsedMetric = normalizeMetric(metric);
+        normalized.push(parsedMetric);
+        if (typeof parsedMetric.reference === 'string' && parsedMetric.reference) {
+          const parts = parsedMetric.reference.split(';').map(part => part.trim()).filter(Boolean);
+          if (parts.some(part => normalizeReference(part) !== part)) {
+            metricErrors.push(`Metric "${parsedMetric.name ?? index + 1}": the media path had to be normalized for display. Please report this to the owner of the processing pipeline so they can fix the QCMetric.reference.`);
+          }
+        }
       } catch (error) {
         let label = '';
         try {
@@ -162,8 +169,13 @@ export function aggregateStatus(metrics, allowTagFailures = [], statusOverrides 
   return 'Pass';
 }
 
-function cleanRef(ref) {
-  return ref.replace(/^\//, '').replace(/^results\//, '');
+/** Apply the QC Portal's media-path repairs without changing stored references. */
+export function normalizeReference(reference) {
+  let normalized = decodeReferenceUrl(reference).replace(/^\/+/, '');
+  if (/^(https?:|s3:\/\/)/i.test(normalized)) return normalized;
+  const resultsIndex = normalized.indexOf('results/');
+  if (resultsIndex !== -1) normalized = normalized.slice(resultsIndex + 'results/'.length);
+  return normalized.split('/').filter(part => part && part !== '.').join('/');
 }
 
 function encodeS3Key(key) {
@@ -177,7 +189,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url: reference, type: 'multi' };
   }
 
-  const decodedReference = decodeReferenceUrl(reference);
+  const decodedReference = normalizeReference(reference);
   let url = decodedReference;
 
   if (decodedReference.includes('s3://')) {
@@ -186,8 +198,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
       url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${encodeS3Key(match[2])}`;
     }
   } else if (!/^https?:/i.test(decodedReference)) {
-    const cleaned = cleanRef(decodedReference);
-    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(cleaned)}`;
+    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(decodedReference)}`;
   }
 
   const lower = url.toLowerCase();

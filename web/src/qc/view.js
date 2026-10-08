@@ -115,7 +115,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
       return;
     }
     const heading = document.createElement('strong');
-    heading.textContent = 'Some QC metrics could not be displayed.';
+    heading.textContent = 'QC metric issues found.';
     const list = document.createElement('ul');
     for (const message of metricErrors) {
       const item = document.createElement('li');

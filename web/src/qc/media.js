@@ -1,10 +1,11 @@
-import { resolveReference } from './data.js';
+import { normalizeReference, resolveReference } from './data.js';
 import { QC_API_BASE } from '../constants.js';
 
 const PUBLIC_BUCKET = 'aind-open-data';
 const PRESIGN_BASE = `${QC_API_BASE.replace(/\/$/, '')}/get-signed-reference`;
 
 function needsPresign(reference, s3Bucket, type) {
+  reference = normalizeReference(reference);
   if (s3Bucket === PUBLIC_BUCKET) return false;
   if (type === 'link' || type === 'text' || type === 'multi') return false;
   if (reference.startsWith('http') && !reference.includes('s3://')) return false;
