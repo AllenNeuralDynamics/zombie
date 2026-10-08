@@ -14,6 +14,7 @@
  * Navigation rules:
  *   - ?subject_id=<id>  → open Subject section, collapse Project.
  *   - ?unit_id=<id>     → restore the selected Dynamic Routing unit.
+ *   - ?surgery=<key>&surgery_tab=<label> → restore a surgery and its detail tab.
  *   - ?project=<name>   → open Project section, collapse Subject.
  *     (?project_name= is accepted as an alias on the way in.)
  *   - Clicking a subject (label / asset row / acquisition dot) on the Project
@@ -76,6 +77,8 @@ export function createCombinedView(opts = {}) {
   const initialSubject = params.get('subject_id') ?? '';
   const initialAsset = params.get('asset') ?? '';
   const initialUnitId = params.get('unit_id') ?? params.get('unit') ?? '';
+  const initialSurgery = initialAsset ? '' : params.get('surgery') ?? '';
+  const initialSurgeryTab = initialSurgery ? params.get('surgery_tab') ?? '' : '';
 
   // Open project only when ?project= was given, or when there is nothing else
   // to show. An asset or subject deep link leaves it collapsed — for an asset
@@ -93,6 +96,8 @@ export function createCombinedView(opts = {}) {
   let currentProject = initialProject || '';
   let currentAsset = initialAsset || '';
   let currentUnitId = initialUnitId || '';
+  let currentSurgery = initialSurgery;
+  let currentSurgeryTab = initialSurgeryTab;
   let _preserveAsset = !!initialAsset;
 
   // ── Section scaffolding ──────────────────────────────────────────────────
@@ -123,6 +128,8 @@ export function createCombinedView(opts = {}) {
     if (currentAsset) p.set('asset', currentAsset); else p.delete('asset');
     if (currentUnitId) p.set('unit_id', currentUnitId); else p.delete('unit_id');
     p.delete('unit');
+    if (currentSurgery) p.set('surgery', currentSurgery); else p.delete('surgery');
+    if (currentSurgery && currentSurgeryTab) p.set('surgery_tab', currentSurgeryTab); else p.delete('surgery_tab');
     try {
       const url = new URL(window.location.href);
       url.search = p.toString();
@@ -140,7 +147,27 @@ export function createCombinedView(opts = {}) {
       syncUrl();
     },
     initialAcquisition: initialAsset || null,
+    initialSurgery: initialSurgery || null,
+    initialSurgeryTab: initialSurgeryTab || null,
+    onTimelineSelect: (event, { surgeryKey } = {}) => {
+      if (currentSurgery !== surgeryKey) currentSurgeryTab = '';
+      currentSurgery = surgeryKey || '';
+      if (event?.type !== 'Acquisition') {
+        currentAsset = '';
+        currentUnitId = '';
+        projectView.highlightAsset?.(null);
+      }
+      syncUrl();
+    },
+    onSurgeryTabSelect: label => {
+      currentSurgeryTab = label;
+      syncUrl();
+    },
     onSubjectLoaded: ({ subjectId, mostRecentProject }) => {
+      if (currentSubject !== subjectId) {
+        currentSurgery = '';
+        currentSurgeryTab = '';
+      }
       currentSubject = subjectId || '';
       if (!_preserveAsset) currentAsset = '';
       _preserveAsset = false;
@@ -230,6 +257,8 @@ export function createCombinedView(opts = {}) {
     subjectDetails.open = true;
     currentSubject = subjectId || '';
     currentAsset = acquisitionName || '';
+    currentSurgery = '';
+    currentSurgeryTab = '';
     _preserveAsset = !!acquisitionName;
     projectView.highlightAsset?.(acquisitionName ?? null);
     subjectView.loadSubject?.(subjectId, { acquisitionName });

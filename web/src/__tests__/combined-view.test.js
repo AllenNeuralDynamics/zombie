@@ -37,6 +37,45 @@ function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+describe('surgery URL state', () => {
+  it('restores surgery options, syncs its tab, and clears them on acquisition selection', () => {
+    vi.clearAllMocks();
+    window.history.replaceState({}, '', '/view?subject_id=775743&surgery=2024-01-01T00%3A00%3A00.000Z~0&surgery_tab=Fiber+Locations&color=red');
+    createCombinedView();
+    const options = createSubjectView.mock.calls[0][0];
+    expect(options.initialSurgery).toBe('2024-01-01T00:00:00.000Z~0');
+    expect(options.initialSurgeryTab).toBe('Fiber Locations');
+    options.onTimelineSelect({ type: 'Surgery' }, { surgeryKey: options.initialSurgery });
+    options.onSurgeryTabSelect('Overview');
+    let params = new URL(window.location.href).searchParams;
+    expect(params.get('surgery_tab')).toBe('Overview');
+    expect(params.get('color')).toBe('red');
+    options.onTimelineSelect({ type: 'Acquisition' }, { surgeryKey: null });
+    options.onAcquisitionSelect('asset-1');
+    params = new URL(window.location.href).searchParams;
+    expect(params.has('surgery')).toBe(false);
+    expect(params.has('surgery_tab')).toBe(false);
+    expect(params.get('asset')).toBe('asset-1');
+  });
+
+  it('clears acquisition state when selecting a surgery and surgery state when changing subjects', () => {
+    vi.clearAllMocks();
+    window.history.replaceState({}, '', '/view?subject_id=775743&asset=asset-1&unit_id=7');
+    createCombinedView();
+    const options = createSubjectView.mock.calls[0][0];
+    options.onTimelineSelect({ type: 'Surgery' }, { surgeryKey: 'surgery-1' });
+    options.onSurgeryTabSelect('Fiber Locations');
+    let params = new URL(window.location.href).searchParams;
+    expect(params.has('asset')).toBe(false);
+    expect(params.has('unit_id')).toBe(false);
+    expect(params.get('surgery')).toBe('surgery-1');
+    options.onSubjectLoaded({ subjectId: '778637' });
+    params = new URL(window.location.href).searchParams;
+    expect(params.has('surgery')).toBe(false);
+    expect(params.has('surgery_tab')).toBe(false);
+  });
+});
+
 describe('createCombinedView — asset-only deep links', () => {
   beforeEach(() => {
     vi.clearAllMocks();

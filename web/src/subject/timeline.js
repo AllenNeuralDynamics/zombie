@@ -427,6 +427,18 @@ export function createSubjectTimeline(events, opts = {}) {
     return true;
   };
 
+  wrapper.surgeryKey = (event) => {
+    if (event?.type !== 'Surgery') return null;
+    const sameDate = sorted.filter(ev => ev.type === 'Surgery' && ev.start.getTime() === event.start.getTime());
+    return `${event.start.toISOString()}~${sameDate.indexOf(event)}`;
+  };
+  wrapper.selectSurgery = (key) => {
+    const idx = sorted.findIndex(ev => ev.type === 'Surgery' && wrapper.surgeryKey(ev) === key);
+    if (idx < 0) return false;
+    selectIndex(idx, { focus: true, programmatic: true });
+    return true;
+  };
+
   /** Currently-selected events, oldest → newest (exposed for callers/tests). */
   wrapper.getSelection = () => selectionEvents();
 

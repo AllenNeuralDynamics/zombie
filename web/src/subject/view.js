@@ -178,6 +178,10 @@ export function createSubjectView(opts = {}) {
     selectedUnitId = null,
     onUnitSelect = null,
     initialAcquisition = null,
+    initialSurgery = null,
+    initialSurgeryTab = null,
+    onTimelineSelect = null,
+    onSurgeryTabSelect = null,
   } = opts;
   const initialId =
     opts.subjectId ??
@@ -231,6 +235,8 @@ export function createSubjectView(opts = {}) {
 
   function handleSubjectChange() {
     const newId = input.value.trim();
+    root._pendingSurgery = null;
+    root._pendingSurgeryTab = null;
     console.debug('[SubjectView] input changed → newId:', newId, 'prev aborted:', loadAbortController?.signal?.aborted);
     if (!embedded) {
       // The combined view owns the URL when embedded.
@@ -251,7 +257,7 @@ export function createSubjectView(opts = {}) {
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
     _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, {
-      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect,
+      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
     });
   }
 
@@ -266,8 +272,12 @@ export function createSubjectView(opts = {}) {
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
   if (initialAcquisition) root._pendingAcquisition = initialAcquisition;
+  if (!initialAcquisition && initialSurgery) {
+    root._pendingSurgery = initialSurgery;
+    root._pendingSurgeryTab = initialSurgeryTab;
+  }
   _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, {
-    onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, root,
+    onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
   });
 
   // Imperative API for the combined view: load a subject programmatically,
@@ -281,10 +291,12 @@ export function createSubjectView(opts = {}) {
     }
     input.value = id ?? '';
     root._pendingAcquisition = acquisitionName;
+    root._pendingSurgery = null;
+    root._pendingSurgeryTab = null;
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
     _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, {
-      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, root,
+      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
     });
   };
 
@@ -294,6 +306,8 @@ export function createSubjectView(opts = {}) {
 async function _loadSubject(contentEl, subjectId, coordinator, signal, {
   onSubjectLoaded = null,
   onAcquisitionSelect = null,
+  onTimelineSelect = null,
+  onSurgeryTabSelect = null,
   selectedUnitId = null,
   onUnitSelect = null,
   root = null,
@@ -408,6 +422,9 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, {
     const timelineSvg = createSubjectTimeline(events, {
       assetSources: bundle.assetSources,
       onSelect: (ev, { programmatic = false, selection = null } = {}) => {
+        if (signal?.aborted) return;
+        const surgeryKey = timelineSvg.surgeryKey?.(ev) ?? null;
+        onTimelineSelect?.(ev, { surgeryKey });
         const detailContext = {
           subjectId,
           proceduresCoordSys: bundle.procedures.coordinate_system,
@@ -416,7 +433,10 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, {
           selectedUnitId: currentSelectedUnitId(),
           onUnitSelect,
           signal,
+          surgeryTab: root?._pendingSurgeryTab ?? null,
+          onSurgeryTabSelect: label => onSurgeryTabSelect?.(label),
         };
+        if (root) root._pendingSurgeryTab = null;
         // A shift/ctrl-click range replaces the per-session views with one
         // multi-session comparison; a plain click restores them.
         if (selection && selection.length > 1) {
@@ -454,15 +474,23 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, {
         pendingHighlight = target;
         // Defer until the bubble strip has laid out.
         requestAnimationFrame(() => {
+          if (signal?.aborted) return;
           if (timelineSvg.selectAcquisition?.(target)) pendingHighlight = null;
         });
       }
     }
 
-    // Open the multi-session view on arrival when the user asked for that,
-    // unless the URL named an acquisition — a deep link outranks a default.
+    // A surgery or acquisition deep link takes precedence over the multi-session default.
+    const pendingSurgery = root?._pendingSurgery;
+    if (pendingSurgery && !pendingHighlight) {
+      root._pendingSurgery = null;
+      requestAnimationFrame(() => {
+        if (signal?.aborted) return;
+        if (!timelineSvg.selectSurgery?.(pendingSurgery)) root._pendingSurgeryTab = null;
+      });
+    }
     const multiDefault = readMultiSessionSetting();
-    if (multiDefault.enabled && !pendingHighlight) {
+    if (multiDefault.enabled && !pendingHighlight && !pendingSurgery) {
       requestAnimationFrame(() => {
         if (signal?.aborted) return;
         timelineSvg.selectLastAcquisitions?.(multiDefault.count);

@@ -235,7 +235,7 @@ export function buildSpecimenProcedureDetail(event) {
  *   on this element so a subsequent call can restore the same tab.
  * @returns {HTMLElement}
  */
-function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
+function createTabWidget(tabs, { activeLabel, parentContainer, onTabSelect } = {}) {
   const container = document.createElement('div');
   container.className = 'detail-tabs';
 
@@ -271,6 +271,7 @@ function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
         b.classList.toggle('active', j === i);
       });
       if (parentContainer) parentContainer._activeTabLabel = label;
+      onTabSelect?.(label);
     });
     tabBar.appendChild(btn);
     container.appendChild(panels[i]);
@@ -281,6 +282,7 @@ function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
     panels[initialIdx].style.display = '';
     tabBar.querySelectorAll('.detail-tab-btn')[initialIdx]?.classList.add('active');
     if (parentContainer) parentContainer._activeTabLabel = tabs[initialIdx].label;
+    onTabSelect?.(tabs[initialIdx].label);
   }
 
   container.insertBefore(tabBar, container.firstChild);
@@ -681,7 +683,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   renderTabs(tabDefs);
 }
 
-function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null, coordinator = null } = {}) {
+function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null, coordinator = null, surgeryTab = null, onSurgeryTabSelect = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
 
@@ -711,9 +713,9 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
     tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys, coordinator) });
   }
 
-  const prevSurgTab = container._activeTabLabel;
+  const prevSurgTab = surgeryTab ?? container._activeTabLabel;
   container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevSurgTab, parentContainer: container }));
+  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevSurgTab, parentContainer: container, onTabSelect: onSurgeryTabSelect }));
 }
 
 // ---------------------------------------------------------------------------
