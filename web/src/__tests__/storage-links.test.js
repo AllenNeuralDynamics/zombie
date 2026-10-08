@@ -6,7 +6,7 @@ describe('storage links', () => {
   it('links public assets to Quilt with encoded path segments', () => {
     expect(buildStorageLink('s3://aind-open-data/asset name/part#1')).toEqual({
       href: 'https://open.quiltdata.com/b/aind-open-data/tree/asset%20name/part%231/',
-      label: 'Quilt',
+      label: 'S3',
       private: false,
     });
     expect(buildStorageLink('s3://aind-open-data/asset/').href).toBe(
@@ -28,7 +28,7 @@ describe('storage links', () => {
   it('renders public and private buttons in asset rows', () => {
     const publicRow = renderAssetRow({ location: 's3://aind-open-data/asset' }, ['links']);
     expect(publicRow).toContain('open.quiltdata.com');
-    expect(publicRow).toContain('>Quilt</a>');
+    expect(publicRow).toContain('>S3</a>');
     expect(publicRow).not.toContain('storage-link-private');
     expect(publicRow).not.toContain('title=');
     const privateRow = renderAssetRow({ location: 's3://aind-data/asset' }, ['links']);

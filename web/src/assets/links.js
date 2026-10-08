@@ -42,7 +42,7 @@ export function buildStorageLink(location) {
     const path = key.split('/').map(encodeURIComponent).join('/');
     return {
       href: `https://open.quiltdata.com/b/${bucket}/${path ? `tree/${path.endsWith('/') ? path : `${path}/`}` : ''}`,
-      label: 'Quilt',
+      label: 'S3',
       private: false,
     };
   }
