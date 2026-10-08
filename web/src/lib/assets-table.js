@@ -4,7 +4,7 @@
  * Used by both the Subject page and the Project page.
  */
 
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, renderStorageLink } from '../assets/links.js';
 import { escHtml, formatDatetime, PAGE_SIZE } from './utils.js';
 import { arrowTableToRows, queryRows } from './arrow.js';
 import { ensureTable } from './registry.js';
@@ -94,9 +94,9 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
       const qcHref = buildQcLink(asset.name);
       const metaHref = buildMetadataLink(asset.name);
       const coHref = buildCoLink(asset.code_ocean);
-      const s3Href = buildS3ConsoleUrl(asset.location);
+      const storageLink = renderStorageLink(asset.location);
       const linkParts = [
-        s3Href ? `<a href="${escHtml(s3Href)}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
+        storageLink,
         coHref ? `<a href="${escHtml(coHref)}" target="_blank" rel="noopener noreferrer">CO</a>` : '',
         metaHref ? `<a href="${escHtml(metaHref)}" target="_blank" rel="noopener noreferrer">Meta</a>` : '',
         qcHref ? `<a href="${escHtml(qcHref)}" target="_blank" rel="noopener noreferrer">QC</a>` : '',

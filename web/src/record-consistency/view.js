@@ -3,7 +3,7 @@ import { quoteIdentifier, s3PathToHttps } from '../lib/metadata.js';
 import { buildFilterInput, buildPagingBar } from '../lib/paginated-table.js';
 import { ensureTable, getAcorn } from '../lib/registry.js';
 import { downloadCsv, escHtml, filterRows, PAGE_SIZE } from '../lib/utils.js';
-import { buildMetadataLink, buildS3ConsoleUrl } from '../assets/links.js';
+import { buildMetadataLink, renderStorageLink } from '../assets/links.js';
 
 export const RECORD_CONSISTENCY_TABLE = 'record_consistency_checks';
 
@@ -248,7 +248,7 @@ export function renderFindingRow(row) {
     <td>${escHtml(row.status ?? '')}</td>
     <td>${escHtml(row.docdb_version ?? '')}</td>
     <td><code>${escHtml(row.docdb_id ?? '')}</code></td>
-    <td>${externalLink(buildS3ConsoleUrl(location), location)}</td>
+    <td>${renderStorageLink(location, location)}</td>
     <td><code>${escHtml(row.run_id ?? '')}</code></td>
     <td>${escHtml(row.checked_at ?? '')}</td>
   </tr>`;

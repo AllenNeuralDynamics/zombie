@@ -21,7 +21,7 @@ import { loadVrfSession }                         from './nwb-loader.js';
 import { createPatchEthogram }                    from './patch-ethogram.js';
 import { createAlignedPlot }                      from './aligned-plot.js';
 import { arrowTableToRows }                       from '../lib/arrow.js';
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
+import { buildStorageLink, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { ensureTable }                            from '../lib/registry.js';
 import { withVideoGate }                          from '../lib/video-gate.js';
 import { createPlaybackHarness }                  from '../lib/behaviors/playback-harness.js';
@@ -787,7 +787,15 @@ function updateLinks(linksEl, row) {
   setLink('vrf-link-co',      buildCoLink(row.code_ocean));
   setLink('vrf-link-meta',    buildMetadataLink(row.name));
   setLink('vrf-link-qc',      buildQcLink(row.name));
-  setLink('vrf-link-s3',      buildS3ConsoleUrl(row.location));
+  const storageLink = buildStorageLink(row.location);
+  setLink('vrf-link-s3', storageLink?.href);
+  const storageButton = linksEl.querySelector('#vrf-link-s3');
+  if (storageButton) {
+    storageButton.textContent = storageLink?.label ?? 'S3';
+    storageButton.classList.toggle('storage-link-private', !!storageLink?.private);
+    if (storageLink?.private) storageButton.title = 'This bucket is private';
+    else storageButton.removeAttribute('title');
+  }
 
   linksEl.hidden = false;
 }

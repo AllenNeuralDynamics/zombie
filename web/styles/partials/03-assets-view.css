@@ -869,3 +869,15 @@
   color: #fff;
   border-color: var(--color-red);
 }
+
+/* Private storage buttons remain light grey in both themes and on hover. */
+a.storage-link-private,
+a.storage-link-private:hover,
+.assets-table .link-cell a.storage-link-private,
+.assets-table .link-cell a.storage-link-private:hover,
+.vrf-player-links a.storage-link-private,
+.vrf-player-links a.storage-link-private:hover {
+  background: #e0e0e0;
+  color: #444;
+  border-color: #c8c8c8;
+}

@@ -28,7 +28,7 @@ vi.mock('../assets/links.js', () => ({
   buildQcLink: () => null,
   buildMetadataLink: () => null,
   buildCoLink: () => null,
-  buildS3ConsoleUrl: () => null,
+  renderStorageLink: () => '',
 }));
 
 import {

@@ -8,7 +8,7 @@
  * Pure helpers are exported for unit tests.
  */
 
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
+import { renderStorageLink, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { escHtml, formatDatetime, formatDatetimeRaw, sortRows, uniqueValues, filterRows, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
@@ -142,7 +142,7 @@ export function renderSmartSpimRow(row, visibleColumns) {
     : '<span class="badge badge-no">No</span>';
 
   const proc = isProcessed(row);
-  const s3Href = buildS3ConsoleUrl(proc ? (row.proc_location ?? null) : (row.location ?? null));
+  const storageLink = renderStorageLink(proc ? (row.proc_location ?? null) : (row.location ?? null));
   const qcHref = buildQcLink(proc ? row.name : (row.raw_name ?? null));
   const metaHref = buildMetadataLink(proc ? row.name : (row.raw_name ?? null));
   const coHref = buildCoLink(proc ? (row.proc_code_ocean ?? null) : (row.code_ocean ?? null));
@@ -174,7 +174,7 @@ export function renderSmartSpimRow(row, visibleColumns) {
       return `<td class="link-cell">` +
         `<div class="link-cell-split">` +
         `<span class="link-group-left">${rawHtml} ${stitchedHtml} ${alignmentHtml} ${alignmentCcfHtml} ${channelLinks}</span>` +
-        `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(s3Href, 'S3')}</span>` +
+        `<span class="link-group-right">${linkHtml(coHref, 'CO')} ${linkHtml(qcHref, 'QC')} ${linkHtml(metaHref, 'Meta')} ${storageLink}</span>` +
         `</div>` +
         `</td>`;
     }

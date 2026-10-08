@@ -2,7 +2,7 @@ import { escHtml, formatDatetime } from '../lib/utils.js';
 import { queryRows } from '../lib/arrow.js';
 import { getResolvedBaseUrl } from '../lib/metadata.js';
 import { ensureTable } from '../lib/registry.js';
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
+import { renderStorageLink, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import * as Plot from '@observablehq/plot';
 
 const STORAGE_LENS_URL = () => `${getResolvedBaseUrl()}/storage_lens.pqt`;
@@ -344,7 +344,7 @@ function _buildReprocessingSection(getRows) {
       if (page < 0) page = 0;
       const slice = rows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
       tbody.innerHTML = slice.map(row => {
-        const s3Href = buildS3ConsoleUrl(row.location ?? null);
+        const storageLink = renderStorageLink(row.location ?? null);
         const qcHref = buildQcLink(row.name ?? null);
         const metaHref = buildMetadataLink(row.name ?? null);
         const coHref = buildCoLink(row.code_ocean ?? null);
@@ -357,7 +357,7 @@ function _buildReprocessingSection(getRows) {
           `<td>${formatDatetime(row.process_date ?? null)}</td>` +
           `<td>${formatDatetime(row._latest_process ?? null)}</td>` +
           `<td><a href="/view?subject_id=${encodeURIComponent(row.subject_id ?? '')}&asset=${encodeURIComponent(row.name ?? '')}">${escHtml(row.name ?? '')}</a></td>` +
-          `<td class="link-cell">${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}</td>` +
+          `<td class="link-cell">${storageLink} ${linkHtml(coHref, 'CO')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}</td>` +
           '</tr>';
       }).join('');
 
@@ -736,7 +736,7 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
   }
 
   function renderRow(row, isChild = false) {
-    const s3Href = buildS3ConsoleUrl(row.location ?? null);
+    const storageLink = renderStorageLink(row.location ?? null);
     const qcHref = buildQcLink(row.name ?? null);
     const metaHref = buildMetadataLink(row.name ?? null);
     const coHref = buildCoLink(row.code_ocean ?? null);
@@ -770,7 +770,7 @@ function _buildTable(container, settingsBtn, allRows, sourceMap) {
 
     const cells = visibleColumns.map(col => {
       if (col === 'links') {
-        return `<td class="link-cell">${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}</td>`;
+        return `<td class="link-cell">${storageLink} ${linkHtml(coHref, 'CO')} ${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}</td>`;
       }
       return `<td>${cellValues[col] ?? ''}</td>`;
     });

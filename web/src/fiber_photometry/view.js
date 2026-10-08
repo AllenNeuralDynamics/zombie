@@ -7,7 +7,7 @@
  * Only channels with at least one non-"missing" intended_measurement are shown.
  */
 
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
+import { renderStorageLink, buildQcLink, buildMetadataLink, buildCoLink } from '../assets/links.js';
 import { escHtml, formatDatetime, uniqueValues, PAGE_SIZE, SELECT_THRESHOLD } from '../lib/utils.js';
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
@@ -257,7 +257,7 @@ function linkHtml(href, label) {
 // ---------------------------------------------------------------------------
 
 export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
-  const s3Href = buildS3ConsoleUrl(row.location ?? null);
+  const storageLink = renderStorageLink(row.location ?? null);
   const qcHref = buildQcLink(row.asset_name ?? null);
   const metaHref = buildMetadataLink(row.asset_name ?? null);
   const coHref = buildCoLink(row.code_ocean ?? null);
@@ -288,7 +288,7 @@ export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
   const cells = visibleColumns.map((col) => {
     if (col === 'links') {
       return `<td class="link-cell">` +
-        `${linkHtml(s3Href, 'S3')} ` +
+        `${storageLink} ` +
         `${linkHtml(coHref, 'CO')} ` +
         `${linkHtml(metaHref, 'Meta')} ` +
         `${linkHtml(qcHref, 'QC')}` +
@@ -350,12 +350,12 @@ export function renderFibGroupRows(group, visibleColumns, channelCols, collapsed
 
     for (const asset of assets) {
       const assetName = escHtml(asset.asset_name ?? '');
-      const s3Href = buildS3ConsoleUrl(asset.location ?? null);
+      const storageLink = renderStorageLink(asset.location ?? null);
       const qcHref = buildQcLink(asset.asset_name ?? null);
       const metaHref = buildMetadataLink(asset.asset_name ?? null);
       const coHref = buildCoLink(asset.code_ocean ?? null);
       const linksHtml =
-        `${linkHtml(s3Href, 'S3')} ${linkHtml(coHref, 'CO')} ` +
+        `${storageLink} ${linkHtml(coHref, 'CO')} ` +
         `${linkHtml(metaHref, 'Meta')} ${linkHtml(qcHref, 'QC')}`;
 
       html +=

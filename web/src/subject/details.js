@@ -22,7 +22,7 @@ import { hasImagingConfig } from './imaging-data.js';
 // The three.js-backed 3D viewers (brain-viz-3d / ephys-viz-3d / imaging-viz-3d)
 // pull in three.js + the CCF atlas JSON (~500 KB). They are imported on demand
 // via mountLazy3D() so they never enter the subject page's initial bundle.
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, renderStorageLink } from '../assets/links.js';
 import {
   isForagingAcquisition,
   extractForagingSessionInfo,
@@ -129,9 +129,9 @@ export function buildAcquisitionDetail(event) {
   const qcHref = buildQcLink(assetName);
   const metaHref = buildMetadataLink(assetName);
   const coHref = buildCoLink(data._codeOcean ?? null);
-  const s3Href = buildS3ConsoleUrl(data._location ?? null);
+  const storageLink = renderStorageLink(data._location ?? null);
   const linkParts = [
-    s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
+    storageLink,
     coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">Code Ocean</a>` : '',
     metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Metadata</a>` : '',
     qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC Portal</a>` : '',

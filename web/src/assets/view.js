@@ -22,7 +22,7 @@ export { formatDatetime, sortRows, uniqueValues, filterRows };
 // details, record viewer, platform pages) can build links without importing
 // this heavy view. Re-exported here for backward compatibility.
 // ---------------------------------------------------------------------------
-import { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from './links.js';
+import { renderStorageLink, buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink } from './links.js';
 export { buildS3ConsoleUrl, buildQcLink, buildMetadataLink, buildCoLink };
 
 /**
@@ -94,7 +94,7 @@ const COLUMN_LABELS = {
 };
 
 export function renderAssetRow(row, visibleColumns) {
-  const s3Href = buildS3ConsoleUrl(row.location ?? null);
+  const storageLink = renderStorageLink(row.location ?? null);
   const qcHref = buildQcLink(row.name ?? null);
   const metaHref = buildMetadataLink(row.name ?? null);
   const coHref = buildCoLink(row.code_ocean ?? null);
@@ -128,7 +128,7 @@ export function renderAssetRow(row, visibleColumns) {
   const cells = visibleColumns.map((col) => {
     if (col === 'links') {
       return `<td class="link-cell">` +
-        `${linkHtml(s3Href, 'S3')} ` +
+        `${storageLink} ` +
         `${linkHtml(coHref, 'CO')} ` +
         `${linkHtml(metaHref, 'Meta')} ` +
         `${linkHtml(qcHref, 'QC')}` +
