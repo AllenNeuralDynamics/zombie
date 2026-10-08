@@ -13,6 +13,8 @@ import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
 import { createExaSpimMorphologySection } from './morphology.js';
+import { createIntermediatesLoader, renderIntermediateDetails, intermediatesDeletedStatus } from './intermediates.js';
+import { sanitizeErrorMessage } from '../lib/metadata.js';
 
 // Re-export for backward compatibility with tests
 export { sortRows, uniqueValues, filterRows };
@@ -35,6 +37,7 @@ const DEFAULT_COLS = [
 const ALL_COLS = [
   'subject_id', 'project_name', 'genotype', 'acquisition_start_time', 'processed',
   'investigators', 'experimenters', 'raw_name',
+  'intermediates_deleted',
 ];
 
 const COLUMN_LABELS = {
@@ -46,7 +49,23 @@ const COLUMN_LABELS = {
   investigators: 'Investigators',
   experimenters: 'Experimenters',
   raw_name: 'Asset Name',
+  intermediates_deleted: 'All intermediates deleted',
 };
+
+const COLUMNS_STORAGE_KEY = 'zombie.exaspim.visibleColumns';
+
+function savedColumns() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLUMNS_STORAGE_KEY));
+    if (Array.isArray(saved)) return [...new Set([...ALWAYS_SHOWN, ...saved.filter((col) => ALL_COLS.includes(col))])];
+  } catch { /* Use defaults when storage is unavailable or invalid. */ }
+  return [...DEFAULT_COLS];
+}
+
+function saveColumns(columns) {
+  try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columns)); }
+  catch { /* Column settings still work without storage. */ }
+}
 
 // ---------------------------------------------------------------------------
 // Link helpers
@@ -71,7 +90,7 @@ export function isProcessed(row) {
 // Row renderer
 // ---------------------------------------------------------------------------
 
-export function renderExaSpimRow(row, visibleColumns) {
+export function renderExaSpimRow(row, visibleColumns, expanded = false) {
   const processedLabel = isProcessed(row)
     ? '<span class="badge badge-yes">Yes</span>'
     : '<span class="badge badge-no">No</span>';
@@ -95,6 +114,7 @@ export function renderExaSpimRow(row, visibleColumns) {
     investigators: escHtml(String(row.investigators ?? '')),
     experimenters: escHtml(String(row.experimenters ?? '')),
     raw_name: escHtml(String(row.raw_name ?? '')),
+    intermediates_deleted: escHtml(row.intermediates_deleted ?? 'Unknown'),
   };
 
   const cols = visibleColumns ?? DEFAULT_COLS;
@@ -112,7 +132,11 @@ export function renderExaSpimRow(row, visibleColumns) {
     return `<td>${cellValues[col] ?? ''}</td>`;
   });
 
-  return `<tr>${cells.join('')}</tr>`;
+  const key = row.raw_name ?? row.name;
+  const controlId = `exaspim-details-${encodeURIComponent(key)}`;
+  return `<tr><td class="exaspim-expand-cell"><button type="button" class="exaspim-expand-btn"
+    data-exaspim-expand="${escHtml(key)}" aria-expanded="${expanded}" aria-controls="${controlId}"
+    aria-label="${expanded ? 'Collapse' : 'Expand'} ${escHtml(key)}"><span aria-hidden="true">${expanded ? '⌄' : '›'}</span></button></td>${cells.join('')}</tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,6 +146,35 @@ export function renderExaSpimRow(row, visibleColumns) {
 export function createExaSpimView(coord) {
   const container = document.createElement('div');
   container.className = 'assets-view exaspim-view';
+  const expandedAssets = new Set();
+  const loadIntermediateRows = createIntermediatesLoader(coord);
+  let intermediateState = { status: 'idle' };
+  let refreshAssetTable = () => {};
+
+  function refreshDetails() {
+    container.querySelectorAll('[data-exaspim-intermediates]').forEach((element) => {
+      element.classList.toggle('error', intermediateState.status === 'error');
+      if (intermediateState.status === 'ready') {
+        element.innerHTML = renderIntermediateDetails(intermediateState.rows.get(element.dataset.exaspimIntermediates));
+      } else {
+        element.textContent = intermediateState.status === 'error'
+          ? intermediateState.error : 'Loading intermediate folders…';
+      }
+    });
+  }
+
+  async function loadIntermediates() {
+    if (intermediateState.status === 'ready' || intermediateState.status === 'loading') return;
+    intermediateState = { status: 'loading' };
+    refreshDetails();
+    try {
+      intermediateState = { status: 'ready', rows: await loadIntermediateRows() };
+    } catch (error) {
+      intermediateState = { status: 'error', error: `Failed to load intermediate folders: ${sanitizeErrorMessage(error?.message ?? error)}` };
+    }
+    refreshDetails();
+    refreshAssetTable();
+  }
 
   const loadingEl = document.createElement('p');
   loadingEl.className = 'loading-message';
@@ -131,7 +184,7 @@ export function createExaSpimView(coord) {
   ensureTable(coord, 'platform_exaspim')
     .then(() =>
       queryRows(coord,
-        `SELECT s.name, s.raw_name, s.processed, s.raw_link, s.fused_link,
+        `SELECT DISTINCT s.name, s.raw_name, s.processed, s.raw_link, s.fused_link,
                 b.subject_id, b.project_name, b.acquisition_start_time,
                 b.genotype, b.location, b.code_ocean,
                 b.investigators_normalized AS investigators,
@@ -282,7 +335,7 @@ export function createExaSpimView(coord) {
   function buildTable(allRows, target, settingsBtn) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
-    let visibleColumns = [...DEFAULT_COLS];
+    let visibleColumns = savedColumns();
     let filters = Object.fromEntries(ALL_COLS.map((c) => [c, '']));
     let page = 0;
     let settingsModalOpen = false;
@@ -291,6 +344,7 @@ export function createExaSpimView(coord) {
     for (const col of ALL_COLS) {
       uniques[col] = uniqueValues(allRows, col);
     }
+    uniques.intermediates_deleted = ['Yes', 'No', 'Unknown', 'No processed assets'];
 
     const useSelect = {};
     for (const col of ALL_COLS) {
@@ -303,6 +357,16 @@ export function createExaSpimView(coord) {
     const tbody = document.createElement('tbody');
     table.appendChild(thead);
     table.appendChild(tbody);
+    tbody.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-exaspim-expand]');
+      if (!button) return;
+      const key = button.dataset.exaspimExpand;
+      if (expandedAssets.has(key)) expandedAssets.delete(key);
+      else expandedAssets.add(key);
+      refresh();
+      [...tbody.querySelectorAll('[data-exaspim-expand]')].find((el) => el.dataset.exaspimExpand === key)?.focus();
+      if (expandedAssets.has(key)) void loadIntermediates();
+    });
 
     const pagingBar = document.createElement('div');
     pagingBar.className = 'assets-paging';
@@ -311,9 +375,10 @@ export function createExaSpimView(coord) {
     target.appendChild(pagingBar);
 
     function renderHeader() {
-      const displayCols = [...visibleColumns, 'links'];
+      const displayCols = ['expand', ...visibleColumns, 'links'];
       const headerRowHtml = displayCols.map((col) => {
         const label = COLUMN_LABELS[col] ?? col;
+        if (col === 'expand') return '<th class="exaspim-expand-cell">Expand<br>details</th>';
         if (col === 'links') {
           return `<th class="col-links"><span class="col-label">Links</span></th>`;
         }
@@ -384,7 +449,13 @@ export function createExaSpimView(coord) {
     }
 
     function visibleRows() {
-      return sortRows(filterRows(allRows, filters), sortCol, sortDir);
+      const rows = allRows.map((row) => ({
+        ...row,
+        intermediates_deleted: intermediateState.status === 'ready'
+          ? intermediatesDeletedStatus(intermediateState.rows.get(row.raw_name ?? row.name))
+          : intermediateState.status === 'error' ? 'Unknown' : 'Loading…',
+      }));
+      return sortRows(filterRows(rows, filters), sortCol, sortDir);
     }
 
     function refresh() {
@@ -393,7 +464,15 @@ export function createExaSpimView(coord) {
       if (page >= totalPages) page = totalPages - 1;
 
       const pageRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-      tbody.innerHTML = pageRows.map((row) => renderExaSpimRow(row, visibleColumns)).join('');
+      tbody.innerHTML = pageRows.map((row) => {
+        const key = row.raw_name ?? row.name;
+        const expanded = expandedAssets.has(key);
+        const detailId = `exaspim-details-${encodeURIComponent(key)}`;
+        return renderExaSpimRow(row, visibleColumns, expanded) +
+          `<tr class="exaspim-detail-row" id="${detailId}" ${expanded ? '' : 'hidden'}><td colspan="${visibleColumns.length + 2}">${expanded
+            ? `<div class="exaspim-intermediates" data-exaspim-intermediates="${escHtml(key)}"></div>` : ''}</td></tr>`;
+      }).join('');
+      refreshDetails();
 
       const start = rows.length === 0 ? 0 : page * PAGE_SIZE + 1;
       const end = Math.min((page + 1) * PAGE_SIZE, rows.length);
@@ -457,11 +536,14 @@ export function createExaSpimView(coord) {
           }
           renderHeader();
           refresh();
+          saveColumns(visibleColumns);
+          if (visibleColumns.includes('intermediates_deleted')) void loadIntermediates();
         });
       });
 
       settingsModal.querySelector('.settings-reset-btn').addEventListener('click', () => {
         visibleColumns = [...DEFAULT_COLS];
+        saveColumns(visibleColumns);
         settingsModal.querySelectorAll('.settings-col-checkbox').forEach((cb) => {
           cb.checked = visibleColumns.includes(cb.dataset.col);
         });
@@ -487,6 +569,8 @@ export function createExaSpimView(coord) {
 
     renderHeader();
     refresh();
+    refreshAssetTable = refresh;
+    if (visibleColumns.includes('intermediates_deleted')) void loadIntermediates();
   }
 
   return container;

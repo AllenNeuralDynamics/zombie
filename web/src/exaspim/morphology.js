@@ -1153,9 +1153,25 @@ function openNeuronSearchModal(ctx) {
  *   parquet via DuckDB (fast) instead of the Janelia GraphQL search.
  * @returns {HTMLElement}
  */
-export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
-  const section = document.createElement('section');
+export function createExaSpimMorphologySection(options = {}) {
+  const section = document.createElement('details');
   section.className = 'exaspim-morphology';
+  const summary = document.createElement('summary');
+  summary.className = 'exaspim-morphology-summary';
+  summary.textContent = 'Neuron morphology viewer';
+  section.appendChild(summary);
+  let content = null;
+  section.addEventListener('toggle', () => {
+    if (!section.open || content || options.signal?.aborted) return;
+    content = createMorphologyContent(options);
+    section.appendChild(content);
+  });
+  return section;
+}
+
+function createMorphologyContent({ signal, coordinator } = {}) {
+  const section = document.createElement('div');
+  section.className = 'exaspim-morphology-content';
 
   // ── Initial view state from the URL ───────────────────────────────────────
   // Parsed up-front so the toggles render in the shared state and the 3D
@@ -1172,10 +1188,6 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
   // Header
   const header = document.createElement('div');
   header.className = 'exaspim-morphology-header';
-  const title = document.createElement('h3');
-  title.className = 'platform-summary-heading';
-  title.textContent = 'Neuron morphology viewer';
-  header.appendChild(title);
   const portalLink = document.createElement('a');
   portalLink.className = 'exaspim-morphology-portal-link';
   portalLink.href = PORTAL_BASE + '/';

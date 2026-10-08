@@ -30,6 +30,9 @@ import { parseTranslation } from '../lib/coord-systems.js';
 import { fiberColorByName } from './brain-viz.js';
 import { createOrbitControls } from '../lib/orbit-controls.js';
 import { vizSceneBg, onVizThemeChange } from './viz-theme.js';
+import { loadFiberTips } from './fiber-tip-data.js';
+import { ccfIndexToBuild5 } from './ccf-build5-affine.js';
+import { escHtml } from '../lib/utils.js';
 
 // ── Surface depth lookup ──────────────────────────────────────────────────
 // surface_depth.json: depth_um[AP_idx][ML_idx] = DV µm of first brain voxel
@@ -189,7 +192,7 @@ function probeHexColor(probe) {
  * @param {object} surgeryData - The raw Surgery `data` object from a timeline event.
  * @returns {HTMLElement}
  */
-export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
+export function createBrainViz3D(surgeryData, proceduresCoordSys = null, context = {}) {
   const container = document.createElement('div');
   container.className = 'brain-viz-3d-container';
   container.style.cssText =
@@ -208,7 +211,7 @@ export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
     'pointer-events:none;z-index:10;text-align:right;line-height:1.6';
   container.appendChild(infoEl);
 
-  _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys).catch((err) => {
+  _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys, context).catch((err) => {
     statusEl.textContent = '3D viewer failed: ' + (err.message ?? err);
     console.error('[BrainViz3D]', err);
   });
@@ -218,7 +221,7 @@ export function createBrainViz3D(surgeryData, proceduresCoordSys = null) {
 
 // ── Internal initialiser ─────────────────────────────────────────────────
 
-async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys) {
+async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoordSys, context) {
   const CCF_MATRIX = makeTemplateMatrix(THREE);
 
   // ── Scene ──────────────────────────────────────────────────────────────
@@ -336,6 +339,22 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 
   // ── Render loop ───────────────────────────────────────────────────────
   let alive = true;
+  loadFiberTips(context.coordinator, context.subjectId).then(tips => {
+    if (!alive) return;
+    const markers = buildFiberTipMarkers(probes, tips);
+    scene.add(markers);
+    for (const marker of markers.children) {
+      const line = document.createElement('div');
+      line.innerHTML = `<span style="color:#${marker.material.color.getHexString()}">●</span> ${escHtml(marker.name)} — Real fiber tip location`;
+      infoEl.appendChild(line);
+    }
+  }).catch(err => {
+    if (!alive) return;
+    const line = document.createElement('div');
+    line.textContent = 'Real fiber tip locations unavailable.';
+    infoEl.appendChild(line);
+    console.warn('[BrainViz3D] Fiber tip annotations failed:', err);
+  });
   (function animate() {
     if (!alive) return;
     requestAnimationFrame(animate);
@@ -356,6 +375,11 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
       ro.disconnect();
       mo.disconnect();
       disconnectTheme();
+      scene.traverse(object => {
+        object.geometry?.dispose();
+        if (Array.isArray(object.material)) object.material.forEach(material => material.dispose());
+        else object.material?.dispose();
+      });
       renderer.dispose();
     }
   });
@@ -363,6 +387,26 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
 }
 
 // ── Geometry helpers ─────────────────────────────────────────────────────
+
+/** Add measured tips for this surgery's fibers using the same template-to-scene transform as the meshes. */
+export function buildFiberTipMarkers(probes, tips) {
+  const group = new THREE.Group();
+  const matrix = makeTemplateMatrix(THREE);
+  const key = name => String(name).toLowerCase().replace(/[\s_-]/g, '');
+  for (const tip of tips) {
+    const index = probes.findIndex(probe => key(probe.name) === key(tip.fiber));
+    const position = ccfIndexToBuild5(tip);
+    if (index < 0 || !position) continue;
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.16, 16, 16),
+      new THREE.MeshPhongMaterial({ color: cssHexToThree(fiberColorByName(probes[index].name, index)), shininess: 60 }),
+    );
+    marker.name = tip.fiber;
+    marker.position.fromArray(position).applyMatrix4(matrix);
+    group.add(marker);
+  }
+  return group;
+}
 
 function _buildProbes(THREE, scene, probes) {
   for (let i = 0; i < probes.length; i++) {

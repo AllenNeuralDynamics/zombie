@@ -2555,3 +2555,35 @@
 .pb-player--vrf .pb-stage-label       { grid-area: label; }
 .pb-player--vrf .pb-trial-info        { grid-area: info; }
 .pb-player--vrf .pb-stage-canvas-wrap { grid-area: canvas; align-self: stretch; }
+
+.exaspim-morphology-summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.exaspim-morphology-content { margin-top: 12px; }
+.assets-table .exaspim-expand-cell { width: 1%; padding: 6px 4px; text-align: center; white-space: nowrap; }
+.exaspim-expand-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  padding: 2px 6px;
+  font-size: 1.25rem;
+  white-space: nowrap;
+}
+.exaspim-detail-row[hidden] { display: none; }
+.exaspim-detail-row > td { background: var(--surface-bg); }
+.exaspim-intermediates { padding: 12px 16px; }
+.exaspim-intermediate-asset + .exaspim-intermediate-asset { margin-top: 16px; }
+.exaspim-intermediate-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.exaspim-intermediate-checked { color: var(--text-secondary); font-size: 0.85rem; margin: 4px 0 8px; }
+.exaspim-folder-table { width: 100%; border-collapse: collapse; }
+.exaspim-folder-table th, .exaspim-folder-table td { padding: 6px 8px; text-align: left; }
+.exaspim-folder-status { white-space: nowrap; }

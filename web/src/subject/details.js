@@ -459,7 +459,7 @@ function createInjectionVizPanel(surgeryData, subjectId) {
   return container;
 }
 
-function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) {
+function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null, coordinator = null) {
   const container = document.createElement('div');
   const fibers = extractFibersFromSurgery(surgeryData, proceduresCoordSys).sort(
     (a, b) => a.name.localeCompare(b.name),
@@ -507,7 +507,7 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
 
   mountLazy3D(vizRow, async () => {
     const { createBrainViz3D } = await import('./brain-viz-3d.js');
-    const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
+    const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys, { coordinator, subjectId });
     viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
     return viz3d;
   });
@@ -681,7 +681,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   renderTabs(tabDefs);
 }
 
-function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
+function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null, coordinator = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
 
@@ -708,7 +708,7 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
 
   // Fiber locations tab (2D top-down)
   if (hasFiberImplants(data)) {
-    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys) });
+    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys, coordinator) });
   }
 
   const prevSurgTab = container._activeTabLabel;
