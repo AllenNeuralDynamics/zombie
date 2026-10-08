@@ -15,14 +15,28 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { createPreview } from './preview.js';
+import { AuthorEditor } from './author-editor.js';
+import { normalizeOrcidId } from './orcid-identity.js';
+import { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
+export { CREDIT_ROLE_ENUM, CREDIT_ROLE_ENUM_REVERSE } from './credit-roles.js';
 import {
   CREDIT_ROLES,
   LEVEL_LABELS,
-  enabledLevels,
   activeContributionLevels,
   getLastName,
 } from './credit-helpers.js';
 import { RoleTip } from './role-tooltip.js';
+import {
+  availableAuthorWorkflowLevels,
+  createWorkflowLevelValue,
+  enabledAuthorWorkflowLevels,
+  normalizeAuthorWorkflowLevels,
+  workflowLevelColor,
+  workflowLevelLabel,
+  usesLegacyAuthorWorkflowColors,
+  workflowUiValueToStored,
+  workflowValueToUiValue,
+} from './author-workflow-levels.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -39,27 +53,6 @@ export const LEVEL_DISPLAY = Object.fromEntries(
   CONTRIBUTION_LEVELS.map((l) => [l, LEVEL_LABELS[l.toLowerCase()]]),
 );
 
-
-export const CREDIT_ROLE_ENUM = {
-  'Conceptualization':               'conceptualization',
-  'Methodology':                     'methodology',
-  'Software':                        'software',
-  'Validation':                      'validation',
-  'Formal analysis':                 'formal-analysis',
-  'Investigation':                   'investigation',
-  'Resources':                       'resources',
-  'Data curation':                   'data-curation',
-  'Writing \u2013 original draft':   'writing-original-draft',
-  'Writing \u2013 review & editing': 'writing-review-editing',
-  'Visualization':                   'visualization',
-  'Supervision':                     'supervision',
-  'Project Administration':          'project-administration',
-  'Funding Acquisition':             'funding-acquisition',
-};
-
-export const CREDIT_ROLE_ENUM_REVERSE = Object.fromEntries(
-  Object.entries(CREDIT_ROLE_ENUM).map(([k, v]) => [v, k]),
-);
 
 const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\mid', Lead: '\\hi' };
 
@@ -172,7 +165,12 @@ export function activeCreditCategories(rows) {
  * follow the publication order when the project has one.
  */
 export function generateLatex(rows, settings = {}) {
-  const showLevels = (settings.showLevels ?? true) && (settings.allowLevels ?? true);
+  const workflowLevels = normalizeAuthorWorkflowLevels(
+    settings.authorWorkflowLevels,
+    settings,
+  );
+  const enabledLevels = enabledAuthorWorkflowLevels(workflowLevels);
+  const showLevels = (settings.showLevels ?? true) && enabledLevels.length > 0;
   rows = orderRowsForPublication(rows);
   const activeCategories = activeCreditCategories(rows);
 
@@ -198,7 +196,13 @@ export function generateLatex(rows, settings = {}) {
       const values = activeCategories.map((cat) => {
         const level = row[cat];
         if (!level || level === 'None') return 0;
-        return showLevels ? (LATEX_LEVEL_VALUES[level] ?? 0) : LATEX_LEVEL_VALUES.Equal;
+        if (!showLevels) return LATEX_LEVEL_VALUES.Equal;
+        const storedLevel = workflowUiValueToStored(level, workflowLevels);
+        const builtInUiValue = workflowValueToUiValue(storedLevel, workflowLevels);
+        if (LATEX_LEVEL_VALUES[builtInUiValue] != null) return LATEX_LEVEL_VALUES[builtInUiValue];
+        const optionIndex = enabledLevels.findIndex((option) => option.value === storedLevel);
+        const rank = enabledLevels.length <= 1 ? 2 : Math.round((optionIndex + 1) * 3 / enabledLevels.length);
+        return [0, '\\lo', '\\mid', '\\hi'][rank] || '\\mid';
       });
       return `        {${values.join(',')}},`;
     }),
@@ -270,7 +274,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
         const desc = creditDescriptions[row.name]?.[roleEnum];
         credit_levels.push({
           role: roleEnum,
-          level: level.toLowerCase(),
+          level: workflowUiValueToStored(level),
           ...(desc ? { description: desc } : {}),
           ...(row._passthrough?.roles?.[roleEnum] || {}),
         });
@@ -316,6 +320,7 @@ export function toEndpointPayload(rows, projectName, meta = {}) {
 }
 
 export function fromEndpointPayload(data) {
+  const workflowLevels = normalizeAuthorWorkflowLevels(data.author_workflow_levels, data);
   return (data.contributors || []).map((contributor) => {
     const row = {
       name: contributor.author?.name ?? '',
@@ -339,7 +344,10 @@ export function fromEndpointPayload(data) {
     for (const cl of contributor.credit_levels || []) {
       const displayRole = CREDIT_ROLE_ENUM_REVERSE[cl.role];
       if (displayRole) {
-        row[displayRole] = cl.level.charAt(0).toUpperCase() + cl.level.slice(1);
+        row[displayRole] = workflowValueToUiValue(
+          cl.level,
+          workflowLevels,
+        );
       }
       const extras = {};
       for (const key of ROLE_PASSTHROUGH_KEYS) {
@@ -434,7 +442,7 @@ export function rowsToWidgetAuthors(rows) {
     for (const displayRole of CREDIT_CATEGORIES) {
       const level = row[displayRole];
       if (level && level !== 'None') {
-        credit_levels.push({ role: displayRole, level: level.toLowerCase() });
+        credit_levels.push({ role: displayRole, level: workflowUiValueToStored(level) });
       }
     }
     return {
@@ -456,13 +464,17 @@ export function rowsToWidgetAuthors(rows) {
  * This is a display path like any other, so it obeys the same project
  * settings as the preview widget: `showLevels` controls whether the cells are
  * shaded by contribution level at all (not just whether a legend is drawn),
- * `allowLead`/`allowLevels` control which tiers may appear, and the rows are
+ * Project-configured author workflow levels control which tiers may appear, and rows are
  * laid out in publication order when the project has one.
  */
 export function generateMatrixCanvas(rows, settings = {}) {
-  const { allowLevels = true, allowLead = true } = settings;
-  // Levels can only be shown if the project allows them in the first place.
-  const showLevels = (settings.showLevels ?? true) && allowLevels;
+  const workflowLevels = normalizeAuthorWorkflowLevels(
+    settings.authorWorkflowLevels,
+    settings,
+  );
+  const allowedLevels = enabledAuthorWorkflowLevels(workflowLevels);
+  const showLevels = (settings.showLevels ?? true) && allowedLevels.length > 0;
+  const useLegacyCellColors = usesLegacyAuthorWorkflowColors(workflowLevels);
   rows = orderRowsForPublication(rows);
 
   const CELL        = 30;
@@ -484,7 +496,7 @@ export function generateMatrixCanvas(rows, settings = {}) {
   const legendItems = showLevels
     ? activeContributionLevels(
       activeRoles.flatMap((role) => rows.map((row) => row[role])),
-      { allowLevels, allowLead },
+      { authorWorkflowLevels: workflowLevels },
     )
     : [];
 
@@ -508,11 +520,14 @@ export function generateMatrixCanvas(rows, settings = {}) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasW, canvasH);
 
-  const FILL = {
-    Lead:       'rgba(99,102,241,0.75)',
-    Equal:      'rgba(99,102,241,0.40)',
-    Supporting: 'rgba(99,102,241,0.18)',
+  const legacyCellFills = {
+    lead: '#8a8cf5',
+    equal: '#c1c2f9',
+    supporting: '#e3e3fc',
   };
+  const flatColor = useLegacyCellColors
+    ? legacyCellFills.equal
+    : workflowLevelColor('equal', workflowLevels);
 
   for (let ci = 0; ci < activeRoles.length; ci++) {
     const cx = PAD + NAME_W + ci * CELL + CELL / 2;
@@ -543,12 +558,16 @@ export function generateMatrixCanvas(rows, settings = {}) {
       // With levels hidden the matrix is a plain yes/no, so every filled cell
       // gets the same tone — shading by a level the legend no longer explains
       // would leak the hidden data. Matches the widget's `equal` fallback.
-      ctx.fillStyle = showLevels ? (FILL[level] || FILL.Supporting) : FILL.Equal;
+      const storedLevel = workflowUiValueToStored(level, workflowLevels);
+      ctx.fillStyle = showLevels
+        ? useLegacyCellColors
+          ? legacyCellFills[storedLevel] || legacyCellFills.supporting
+          : workflowLevelColor(storedLevel, workflowLevels)
+        : flatColor;
       ctx.fillRect(cx + 1, ry + 1, CELL - 1, CELL - 1);
     }
   }
 
-  const LEGEND_COLORS = { lead: '#4338ca', equal: '#818cf8', supporting: '#9ca3af' };
   const legendX       = PAD + NAME_W + gridW + LEGEND_GAP;
   const legendTotalH  = legendItems.length * LEGEND_STEP;
   const legendStartY  = HEADER_H + gridH / 2 - legendTotalH / 2 + LEGEND_STEP / 2;
@@ -556,8 +575,8 @@ export function generateMatrixCanvas(rows, settings = {}) {
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'middle';
   for (let i = 0; i < legendItems.length; i++) {
-    ctx.fillStyle = LEGEND_COLORS[legendItems[i]];
-    ctx.fillText(LEVEL_LABELS[legendItems[i]], legendX, legendStartY + i * LEGEND_STEP);
+    ctx.fillStyle = workflowLevelColor(legendItems[i], workflowLevels);
+    ctx.fillText(workflowLevelLabel(legendItems[i], workflowLevels), legendX, legendStartY + i * LEGEND_STEP);
   }
 
   return canvas;
@@ -684,285 +703,6 @@ function extractAuthorsWithOrcids(records) {
 // Preact components
 // ---------------------------------------------------------------------------
 
-// ── ChipSelect ──────────────────────────────────────────────────────────────
-
-function ChipSelect({ options, selectedIds, onChange, ariaLabel }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
-
-  const selected  = options.filter((o) => selectedIds.includes(o.id));
-  const remaining = options.filter((o) => !selectedIds.includes(o.id));
-
-  return html`
-    <div class="cv-chip-select" ref=${wrapRef} aria-label=${ariaLabel}>
-      ${selected.map((opt) => html`
-        <span key=${opt.id} class="cv-chip" title=${opt.name}>
-          <span class="cv-chip-text">${opt.name}</span>
-          <button type="button" class="cv-chip-remove" aria-label=${'Remove ' + opt.name}
-                  onClick=${(e) => { e.stopPropagation(); onChange(selectedIds.filter((i) => i !== opt.id)); }}>
-            ×
-          </button>
-        </span>
-      `)}
-      ${remaining.length > 0 && html`
-        <div style="position:relative;display:inline-block">
-          <button type="button" class="cv-chip-add"
-                  onClick=${(e) => { e.stopPropagation(); setOpen((o) => !o); }}>+</button>
-          ${open && html`
-            <div class="cv-chip-dropdown">
-              ${remaining.map((opt) => html`
-                <button key=${opt.id} type="button" class="cv-chip-dropdown-item"
-                        onMouseDown=${(e) => { e.preventDefault(); onChange([...selectedIds, opt.id]); setOpen(false); }}>
-                  ${opt.name}
-                </button>
-              `)}
-            </div>
-          `}
-        </div>
-      `}
-    </div>
-  `;
-}
-
-// ── OrcidSearch ─────────────────────────────────────────────────────────────
-
-function OrcidSearch({ authorName, value, onChange }) {
-  const [open, setOpen]       = useState(false);
-  const [results, setResults] = useState([]);
-  const [busy, setBusy]       = useState(false);
-  const [searchMsg, setSearchMsg] = useState('Search');
-  const wrapRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => { if (!wrapRef.current?.contains(e.target)) setOpen(false); };
-    document.addEventListener('click', close);
-    return () => document.removeEventListener('click', close);
-  }, [open]);
-
-  async function search() {
-    setBusy(true); setSearchMsg('…');
-    try {
-      const parts = authorName.trim().split(/\s+/);
-      const familyName  = parts[parts.length - 1];
-      const givenNames  = parts.slice(0, -1).join('+');
-      const q = givenNames
-        ? `family-name:${encodeURIComponent(familyName)}+AND+given-names:${encodeURIComponent(givenNames)}`
-        : `family-name:${encodeURIComponent(familyName)}`;
-      const res = await fetch(`https://pub.orcid.org/v3.0/search/?q=${q}&rows=5`, {
-        headers: { Accept: 'application/vnd.orcid+json' },
-      });
-      if (!res.ok) throw new Error(`ORCID API ${res.status}`);
-      const data = await res.json();
-      const orcids = (data.result || []).map((r) => r['orcid-identifier']?.path).filter(Boolean);
-      setResults(orcids);
-      setOpen(orcids.length > 0);
-      setSearchMsg(orcids.length ? 'Search' : 'No results');
-    } catch (e) {
-      setSearchMsg('Error');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return html`
-    <div class="cv-orcid-row" ref=${wrapRef} style="position:relative">
-      <input id="cv-detail-orcid" type="text" class="cv-orcid-input"
-             placeholder="0000-0000-0000-0000" value=${value || ''}
-             onInput=${(e) => onChange(e.target.value)} />
-      <button type="button" id="cv-orcid-search-btn" class="btn-secondary cv-orcid-search-btn"
-              disabled=${busy} onClick=${search}>${searchMsg}</button>
-      ${open && results.length > 0 && html`
-        <div class="cv-chip-dropdown cv-orcid-dropdown">
-          ${results.map((orcid) => html`
-            <div key=${orcid} class="cv-orcid-dropdown-row">
-              <button type="button" class="cv-chip-dropdown-item"
-                      onMouseDown=${(e) => { e.preventDefault(); onChange(orcid); setOpen(false); }}>
-                ${orcid}
-              </button>
-              <a href=${`https://orcid.org/${orcid}`} target="_blank" rel="noopener noreferrer"
-                 class="cv-orcid-verify-link" title="Verify on orcid.org"
-                 onMouseDown=${(e) => e.stopPropagation()}>verify ↗</a>
-            </div>
-          `)}
-        </div>
-      `}
-    </div>
-  `;
-}
-
-// ── AuthorDetailSection ──────────────────────────────────────────────────────
-
-function AuthorDetailSection({
-  row, selectedAuthor, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
-  creditDescriptions, authorStartDates, authorEndDates, authorSectionLevels, onChange,
-  allowLead, allowLevels,
-}) {
-  if (!selectedAuthor || !row) {
-    return html`
-      <section class="cv-section cv-author-detail-section" id="cv-author-detail-section">
-        <p class="cv-placeholder">Select an author from the matrix to edit details.</p>
-      </section>
-    `;
-  }
-
-  const activeRoles = CREDIT_CATEGORIES.filter((cat) => row[cat] && row[cat] !== 'None');
-  const currentSectionLevels = authorSectionLevels[selectedAuthor] || [];
-
-  function getSectionLevel(sectionTitle) {
-    const level = currentSectionLevels.find((sl) => sl.section === sectionTitle)?.level;
-    if (!level || String(level).toLowerCase() === 'none') return 'None';
-    // Stored values are lowercase, but accepting the display-case values here
-    // keeps old drafts readable and ensures the controlled select stays in
-    // sync with the checkbox below.
-    return String(level).toLowerCase();
-  }
-  function getSectionDescription(sectionTitle) {
-    return currentSectionLevels.find((sl) => sl.section === sectionTitle)?.description || '';
-  }
-
-  return html`
-    <section class="cv-section cv-author-detail-section" id="cv-author-detail-section">
-      <div class="cv-author-detail-header">
-        <h3 class="cv-section-heading">
-          Editing: <span class="cv-detail-name-badge">${selectedAuthor}</span>
-        </h3>
-      </div>
-
-      <div class="cv-detail-meta-grid">
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-orcid">ORCID iD</label>
-          <${OrcidSearch}
-            authorName=${selectedAuthor}
-            value=${authorOrcids[selectedAuthor] || ''}
-            onChange=${(val) => onChange('orcid', val)}
-          />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-email">Email</label>
-          <input id="cv-detail-email" type="email"
-                 class="cv-wizard-input"
-                 placeholder="name@example.org"
-                 value=${authorEmails[selectedAuthor] || ''}
-                 onInput=${(e) => onChange('email', e.target.value)} />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-author-level">Author level</label>
-          <select id="cv-detail-author-level" class="cv-author-level-select"
-                  value=${row.author_level || ''}
-                  onChange=${(e) => onChange('authorLevel', e.target.value || null)}>
-            <option value="">\u2014 none \u2014</option>
-            <option value="first">first</option>
-            <option value="senior">senior</option>
-          </select>
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-start-date">Join Date</label>
-          <input id="cv-detail-start-date" type="date"
-                 class="cv-wizard-input"
-                 value=${authorStartDates[selectedAuthor] || ''}
-                 onChange=${(e) => onChange('startDate', e.target.value || null)} />
-        </div>
-        <div class="cv-detail-meta-item">
-          <label class="cv-detail-label" for="cv-detail-end-date">End Date</label>
-          <input id="cv-detail-end-date" type="date"
-                 class="cv-wizard-input"
-                 value=${authorEndDates[selectedAuthor] || ''}
-                 onChange=${(e) => onChange('endDate', e.target.value || null)} />
-        </div>
-        <div class="cv-detail-meta-item cv-detail-aff-item">
-          <label class="cv-detail-label">Affiliations</label>
-          <${ChipSelect}
-            options=${affiliations}
-            selectedIds=${authorAffIds[selectedAuthor] || []}
-            onChange=${(ids) => onChange('affiliations', ids)}
-            ariaLabel="${selectedAuthor} affiliations"
-          />
-        </div>
-      </div>
-
-      <h4 class="cv-subsection-heading">Contribution Details</h4>
-      ${activeRoles.length === 0
-        ? html`<p class="cv-placeholder cv-detail-hint">
-            No contributions assigned yet — set levels in the matrix above.
-          </p>`
-        : activeRoles.map((cat) => {
-          const roleEnum = CREDIT_ROLE_ENUM[cat];
-          return html`
-            <div key=${cat} class="cv-credit-card">
-              <div class="cv-credit-card-header">
-                <span class="cv-credit-role-name"><${RoleTip} name=${cat} /></span>
-                ${allowLevels && html`<span class=${'cv-credit-level-badge cv-credit-level-' + row[cat].toLowerCase()}>${LEVEL_DISPLAY[row[cat]] || row[cat]}</span>`}
-              </div>
-              <label class="cv-detail-label">Description</label>
-              <textarea class="cv-credit-desc-textarea" rows="2"
-                        placeholder="Describe your specific contribution\u2026"
-                        onInput=${(e) => onChange('creditDesc', { roleEnum, value: e.target.value })}>
-                ${creditDescriptions[selectedAuthor]?.[roleEnum] || ''}
-              </textarea>
-            </div>
-          `;
-        })
-      }
-
-        ${sections.length > 0 && html`
-        <h4 class="cv-subsection-heading">Section Contributions</h4>
-        ${sections.map((sec) => {
-          const level = getSectionLevel(sec.title);
-          const selected = level !== 'None';
-          const description = getSectionDescription(sec.title);
-          return html`
-            <div key=${sec.id} class="cv-section-contrib-row">
-              <label class="cv-section-contrib-check">
-                <input type="checkbox"
-                       aria-label=${selectedAuthor + ' contributed to ' + sec.title}
-                       checked=${selected}
-                       onChange=${() => onChange('sectionLevel', {
-                         section: sec.title,
-                         level: selected ? 'None' : 'equal',
-                         description,
-                       })} />
-                <span class="cv-section-contrib-title">${sec.title}</span>
-              </label>
-              <select class="cv-section-contrib-level"
-                      value=${level}
-                      onChange=${(e) => onChange('sectionLevel', {
-                        section: sec.title,
-                        level: e.target.value,
-                        description,
-                      })}>
-                <option value="None">\u2014 none \u2014</option>
-                ${allowLevels
-                  ? enabledLevels({ allowLevels, allowLead }).map((lvl) => html`
-                      <option key=${lvl} value=${lvl}>${LEVEL_LABELS[lvl]}</option>
-                    `)
-                  : html`<option value="equal">contributed</option>`}
-              </select>
-              ${level !== 'None' && html`
-                <input type="text" class="cv-section-contrib-desc"
-                       placeholder="Description (optional)"
-                       value=${description}
-                       onInput=${(e) => onChange('sectionLevel', {
-                         section: sec.title,
-                         level,
-                         description: e.target.value,
-                       })} />
-              `}
-            </div>
-          `;
-        })}
-      `}
-    </section>
-  `;
-}
-
 // ── PublicationOrderEditor ────────────────────────────────────────────────
 
 /**
@@ -1039,6 +779,63 @@ function PublicationOrderEditor({ rows, onReorder, onClear }) {
   `;
 }
 
+function AuthorWorkflowLevelsEditor({ levels, onChange, disabled = false }) {
+  function update(value, changes) {
+    onChange(levels.map((level) => level.value === value ? { ...level, ...changes } : level));
+  }
+
+  function addLevel() {
+    const label = 'New level';
+    onChange([...levels, {
+      value: createWorkflowLevelValue(label, levels),
+      label,
+      description: '',
+      color: '#818cf8',
+      enabled: true,
+    }]);
+  }
+
+  return html`
+    <div class="cv-workflow-levels-editor">
+      <table class="cv-workflow-levels-table">
+        <thead><tr><th>Available</th><th>Level</th><th>Description</th><th>Color</th><th></th></tr></thead>
+        <tbody>
+          ${levels.map((level) => html`
+            <tr key=${level.value}>
+              <td>
+                <input type="checkbox" checked=${level.enabled !== false} disabled=${disabled}
+                       aria-label=${'Make ' + (level.label || level.value) + ' available'}
+                       onChange=${(event) => update(level.value, { enabled: event.target.checked })} />
+              </td>
+              <td>
+                <input type="text" class="cv-workflow-level-label" value=${level.label}
+                       aria-label=${level.label + ' level label'} disabled=${disabled}
+                       onInput=${(event) => update(level.value, { label: event.target.value })} />
+              </td>
+              <td>
+                <textarea class="cv-workflow-level-description" rows="2" value=${level.description}
+                          aria-label=${(level.label || level.value) + ' level description'} disabled=${disabled}
+                          onInput=${(event) => update(level.value, { description: event.target.value })}></textarea>
+              </td>
+              <td>
+                <input type="color" value=${level.color} aria-label=${(level.label || level.value) + ' level color'}
+                       disabled=${disabled} onInput=${(event) => update(level.value, { color: event.target.value })} />
+              </td>
+              <td>
+                <button type="button" class="cv-x-btn" aria-label=${'Remove ' + (level.label || level.value)}
+                        disabled=${disabled} onClick=${() => onChange(levels.filter((item) => item.value !== level.value))}>×</button>
+              </td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
+      <button type="button" class="btn-secondary cv-add-row-btn" disabled=${disabled}
+              onClick=${addLevel}>+ Add level</button>
+      ${disabled && html`<p class="cv-detail-hint">Only project admins can change author workflow levels.</p>`}
+    </div>
+  `;
+}
+
 // ── ProjectSettingsSection ────────────────────────────────────────────────
 
 function ProjectSettingsSection({
@@ -1046,17 +843,12 @@ function ProjectSettingsSection({
   showSections, onShowSectionsChange,
   showLevels, onShowLevelsChange,
   showTimeline, onShowTimelineChange,
-  allowLead, onAllowLeadChange,
-  allowLevels, onAllowLevelsChange,
+  authorWorkflowLevels, onAuthorWorkflowLevelsChange,
   isAdmin, editLocked, onEditLockedChange,
   rows, onToggleRowAdmin, onReorderPublication, onClearPublicationOrder,
 }) {
-  function handleAllowLevels(val) {
-    onAllowLevelsChange(val);
-    if (!val) onShowLevelsChange(false);
-  }
-
   const adminCount = rows.filter((r) => r.is_admin).length;
+  const hasWorkflowLevels = enabledAuthorWorkflowLevels(authorWorkflowLevels).length > 0;
 
   return html`
     <section class="cv-section cv-settings-section">
@@ -1076,7 +868,7 @@ function ProjectSettingsSection({
                 <span>Show sections tab in preview</span>
               </label>
               <label class="cv-settings-label">
-                <input type="checkbox" checked=${showLevels} disabled=${!allowLevels}
+                <input type="checkbox" checked=${showLevels} disabled=${!hasWorkflowLevels}
                        onChange=${(e) => onShowLevelsChange(e.target.checked)} />
                 <span>Show contribution levels in preview</span>
               </label>
@@ -1086,18 +878,13 @@ function ProjectSettingsSection({
                 <span>Show timeline tab in preview</span>
               </label>
             </div>
-            <div class="cv-settings-group">
+            <div class="cv-settings-group cv-settings-group-wide">
               <h4 class="cv-subsection-heading">Author workflow</h4>
-              <label class="cv-settings-label">
-                <input type="checkbox" checked=${allowLevels}
-                       onChange=${(e) => handleAllowLevels(e.target.checked)} />
-                <span>Allow contribution levels (++/+) in add workflow and editor</span>
-              </label>
-              <label class="cv-settings-label">
-                <input type="checkbox" checked=${allowLead} disabled=${!allowLevels}
-                       onChange=${(e) => onAllowLeadChange(e.target.checked)} />
-                <span>Allow Lead designation in add workflow and editor</span>
-              </label>
+              <${AuthorWorkflowLevelsEditor}
+                levels=${authorWorkflowLevels}
+                onChange=${onAuthorWorkflowLevelsChange}
+                disabled=${!isAdmin}
+              />
             </div>
             <div class="cv-settings-group cv-settings-group-wide">
               <h4 class="cv-subsection-heading">Publication order</h4>
@@ -1251,7 +1038,7 @@ function SharedDetailsSection({
 
 // ── PreviewPanel ─────────────────────────────────────────────────────────────
 
-function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels, showSections, showLevels, showTimeline, allowLead, allowLevels }) {
+function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections, authorSectionLevels, showSections, showLevels, showTimeline, authorWorkflowLevels }) {
   const containerRef = useRef(null);
 
   const authors = useMemo(() =>
@@ -1273,9 +1060,9 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
   useEffect(() => {
     if (containerRef.current) {
       createPreview(containerRef.current, authors,
-        { showSections, showLevels, showTimeline, allowLead, allowLevels, compactColumns: true });
+        { showSections, showLevels, showTimeline, authorWorkflowLevels, compactColumns: true });
     }
-  }, [authors, showSections, showLevels, showTimeline, allowLead, allowLevels]);
+  }, [authors, showSections, showLevels, showTimeline, authorWorkflowLevels]);
 
   return html`<div ref=${containerRef} id="cv-preview-container"></div>`;
 }
@@ -1285,10 +1072,10 @@ function PreviewPanel({ rows, authorOrcids, authorAffIds, affiliations, sections
 function OutputSection({
   activeTab, onTabChange, rows, authorOrcids, authorAffIds, affiliations,
   sections, authorSectionLevels, creditDescriptions, projectName,
-  showSections, showLevels, showTimeline, allowLead, allowLevels,
+  showSections, showLevels, showTimeline, authorWorkflowLevels,
 }) {
   function LaTeXPanel() {
-    return html`<pre class="contributions-latex-output">${generateLatex(rows, { showLevels, allowLevels })}</pre>`;
+    return html`<pre class="contributions-latex-output">${generateLatex(rows, { showLevels, authorWorkflowLevels })}</pre>`;
   }
 
   function StatementPanel() {
@@ -1305,7 +1092,7 @@ function OutputSection({
 
   function MatrixPngPanel() {
     const canvasRef = useRef(null);
-    const pngSettings = { showLevels, allowLead, allowLevels };
+    const pngSettings = { showLevels, authorWorkflowLevels };
     useEffect(() => {
       if (canvasRef.current && rows.length > 0) {
         canvasRef.current.innerHTML = '';
@@ -1313,7 +1100,7 @@ function OutputSection({
       }
       // Re-draw when the data or any setting that affects it changes —
       // an empty dep list left the preview showing a stale image.
-    }, [rows, showLevels, allowLead, allowLevels]);
+    }, [rows, showLevels, authorWorkflowLevels]);
 
     function download() {
       if (!rows.length) return;
@@ -1365,7 +1152,7 @@ function OutputSection({
               affiliations=${affiliations} sections=${sections}
               authorSectionLevels=${authorSectionLevels}
               showSections=${showSections} showLevels=${showLevels} showTimeline=${showTimeline}
-              allowLead=${allowLead} allowLevels=${allowLevels} />`}
+              authorWorkflowLevels=${authorWorkflowLevels} />`}
             ${activeTab === 'latex'      && html`<${LaTeXPanel} />`}
             ${activeTab === 'statement'  && html`<${StatementPanel} />`}
             ${activeTab === 'matrix-png' && html`<${MatrixPngPanel} />`}
@@ -1379,15 +1166,16 @@ function OutputSection({
 // ── HistorySection ─────────────────────────────────────────────────────────
 
 function HistorySection({ commits, selectedCommit, onSelectCommit }) {
-  if (!commits.length) return null;
   return html`
     <section class="cv-history-section">
       <div class="cv-history-header">
-        <span class="cv-section-title">Version History</span>
+        <h2 class="cv-section-title">Version History</h2>
         <span class="cv-history-hint">${commits.length} version${commits.length !== 1 ? 's' : ''}</span>
       </div>
-      <div class="subject-timeline-bubbles">
-        ${commits.map((entry, i) => {
+      ${commits.length === 0
+        ? html`<p class="cv-placeholder">No saved versions.</p>`
+        : html`<div class="subject-timeline-bubbles">
+          ${commits.map((entry, i) => {
           const hash    = entry.commit ?? entry.sha ?? entry.hash ?? '';
           const rawDate = entry.date ?? entry.committed_date ?? entry.timestamp ?? entry.authored_date ?? '';
           const date    = rawDate ? new Date(rawDate) : null;
@@ -1405,8 +1193,8 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
               </span>
             </button>
           `;
-        })}
-      </div>
+          })}
+        </div>`}
     </section>
   `;
 }
@@ -1415,23 +1203,29 @@ function HistorySection({ commits, selectedCommit, onSelectCommit }) {
 
 function ProjectWidget({
   projectName, onProjectNameChange, endpointStatus,
-  canLoad, canSave, onLoad, onSave,
+  canLoad, canSave, onLoad, onSave, currentUser, historyOpen, onHistoryToggle, localPreview,
 }) {
+  const accountName = currentUser?.name || currentUser?.orcid || 'Signed in';
   return html`
     <div class="cv-project-widget">
-      <div class="cv-pw-name-row">
+      <div class="cv-pw-controls">
         <label for="cv-project-name">Project</label>
         <input id="cv-project-name" type="text" placeholder="e.g. my-project-2024"
                value=${projectName}
                onInput=${(e) => onProjectNameChange(e.target.value)}
                onKeyDown=${(e) => e.key === 'Enter' && canLoad && onLoad()} />
-      </div>
-      <div class="cv-pw-btn-row">
         <button id="cv-get-btn" class="btn-secondary" disabled=${!canLoad} onClick=${onLoad}>Load</button>
-        <button id="cv-post-btn" class="btn-primary"  disabled=${!canSave} onClick=${onSave}>Save</button>
+        <span class="cv-account-identity">${accountName}</span>
+        <button id="cv-history-btn" type="button" class="btn-secondary"
+                aria-expanded=${String(historyOpen)} onClick=${onHistoryToggle}>History</button>
+        <button id="cv-post-btn" class="btn-primary" disabled=${!canSave || localPreview}
+                onClick=${onSave}>Save</button>
       </div>
+      ${localPreview && html`
+        <div class="cv-local-preview-note" role="status">Local preview — server saves disabled</div>
+      `}
       ${endpointStatus.text && html`
-        <div class=${'contributions-endpoint-status ' + endpointStatus.cls} aria-live="polite">
+        <div class=${'cv-header-status contributions-endpoint-status ' + endpointStatus.cls} aria-live="polite">
           ${endpointStatus.text}
         </div>
       `}
@@ -1441,10 +1235,16 @@ function ProjectWidget({
 
 // ── AuthorRow ──────────────────────────────────────────────────────────────
 
-function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange, allowLead, allowLevels, canRemove = true }) {
-  const levels = allowLevels
-    ? (allowLead ? CONTRIBUTION_LEVELS : CONTRIBUTION_LEVELS.filter((l) => l !== 'Lead'))
-    : ['None', 'Equal'];
+function workflowCellStyle(value, workflowLevels) {
+  if (!value || value === 'None') return undefined;
+  const color = workflowLevelColor(value, workflowLevels);
+  const channels = [1, 3, 5].map((index) => parseInt(color.slice(index, index + 2), 16) / 255);
+  const luminance = channels.reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+  return { backgroundColor: color, color: luminance > 0.56 ? '#111827' : '#fff' };
+}
+
+function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onToggleDetails, onCategoryChange, authorWorkflowLevels, canRemove = true }) {
+  const availableLevels = availableAuthorWorkflowLevels(authorWorkflowLevels);
 
   return html`
     <tr class=${isActive ? 'cv-row-active' : ''}>
@@ -1453,27 +1253,38 @@ function AuthorRow({ row, rowIdx, isActive, onRemove, onRename, onCategoryChange
                 disabled=${!canRemove}
                 onClick=${() => onRemove(rowIdx)}>×</button>
       </td>
-      <td>
+      <td class=${isActive ? 'cv-author-name-cell cv-row-active' : 'cv-author-name-cell'}>
         <input type="text" value=${row.name} class="cv-author-name-input"
                onBlur=${(e) => onRename(rowIdx, e.target.value)} />
+        <button type="button" class="cv-author-expand-btn"
+                aria-label=${(isActive ? 'Collapse details for ' : 'Edit details for ') + row.name}
+                aria-expanded=${String(isActive)} onClick=${() => onToggleDetails(row.name)}>
+          ${isActive ? '▾' : '▸'}
+        </button>
       </td>
-      ${CREDIT_CATEGORIES.map((cat) => html`
-        <td key=${cat} class=${'cell-center cell-' + (row[cat] || 'None').toLowerCase()}>
-          ${allowLevels
+      ${CREDIT_CATEGORIES.map((cat) => {
+        const selected = workflowUiValueToStored(row[cat] || 'None', authorWorkflowLevels);
+        const choices = availableLevels.some((level) => level.value === selected)
+          ? availableLevels
+          : [...availableLevels, { value: selected, label: workflowLevelLabel(row[cat], authorWorkflowLevels), enabled: false }]
+            .filter((level) => level.value);
+        return html`<td key=${cat} class="cell-center" style=${workflowCellStyle(row[cat], authorWorkflowLevels)}>
+          ${availableLevels.length > 0
             ? html`<select aria-label=${row.name + ' \u2014 ' + cat}
-                    value=${row[cat]}
+                    value=${row[cat] || 'None'}
                     onChange=${(e) => onCategoryChange(rowIdx, cat, e.target.value)}>
-                ${levels.map((level) => html`
-                  <option key=${level} value=${level}>${LEVEL_DISPLAY[level] || level}</option>
+                <option value="None">None</option>
+                ${choices.map((level) => html`
+                  <option key=${level.value} value=${workflowValueToUiValue(level.value, authorWorkflowLevels)} disabled=${level.enabled === false}>${level.label}</option>
                 `)}
               </select>`
             : html`<input type="checkbox"
                     aria-label=${row.name + ' \u2014 ' + cat}
                     checked=${row[cat] !== 'None'}
-                    onChange=${(e) => onCategoryChange(rowIdx, cat, e.target.checked ? 'Equal' : 'None')} />`
+                    onChange=${(e) => onCategoryChange(rowIdx, cat, e.target.checked ? workflowValueToUiValue('equal', authorWorkflowLevels) : 'None')} />`
           }
-        </td>
-      `)}
+        </td>`;
+      })}
     </tr>
   `;
 }
@@ -1507,7 +1318,7 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser, localPreview }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1528,6 +1339,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     Array.isArray(initialDraft?.doi) ? initialDraft.doi
       : (initialDraft?.doi ? [initialDraft.doi] : []));
   const [projectName, setProjectName]         = useState(initialDraft?.projectName || initialProjectName);
+  const [activeSection, setActiveSection]     = useState('contributors');
+  const [historyOpen, setHistoryOpen]         = useState(false);
   const [assetsOpen, setAssetsOpen]           = useState(true);
   const [sharedOpen, setSharedOpen]           = useState(false);
   const [settingsOpen, setSettingsOpen]       = useState(false);
@@ -1542,8 +1355,10 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const [showSections, setShowSections]       = useState(initialDraft?.showSections ?? false);
   const [showLevels, setShowLevels]           = useState(initialDraft?.showLevels ?? true);
   const [showTimeline, setShowTimeline]       = useState(initialDraft?.showTimeline ?? false);
-  const [allowLead, setAllowLead]             = useState(initialDraft?.allowLead ?? true);
-  const [allowLevels, setAllowLevels]         = useState(initialDraft?.allowLevels ?? true);
+  const [authorWorkflowLevels, setAuthorWorkflowLevels] = useState(() => normalizeAuthorWorkflowLevels(
+    initialDraft?.authorWorkflowLevels,
+    initialDraft,
+  ));
   const [editLocked, setEditLocked]           = useState(initialDraft?.editLocked ?? false);
   const [existsOnServer, setExistsOnServer]   = useState(initialDraft?.existsOnServer ?? false);
 
@@ -1552,7 +1367,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   sr.current = { rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds,
     affiliations, sections, creditDescs, authorStartDates, authorEndDates, authorSectionLevels,
     loadedAssets, doi, projectName,
-    showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked };
+    showSections, showLevels, showTimeline, authorWorkflowLevels, editLocked };
 
   // ── Draft persistence ────────────────────────────────────────────────────
   useEffect(() => {
@@ -1563,13 +1378,13 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         affiliations, sections, creditDescriptions: creditDescs,
         authorStartDates, authorEndDates, authorSectionLevels,
         loadedAssetNames: loadedAssets, doi,
-        showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked,
+        showSections, showLevels, showTimeline, authorWorkflowLevels, editLocked,
         existsOnServer,
       }));
     } catch (_) {}
   }, [rows, selectedAuthor, authorSources, authorOrcids, authorEmails, authorAffIds, affiliations, sections,
     creditDescs, authorStartDates, authorEndDates, authorSectionLevels, loadedAssets, doi, projectName,
-    showSections, showLevels, showTimeline, allowLead, allowLevels, editLocked, existsOnServer]);
+    showSections, showLevels, showTimeline, authorWorkflowLevels, editLocked, existsOnServer]);
 
   // ── URL sync ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -1650,11 +1465,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setShowSections(data.show_sections ?? false);
       setShowLevels(data.show_levels ?? true);
       setShowTimeline(data.show_timeline ?? false);
-      setAllowLead(data.allow_lead ?? true);
-      setAllowLevels(data.allow_levels ?? true);
+      const loadedWorkflowLevels = normalizeAuthorWorkflowLevels(data.author_workflow_levels, data);
+      setAuthorWorkflowLevels(loadedWorkflowLevels);
+      if (enabledAuthorWorkflowLevels(loadedWorkflowLevels).length === 0) setShowLevels(false);
       setEditLocked(data.edit_locked ?? false);
       setExistsOnServer(true);
-      setAssetsOpen(false);
+      setAssetsOpen(localPreview);
       fetchHistory(project);
     } catch (err) {
       console.error('[contributions] load failed:', err);
@@ -1664,11 +1480,19 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   // ── Project save ──────────────────────────────────────────────────────────
   async function saveToServer({ allowEmpty = false } = {}) {
+    if (localPreview) {
+      setEndpointStatus({ text: 'Local preview — server saving is disabled.', cls: 'status-info' });
+      return;
+    }
+    if (sr.current.authorWorkflowLevels.some((level) => !level.label.trim())) {
+      setEndpointStatus({ text: 'Every author workflow level needs a label.', cls: 'status-error' });
+      return;
+    }
     const { projectName: project, rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
       affiliations: affs, sections: secs, creditDescs: cds,
       authorStartDates: startDates, authorSectionLevels: secLevels,
       loadedAssets: assets, doi: d,
-      showSections: ss, showLevels: sl, showTimeline: st, allowLead: al, allowLevels: alv,
+      showSections: ss, showLevels: sl, showTimeline: st, authorWorkflowLevels,
       editLocked: el } = sr.current;
     if (!project || (!r.length && !allowEmpty)) return;
     setEndpointStatus({ text: `Saving \u201c${project}\u201d\u2026`, cls: 'status-loading' });
@@ -1683,8 +1507,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       payload.show_levels = sl;
       payload.show_timeline = st;
       payload.edit_locked = el;
-      payload.allow_lead = al;
-      payload.allow_levels = alv;
+      payload.author_workflow_levels = authorWorkflowLevels;
+      payload.allow_lead = authorWorkflowLevels.some((level) => level.enabled !== false && level.value === 'lead');
+      payload.allow_levels = enabledAuthorWorkflowLevels(authorWorkflowLevels).length > 0;
       const url = `${CONTRIBUTIONS_API_BASE}/contributions/project?project=${encodeURIComponent(project)}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -1774,7 +1599,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
 
   function renameRow(idx, newName) {
     const { rows: r, authorOrcids: orc, authorEmails: eml, authorAffIds: affIds,
-      creditDescs: cds, authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
+      creditDescs: cds, authorStartDates: startDates, authorEndDates: endDates,
+      authorSectionLevels: secLevs, authorSources: srcs, selectedAuthor: sel } = sr.current;
     const oldName = r[idx]?.name;
     if (!newName || !oldName || newName === oldName) return;
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, name: newName } : row));
@@ -1782,6 +1608,8 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     if (eml[oldName])  setAuthorEmails((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (affIds[oldName]) setAuthorAffIds((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (cds[oldName])  setCreditDescs((p)   => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (startDates[oldName]) setAuthorStartDates((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
+    if (endDates[oldName]) setAuthorEndDates((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (secLevs[oldName]) setAuthorSectionLevels((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (srcs[oldName]) setAuthorSources((p) => { const n = { ...p, [newName]: p[oldName] }; delete n[oldName]; return n; });
     if (sel === oldName) setSelectedAuthor(newName);
@@ -1791,8 +1619,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     setRows((prev) => prev.map((row, i) => i === idx ? { ...row, [cat]: value } : row));
   }
 
-  function handleDetailChange(kind, payload) {
-    const author = sr.current.selectedAuthor;
+  function handleDetailChange(author, kind, payload) {
     if (!author) return;
     if (kind === 'orcid') {
       setAuthorOrcids((prev) => ({ ...prev, [author]: payload }));
@@ -1829,6 +1656,57 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
     }
   }
 
+  function handleAuthorProfileChange(author, rowIdx, field, value) {
+    if (field === 'name') {
+      renameRow(rowIdx, value);
+      return;
+    }
+    handleDetailChange(author, field, value);
+  }
+
+  function handleAuthorIdentityResolved(rowIdx, identity) {
+    const oldName = sr.current.rows[rowIdx]?.name;
+    const newName = String(identity.name || '').trim();
+    const newOrcid = normalizeOrcidId(identity.orcid);
+    if (!oldName || !newName || !newOrcid) {
+      throw new Error('The ORCID match is missing a name or iD.');
+    }
+    const nameTaken = sr.current.rows.some((row, index) => index !== rowIdx
+      && row.name.trim().toLocaleLowerCase() === newName.toLocaleLowerCase());
+    if (nameTaken) throw new Error('Another contributor already uses this name.');
+    const orcidTaken = Object.entries(sr.current.authorOrcids).some(([authorName, orcid]) =>
+      authorName !== oldName && normalizeOrcidId(orcid) === newOrcid);
+    if (orcidTaken) throw new Error('This ORCID iD is already assigned to another contributor.');
+
+    if (oldName !== newName) renameRow(rowIdx, newName);
+    setAuthorOrcids((prev) => {
+      const next = { ...prev };
+      if (oldName !== newName) delete next[oldName];
+      next[newName] = newOrcid;
+      return next;
+    });
+  }
+
+  function updateAuthorAffiliations(author, names) {
+    const ids = names.map((name) => {
+      const existing = sr.current.affiliations.find((affiliation) => affiliation.name === name);
+      return existing?.id || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    });
+    setAffiliations((prev) => {
+      const knownNames = new Set(prev.map((affiliation) => affiliation.name));
+      const additions = names.filter((name) => !knownNames.has(name)).map((name) => ({
+        id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+        name,
+      }));
+      return additions.length ? [...prev, ...additions] : prev;
+    });
+    setAuthorAffIds((prev) => ({ ...prev, [author]: ids }));
+  }
+
+  function updateAuthorSection(author, section, level, description) {
+    handleDetailChange(author, 'sectionLevel', { section, level, description });
+  }
+
   // Create a brand-new project: seed the logged-in user as the project's admin
   // contributor, then save so that admin membership is persisted explicitly
   // (not relying on any backend side effect).
@@ -1863,18 +1741,11 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
   const canLoad    = hasProject;
   const canSave    = hasProject && rows.length > 0;
   const adminCount = rows.filter((r) => r.is_admin).length;
-  const selectedRow = rows.find((r) => r.name === selectedAuthor) || null;
-
   // ── Render ─────────────────────────────────────────────────────────────────
   return html`
     <div class="contributions-view">
 
       <div class="cv-topbar">
-        <${HistorySection}
-          commits=${historyCommits}
-          selectedCommit=${selectedCommit}
-          onSelectCommit=${(hash) => { setSelectedCommit(hash); loadVersion(hash); }}
-        />
         <${ProjectWidget}
           projectName=${projectName}
           onProjectNameChange=${setProjectName}
@@ -1883,8 +1754,35 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           canSave=${canSave}
           onLoad=${loadFromServer}
           onSave=${saveToServer}
+          localPreview=${localPreview}
+          currentUser=${currentUser}
+          historyOpen=${historyOpen}
+          onHistoryToggle=${() => setHistoryOpen((open) => !open)}
         />
       </div>
+
+      <nav class="cv-primary-nav" aria-label="Contribution editor sections">
+        ${[
+          ['contributors', 'Contributors'],
+          ['setup', 'Project setup'],
+          ['output', 'Preview & export'],
+        ].map(([id, label]) => html`
+          <button key=${id} type="button"
+                  class=${'cv-primary-nav-item' + (activeSection === id ? ' cv-primary-nav-active' : '')}
+                  aria-current=${activeSection === id ? 'page' : null}
+                  onClick=${() => setActiveSection(id)}>${label}</button>
+        `)}
+      </nav>
+
+      ${historyOpen && html`
+        <${HistorySection}
+          commits=${historyCommits}
+          selectedCommit=${selectedCommit}
+          onSelectCommit=${(hash) => { setSelectedCommit(hash); loadVersion(hash); }}
+        />
+      `}
+
+      ${activeSection === 'setup' && html`
 
       <section class="cv-section cv-assets-section">
         <button class="cv-section-toggle" id="cv-assets-toggle"
@@ -1956,10 +1854,10 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         showSections=${showSections} onShowSectionsChange=${setShowSections}
         showLevels=${showLevels} onShowLevelsChange=${setShowLevels}
         showTimeline=${showTimeline} onShowTimelineChange=${setShowTimeline}
-        allowLead=${allowLead} onAllowLeadChange=${setAllowLead}
-        allowLevels=${allowLevels} onAllowLevelsChange=${(val) => {
-          setAllowLevels(val);
-          if (!val) setShowLevels(false);
+        authorWorkflowLevels=${authorWorkflowLevels}
+        onAuthorWorkflowLevelsChange=${(levels) => {
+          setAuthorWorkflowLevels(levels);
+          if (enabledAuthorWorkflowLevels(levels).length === 0) setShowLevels(false);
         }}
         isAdmin=${isAdmin}
         editLocked=${editLocked} onEditLockedChange=${setEditLocked}
@@ -1978,20 +1876,12 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
           setRows((prev) => prev.map((r) => ({ ...r, publication_order: null })))}
       />
 
+      `}
+
+      ${activeSection === 'contributors' && html`
       <section class="cv-section cv-contributors-section">
         <div class="cv-contributors-header">
           <h3 class="cv-section-heading">Contributors</h3>
-          ${rows.length > 0 && html`
-            <div class="cv-author-selector-wrap">
-              <label for="cv-author-selector" class="cv-selector-label">Edit as:</label>
-              <select id="cv-author-selector" class="cv-author-select"
-                      value=${selectedAuthor || ''}
-                      onChange=${(e) => setSelectedAuthor(e.target.value || null)}>
-                <option value="">\u2014 select author \u2014</option>
-                ${rows.map((r) => html`<option key=${r.name} value=${r.name}>${r.name}</option>`)}
-              </select>
-            </div>
-          `}
         </div>
         <div class="cv-authors-table-wrap">
           <div class="cv-table-scroll" id="cv-authors-table-scroll">
@@ -2005,18 +1895,55 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               </thead>
               <tbody id="cv-authors-tbody">
                 ${rows.map((row, idx) => html`
-                  <${AuthorRow}
-                    key=${row.name + '-' + idx}
-                    row=${row}
-                    rowIdx=${idx}
-                    isActive=${selectedAuthor === row.name}
-                    onRemove=${removeRow}
-                    onRename=${renameRow}
-                    onCategoryChange=${updateCategory}
-                    allowLead=${allowLead}
-                    allowLevels=${allowLevels}
-                    canRemove=${!(row.is_admin && adminCount === 1)}
-                  />
+                  <${Fragment} key=${idx}>
+                    <${AuthorRow}
+                      row=${row}
+                      rowIdx=${idx}
+                      isActive=${selectedAuthor === row.name}
+                      onRemove=${removeRow}
+                      onRename=${renameRow}
+                      onToggleDetails=${(name) => setSelectedAuthor((current) => current === name ? null : name)}
+                      onCategoryChange=${updateCategory}
+                      authorWorkflowLevels=${authorWorkflowLevels}
+                      canRemove=${!(row.is_admin && adminCount === 1)}
+                    />
+                    ${selectedAuthor === row.name && html`
+                      <tr class="cv-expanded-author-row">
+                        <td colspan=${CREDIT_CATEGORIES.length + 2} class="cv-expanded-author-cell">
+                          <${AuthorEditor}
+                            idPrefix=${'cv-author-' + idx}
+                            authorName=${row.name}
+                            authorLevel=${row.author_level}
+                            orcid=${authorOrcids[row.name] || ''}
+                            email=${authorEmails[row.name] || ''}
+                            startDate=${authorStartDates[row.name] || ''}
+                            endDate=${authorEndDates[row.name] || ''}
+                            affiliations=${affiliations}
+                            selectedAffiliationNames=${(authorAffIds[row.name] || []).map((id) =>
+                              affiliations.find((affiliation) => affiliation.id === id)?.name).filter(Boolean)}
+                            roles=${row}
+                            descriptions=${creditDescs[row.name] || {}}
+                            sections=${sections.filter((section) => section.title.trim())}
+                            sectionLevels=${Object.fromEntries((authorSectionLevels[row.name] || []).map((item) => [
+                              item.section,
+                              { level: String(item.level || 'None'), description: item.description || '' },
+                            ]))}
+                            workflowLevels=${authorWorkflowLevels}
+                            showAuthorLevel=${true}
+                            onProfileChange=${(field, value) => handleAuthorProfileChange(row.name, idx, field, value)}
+                            onIdentityResolved=${(identity) => handleAuthorIdentityResolved(idx, identity)}
+                            onAffiliationsChange=${(names) => updateAuthorAffiliations(row.name, names)}
+                            onRoleChange=${(category, value) => updateCategory(idx, category, value)}
+                            onDescriptionChange=${(category, value) => handleDetailChange(row.name, 'creditDesc', {
+                              roleEnum: CREDIT_ROLE_ENUM[category], value,
+                            })}
+                            onSectionChange=${(section, level, description) =>
+                              updateAuthorSection(row.name, section, level, description)}
+                          />
+                        </td>
+                      </tr>
+                    `}
+                  </${Fragment}>
                 `)}
               </tbody>
             </table>
@@ -2026,29 +1953,15 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
               const newRow = { name: 'New Author', isFirst: false, author_level: null };
               for (const cat of CREDIT_CATEGORIES) newRow[cat] = 'None';
               setRows((prev) => [...prev, newRow]);
+              setSelectedAuthor(newRow.name);
             }}>+ Add author</button>
             ${isAdmin && projectName && html`<${CopyContributorLink} project=${projectName} />`}
           </div>
         </div>
       </section>
+      `}
 
-      <${AuthorDetailSection}
-        row=${selectedRow}
-        selectedAuthor=${selectedAuthor}
-        authorOrcids=${authorOrcids}
-        authorEmails=${authorEmails}
-        authorAffIds=${authorAffIds}
-        affiliations=${affiliations}
-        sections=${sections}
-        creditDescriptions=${creditDescs}
-        authorStartDates=${authorStartDates}
-        authorEndDates=${authorEndDates}
-        authorSectionLevels=${authorSectionLevels}
-        onChange=${handleDetailChange}
-        allowLead=${allowLead}
-        allowLevels=${allowLevels}
-      />
-
+      ${activeSection === 'output' && html`
       <${OutputSection}
         activeTab=${activeOutputTab}
         onTabChange=${setActiveOutputTab}
@@ -2063,9 +1976,9 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
         showSections=${showSections}
         showLevels=${showLevels}
         showTimeline=${showTimeline}
-        allowLead=${allowLead}
-        allowLevels=${allowLevels}
+        authorWorkflowLevels=${authorWorkflowLevels}
       />
+      `}
 
     </div>
   `;
@@ -2085,7 +1998,7 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
  * @returns {HTMLElement}
  */
 export function createContributionsView(options = {}) {
-  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null } = options;
+  const { assetName = '', projectName = '', docdbOptions = {}, isAdmin = false, isNew = false, currentUser = null, localPreview = false } = options;
 
   // Restore draft synchronously before first render.
   // Drafts are only kept for projects that don't exist on the server yet —
@@ -2124,6 +2037,7 @@ export function createContributionsView(options = {}) {
       isAdmin=${isAdmin}
       isNew=${isNew}
       currentUser=${currentUser}
+      localPreview=${localPreview}
     />`,
     container,
   );

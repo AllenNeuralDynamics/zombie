@@ -1,14 +1,12 @@
 ---
 name: zombie-search-and-assets
-description: Extend Zombie search, asset tables, client-side filtering, metadata-viz query translation, and asset lineage links.
+description: Extend Zombie search, asset tables, metadata query translation, and provenance links.
 ---
 
 # Zombie search and assets
 
-The `/search` page (`web/src/assets/view.js`) registers `asset_basics` once, loads its rows, and performs sorting, filtering, and pagination in the browser. Keep URL state in `sort`, `dir`, `page`, `cols`, and `f_<column>` parameters; persist visible columns only through the existing `assets_cols` cookie. Select controls are appropriate only when a column has at most `SELECT_THRESHOLD` (40) unique values. The page size is 100. Treat the current `asset_basics` registry fragment as the schema source of truth.
+Search reads the current asset_basics schema from the published registry. Inspect the search view for its current URL, sorting, filtering, and pagination behavior before extending it; keep these controls synchronized with browser history. Metadata-viz queries return matching asset identities that the page intersects with loaded asset rows. Keep query translation in its existing helper rather than duplicating field mappings in a new control.
 
-Use `buildAssetsTable()` and `fetchAssetsWithSources()` from `web/src/lib/assets-table.js`. The latter lazily loads `source_data` and joins it to `asset_basics`; do not duplicate that join. `source_data.source_data` is a comma-and-space-separated list of source asset names. `buildAssetsTable()` groups a raw asset with derived children only when the source is present in the result and leaves orphan derived assets visible. Preserve its 100-row pagination and existing link helpers when changing columns.
+Use the shared assets-table and source-data helpers to relate source and derived assets. Provenance, rather than data level alone, determines lineage. Keep orphaned derived assets visible when their source is absent from a result. When rendering links, use the relevant raw or processed asset for storage, processing, QC, and metadata destinations.
 
-The query builder maps UI filters to Mongo paths: project → `data_description.project_name`, subject → `subject.subject_id`, modalities → `data_description.modalities.abbreviation`, data level → `data_description.data_level`, acquisition type → `acquisition.acquisition_type`, and date filters → `acquisition.acquisition_start_time`. It POSTs names-only filters to `/metadata-viz/retrieve-records` in production (the dev base is the metadata portal host), then filters the local asset rows by returned `asset_names`. Natural-language query upgrades use `/metadata-viz/upgrade-query`.
-
-When adding asset links, preserve the distinction between raw and processed records: processed S3, Code Ocean, QC, and metadata links target the processed asset when one exists, otherwise the raw asset. Test the pure filter/query-builder logic in node and use `happy-dom` only for DOM rendering tests; mock fetch and coordinator responses.
+Check the current registry fragment before relying on a column. Verify filter translation and grouped rows with representative data when those behaviors change.

@@ -24,16 +24,28 @@ import {
   formatDiffValue,
   getAtPath,
   lookupIdForEndpoint,
+  mapSettledWithConcurrency,
+  METADATA_SERVICE_PATHS,
   createProposal,
   listProposals,
   normalizeServiceSection,
   groupProposals,
+  proposalChangedSections,
   proposalChangeSignature,
   QcError,
   rebaseOntoCurrent,
   setAtPath,
   topLevelChangedSections,
 } from '../migrate/lib.js';
+
+describe('metadata-service paths', () => {
+  it('uses the same-origin proxy and URL-encodes lookup ids', () => {
+    expect(METADATA_SERVICE_PATHS.v1.procedures('708027'))
+      .toBe('/metadata-service/procedures/708027');
+    expect(METADATA_SERVICE_PATHS.v2.funding('AIBS WB/AAV'))
+      .toBe('/metadata-service/api/v2/funding/AIBS%20WB%2FAAV');
+  });
+});
 
 // ---------------------------------------------------------------------------
 // canonicalJson
@@ -235,6 +247,20 @@ describe('proposalChangeSignature / groupProposals', () => {
       proposal('b', 'old', 'new-b'),
     ])).toHaveLength(2);
   });
+
+  it('groups compact queue summaries by their server-provided change key', () => {
+    expect(groupProposals([
+      { proposal_id: 'a', change_key: 'same' },
+      { proposal_id: 'b', change_key: 'same' },
+      { proposal_id: 'c', change_key: 'other' },
+    ]).map((group) => group.proposals.map((p) => p.proposal_id)))
+      .toEqual([['a', 'b'], ['c']]);
+  });
+
+  it('uses summary changed sections with a full-record fallback', () => {
+    expect(proposalChangedSections({ changed_sections: ['procedures'] })).toEqual(['procedures']);
+    expect(proposalChangedSections({ base: { a: 1 }, body: { a: 2 } })).toEqual(['a']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -395,7 +421,7 @@ describe('proposals API client', () => {
 
     expect(out).toEqual(proposal);
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${QC_API_BASE}/metadata/proposals`);
+    expect(url).toBe(`${QC_API_BASE}/metadata/proposals?summary=true`);
     expect(opts.method).toBe('POST');
     expect(opts.headers).toEqual({
       Authorization: 'Bearer test-token',
@@ -414,7 +440,7 @@ describe('proposals API client', () => {
     expect(url.searchParams.get('limit')).toBe('10000');
   });
 
-  it('creates a proposal batch concurrently and preserves per-record failures', async () => {
+  it('creates a proposal batch with bounded concurrency and preserves per-record failures', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 201, json: async () => ({ proposal: { proposal_id: 'p1' } }) })
       .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: 'duplicate_proposal' }) });
@@ -429,13 +455,35 @@ describe('proposals API client', () => {
     expect(results[0].error).toBeNull();
     expect(results[1].proposal).toBeNull();
     expect(results[1].error).toMatchObject({ code: 'duplicate_proposal', status: 409 });
+    expect(getQcIdentityToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds async batch concurrency and preserves result order', async () => {
+    let active = 0;
+    let maxActive = 0;
+    const progress = [];
+    const settled = await mapSettledWithConcurrency([0, 1, 2, 3, 4], async (value) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      if (value === 3) throw new Error('failed');
+      return value * 2;
+    }, 2, (_result, _index, completed) => progress.push(completed));
+
+    expect(maxActive).toBe(2);
+    expect(progress).toEqual([1, 2, 3, 4, 5]);
+    expect(settled.map((result) => result.status)).toEqual([
+      'fulfilled', 'fulfilled', 'fulfilled', 'rejected', 'fulfilled',
+    ]);
+    expect(settled[4].value).toBe(8);
   });
 
   it('sends the reviewed hash on approve', async () => {
     const fetchMock = mockFetch(200, { status: 'applied' });
     await approveProposal('p1', 'hash-1');
     const [url, opts] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${QC_API_BASE}/metadata/proposals/p1/approve`);
+    expect(url).toBe(`${QC_API_BASE}/metadata/proposals/p1/approve?summary=true`);
     expect(opts.headers.Authorization).toBe('Bearer test-token');
     expect(JSON.parse(opts.body)).toEqual({ body_hash: 'hash-1' });
   });
@@ -477,6 +525,7 @@ describe('proposals API client', () => {
     const out = await listProposals();
     expect(out).toHaveLength(1);
     expect(fetchMock.mock.calls[0][0]).toContain('status=open');
+    expect(fetchMock.mock.calls[0][0]).toContain('summary=true');
   });
 
   it('returns an empty queue when the portal sends no list', async () => {

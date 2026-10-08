@@ -5,6 +5,12 @@
  * CRediT (Contributor Roles Taxonomy) roles and visualizations.
  */
 
+import {
+  enabledAuthorWorkflowLevels,
+  normalizeAuthorWorkflowLevels,
+  workflowUiValueToStored,
+} from './author-workflow-levels.js';
+
 /** All 14 CRediT taxonomy roles in alphabetical order (the default order CRediT uses). */
 export const CREDIT_ROLES = [
   'Conceptualization',
@@ -31,17 +37,18 @@ export const CREDIT_ROLES = [
 export const LEVEL_LABELS = { none: 'None', lead: 'Lead', equal: '++', supporting: '+' };
 
 /**
- * The levels a project actually offers, most-significant first, given its
- * settings. `allow_levels: false` means contributions are a plain yes/no
- * (stored as `equal`), so there is nothing to label; `allow_lead: false`
- * drops the Lead tier.
+ * The levels a project actually offers, most-significant first. Legacy
+ * allow flags are used only when the project has no custom definitions.
  *
- * @param {{allowLevels?: boolean, allowLead?: boolean}} [settings]
- * @returns {Array<'lead'|'equal'|'supporting'>}
+ * @param {{allowLevels?: boolean, allowLead?: boolean, authorWorkflowLevels?: Array}} [settings]
+ * @returns {Array<string>}
  */
-export function enabledLevels({ allowLevels = true, allowLead = true } = {}) {
-  if (!allowLevels) return [];
-  return allowLead ? ['lead', 'equal', 'supporting'] : ['equal', 'supporting'];
+export function enabledLevels(settings = {}) {
+  const levels = normalizeAuthorWorkflowLevels(
+    settings.authorWorkflowLevels,
+    settings,
+  );
+  return enabledAuthorWorkflowLevels(levels).map((level) => level.value);
 }
 
 /**
@@ -50,14 +57,14 @@ export function enabledLevels({ allowLevels = true, allowLead = true } = {}) {
  * could use.
  *
  * @param {Array<unknown>} levels
- * @param {{allowLevels?: boolean, allowLead?: boolean}} [settings]
- * @returns {Array<'lead'|'equal'|'supporting'>}
+ * @param {{allowLevels?: boolean, allowLead?: boolean, authorWorkflowLevels?: Array}} [settings]
+ * @returns {Array<string>}
  */
 export function activeContributionLevels(levels, settings = {}) {
   const present = new Set(
     (levels || [])
       .filter((level) => level != null)
-      .map((level) => String(level).trim().toLowerCase()),
+      .map((level) => workflowUiValueToStored(String(level).trim())),
   );
   return enabledLevels(settings).filter((level) => present.has(level));
 }

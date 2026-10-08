@@ -52,7 +52,7 @@ export function createQcMetricsDropdown(ctx, { pendingMetricsRaw = null } = {}) 
         tableApi.setVisibleMetrics(settings.visibleMetrics);
       }
       pending = null;
-      persist(); // push restored metrics to URL
+      persist({ writeUrl: false });
     }
     if (rebuildMetricCheckboxes) rebuildMetricCheckboxes();
   });

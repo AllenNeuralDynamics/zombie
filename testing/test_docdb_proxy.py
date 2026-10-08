@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 import pymysql
 
-from web.docdb_proxy import DocDbProxyHandler
+from web.docdb_proxy import DocDbProxyHandler, _metadata_service_url
 
 
 class ProxyServerTestCase(unittest.TestCase):
@@ -43,6 +43,23 @@ class ProxyServerTestCase(unittest.TestCase):
 
 
 class ProxyEndpointTests(ProxyServerTestCase):
+	def test_metadata_service_url_accepts_only_supported_lookup_paths(self):
+		self.assertEqual(
+			_metadata_service_url("subject/708027"),
+			"https://aind-metadata-service/subject/708027",
+		)
+		self.assertEqual(
+			_metadata_service_url("api/v2/funding/AIBS%20WB%20AAV%20Toolbox"),
+			"https://aind-metadata-service/api/v2/funding/AIBS%20WB%20AAV%20Toolbox",
+		)
+		self.assertIsNone(_metadata_service_url("api/v2/admin/708027"))
+		self.assertEqual(
+			_metadata_service_url("api/v2/funding/AIBS%20WB%2FAAV"),
+			"https://aind-metadata-service/api/v2/funding/AIBS%20WB%2FAAV",
+		)
+		self.assertIsNone(_metadata_service_url("api/v2/procedures/..%2Fadmin"))
+		self.assertIsNone(_metadata_service_url("api/v2/procedures/708027?redirect=elsewhere"))
+
 	def test_s3_list_rejects_unapproved_bucket(self):
 		status, body = self.request("/s3-list?bucket=private-bucket")
 

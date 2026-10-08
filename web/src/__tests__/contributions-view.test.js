@@ -828,6 +828,24 @@ describe('fromEndpointPayload', () => {
     expect(rows[0]['Methodology']).toBe('None');
   });
 
+  it('round-trips a project-defined author workflow level', () => {
+    const data = {
+      project_name: 'custom-levels',
+      author_workflow_levels: [{
+        value: 'custom-substantial', label: 'Substantial', description: 'A substantial contribution',
+        color: '#123456', enabled: true,
+      }],
+      contributors: [{
+        author: { name: 'Alice Smith' },
+        credit_levels: [{ role: 'software', level: 'custom-substantial' }],
+      }],
+    };
+    const rows = fromEndpointPayload(data);
+    expect(rows[0].Software).toBe('custom-substantial');
+    expect(toEndpointPayload(rows, 'custom-levels').contributors[0].credit_levels[0].level)
+      .toBe('custom-substantial');
+  });
+
   it('returns empty array for empty contributors', () => {
     expect(fromEndpointPayload({ project_name: 'p', contributors: [] })).toEqual([]);
   });
@@ -915,6 +933,7 @@ describe('createContributionsView — projectName auto-load', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionStorage.clear();
+    document.body.innerHTML = '';
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -1046,6 +1065,8 @@ describe('createContributionsView — last project admin protection', () => {
     const root = createContributionsView({ projectName: 'admin-project', isAdmin: true });
     document.body.appendChild(root);
     await flush();
+    root.querySelectorAll('.cv-primary-nav-item')[1].click();
+    await flush();
     root.querySelector('#cv-settings-toggle').click();
     await flush();
 
@@ -1054,6 +1075,8 @@ describe('createContributionsView — last project admin protection', () => {
     expect(adminControls[0].disabled).toBe(true);
     expect(adminControls[1].disabled).toBe(false);
 
+    root.querySelectorAll('.cv-primary-nav-item')[0].click();
+    await flush();
     const removeButtons = [...root.querySelectorAll('#cv-authors-tbody .cv-x-btn')];
     expect(removeButtons[0].disabled).toBe(true);
     expect(removeButtons[1].disabled).toBe(false);
@@ -1205,10 +1228,16 @@ describe('createContributionsView — author email', () => {
 
   function mockFetch() {
     global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const requestUrl = String(url);
       if ((opts.method || 'GET') === 'POST') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ commit: 'abc1234567' }) });
       }
-      if (url.includes('history=true')) {
+      if (requestUrl.includes('/contributions/orcid/search')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ results: [
+          { orcid: '0000-0002-1825-0097', name: 'Alice Canonical' },
+        ] }) });
+      }
+      if (requestUrl.includes('history=true')) {
         return Promise.resolve({ ok: true, status: 200, json: async () => [] });
       }
       return Promise.resolve({ ok: true, status: 200, json: async () => loaded });
@@ -1219,27 +1248,25 @@ describe('createContributionsView — author email', () => {
     for (let i = 0; i < 15; i += 1) await new Promise((r) => setTimeout(r, 0));
   }
 
-  /** Load the project and select the only author so the detail panel renders. */
-  async function mountAndSelect() {
+  /** Load the project and expand the only author so the editor renders inline. */
+  async function mountAndExpand() {
     mockFetch();
     const root = createContributionsView({ projectName: 'my-project' });
     document.body.appendChild(root);
     await flush();
-    const selector = root.querySelector('#cv-author-selector');
-    selector.value = 'Alice Smith';
-    selector.dispatchEvent(new Event('change', { bubbles: true }));
+    root.querySelector('[aria-label="Edit details for Alice Smith"]').click();
     await flush();
     return root;
   }
 
   it('shows the stored email in the author detail panel', async () => {
-    const root = await mountAndSelect();
-    expect(root.querySelector('#cv-detail-email').value).toBe('alice@example.org');
+    const root = await mountAndExpand();
+    expect(root.querySelector('#cv-author-0-email').value).toBe('alice@example.org');
   });
 
   it('saves an edited email back to the endpoint payload', async () => {
-    const root = await mountAndSelect();
-    const input = root.querySelector('#cv-detail-email');
+    const root = await mountAndExpand();
+    const input = root.querySelector('#cv-author-0-email');
     input.value = 'alice.smith@allen.org';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await flush();
@@ -1252,6 +1279,39 @@ describe('createContributionsView — author email', () => {
     );
     const payload = JSON.parse(postCall[1].body);
     expect(payload.contributors[0].author.email).toBe('alice.smith@allen.org');
+  });
+
+  it('uses the same profile sections as self-service and limits author level to admin', async () => {
+    const root = await mountAndExpand();
+    const editor = root.querySelector('.cv-author-editor');
+    expect(editor.textContent).toContain('Profile');
+    expect(editor.textContent).toContain('Roles & details');
+    expect(editor.textContent).toContain('Sections');
+    expect(editor.querySelector('#cv-author-0-name')).not.toBeNull();
+    expect(editor.querySelector('#cv-author-0-orcid')).not.toBeNull();
+    expect(editor.querySelector('#cv-author-0-join-date')).not.toBeNull();
+    expect(editor.querySelector('#cv-author-0-leave-date')).not.toBeNull();
+    expect(editor.querySelector('#cv-author-0-author-level')).not.toBeNull();
+  });
+
+  it('applies the selected ORCID name and identifier to the admin author row', async () => {
+    const root = await mountAndExpand();
+    root.querySelector('#cv-author-0-orcid').closest('.cv-orcid-row')
+      .querySelector('button').click();
+    await flush();
+    [...root.querySelectorAll('button')]
+      .find((button) => button.textContent.includes('Use ORCID name')).click();
+    await flush();
+
+    expect(root.querySelector('#cv-author-0-name').value).toBe('Alice Canonical');
+    root.querySelector('#cv-post-btn').click();
+    await flush();
+    const postCall = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET') === 'POST',
+    );
+    const payload = JSON.parse(postCall[1].body);
+    expect(payload.contributors[0].author.name).toBe('Alice Canonical');
+    expect(payload.contributors[0].author.registry_identifier).toBe('0000-0002-1825-0097');
   });
 });
 
@@ -1275,7 +1335,7 @@ describe('createContributionsView — per-author section editing', () => {
     contributors: [
       {
         author: { name: 'Alice Smith' },
-        credit_levels: [],
+        credit_levels: [{ role: 'software', level: 'lead' }],
         section_levels: [{ section: 'Methods', level: 'supporting' }],
       },
       {
@@ -1308,9 +1368,7 @@ describe('createContributionsView — per-author section editing', () => {
     document.body.appendChild(root);
     await flush();
 
-    const selector = root.querySelector('#cv-author-selector');
-    selector.value = 'Alice Smith';
-    selector.dispatchEvent(new Event('change', { bubbles: true }));
+    root.querySelector('[aria-label="Edit details for Alice Smith"]').click();
     await flush();
 
     const introduction = root.querySelector(
@@ -1343,5 +1401,115 @@ describe('createContributionsView — per-author section editing', () => {
     expect(payload.contributors[1].section_levels).toEqual([
       { section: 'Introduction', level: 'equal' },
     ]);
+  });
+
+  it('expands the selected author inline and preserves drafts when switching authors and tabs', async () => {
+    mockFetch();
+    const root = createContributionsView({ projectName: 'section-project' });
+    document.body.appendChild(root);
+    await flush();
+
+    root.querySelector('[aria-label="Edit details for Alice Smith"]').click();
+    await flush();
+    expect(root.querySelector('.cv-expanded-author-row .cv-author-editor-header').textContent)
+      .toContain('Alice Smith');
+
+    const aliceEmail = root.querySelector('#cv-author-0-email');
+    aliceEmail.value = 'alice-draft@example.org';
+    aliceEmail.dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+
+    root.querySelector('[aria-label="Edit details for Bob Jones"]').click();
+    await flush();
+    expect(root.querySelectorAll('.cv-expanded-author-row')).toHaveLength(1);
+    expect(root.querySelector('.cv-expanded-author-row .cv-author-editor-header').textContent)
+      .toContain('Bob Jones');
+
+    root.querySelector('#cv-author-1-email').value = 'bob-draft@example.org';
+    root.querySelector('#cv-author-1-email').dispatchEvent(new Event('input', { bubbles: true }));
+    await flush();
+    root.querySelector('[aria-label="Edit details for Alice Smith"]').click();
+    await flush();
+    expect(root.querySelector('#cv-author-0-email').value).toBe('alice-draft@example.org');
+
+    root.querySelectorAll('.cv-primary-nav-item')[1].click();
+    await flush();
+    root.querySelectorAll('.cv-primary-nav-item')[0].click();
+    await flush();
+    expect(root.querySelector('#cv-author-0-email').value).toBe('alice-draft@example.org');
+    expect(root.querySelectorAll('.cv-expanded-author-row')).toHaveLength(1);
+
+    root.querySelector('[aria-label="Collapse details for Alice Smith"]').click();
+    await flush();
+    expect(root.querySelector('.cv-expanded-author-row')).toBeNull();
+  });
+
+  it('keeps matrix role levels and the expanded role editor synchronized', async () => {
+    mockFetch();
+    const root = createContributionsView({ projectName: 'section-project' });
+    document.body.appendChild(root);
+    await flush();
+    root.querySelector('[aria-label="Edit details for Alice Smith"]').click();
+    await flush();
+
+    const matrixLevel = root.querySelector('select[aria-label="Alice Smith — Software"]');
+    const editorLevel = root.querySelector('select[aria-label="Software level"]');
+    expect(matrixLevel.value).toBe('Lead');
+    expect(editorLevel.value).toBe('lead');
+
+    matrixLevel.value = 'Supporting';
+    matrixLevel.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(root.querySelector('select[aria-label="Software level"]').value).toBe('supporting');
+
+    const currentEditorLevel = root.querySelector('select[aria-label="Software level"]');
+    currentEditorLevel.value = 'equal';
+    currentEditorLevel.dispatchEvent(new Event('change', { bubbles: true }));
+    await flush();
+    expect(root.querySelector('select[aria-label="Alice Smith — Software"]').value).toBe('Equal');
+  });
+});
+
+describe('createContributionsView — local preview', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('shows every project asset and prevents server saves', async () => {
+    const project = {
+      project_name: 'local-project',
+      contributors: [{ author: { name: 'Ada Lovelace' }, credit_levels: [] }],
+      assets: ['asset-one', 'asset-two'],
+    };
+    global.fetch = vi.fn().mockImplementation((url) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: async () => (url.includes('history=true') ? [] : project),
+    }));
+
+    const root = createContributionsView({
+      projectName: 'local-project',
+      isAdmin: true,
+      localPreview: true,
+    });
+    document.body.appendChild(root);
+    for (let i = 0; i < 15; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+
+    [...root.querySelectorAll('.cv-primary-nav-item')]
+      .find((button) => button.textContent.trim() === 'Project setup').click();
+    for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(root.querySelector('#cv-assets-toggle').getAttribute('aria-expanded')).toBe('true');
+    expect([...root.querySelectorAll('.cv-assets-table tbody tr')].map((row) => row.textContent.trim()))
+      .toEqual(['asset-one', 'asset-two']);
+    expect(root.querySelector('#cv-post-btn').disabled).toBe(true);
+    expect(root.querySelector('.cv-local-preview-note').textContent).toContain('Local preview');
+
+    const saveButton = root.querySelector('#cv-post-btn');
+    saveButton.disabled = false;
+    saveButton.click();
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(false);
   });
 });

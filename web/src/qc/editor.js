@@ -9,6 +9,12 @@ import { submitQcEdit } from './api.js';
 import { hashQc } from './canonical.js';
 import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
 import { isEphysCurationMetric } from './ephys-curation.js';
+import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
+import {
+  allowedTagFailuresForSpimMetrics,
+  missingSpimQcMetrics,
+  normalizeSavedSpimQcMetrics,
+} from './spim-metrics.js';
 import {
   autoStatusForValue,
   isEditableMetric,
@@ -23,11 +29,15 @@ export function buildQcSubmitPayload(record, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
 } = {}) {
   const changes = Object.entries(pendingChanges).map(([metric_name, change]) => {
     const result = { metric_name };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) result.value = change.value;
     if (Object.prototype.hasOwnProperty.call(change, 'status')) result.status = change.status;
+    if (Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices')) {
+      result.delete_curation_indices = change.delete_curation_indices;
+    }
     return result;
   });
   const payload = {
@@ -36,6 +46,9 @@ export function buildQcSubmitPayload(record, {
     changes,
   };
   if (notesChanged) payload.notes = notes;
+  if (addedMetrics.length) payload.add_metrics = addedMetrics;
+  const allowTagFailures = allowedTagFailuresForSpimMetrics(addedMetrics);
+  if (allowTagFailures.length) payload.allow_tag_failures = allowTagFailures;
   return payload;
 }
 
@@ -57,14 +70,25 @@ function partialDictionaryText(value, keys, allKeys) {
   return allKeys.length > keys.length ? `${text} …` : text;
 }
 
-function curationReviewText(value) {
-  const count = Array.isArray(value) ? value.length : value == null ? 0 : 1;
-  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'})`;
+function curationReviewText(value, deletedCount = 0) {
+  const count = typeof value === 'number'
+    ? value
+    : Array.isArray(value)
+      ? value.length
+      : value == null
+        ? 0
+        : 1;
+  const deletionLabel = deletedCount ? `; ${deletedCount} deleted` : '';
+  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'}${deletionLabel})`;
 }
 
 function latestCurationValue(metric) {
   const values = parseCurationValues(metric.value);
   return values[values.length - 1] ?? {};
+}
+
+function curationEntryCount(metric) {
+  return parseCurationValues(metric.value).length;
 }
 
 /**
@@ -107,6 +131,8 @@ export function buildReviewRows(freshRecord, loadedRecord, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
+  addedStatuses = {},
 } = {}) {
   const fresh = parseQCRecord(freshRecord);
   const loaded = parseQCRecord(loadedRecord);
@@ -118,14 +144,19 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     if (!live) return { name, missing: true, drifted: true };
     const was = loadedByName.get(name);
     const row = { name, missing: false };
-    if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      if (live.object_type === 'Curation metric') {
-        row.currentValue = curationReviewText(live.value);
-        row.nextValue = curationReviewText(change.value);
-      } else {
-        row.currentValue = reviewValueText(live.value, change.value, was?.value);
-        row.nextValue = reviewValueText(change.value, live.value, was?.value);
-      }
+    const isCuration = live.object_type === 'Curation metric' || isEphysCurationMetric(live);
+    const hasCurationDeletion = Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices');
+    if (isCuration && (Object.prototype.hasOwnProperty.call(change, 'value') || hasCurationDeletion)) {
+      const currentCount = curationEntryCount(live);
+      const deletionCount = new Set(change.delete_curation_indices ?? []).size;
+      const nextCount = Math.max(0, currentCount - deletionCount) +
+        (Object.prototype.hasOwnProperty.call(change, 'value') ? 1 : 0);
+      row.currentValue = curationReviewText(currentCount);
+      row.nextValue = curationReviewText(nextCount, deletionCount);
+      row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
+    } else if (Object.prototype.hasOwnProperty.call(change, 'value')) {
+      row.currentValue = reviewValueText(live.value, change.value, was?.value);
+      row.nextValue = reviewValueText(change.value, live.value, was?.value);
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {
@@ -136,6 +167,31 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     row.drifted = Boolean(row.valueDrifted || row.statusDrifted);
     return row;
   });
+
+  for (const metric of addedMetrics) {
+    rows.unshift({
+      name: metric.name,
+      added: true,
+      // Another editor already created it; submitting would be rejected.
+      missing: liveByName.has(metric.name),
+      drifted: liveByName.has(metric.name),
+      nextValue: valueText(metric.value),
+      nextStatus: addedStatuses[metric.name] ?? 'Pending',
+    });
+  }
+
+  const existingAllowedFailures = Array.isArray(freshRecord.quality_control?.allow_tag_failures)
+    ? freshRecord.quality_control.allow_tag_failures
+    : [];
+  const addedAllowedFailures = allowedTagFailuresForSpimMetrics(addedMetrics)
+    .filter(value => !existingAllowedFailures.includes(value));
+  if (addedAllowedFailures.length) {
+    rows.push({
+      name: 'allowed tag failures',
+      currentValue: existingAllowedFailures.length ? JSON.stringify(existingAllowedFailures) : '—',
+      nextValue: JSON.stringify([...existingAllowedFailures, ...addedAllowedFailures]),
+    });
+  }
 
   if (notesChanged) {
     rows.push({
@@ -226,6 +282,15 @@ function restoreNamedDrafts(names, saved, isValid) {
   return restored;
 }
 
+/** Render a queued new metric like a live one until the server creates it. */
+function asPendingMetric(metric) {
+  return {
+    object_type: 'QC metric',
+    ...metric,
+    status_history: [{ object_type: 'QC status', evaluator: 'Pending submit', status: 'Pending', timestamp: '' }],
+  };
+}
+
 function draftValueChanged(metric, draft) {
   try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
 }
@@ -242,21 +307,36 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     editableMetrics.map(metric => [metric.name, getMetricStatus(metric)]),
   ), [editableMetrics]);
   const savedDrafts = useMemo(() => readQcPendingChanges(record.name), [record.name]);
+  const existingMetricNames = useMemo(() => new Set(parsed.metrics.map(metric => metric.name)), [parsed]);
+  const [addedMetrics, setAddedMetrics] = useState(() => (
+    Array.isArray(savedDrafts?.addedMetrics)
+      ? normalizeSavedSpimQcMetrics(record, savedDrafts.addedMetrics
+        .filter(metric => metric?.name && !existingMetricNames.has(metric.name)))
+      : []
+  ));
+  const pendingAddedMetrics = useMemo(() => addedMetrics.map(asPendingMetric), [addedMetrics]);
   const [account, setAccount] = useState(null);
-  const [valueDrafts, setValueDrafts] = useState(() => restoreDrafts(
-    defaultValueDrafts,
-    savedDrafts?.valueDrafts,
-    value => typeof value === 'string',
-  ));
-  const [statusDrafts, setStatusDrafts] = useState(() => restoreDrafts(
-    defaultStatusDrafts,
-    savedDrafts?.statusDrafts,
-    value => value === 'Pending' || value === 'Pass' || value === 'Fail',
-  ));
+  const [valueDrafts, setValueDrafts] = useState(() => ({
+    ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.valueDrafts,
+      value => typeof value === 'string'),
+    ...restoreDrafts(defaultValueDrafts, savedDrafts?.valueDrafts, value => typeof value === 'string'),
+  }));
+  const [statusDrafts, setStatusDrafts] = useState(() => {
+    const isStatus = value => value === 'Pending' || value === 'Pass' || value === 'Fail';
+    return {
+      ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.statusDrafts, isStatus),
+      ...restoreDrafts(defaultStatusDrafts, savedDrafts?.statusDrafts, isStatus),
+    };
+  });
   const [curationDrafts, setCurationDrafts] = useState(() => restoreNamedDrafts(
     curationMetrics.map(metric => metric.name),
     savedDrafts?.curationDrafts,
     value => value && typeof value === 'object' && !Array.isArray(value),
+  ));
+  const [curationDeleteDrafts, setCurationDeleteDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDeleteDrafts,
+    value => Array.isArray(value) && value.every(index => Number.isInteger(index) && index >= 0),
   ));
   const [fieldErrors, setFieldErrors] = useState({});
   const [notes, setNotes] = useState(() => (
@@ -270,10 +350,19 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const [allowEditingValues, setAllowEditingValues] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftRevision, setDraftRevision] = useState(0);
+  const [addingFiberCcf, setAddingFiberCcf] = useState(false);
+  const fiberCcfProbes = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingFiberCcfProbes(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
+  const spimQcMetrics = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingSpimQcMetrics(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
 
   useEffect(() => {
     let alive = true;
-    getQcAccount().then(value => {
+    getQcAccount({ forceRefresh: true }).then(value => {
       if (alive) setAccount(value);
     }).catch(() => {
       if (alive) setAccount(null);
@@ -296,38 +385,91 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   }
   for (const metric of curationMetrics) {
     const draft = curationDrafts[metric.name];
-    if (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) {
-      pendingChanges[metric.name] = { value: draft };
+    const deletedIndices = curationDeleteDrafts[metric.name] ?? [];
+    const hasCurationDraft = draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+    if (hasCurationDraft || deletedIndices.length) {
+      pendingChanges[metric.name] = {};
+      if (hasCurationDraft) pendingChanges[metric.name].value = draft;
+      if (deletedIndices.length) pendingChanges[metric.name].delete_curation_indices = deletedIndices;
     }
   }
+  // Queued metrics are created with the drafted value; a drafted status is a
+  // same-request change, applied by the server after it stamps Pending.
+  const addPayload = pendingAddedMetrics.map((metric, index) => {
+    const draft = valueDrafts[metric.name];
+    let value = metric.value;
+    if (draft !== undefined && !fieldErrors[metric.name]) {
+      try { value = parseDraft(draft, metric.value); } catch { /* surfaced via fieldErrors */ }
+    }
+    return { ...addedMetrics[index], value };
+  });
+  const addedStatuses = Object.fromEntries(pendingAddedMetrics.map(metric => [
+    metric.name, statusDrafts[metric.name] ?? 'Pending',
+  ]));
+  const submitChanges = { ...pendingChanges };
+  for (const [name, status] of Object.entries(addedStatuses)) {
+    if (status !== 'Pending') submitChanges[name] = { status };
+  }
   const notesChanged = notes !== parsed.notes;
-  const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
+  const changeCount = Object.keys(pendingChanges).length + addedMetrics.length + (notesChanged ? 1 : 0);
   const hasPendingDrafts = editableMetrics.some(metric =>
     draftValueChanged(metric, valueDrafts[metric.name]) ||
     statusDrafts[metric.name] !== getMetricStatus(metric)
   ) || curationMetrics.some(metric => {
     const draft = curationDrafts[metric.name];
-    return draft !== undefined && !sameValue(draft, latestCurationValue(metric));
-  }) || notesChanged;
+    return (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) ||
+      (curationDeleteDrafts[metric.name]?.length ?? 0) > 0;
+  }) || notesChanged || addedMetrics.length > 0;
 
   useEffect(() => {
     if (!hasPendingDrafts) {
       clearQcPendingChanges(record.name);
       return;
     }
-    writeQcPendingChanges(record.name, { valueDrafts, statusDrafts, curationDrafts, notes });
-  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, notes, parsed.notes]);
+    writeQcPendingChanges(record.name, {
+      valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, addedMetrics,
+    });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, parsed.notes, addedMetrics]);
 
   const clearPendingChanges = () => {
     clearQcPendingChanges(record.name);
     setValueDrafts(defaultValueDrafts);
     setStatusDrafts(defaultStatusDrafts);
     setCurationDrafts({});
+    setCurationDeleteDrafts({});
     setFieldErrors({});
     setNotes(parsed.notes);
+    setAddedMetrics([]);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
     setMessage('');
     setDraftRevision(revision => revision + 1);
   };
+
+  const handleAddFiberCcf = async () => {
+    setAddingFiberCcf(true);
+    setMessage('');
+    try {
+      const ngLink = await fetchCcfNeuroglancerLink(record.location);
+      setAddedMetrics(previous => [...previous, ...buildFiberCcfMetrics(fiberCcfProbes, ngLink)]);
+      setSettingsOpen(false);
+      setMessage(`Queued ${fiberCcfProbes.length} fiber CCF metric${fiberCcfProbes.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+    } catch (error) {
+      setMessage(`Could not add fiber CCF metrics: ${error?.message ?? error}`);
+    } finally {
+      setAddingFiberCcf(false);
+    }
+  };
+
+  const handleAddSpimQc = () => {
+    if (!spimQcMetrics.length) return;
+    setAddedMetrics(previous => [...previous, ...spimQcMetrics]);
+    setSettingsOpen(false);
+    setMessage(`Queued ${spimQcMetrics.length} SPIM QC metric${spimQcMetrics.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+  };
+
+  const findEditable = name => editableMetrics.find(candidate => candidate.name === name) ??
+    pendingAddedMetrics.find(candidate => candidate.name === name);
 
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
@@ -344,25 +486,44 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   useEffect(() => {
     onEditStateChange?.({
       enabled: Boolean(account),
-      editableMetricNames: new Set(editableMetrics.map(metric => metric.name)),
+      editableMetricNames: new Set([...editableMetrics, ...pendingAddedMetrics].map(metric => metric.name)),
+      addedMetrics: pendingAddedMetrics,
       valueDrafts,
       statusDrafts,
       fieldErrors,
       allowEditingValues,
       draftRevision,
       onValue: (name, value) => {
-        const metric = editableMetrics.find(candidate => candidate.name === name);
+        const metric = findEditable(name);
         if (metric) handleValue(metric, value);
       },
       onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
       curationDrafts,
+      curationDeleteDrafts,
       onCuration: (name, value) => {
         if (curationMetrics.some(metric => metric.name === name)) {
           setCurationDrafts(previous => ({ ...previous, [name]: value }));
         }
       },
+      onDeleteCuration: (name, index) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDeleteDrafts(previous => ({
+            ...previous,
+            [name]: [...new Set([...(previous[name] ?? []), index])],
+          }));
+        }
+      },
+      onRemoveCurationDraft: name => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => {
+            const next = { ...previous };
+            delete next[name];
+            return next;
+          });
+        }
+      },
     });
-  }, [account, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, fieldErrors, allowEditingValues, draftRevision]);
+  }, [account, editableMetrics, pendingAddedMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -381,7 +542,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
         freshRecord,
         freshHash,
         changedSinceLoad: freshHash !== loadedHash,
-        rows: buildReviewRows(freshRecord, record, { pendingChanges, notesChanged, notes }),
+        rows: buildReviewRows(freshRecord, record, {
+          pendingChanges, notesChanged, notes, addedMetrics: addPayload, addedStatuses,
+        }),
       });
       setPreview(true);
     } catch (error) {
@@ -398,9 +561,10 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     try {
       const payload = buildQcSubmitPayload(review.freshRecord, {
         expectedQcHash: review.freshHash,
-        pendingChanges,
+        pendingChanges: submitChanges,
         notesChanged,
         notes,
+        addedMetrics: addPayload,
       });
       await submitQcEdit(payload);
       clearQcPendingChanges(record.name);
@@ -461,6 +625,25 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
               />
               Allow editing metrics with values
             </label>
+            <section class="qc-settings-metric-section">
+              <h4>Add QC metrics</h4>
+              <div class="qc-settings-metric-actions">
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddFiberCcf}
+                  disabled=${!fiberCcfProbes.length || addingFiberCcf || submitting}
+                >
+                  ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfProbes.length})`}
+                </button>
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddSpimQc}
+                  disabled=${!spimQcMetrics.length || submitting}
+                >
+                  Add SPIM QC metrics (${spimQcMetrics.length})
+                </button>
+              </div>
+            </section>
             <div class="qc-settings-actions">
               <button
                 class="qc-editor-secondary"
@@ -496,7 +679,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
                       ${row.drifted ? html`<span class="qc-editor-diff-flag"> changed</span>` : null}
                     </td>
                     <td>
-                      ${row.missing
+                      ${row.added
+                        ? html`<em>${row.missing ? 'already exists' : 'new metric'}</em>`
+                        : row.missing
                         ? html`<em>no longer present</em>`
                         : html`
                           ${row.currentValue !== undefined ? html`<div>${row.currentValue}</div>` : null}

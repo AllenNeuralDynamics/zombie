@@ -185,12 +185,44 @@ export function renderSmartSpimRow(row, visibleColumns) {
 }
 
 // ---------------------------------------------------------------------------
+// URL state
+// ---------------------------------------------------------------------------
+
+const SUBJECTS_PARAM = 'subjects';
+
+export function readUrlState(search) {
+  const p = new URLSearchParams(search);
+  const filters = Object.fromEntries(ALL_COLS.map((c) => [c, p.get(c) ?? '']));
+  return { subjects: p.getAll(SUBJECTS_PARAM), filters };
+}
+
+/** Rewrite only this page's keys, leaving other params (e.g. ov_*) untouched. */
+export function applyUrlState(search, { subjects, filters }) {
+  const p = new URLSearchParams(search);
+  p.delete(SUBJECTS_PARAM);
+  for (const c of ALL_COLS) p.delete(c);
+  for (const s of subjects) p.append(SUBJECTS_PARAM, s);
+  for (const c of ALL_COLS) if (filters[c]) p.set(c, filters[c]);
+  return p.toString();
+}
+
+// ---------------------------------------------------------------------------
 // View factory
 // ---------------------------------------------------------------------------
 
 export function createSmartSpimView(coord) {
   const container = document.createElement('div');
   container.className = 'assets-view smartspim-view';
+
+  const initialState = readUrlState(window.location.search);
+  const selectedSubjects = new Set(initialState.subjects);
+  const filters = initialState.filters;
+
+  function writeUrlState() {
+    const qs = applyUrlState(window.location.search, { subjects: [...selectedSubjects], filters });
+    if (qs === window.location.search.replace(/^\?/, '')) return;
+    history.replaceState(history.state, '', qs ? `?${qs}` : window.location.pathname);
+  }
 
   const loadingEl = document.createElement('p');
   loadingEl.className = 'loading-message';
@@ -243,7 +275,6 @@ export function createSmartSpimView(coord) {
 
     // Subject sidebar
     const allSubjects = uniqueValues(allRows, 'subject_id').sort();
-    const selectedSubjects = new Set();
 
     filterPanel.innerHTML = `<h3 class="sessions-panel-title">Filter</h3>`;
 
@@ -319,6 +350,7 @@ export function createSmartSpimView(coord) {
     let topCard = null;
 
     function onSubjectChange() {
+      writeUrlState();
       if (topCard) topCard.remove();
       topCard = buildTopCard(getDisplayRows());
       mainContent.appendChild(topCard);
@@ -354,7 +386,6 @@ export function createSmartSpimView(coord) {
     let sortCol = 'acquisition_start_time';
     let sortDir = 'desc';
     let visibleColumns = [...DEFAULT_COLS];
-    let filters = Object.fromEntries(ALL_COLS.map((c) => [c, '']));
     let page = 0;
     let settingsModalOpen = false;
 
@@ -402,40 +433,42 @@ export function createSmartSpimView(coord) {
 
       thead.innerHTML = `<tr>${headerRowHtml}</tr>`;
 
-      thead.addEventListener('click', (e) => {
-        if (!e.target.closest('.col-label')) return;
-        const th = e.target.closest('th.sortable');
-        if (!th) return;
-        const col = th.dataset.col;
-        if (sortCol === col) {
-          sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-        } else {
-          sortCol = col;
-          sortDir = 'asc';
-        }
-        page = 0;
-        refresh();
-      });
-
-      thead.addEventListener('input', (e) => {
-        const el = e.target.closest('.col-filter');
-        if (!el) return;
-        filters[el.dataset.col] = el.value;
-        page = 0;
-        refresh();
-      });
-
-      thead.addEventListener('change', (e) => {
-        const el = e.target.closest('.col-filter');
-        if (!el) return;
-        filters[el.dataset.col] = el.value;
-        page = 0;
-        refresh();
-      });
-
       restoreFilterInputs();
       updateSortIndicators();
     }
+
+    thead.addEventListener('click', (e) => {
+      if (!e.target.closest('.col-label')) return;
+      const th = e.target.closest('th.sortable');
+      if (!th) return;
+      const col = th.dataset.col;
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      page = 0;
+      refresh();
+    });
+
+    thead.addEventListener('input', (e) => {
+      const el = e.target.closest('.col-filter');
+      if (!el) return;
+      filters[el.dataset.col] = el.value;
+      writeUrlState();
+      page = 0;
+      refresh();
+    });
+
+    thead.addEventListener('change', (e) => {
+      const el = e.target.closest('.col-filter');
+      if (!el) return;
+      filters[el.dataset.col] = el.value;
+      writeUrlState();
+      page = 0;
+      refresh();
+    });
 
     function restoreFilterInputs() {
       thead.querySelectorAll('.col-filter').forEach((el) => {

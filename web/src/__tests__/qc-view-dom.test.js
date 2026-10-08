@@ -117,6 +117,71 @@ describe('QC status updates', () => {
 });
 
 describe('QC navigation state', () => {
+  it('omits duplicate names and shows a top-of-page alert', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        metrics: [
+          { name: 'duplicate', value: true, status_history: [{ status: 'Pass' }] },
+          { name: 'keep', value: 'visible', status_history: [{ status: 'Pass' }] },
+          { name: 'duplicate', value: null, status_history: [{ status: 'Fail' }] },
+        ],
+      },
+    });
+
+    const alert = view.querySelector('[role="alert"]');
+    expect(alert.hidden).toBe(false);
+    expect(alert.textContent).toContain('Duplicate QC metric name "duplicate"');
+    expect(view.firstElementChild).toBe(alert);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-name')].map(el => el.textContent)).toEqual(['keep']);
+
+    view.querySelectorAll('.qc-view-toggle button')[1].click();
+    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(2)')].map(el => el.textContent)).toEqual(['keep']);
+  });
+
+  it('reports an individual metric render failure without hiding valid metrics', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const invalidValue = {};
+    Object.defineProperty(invalidValue, 'type', {
+      get() { throw new Error('synthetic render failure'); },
+    });
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        metrics: [
+          { name: 'broken', value: invalidValue, status_history: [{ status: 'Pass' }] },
+          { name: 'valid', value: 'still visible', status_history: [{ status: 'Pass' }] },
+        ],
+      },
+    });
+
+    expect(view.querySelector('[role="alert"]').textContent).toContain('Metric "broken" failed to render: synthetic render failure');
+    expect([...view.querySelectorAll('.qc-metric-card .metric-name')].map(el => el.textContent)).toEqual(['valid']);
+  });
+
+  it('renders distinct metrics and their statuses in both view modes', () => {
+    window.history.replaceState({}, '', '/quality_control?name=asset-1');
+    const view = createQCView({
+      name: 'asset-1',
+      quality_control: {
+        default_grouping: ['probe'],
+        metrics: [
+          { name: 'first', value: true, tags: { probe: 'A' }, status_history: [{ status: 'Pass' }] },
+          { name: 'second', value: null, tags: { probe: 'A' }, status_history: [{ status: 'Pending' }] },
+        ],
+      },
+    });
+
+    expect(view.querySelector('[role="alert"]').hidden).toBe(true);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-name')].map(el => el.textContent)).toEqual(['first', 'second']);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-value')].map(el => el.textContent)).toEqual(['true', '—']);
+
+    view.querySelectorAll('.qc-view-toggle button')[1].click();
+    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(2)')].map(el => el.textContent)).toEqual(['first', 'second']);
+    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(3)')].map(el => el.textContent)).toEqual(['true', '—']);
+  });
+
   it('renders null fields in scalar object metrics in table view', () => {
     window.history.replaceState({}, '', '/quality_control?name=asset-1');
     const view = createQCView({

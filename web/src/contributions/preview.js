@@ -25,9 +25,16 @@ import {
   getLastName,
   getFirstName,
   normalizeRole,
-  LEVEL_LABELS,
   activeContributionLevels,
 } from './credit-helpers.js';
+import {
+  enabledAuthorWorkflowLevels,
+  normalizeAuthorWorkflowLevels,
+  usesLegacyAuthorWorkflowColors,
+  workflowLevelColor,
+  workflowLevelLabel,
+  workflowUiValueToStored,
+} from './author-workflow-levels.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -151,9 +158,9 @@ function ensureWidgetCSS() {
       width: 28px;
       height: 28px;
     }
-    .ae-cell-sq-lead       { background: rgba(99,102,241,0.75); }
-    .ae-cell-sq-equal      { background: rgba(99,102,241,0.40); }
-    .ae-cell-sq-supporting { background: rgba(99,102,241,0.18); }
+    .ae-cell-sq-lead       { background: #8a8cf5; }
+    .ae-cell-sq-equal      { background: #c1c2f9; }
+    .ae-cell-sq-supporting { background: #e3e3fc; }
     /* Dark mode overrides */
     .ae-dark .ae-matrix-role-col-label { color: #9ca3af; }
     .ae-dark .ae-matrix-author-row-td { background: #1f2937; border-bottom-color: #374151; }
@@ -161,9 +168,6 @@ function ensureWidgetCSS() {
     .ae-dark .ae-matrix-author-row-name:hover { color: #a5b4fc; }
     .ae-dark .ae-matrix-corner-cell { background: #1f2937; }
     .ae-dark .ae-matrix { --ae-matrix-bg: #1f2937; }
-    .ae-dark .ae-cell-sq-lead       { background: rgba(165,180,252,0.75); }
-    .ae-dark .ae-cell-sq-equal      { background: rgba(165,180,252,0.40); }
-    .ae-dark .ae-cell-sq-supporting { background: rgba(165,180,252,0.18); }
     /* Preview wrapper */
     .ae-preview-wrap {
       margin-top: 24px;
@@ -505,14 +509,14 @@ function hidePopover() {
 
 // ─── Sort logic ──────────────────────────────────────────────────────────────
 
-function sortAuthors(authors, sortKey) {
+function sortAuthors(authors, sortKey, levelRanks = LEVEL_RANK) {
   const sorted = [...authors];
 
   if (sortKey.startsWith('credit:')) {
     const roleName = sortKey.slice(7);
     return sorted.sort((a, b) => {
-      const aRank = LEVEL_RANK[findCreditLevel(a, roleName)] || 0;
-      const bRank = LEVEL_RANK[findCreditLevel(b, roleName)] || 0;
+      const aRank = levelRanks[String(findCreditLevel(a, roleName) || '').toLowerCase()] || 0;
+      const bRank = levelRanks[String(findCreditLevel(b, roleName) || '').toLowerCase()] || 0;
       if (bRank !== aRank) return bRank - aRank;
       return getLastName(a.name).localeCompare(getLastName(b.name));
     });
@@ -546,16 +550,22 @@ export function createPreview(container, authors, options = {}) {
   const showLevels = options.showLevels ?? true;
   const showTimeline = options.showTimeline ?? false;
   const compactColumns = options.compactColumns ?? false;
-  const levelSettings = {
-    allowLevels: options.allowLevels ?? true,
-    allowLead: options.allowLead ?? true,
-  };
+  const authorWorkflowLevels = normalizeAuthorWorkflowLevels(
+    options.authorWorkflowLevels,
+    options,
+  );
+  const useLegacyCellColors = usesLegacyAuthorWorkflowColors(authorWorkflowLevels);
+  const levelSettings = { authorWorkflowLevels };
+  const levelRanks = Object.fromEntries(
+    enabledAuthorWorkflowLevels(authorWorkflowLevels)
+      .map((level, index, levels) => [level.value, levels.length - index]),
+  );
   // Only advertise tiers that are both allowed and represented in the data.
   const levelTiers = activeContributionLevels(
     (authors || []).flatMap((author) => (author.credit_levels || []).map((credit) => credit.level)),
     levelSettings,
   );
-  const levelLabel = (level) => LEVEL_LABELS[String(level).toLowerCase()] || level;
+  const levelLabel = (level) => workflowLevelLabel(level, authorWorkflowLevels);
 
   function levelsForRole(roleName) {
     return activeContributionLevels(
@@ -703,9 +713,15 @@ export function createPreview(container, authors, options = {}) {
         const level = findCreditLevel(author, role);
         const td = el('td', { className: 'ae-matrix-cell' });
         if (level) {
-          const cellLevel = showLevels ? level.toLowerCase() : 'equal';
+          const storedLevel = workflowUiValueToStored(level, authorWorkflowLevels);
+          const cellLevel = useLegacyCellColors
+            ? (showLevels ? storedLevel : 'equal')
+            : 'configured';
           td.appendChild(el('div', {
             className: `ae-cell-sq ae-cell-sq-${cellLevel}`,
+            style: useLegacyCellColors
+              ? undefined
+              : { backgroundColor: workflowLevelColor(showLevels ? level : 'equal', authorWorkflowLevels) },
             title: showLevels ? `${author.name}: ${levelLabel(level)}` : author.name,
           }));
         }
@@ -724,7 +740,10 @@ export function createPreview(container, authors, options = {}) {
         style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '6px', padding: '0 0 0 20px', flexShrink: '0' },
       });
       for (const tier of levelTiers) {
-        legend.appendChild(el('span', { className: `ae-legend-word ae-legend-word-${tier}` }, levelLabel(tier)));
+        legend.appendChild(el('span', {
+          className: `ae-legend-word ae-legend-word-${tier}`,
+          style: { color: workflowLevelColor(tier, authorWorkflowLevels) },
+        }, levelLabel(tier)));
       }
       outer.appendChild(legend);
     }
@@ -737,7 +756,7 @@ export function createPreview(container, authors, options = {}) {
     const activeAuthors = authors;
     const isCreditSort = sortKey.startsWith('credit:');
     const sortLevelTiers = isCreditSort ? levelsForRole(sortKey.slice(7)) : [];
-    const resorted = sortAuthors(activeAuthors, sortKey);
+    const resorted = sortAuthors(activeAuthors, sortKey, levelRanks);
     const wrap = el('div', { className: 'ae-author-list-tab' });
 
     // Sort bar
@@ -910,7 +929,10 @@ export function createPreview(container, authors, options = {}) {
             }
             if (isCreditSort && showLevels) {
               const level = findCreditLevel(author, sortKey.slice(7));
-              if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+              if (level) span.appendChild(el('span', {
+                className: 'ae-level-badge',
+                style: { color: workflowLevelColor(level, authorWorkflowLevels) },
+              }, levelLabel(level)));
             }
             if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
             if (!isLastOverall) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
@@ -932,7 +954,10 @@ export function createPreview(container, authors, options = {}) {
           }
           if (isCreditSort && showLevels) {
             const level = findCreditLevel(author, sortKey.slice(7));
-            if (level) span.appendChild(el('span', { className: `ae-level-badge ae-level-${level}` }, level === 'lead' ? 'L' : level === 'equal' ? 'E' : 'S'));
+            if (level) span.appendChild(el('span', {
+              className: 'ae-level-badge',
+              style: { color: workflowLevelColor(level, authorWorkflowLevels) },
+            }, levelLabel(level)));
           }
           if (author.corresponding) span.appendChild(el('span', { className: 'ae-corresponding', title: 'Corresponding author' }, '✉'));
           if (!isLast) span.appendChild(el('span', { className: 'ae-comma' }, ', '));
@@ -968,7 +993,10 @@ export function createPreview(container, authors, options = {}) {
     if (isCreditSort && showLevels && sortLevelTiers.length) {
       const legend = el('span', { className: 'ae-legend' });
       sortLevelTiers.forEach((tier, i) => {
-        legend.appendChild(el('span', { className: `ae-legend-dot ae-dot-${tier}` }));
+        legend.appendChild(el('span', {
+          className: 'ae-legend-dot',
+          style: { backgroundColor: workflowLevelColor(tier, authorWorkflowLevels) },
+        }));
         legend.appendChild(document.createTextNode(levelLabel(tier) + (i < sortLevelTiers.length - 1 ? ' ' : '')));
       });
       byline.appendChild(legend);
@@ -1099,7 +1127,7 @@ export function createPreview(container, authors, options = {}) {
       }
     }
 
-    const effortRank = { lead: 3, equal: 2, supporting: 1 };
+    const effortRank = levelRanks;
     let sectionIdx = 0;
     for (const [sectionId, contribs] of sectionMap) {
       contribs.sort((a, b) => (effortRank[b.effort] || 0) - (effortRank[a.effort] || 0));
@@ -1123,7 +1151,10 @@ export function createPreview(container, authors, options = {}) {
         attachAuthorPopover(chipName, c.author);
         info.appendChild(chipName);
         if (c.effort) {
-          info.appendChild(el('span', { className: `ae-effort ae-effort-${c.effort}` }, c.effort));
+          info.appendChild(el('span', {
+            className: 'ae-effort',
+            style: { color: workflowLevelColor(c.effort, authorWorkflowLevels) },
+          }, levelLabel(c.effort)));
         }
         if (c.description) {
           info.appendChild(el('p', { className: 'ae-section-chip-desc' }, c.description));
@@ -1144,7 +1175,7 @@ export function createPreview(container, authors, options = {}) {
 
   // ── Build full widget ──
   function buildWidget() {
-    const sorted = sortAuthors(authors, sortKey);
+    const sorted = sortAuthors(authors, sortKey, levelRanks);
 
     const container2 = el('div', { className: `ae-widget ${isDark ? 'ae-dark' : ''}` });
 
@@ -1199,7 +1230,7 @@ export function createPreview(container, authors, options = {}) {
         body: 'CRediT (Contributor Roles Taxonomy) matrix. Each row is an author; each column is one of the 14 standardised roles.'
           + (showLevels && levelTiers.length
             ? ' Cell shading indicates contribution level: '
-              + levelTiers.map((t) => `${LEVEL_SHADE[t]} = ${levelLabel(t)}`).join(', ')
+              + levelTiers.map((t, index) => `${LEVEL_SHADE[t] || (index === 0 ? 'strongest shade' : 'lighter shade')} = ${levelLabel(t)}`).join(', ')
               + '.'
             : '')
           + ' Hover any author name for a full profile.',

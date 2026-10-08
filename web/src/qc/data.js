@@ -1,7 +1,45 @@
 export function parseQCRecord(record) {
   const qc = record.quality_control ?? {};
-  const metrics = (qc.metrics ?? []).map(normalizeMetric);
+  const metrics = [];
+  const metricErrors = [];
+  const rawMetrics = qc.metrics ?? [];
+  if (!Array.isArray(rawMetrics)) {
+    metricErrors.push('QC metrics could not be processed: expected an array.');
+  } else {
+    const normalized = [];
+    rawMetrics.forEach((metric, index) => {
+      try {
+        if (!metric || typeof metric !== 'object' || Array.isArray(metric)) {
+          throw new Error('Metric entry is not an object.');
+        }
+        normalized.push(normalizeMetric(metric));
+      } catch (error) {
+        let label = '';
+        try {
+          if (typeof metric?.name === 'string' && metric.name) label = ` "${metric.name}"`;
+        } catch {
+          // A malformed name accessor must not defeat per-metric error handling.
+        }
+        metricErrors.push(`Metric${label} at position ${index + 1} could not be processed: ${error?.message ?? error}`);
+      }
+    });
+
+    const counts = new Map();
+    for (const metric of normalized) {
+      if (typeof metric.name === 'string' && metric.name) {
+        counts.set(metric.name, (counts.get(metric.name) ?? 0) + 1);
+      }
+    }
+    const duplicateNames = new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+    for (const name of duplicateNames) {
+      metricErrors.push(`Duplicate QC metric name "${name}"; all metrics with this name were omitted.`);
+    }
+    metrics.push(...normalized.filter(metric => !duplicateNames.has(metric.name)));
+  }
   const defaultGrouping = qc.default_grouping ?? [];
+  const allowTagFailures = Array.isArray(qc.allow_tag_failures)
+    ? qc.allow_tag_failures.filter(value => typeof value === 'string')
+    : [];
 
   const location = record.location ?? '';
   let s3Bucket = '';
@@ -25,7 +63,21 @@ export function parseQCRecord(record) {
 
   const notes = qc.notes ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping, notes };
+  return {
+    name: record.name ?? '',
+    s3Bucket,
+    s3Prefix,
+    projectName,
+    codeOceanId,
+    rawAssetName,
+    modalities,
+    stages,
+    metrics,
+    metricErrors,
+    defaultGrouping,
+    allowTagFailures,
+    notes,
+  };
 }
 
 /**
@@ -65,17 +117,27 @@ export function decodeReferenceUrl(reference) {
   return decoded;
 }
 
-/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
-export function parseCurationValues(value) {
+/** Decode CurationMetric values and retain their original list indexes. */
+export function parseCurationEntries(value) {
   let source = value;
   if (typeof source === 'string') {
     try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
   }
   if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
-  return source.map(entry => {
-    if (typeof entry !== 'string') return entry;
-    try { return JSON.parse(entry.startsWith('json:') ? entry.slice(5) : entry); } catch { return null; }
-  }).filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry));
+  return source.flatMap((entry, index) => {
+    let parsed = entry;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed.startsWith('json:') ? parsed.slice(5) : parsed); } catch { return []; }
+    }
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? [{ value: parsed, index }]
+      : [];
+  });
+}
+
+/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
+export function parseCurationValues(value) {
+  return parseCurationEntries(value).map(entry => entry.value);
 }
 
 function normalizeMetric(metric) {
@@ -90,8 +152,11 @@ export function getMetricStatus(metric) {
   return history[history.length - 1].status ?? 'Pending';
 }
 
-export function aggregateStatus(metrics) {
-  const statuses = metrics.map(getMetricStatus);
+export function aggregateStatus(metrics, allowTagFailures = [], statusOverrides = {}) {
+  const allowedValues = new Set(allowTagFailures);
+  const statuses = metrics
+    .filter(metric => !Object.values(metric.tags ?? {}).some(value => allowedValues.has(value)))
+    .map(metric => statusOverrides[metric.name] ?? getMetricStatus(metric));
   if (statuses.includes('Fail')) return 'Fail';
   if (statuses.includes('Pending')) return 'Pending';
   return 'Pass';

@@ -1,12 +1,12 @@
 ---
 name: zombie-platform-dashboards
-description: Build and extend Zombie's shared platform overview pages and their platform-specific cache queries.
+description: Extend Zombie platform overview pages and their platform cache integrations.
 ---
 
 # Zombie platform dashboards
 
-Start platform pages with `createPlatformOverview()` from `web/src/lib/platform-overview.js`. It owns the common heading, settings, date range, modality, QC, session summary, time-to-QC, and processing-status sections. Add platform-specific content through the existing overview extension points rather than copying shell logic.
+Build on the shared platform overview instead of copying its shell, settings, or common summaries. Find the current extension points in web/src/lib/platform-overview.js and keep platform-specific queries and presentation in the relevant page module.
 
-Use `ensureTable()` and `queryRows()` for platform cache data. Preserve the current contracts: SmartSPIM and exaSPIM join raw/processed `asset_basics` with `platform_smartspim`/`platform_exaspim`; fiber photometry uses `platform_fib` and pivots long-form asset/fiber/channel rows with `pivotLongFormRows()`; dynamic foraging uses `platform_dynamic_foraging_sessions` plus `behavior_curriculum`; VR filters `acquisition_type='AindVrForaging'`; dynamic routing filters `project_name='Dynamic Routing'`; SLAP2 filters modality `slap2`. Dynamic-foraging session figures are capped at 60 and its operations table is `platform_df_operations`.
+Resolve tables through the cache registry and load optional platform data lazily. Before joining tables, inspect their current grain, partitioning, and provenance in biodata-cache and the published registry. A raw acquisition and a processed asset can be different link targets; route storage, processing, QC, and metadata links to the asset represented by the row. Keep missing optional data and query errors visible through the shared page conventions.
 
-For processed rows, route S3, Code Ocean, QC, and metadata links to the processed asset and fall back to the raw asset. Follow the existing lazy-table and optional-table error handling. Tests should mock `coordinator.query()` and assert generated SQL, filters, pivot input, and rendered states; do not require live S3 or DuckDB.
+When a platform cache schema changes, update its builder and consumer together. Verify the query and rendered states with representative rows rather than relying on live S3.

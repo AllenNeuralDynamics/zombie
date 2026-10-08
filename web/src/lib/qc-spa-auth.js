@@ -12,8 +12,36 @@ const RETURN_PATH_KEY = 'qc-spa-return-path';
 // show the user's human display name. Do not request email, offline_access,
 // Graph, or a custom API permission: tenant membership is the authorization boundary.
 const OIDC_SCOPES = ['openid', 'profile'];
+const INTERACTION_REQUIRED_CODES = new Set([
+  'interaction_required',
+  'login_required',
+  'consent_required',
+]);
 let client = null;
 let initPromise = null;
+
+function requiresInteractiveAuth(error) {
+  const code = String(error?.errorCode ?? error?.code ?? error?.error ?? '').toLowerCase();
+  if (INTERACTION_REQUIRED_CODES.has(code)) return true;
+  return /AADSTS160021|interaction_required|login_required/i.test(error?.message ?? '');
+}
+
+async function startInteractiveRenewal() {
+  let redirectStarted = false;
+  try {
+    await loginForQc();
+    redirectStarted = true;
+  } catch {
+    // The caller will show a sign-in message if the redirect cannot start.
+  }
+  const error = new Error(
+    redirectStarted
+      ? 'Your AIND sign-in needs to be renewed. Complete sign-in, then review and submit your saved changes again.'
+      : 'Your AIND sign-in needs to be renewed. Use Login, then review and submit your saved changes again.',
+  );
+  error.code = 'interaction_required';
+  return error;
+}
 
 function isOpaqueIdentity(value) {
   return typeof value !== 'string' || /^[A-Za-z0-9_-]{32,}$/.test(value.trim());
@@ -85,7 +113,7 @@ export async function initQcAuth() {
   return initPromise;
 }
 
-export async function getQcAccount() {
+export async function getQcAccount({ forceRefresh = false } = {}) {
   await initQcAuth();
   const account = client?.getActiveAccount() ?? client?.getAllAccounts()[0] ?? null;
   if (!client || !account) return null;
@@ -93,7 +121,7 @@ export async function getQcAccount() {
   // Refresh the cached account's standard profile claims when possible. This
   // also upgrades sessions created before the profile scope was requested.
   try {
-    const result = await client.acquireTokenSilent({ account, scopes: OIDC_SCOPES });
+    const result = await client.acquireTokenSilent({ account, scopes: OIDC_SCOPES, forceRefresh });
     if (result?.account || result?.idTokenClaims) {
       return {
         ...account,
@@ -101,7 +129,10 @@ export async function getQcAccount() {
         idTokenClaims: result.idTokenClaims || result.account?.idTokenClaims || account.idTokenClaims,
       };
     }
-  } catch {
+  } catch (error) {
+    if (forceRefresh && requiresInteractiveAuth(error)) {
+      throw await startInteractiveRenewal();
+    }
     // The cached account is still a valid signed-in state if silent refresh is unavailable.
   }
   return account;
@@ -119,11 +150,20 @@ export async function getQcIdentityToken({ forceRefresh = false } = {}) {
   await initQcAuth();
   const account = await getQcAccount();
   if (!client || !account) throw new Error('Log in to edit QC');
-  const result = await client.acquireTokenSilent({
-    account,
-    scopes: OIDC_SCOPES,
-    forceRefresh,
-  });
+  let result;
+  try {
+    result = await client.acquireTokenSilent({
+      account,
+      scopes: OIDC_SCOPES,
+      forceRefresh,
+    });
+  } catch (error) {
+    if (!requiresInteractiveAuth(error)) throw error;
+
+    // Keep the asset and view URL through sign-in. QC drafts are already saved
+    // per asset in local storage, so the user can review and resubmit afterward.
+    throw await startInteractiveRenewal();
+  }
   if (!result.idToken) throw new Error('Entra login did not return an identity token');
   return result.idToken;
 }

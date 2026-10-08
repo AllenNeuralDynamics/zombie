@@ -9,9 +9,11 @@ import { html, render } from 'htm/preact';
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { getCurrentUser, loginWithOrcid } from '../lib/auth.js';
+import { isLocalDevelopment } from '../lib/local-dev.js';
 import { createPreview } from './preview.js';
 import { fromEndpointPayload, rowsToWidgetAuthors, CREDIT_ROLE_ENUM } from './view.js';
 import { fetchContributions } from './fetch.js';
+import { normalizeAuthorWorkflowLevels } from './author-workflow-levels.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -101,7 +103,7 @@ function ViewApp({ doi }) {
   // tabs must match them, not the widget defaults.
   const [settings, setSettings] = useState({
     showSections: false, showLevels: true, showTimeline: false,
-    allowLead: true, allowLevels: true,
+    authorWorkflowLevels: normalizeAuthorWorkflowLevels(null),
   });
   const previewRef = useRef(null);
 
@@ -122,8 +124,7 @@ function ViewApp({ doi }) {
         showSections: data.show_sections ?? false,
         showLevels: data.show_levels ?? true,
         showTimeline: data.show_timeline ?? false,
-        allowLead: data.allow_lead ?? true,
-        allowLevels: data.allow_levels ?? true,
+        authorWorkflowLevels: normalizeAuthorWorkflowLevels(data.author_workflow_levels, data),
       });
       setAuthors(buildPreviewAuthors(rows, meta));
     } catch (e) {
@@ -179,12 +180,16 @@ function ViewApp({ doi }) {
 
   // Edit: admins get the full editor (/edit); everyone else gets the
   // self-service add/review wizard (/add), which matches them to their own row
-  // by ORCID. All routes require an ORCID login first.
+  // by ORCID. Production routes require login first.
   //
-  // Admin status is only known after login, so when the user isn't logged in we
-  // send them back to this view page with `do=edit`; the effect above re-runs
-  // this handler once they return authenticated and then routes correctly.
+  // Production admin status is only known after login; local development opens
+  // the full editor directly and leaves server authorization in force.
   async function onEdit() {
+    if (isLocalDevelopment()) {
+      window.location.assign(`${window.location.origin}/contributions/edit?doi=${encodeURIComponent(doi)}`);
+      return;
+    }
+
     const me = await getCurrentUser();
     if (!me) {
       const back = `${window.location.origin}${window.location.pathname}`

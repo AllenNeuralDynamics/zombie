@@ -1,4 +1,5 @@
-import { decodeReferenceUrl, parseCurationValues } from './data.js';
+import { decodeReferenceUrl, parseCurationEntries } from './data.js';
+import { renderJsonValue } from '../record/view.js';
 
 const EPHYS_HOST = 'ephys.allenneuraldynamics.org';
 const EPHYS_SAFE_URL_CHARS = new Set(':/?&=-');
@@ -63,8 +64,9 @@ function historyLabel(index, history) {
   return `${curator} - ${timestamp}`;
 }
 
-function formatCurationData(data) {
-  try { return JSON.stringify(data ?? {}, null, 2); } catch { return String(data ?? ''); }
+/** Reuse the record page's JSON tree renderer, starting fully collapsed. */
+function renderCurationTree(data) {
+  return renderJsonValue(data ?? {}, null, { expanded: false });
 }
 
 function postToIframe(iframe, message) {
@@ -94,34 +96,49 @@ export function renderEphysCuration(metric, {
   wrapper.dataset.qcEphysIdentifier = identifier;
 
   const history = Array.isArray(metric.curation_history) ? metric.curation_history : [];
-  const sourceValues = parseCurationValues(metric.value);
-  const pendingDraft = edit.enabled && edit.curationDrafts &&
+  const sourceEntries = parseCurationEntries(metric.value);
+  const deletedIndexes = new Set(
+    edit.enabled && Array.isArray(edit.curationDeleteDrafts?.[metric.name])
+      ? edit.curationDeleteDrafts[metric.name]
+      : [],
+  );
+  let pendingDraft = edit.enabled && edit.curationDrafts &&
     Object.prototype.hasOwnProperty.call(edit.curationDrafts, metric.name)
     ? edit.curationDrafts[metric.name]
     : undefined;
-  const values = sourceValues.length ? [...sourceValues] : [{}];
-  if (pendingDraft !== undefined) values.push(pendingDraft);
-
-  let selectedIndex = values.length - 1;
+  let entries = [];
+  let selectedIndex = 0;
 
   const controls = document.createElement('div');
   controls.className = 'qc-ephys-curation-controls';
 
-  const pickerLabel = document.createElement('label');
+  const pickerLabel = document.createElement('div');
   pickerLabel.className = 'qc-ephys-curation-picker';
-  pickerLabel.appendChild(document.createTextNode('Select curation'));
+  const pickerTitle = document.createElement('span');
+  pickerTitle.textContent = 'Select curation';
+  pickerLabel.appendChild(pickerTitle);
+  const pickerRow = document.createElement('div');
+  pickerRow.className = 'qc-ephys-curation-picker-row';
   const picker = document.createElement('select');
   picker.className = 'qc-ephys-curation-select';
   picker.setAttribute('aria-label', `${metric.name ?? 'Ephys'} curation history`);
-  pickerLabel.appendChild(picker);
+  pickerRow.appendChild(picker);
+  const deleteButton = document.createElement('button');
+  deleteButton.type = 'button';
+  deleteButton.className = 'qc-ephys-curation-delete';
+  deleteButton.setAttribute('aria-label', 'Delete selected curation');
+  deleteButton.textContent = '×';
+  deleteButton.hidden = !edit.enabled;
+  pickerRow.appendChild(deleteButton);
+  pickerLabel.appendChild(pickerRow);
   controls.appendChild(pickerLabel);
 
   const metadata = document.createElement('div');
   metadata.className = 'qc-ephys-curation-metadata';
   controls.appendChild(metadata);
 
-  const json = document.createElement('pre');
-  json.className = 'qc-ephys-curation-json';
+  const json = document.createElement('div');
+  json.className = 'record-tree';
   controls.appendChild(json);
 
   const sendButton = document.createElement('button');
@@ -159,20 +176,44 @@ export function renderEphysCuration(metric, {
   wrapper.appendChild(controls);
   wrapper.appendChild(frame);
 
+  const visibleEntries = () => {
+    const visible = sourceEntries
+      .filter(entry => !deletedIndexes.has(entry.index))
+      .map(entry => ({ kind: 'source', originalIndex: entry.index, data: entry.value }));
+    if (pendingDraft !== undefined) visible.push({ kind: 'pending', data: pendingDraft });
+    if (!visible.length) visible.push({ kind: 'empty', data: {} });
+    return visible;
+  };
+
   const updateDisplay = () => {
-    const data = values[selectedIndex] ?? {};
-    const isPending = selectedIndex >= history.length;
+    entries = visibleEntries();
+    selectedIndex = Math.max(0, Math.min(selectedIndex, entries.length - 1));
+    const selected = entries[selectedIndex] ?? { kind: 'empty', data: {} };
     picker.value = String(selectedIndex);
-    metadata.textContent = isPending ? 'Pending curation' : historyLabel(selectedIndex, history);
-    json.textContent = formatCurationData(data);
+    const label = selected.kind === 'pending'
+      ? 'Pending curation'
+      : selected.kind === 'empty'
+        ? 'No curations'
+        : historyLabel(selected.originalIndex, history);
+    const deletedCount = deletedIndexes.size;
+    metadata.textContent = deletedCount
+      ? `${label} · ${deletedCount} deletion${deletedCount === 1 ? '' : 's'} pending`
+      : label;
+    json.replaceChildren(renderCurationTree(selected.data));
+    deleteButton.disabled = !edit.enabled || (selected.kind !== 'source' && selected.kind !== 'pending');
   };
 
   const populatePicker = () => {
+    entries = visibleEntries();
     picker.replaceChildren();
-    values.forEach((_, index) => {
+    entries.forEach((entry, index) => {
       const option = document.createElement('option');
       option.value = String(index);
-      option.textContent = index >= history.length ? 'Pending curation' : historyLabel(index, history);
+      option.textContent = entry.kind === 'pending'
+        ? 'Pending curation'
+        : entry.kind === 'empty'
+          ? 'No curations'
+          : historyLabel(entry.originalIndex, history);
       picker.appendChild(option);
     });
     updateDisplay();
@@ -187,10 +228,26 @@ export function renderEphysCuration(metric, {
     const envelope = {
       type: 'curation-data',
       identifier,
-      data: values[selectedIndex] ?? {},
+      data: entries[selectedIndex]?.data ?? {},
       _nonce: createEphysIdentifier(),
     };
     postToIframe(iframe, envelope);
+  };
+
+  const onDelete = () => {
+    const selected = entries[selectedIndex];
+    if (!edit.enabled || !selected) return;
+    if (selected.kind === 'source') {
+      deletedIndexes.add(selected.originalIndex);
+      edit.onDeleteCuration?.(metric.name, selected.originalIndex);
+    } else if (selected.kind === 'pending') {
+      pendingDraft = undefined;
+      edit.onRemoveCurationDraft?.(metric.name);
+    } else {
+      return;
+    }
+    selectedIndex = Math.min(selectedIndex, visibleEntries().length - 1);
+    populatePicker();
   };
 
   const onMessage = event => {
@@ -200,8 +257,8 @@ export function renderEphysCuration(metric, {
     if (event.source && iframe.contentWindow && event.source !== iframe.contentWindow) return;
     if (!data.data || typeof data.data !== 'object' || Array.isArray(data.data)) return;
 
-    values.push(data.data);
-    selectedIndex = values.length - 1;
+    pendingDraft = data.data;
+    selectedIndex = visibleEntries().length - 1;
     populatePicker();
     if (edit.enabled) edit.onCuration?.(metric.name, data.data);
   };
@@ -213,13 +270,16 @@ export function renderEphysCuration(metric, {
   };
 
   picker.addEventListener('change', onPickerChange);
+  deleteButton.addEventListener('click', onDelete);
   sendButton.addEventListener('click', onSend);
   window.addEventListener('message', onMessage);
   document.addEventListener('fullscreenchange', onFullscreenChange);
+  selectedIndex = visibleEntries().length - 1;
   populatePicker();
 
   wrapper.qcDestroy = () => {
     picker.removeEventListener('change', onPickerChange);
+    deleteButton.removeEventListener('click', onDelete);
     sendButton.removeEventListener('click', onSend);
     fullscreenButton.removeEventListener('click', onFullscreenClick);
     window.removeEventListener('message', onMessage);

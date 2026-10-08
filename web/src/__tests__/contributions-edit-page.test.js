@@ -18,6 +18,10 @@ vi.mock('../lib/auth.js', () => ({
   logout: vi.fn(),
 }));
 
+vi.mock('../lib/local-dev.js', () => ({
+  isLocalDevelopment: vi.fn(() => false),
+}));
+
 vi.mock('../contributions/fetch.js', () => ({
   fetchContributions: vi.fn(),
 }));
@@ -31,6 +35,7 @@ vi.mock('../contributions/view.js', () => ({
 }));
 
 import { getCurrentUser } from '../lib/auth.js';
+import { isLocalDevelopment } from '../lib/local-dev.js';
 import { fetchContributions } from '../contributions/fetch.js';
 import { createContributionsView } from '../contributions/view.js';
 import { createContributionsEditPage } from '../contributions/edit-page.js';
@@ -69,6 +74,7 @@ function routeFetch({ access, get }) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  isLocalDevelopment.mockReturnValue(false);
   document.body.innerHTML = '';
 });
 
@@ -78,6 +84,23 @@ describe('EditApp — access gating', () => {
     const el = await mount('some-project');
     expect(el.querySelector('.cv-modal-title')?.textContent).toContain('Log in');
     expect(createContributionsView).not.toHaveBeenCalled();
+  });
+
+  it('opens a local preview without login or an access request', async () => {
+    isLocalDevelopment.mockReturnValue(true);
+    getCurrentUser.mockResolvedValue(null);
+
+    const el = await mount('local-project');
+
+    expect(getCurrentUser).not.toHaveBeenCalled();
+    expect(fetchContributions).not.toHaveBeenCalled();
+    expect(createContributionsView).toHaveBeenCalledWith(expect.objectContaining({
+      projectName: 'local-project',
+      isAdmin: true,
+      isNew: false,
+      localPreview: true,
+    }));
+    expect(el.querySelector('.cv-modal-title')).toBeNull();
   });
 
   it('mounts the editor for an admin of an EXISTING project (isNew=false)', async () => {

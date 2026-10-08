@@ -1,4 +1,4 @@
-import { aggregateStatus, getMetricStatus } from './data.js';
+import { aggregateStatus } from './data.js';
 
 function statusClass(status) {
   if (status === 'Pass') return 'pass';
@@ -10,7 +10,7 @@ function containsNode(node, target) {
   return node === target || Boolean(node.children?.some(child => containsNode(child, target)));
 }
 
-function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows) {
+function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows, allowTagFailures) {
   const li = document.createElement('li');
 
   const nodeRow = document.createElement('div');
@@ -25,7 +25,7 @@ function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows) {
   toggle.className = 'tree-toggle';
 
   const icon = document.createElement('span');
-  icon.className = `tree-icon ${statusClass(aggregateStatus(node.metrics))}`;
+  icon.className = `tree-icon ${statusClass(aggregateStatus(node.metrics, allowTagFailures))}`;
 
   const labelSpan = document.createElement('span');
   const count = node.metrics.length;
@@ -46,7 +46,9 @@ function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows) {
     }
 
     for (const child of node.children) {
-      childrenEl.appendChild(buildNodeEl(child, onSelect, setSelected, selectedNode, nodeRows));
+      childrenEl.appendChild(buildNodeEl(
+        child, onSelect, setSelected, selectedNode, nodeRows, allowTagFailures,
+      ));
     }
 
     toggle.addEventListener('click', (e) => {
@@ -74,7 +76,7 @@ function buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows) {
   return li;
 }
 
-export function createTree(treeNodes, onSelect, { selectedNode = null } = {}) {
+export function createTree(treeNodes, onSelect, { selectedNode = null, allowTagFailures = [] } = {}) {
   const container = document.createElement('div');
   container.className = 'qc-tree';
 
@@ -89,16 +91,13 @@ export function createTree(treeNodes, onSelect, { selectedNode = null } = {}) {
 
   const ul = document.createElement('ul');
   for (const node of treeNodes) {
-    ul.appendChild(buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows));
+    ul.appendChild(buildNodeEl(node, onSelect, setSelected, selectedNode, nodeRows, allowTagFailures));
   }
 
   container.appendChild(ul);
   container.syncStatuses = (statusDrafts = {}) => {
     for (const [node, row] of nodeRows) {
-      const statuses = node.metrics.map(metric => statusDrafts[metric.name] ?? getMetricStatus(metric));
-      const status = statuses.includes('Fail')
-        ? 'Fail'
-        : statuses.includes('Pending') ? 'Pending' : 'Pass';
+      const status = aggregateStatus(node.metrics, allowTagFailures, statusDrafts);
       const icon = row.querySelector('.tree-icon');
       if (icon) icon.className = `tree-icon ${statusClass(status)}`;
     }

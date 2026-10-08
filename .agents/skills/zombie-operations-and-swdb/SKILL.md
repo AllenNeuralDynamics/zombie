@@ -1,14 +1,12 @@
 ---
 name: zombie-operations-and-swdb
-description: Maintain Zombie operational dashboards, time models, session log joins, storage analysis, and the isolated SWDB dashboard.
+description: Maintain Zombie operational dashboards, their time and provenance models, and the isolated SWDB dashboard.
 ---
 
 # Zombie operations and SWDB
 
-Timeline, Size, Analysis Framework and SWDB are all `stability: 'experimental'` in `web/build/routes.js` — dev channel only. Sessions is stable.
+Operational dashboards combine cache tables with service or log data. Start with the relevant page's data and time helpers before changing a join or time calculation. Keep acquisition, processing, upload, and release clocks distinct; make timezone conversions explicit. Use provenance keys for asset relationships, and preserve URL state through the page's existing parser. Check current route stability in the route manifest rather than assuming a page's release channel.
 
-The sessions page combines `asset_basics` with `/log-server/camstim-completed`; use `pickTableForRange()`, `quarterDateRange()`, `logRowToSession()`, and `mergeLogSessions()`, and preserve URL state. Timeline models acquisition → upload → processing → next 06:00 Pacific release; reuse its existing time helpers and `source_data`. Size uses the resolved storage-lens parquet plus `source_data` and `asset_basics` in a full outer join. Analysis Framework reads public DocDB-v1 analysis collections in chunks of 5000 and lists PNGs through `/s3-list`; keep its fixed project registry. Names is an `asset_basics` lineage graph.
+SWDB is an isolated adapter under web/src/swdb. Its large source files are flattened by biodata-cache for browser reads. Resolve cache locations in its data module, validate asset identifiers before using them in URLs or SQL, and read explicit partitions because browser DuckDB cannot glob the virtual-hosted S3 paths. Prune columns and reduce wide traces before materializing them. Reuse shared behavior playback components through adapters, without spreading SWDB cache knowledge into other pages.
 
-SWDB is intentionally separate from the normal eager-table path. Use `bootstrap(view, {requiredTables: []})`; `web/src/swdb/data.js` owns the table URLs. Sessions are unpartitioned; wide tables use explicit `asset_name=<asset>/data.pqt` partitions. Validate asset names with the existing allowlist, select only needed columns, and decimate in DuckDB before returning traces. The DR adapter converts session-clock times to first-trial-zero and supplies the real lick stream to the reused animation/event-plot/playback components.
-
-Test timezone boundaries, log merging, release-time calculations, and URL state with fixtures. Test SWDB adapters with small partition-shaped fixtures and assert that unsafe names are rejected before any fetch.
+When changing time or session adapters, verify timezone boundaries and representative asset joins.
