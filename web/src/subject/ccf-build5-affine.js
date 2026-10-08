@@ -6,9 +6,10 @@ const CCF_LPS_TO_BUILD5 = [
   [0.006810441006372729, -0.06773234962151282, 0.8842580128968477, 0.6926395340638822],
 ];
 
-/** Approximate CCF 25 µm indices as build5 LPS mm; held-out mesh error is 0.172 mm median, 0.324 mm p95. */
+/** Map left-origin QC CCF indices to build5 LPS mm; the affine has 0.172 mm median mesh error. */
 export function ccfIndexToBuild5({ ap, dv, ml }) {
   if (![ap, dv, ml].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) return null;
-  const ccfLps = [-ml * 0.025, ap * 0.025, -dv * 0.025];
+  // QC ML increases left→right; the fitted BrainGlobe coordinates increase right→left across 11.4 mm.
+  const ccfLps = [ml * 0.025 - 11.4, ap * 0.025, -dv * 0.025];
   return CCF_LPS_TO_BUILD5.map(row => row[3] + ccfLps.reduce((sum, value, i) => sum + row[i] * value, 0));
 }

@@ -37,16 +37,25 @@ describe('measured tip placement', () => {
   it('maps 25 µm CCF indices through the fitted affine and template scene orientation', () => {
     const tip = { fiber: 'Fiber 0', ap: 194, dv: 230, ml: 167 };
     const template = ccfIndexToBuild5(tip);
-    expect(template[0]).toBeCloseTo(1.54400645);
-    expect(template[1]).toBeCloseTo(-1.07320552);
-    expect(template[2]).toBeCloseTo(-4.74877953);
+    expect(template[0]).toBeCloseTo(-1.46428372);
+    expect(template[1]).toBeCloseTo(-1.04814912);
+    expect(template[2]).toBeCloseTo(-4.76955137);
     const markers = buildFiberTipMarkers([{ name: 'Fiber_0' }], [tip]);
     const marker = markers.children[0];
-    expect(marker.position.x).toBeCloseTo(-1.54400645);
-    expect(marker.position.y).toBeCloseTo(-4.74877953);
-    expect(marker.position.z).toBeCloseTo(1.07320552);
+    expect(marker.position.x).toBeCloseTo(1.46428372);
+    expect(marker.position.y).toBeCloseTo(-4.76955137);
+    expect(marker.position.z).toBeCloseTo(1.04814912);
     expect(`#${marker.material.color.getHexString()}`.toLowerCase()).toBe(fiberColorByName('Fiber_0').toLowerCase());
     expect(marker.geometry.parameters.radius).toBe(0.16);
+  });
+
+  it('places low ML indices on the left and high ML indices on the right', () => {
+    const probes = [{ name: 'Fiber 0' }];
+    const left = buildFiberTipMarkers(probes, [{ fiber: 'Fiber 0', ap: 194, dv: 230, ml: 167 }]);
+    const right = buildFiberTipMarkers(probes, [{ fiber: 'Fiber 0', ap: 194, dv: 230, ml: 289 }]);
+    // The top-view camera has positive scene X on screen-left.
+    expect(left.children[0].position.x).toBeGreaterThan(0);
+    expect(right.children[0].position.x).toBeLessThan(0);
   });
 
   it('omits incomplete annotations and fibers from other surgeries', () => {
