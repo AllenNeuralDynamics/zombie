@@ -437,13 +437,6 @@ function _buildProbes(THREE, scene, probes) {
     cylMesh.position.set(0, length / 2, 0);
     pivot.add(cylMesh);
 
-    // Tip sphere at pivot origin (= probe tip)
-    const tipMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(radius * 1.3, 10, 10),
-      new THREE.MeshPhongMaterial({ color, shininess: 60 }),
-    );
-    pivot.add(tipMesh);
-
     scene.add(pivot);
   }
 }
