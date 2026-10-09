@@ -70,6 +70,7 @@ it('freezes requests from the real QC portal clients for server replay', async (
     ...record([]), data_description: { data_level: 'derived' }, instrument: { instrument_id: 'SmartSPIM' },
     acquisition: { channels: [{ channel_name: 'Ex_488_Em_525' }, { channel_name: 'Ex_561_Em_600' }] },
   };
+  spimRecord.quality_control.default_grouping = [];
   await submit('qc-smartspim', spimRecord, { addedMetrics: buildSpimQcMetrics(spimRecord) });
   await submit('qc-fiber', record([]), { addedMetrics: buildFiberCcfMetrics([{ name: 'Fiber 0' }], 'https://example.org/neuroglancer') });
 

@@ -14,6 +14,7 @@ import {
 } from '../qc/editor.js';
 import { canonicalQcJson, hashQc } from '../qc/canonical.js';
 import { QC_HASH_FIXTURES } from '../qc/canonical-fixtures.js';
+import { buildSpimQcMetrics } from '../qc/spim-metrics.js';
 
 function recordWith(metrics, notes = '') {
   return { _id: 'record-1', name: 'asset-1', quality_control: { metrics, notes, default_grouping: [] } };
@@ -38,6 +39,23 @@ function memoryStorage() {
 }
 
 describe('QC SPA edit helpers', () => {
+  it('reviews and submits default grouping when adding SPIM metrics without grouping', () => {
+    const record = {
+      ...recordWith([]),
+      data_description: { data_level: 'derived' },
+      instrument: { instrument_id: 'SmartSPIM' },
+    };
+    const addedMetrics = buildSpimQcMetrics(record, 'https://ng.example/#!config');
+    expect(buildQcSubmitPayload(record, { addedMetrics }).default_grouping).toEqual(['type']);
+    expect(buildReviewRows(record, record, { addedMetrics })).toContainEqual({
+      name: 'default grouping', currentValue: '[]', nextValue: '["type"]',
+    });
+    const fresh = { ...record, quality_control: { ...record.quality_control, default_grouping: ['stage', 'type'] } };
+    expect(buildQcSubmitPayload(fresh, { addedMetrics })).not.toHaveProperty('default_grouping');
+    expect(buildReviewRows(fresh, record, { addedMetrics }).some(row => row.name === 'default grouping')).toBe(false);
+    expect(buildQcSubmitPayload(record, {})).not.toHaveProperty('default_grouping');
+  });
+
   it('uses the account display name before username or opaque account ids', () => {
     expect(accountDisplayName({ name: 'Ada Lovelace', username: 'opaque-id', homeAccountId: 'another-id' })).toBe('Ada Lovelace');
     expect(accountDisplayName({ name: 'CKyRAoBpUygn1Sle6uNHscpYK8Mpor-i8LmjfJud5Jo', idTokenClaims: { name: 'Ada Lovelace' } })).toBe('Ada Lovelace');

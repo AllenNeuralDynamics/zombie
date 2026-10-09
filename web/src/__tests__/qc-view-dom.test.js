@@ -15,6 +15,42 @@ import {
   writeQcNavigationState,
 } from '../qc/view.js';
 import { mountQcEditor } from '../qc/editor.js';
+import { buildSpimQcMetrics } from '../qc/spim-metrics.js';
+
+describe('QC hierarchy for new assets', () => {
+  it.each([undefined, { default_grouping: [], metrics: [] }])(
+    'builds a hierarchy as SPIM metrics are queued without configured grouping (%s)', qualityControl => {
+      mountQcEditor.mockClear();
+      window.history.replaceState({}, '', '/quality_control?name=spim-new');
+      const record = {
+        name: 'spim-new',
+        data_description: { data_level: 'derived' },
+        instrument: { instrument_id: 'SmartSPIM' },
+        acquisition: { channels: ['Ex_488_Em_525'] },
+        quality_control: qualityControl,
+      };
+      const view = createQCView(record);
+      expect(view.querySelectorAll('.tree-node')).toHaveLength(0);
+      const addedMetrics = buildSpimQcMetrics(record, 'https://neuroglancer.example/#!config');
+      const { onEditStateChange } = mountQcEditor.mock.calls.at(-1)[2];
+      onEditStateChange({ enabled: true, draftRevision: 0, addedMetrics });
+      expect([...view.querySelectorAll('.tree-node')].map(node => node.textContent.trim())).toEqual([
+        'type: image quality (2)',
+        'type: channel brightness (1)',
+        'type: processing (3)',
+      ]);
+      expect(view.querySelector('.qc-content').textContent).toContain('Tissue perfusion');
+      const processing = [...view.querySelectorAll('.tree-node')]
+        .find(node => node.textContent.includes('type: processing'));
+      processing.click();
+      expect(view.querySelector('.qc-content').textContent).toContain('Image stitching');
+      expect(view.querySelector('.qc-content').textContent).not.toContain('Tissue perfusion');
+      onEditStateChange({ enabled: true, draftRevision: 1, addedMetrics: [] });
+      expect(view.querySelectorAll('.tree-node')).toHaveLength(0);
+      expect(view.querySelector('.qc-content').textContent).toContain('No QC data');
+    },
+  );
+});
 
 describe('QC header actions', () => {
   it('keeps the view toggle beside the legacy and Login actions', () => {
