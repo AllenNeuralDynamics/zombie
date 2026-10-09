@@ -12,10 +12,9 @@
  *   y = DV  (dorsal = positive)
  *   z = AP  (anterior = positive)
  *
- * Probe orientation: each probe starts vertical (tip at bregma, pointing in +Y).
- * The transform chain (Rotation/Translation objects) is applied sequentially using
- * extrinsic right-hand-rule rotations (world axes). Translations are in mm.
- * The PROBE_RUFD coordinate system (X=ML, Y=DV, Z=AP) maps directly to three.js.
+ * Probe orientation and tip position come from the shared transform calculator.
+ * Rotations and translations honor local/global reference fields; rotations also
+ * honor local/global pivots. Missing fields use global behavior. Distances are mm.
  */
 
 import * as THREE from 'three';
@@ -270,8 +269,7 @@ function _buildEphysProbes(THREE, scene, probes) {
     const p     = probes[i];
     const color = cssHexToThree(ITEM_COLORS[i % ITEM_COLORS.length]);
 
-    // Tip position in three.js space: computed from the full transform chain
-    // (intrinsic first translation + pivot rotations + depth along probe direction).
+    // Tip position in three.js space from the complete transform chain.
     const [px, py, pz] = p.tipPos;
     const tipPos = new THREE.Vector3(px, py, pz);
 

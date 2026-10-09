@@ -31,24 +31,7 @@ export function extractEphysProbes(acquisitionData) {
 
     for (const cfg of cfgs) {
       for (const probe of (cfg?.probes ?? [])) {
-        const rawTransforms = probe?.transform ?? [];
-
-        // Annotate the first Translation as intrinsic so it is applied in the
-        // probe's local frame (manipulator position) rather than the world frame.
-        // The metadata will carry this flag in the future; we inject it here in
-        // the meantime to stay ahead of that change.
-        let firstTranslationSeen = false;
-        const transforms = rawTransforms.map((t) => {
-          if (t?.object_type === 'Translation' && !firstTranslationSeen) {
-            firstTranslationSeen = true;
-            return { ...t, intrinsic: true };
-          }
-          return t;
-        });
-
-        // Full tip position in three.js space from the complete transform chain
-        // (rotations pivot around Bregma, first translation is intrinsic, depth
-        // moves the tip along −dir).
+        const transforms = probe?.transform ?? [];
         const steps = computeProbeDirectionSteps(transforms);
         const tipPos = steps[steps.length - 1].pos;
 

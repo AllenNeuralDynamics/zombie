@@ -240,8 +240,7 @@ export function applyTranslation(pos, translation, basisColumns) {
 }
 
 /**
- * Compute the probe direction unit vector after applying a sequence of extrinsic
- * rotations from a probe's transform list.
+ * Compute the probe direction unit vector after applying a transform list.
  *
  * The probe at rest points along basis axis 1 (anterior in BREGMA_RAS).
  * Translation objects are ignored (they do not change direction).
@@ -251,25 +250,18 @@ export function applyTranslation(pos, translation, basisColumns) {
  * @returns {[number, number, number]} Unit vector [x, y, z] in three.js space.
  */
 export function computeProbeDirection(transforms, coordinateSystem = null) {
-  const { columns } = buildCoordBasis(coordinateSystem);
-  let dir = [columns[1][0], columns[1][1], columns[1][2]]; // at rest: axis 1
-
-  for (const t of (transforms ?? [])) {
-    if (t?.object_type !== 'Rotation') continue;
-    dir = applyExtrinsicRotation(dir, t.angles ?? [], columns);
-  }
-
-  const len = Math.sqrt(dir[0] ** 2 + dir[1] ** 2 + dir[2] ** 2) || 1;
-  return [dir[0] / len, dir[1] / len, dir[2] / len];
+  return computeProbeDirectionSteps(transforms, coordinateSystem).at(-1).dir;
 }
 
 /**
  * Walk through a probe's transform chain and return a state snapshot after
  * every step (Rotation OR Translation), including the initial at-rest state.
  *
- * Both rotations and translations are interpreted in the given coordinate
- * system (default BREGMA_RAS).  The probe at rest points along axis 1 with
- * its width along axis 0.
+ * Global transforms use the given coordinate system (default BREGMA_RAS).
+ * Local transforms use the probe frame at the start of that transform.
+ * Missing references and pivots default to global. A local pivot keeps the
+ * tip fixed; a global pivot rotates it around the world origin.
+ * The probe at rest points along axis 1 with its width along axis 0.
  *
  * @param {Array} transforms - Array of Rotation/Translation objects.
  * @param {object|null} [coordinateSystem=null] - coordinate_system defining the axes.
@@ -277,8 +269,7 @@ export function computeProbeDirection(transforms, coordinateSystem = null) {
  */
 export function computeProbeDirectionSteps(transforms, coordinateSystem = null) {
   const { columns } = buildCoordBasis(coordinateSystem);
-  let dir = [columns[1][0], columns[1][1], columns[1][2]]; // axis 1
-  let wid = [columns[0][0], columns[0][1], columns[0][2]]; // axis 0
+  let localColumns = columns.map(column => [...column]);
   let pos = [0, 0, 0];
 
   const norm = (v) => {
@@ -286,37 +277,28 @@ export function computeProbeDirectionSteps(transforms, coordinateSystem = null) 
     return [v[0] / l, v[1] / l, v[2] / l];
   };
 
-  const steps = [{ dir: norm(dir), wid: norm(wid), pos: [...pos], type: 'initial' }];
+  const steps = [{ dir: norm(localColumns[1]), wid: norm(localColumns[0]), pos: [...pos], type: 'initial' }];
 
   for (const t of (transforms ?? [])) {
     const type = t?.object_type ?? 'Unknown';
+    const referenceColumns = t?.reference_coordinate_system === 'local' ? localColumns : columns;
 
     if (type === 'Rotation') {
-      dir = applyExtrinsicRotation(dir, t.angles ?? [], columns);
-      wid = applyExtrinsicRotation(wid, t.angles ?? [], columns);
-      // All rotations pivot around Bregma (world origin) — rotate pos too.
-      pos = applyExtrinsicRotation(pos, t.angles ?? [], columns);
-    } else if (type === 'Translation') {
-      if (t.intrinsic) {
-        // Apply translation in the probe's current local frame.
-        // Local axes: wid = axis-0 (R), dir = axis-1 (A), localS = wid × dir (S).
-        const localS = [
-          wid[1] * dir[2] - wid[2] * dir[1],
-          wid[2] * dir[0] - wid[0] * dir[2],
-          wid[0] * dir[1] - wid[1] * dir[0],
-        ];
-        pos = applyTranslation(pos, t.translation ?? [], [wid, dir, localS]);
-      } else {
-        pos = applyTranslation(pos, t.translation ?? [], columns);
+      localColumns = localColumns.map(column => norm(applyExtrinsicRotation(column, t.angles ?? [], referenceColumns)));
+      if (t.pivot !== 'local') {
+        pos = applyExtrinsicRotation(pos, t.angles ?? [], referenceColumns);
       }
+    } else if (type === 'Translation') {
+      pos = applyTranslation(pos, t.translation ?? [], referenceColumns);
       // 4th component = depth: positive depth moves tip along −dir (insertion).
       const depth = (t.translation ?? [])[3];
       if (depth != null && depth !== 0) {
+        const dir = localColumns[1];
         pos = [pos[0] - depth * dir[0], pos[1] - depth * dir[1], pos[2] - depth * dir[2]];
       }
     }
 
-    steps.push({ dir: norm(dir), wid: norm(wid), pos: [...pos], type });
+    steps.push({ dir: norm(localColumns[1]), wid: norm(localColumns[0]), pos: [...pos], type });
   }
 
   return steps;

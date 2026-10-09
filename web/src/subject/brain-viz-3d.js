@@ -345,13 +345,13 @@ async function _init3D(container, statusEl, infoEl, surgeryData, proceduresCoord
     scene.add(markers);
     for (const marker of markers.children) {
       const line = document.createElement('div');
-      line.innerHTML = `<span style="color:#${marker.material.color.getHexString()}">●</span> ${escHtml(marker.name)} — Real fiber tip location`;
+      line.innerHTML = `<span style="color:#${marker.material.color.getHexString()}">●</span> ${escHtml(marker.name)} — Histology tip location`;
       infoEl.appendChild(line);
     }
   }).catch(err => {
     if (!alive) return;
     const line = document.createElement('div');
-    line.textContent = 'Real fiber tip locations unavailable.';
+    line.textContent = 'Histology tip locations unavailable.';
     infoEl.appendChild(line);
     console.warn('[BrainViz3D] Fiber tip annotations failed:', err);
   });
