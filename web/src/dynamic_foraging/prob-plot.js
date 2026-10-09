@@ -80,9 +80,11 @@ const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
  * @returns {{ element: HTMLElement, updatePlayhead:(t:number)=>void, setOnScrub:(cb:(t:number)=>void)=>void, dispose:()=>void }}
  */
 export function createProbPlot(data, opts = {}) {
-  const { showRowLabels = true, minPlotW = MIN_PLOT_W } = opts;
+  const { showRowLabels = true, minPlotW = MIN_PLOT_W, showSpoutBias = false, spoutBiasToggle = true } = opts;
+  let showDetails = showSpoutBias;
+  const detailData = _buildSpoutBiasData(data.trials, data.sessionEndS);
   // Without the gutter the plot keeps only enough left margin for the y-edge.
-  const margin = { ...MARGIN, left: showRowLabels ? MARGIN.left : 14 };
+  const margin = { ...MARGIN, left: showRowLabels ? MARGIN.left : 14, right: 54 };
   const { trials, rewards, sessionEndS } = data;
   const stepData = _buildStepData(trials, sessionEndS);
   const sessionGroup = data.sessionStarts ? { z: 'session' } : {};
@@ -207,18 +209,76 @@ export function createProbPlot(data, opts = {}) {
       ],
     });
     holder.replaceChildren(plot);
+    if (showDetails) {
+      const row = document.createElement('div');
+      row.className = 'df-spout-bias-row';
+      if (!detailData.length) {
+        row.textContent = 'Spout position and bias unavailable.';
+      } else {
+        const positions = detailData.filter((d) => d.series !== 'Bias').map((d) => d.value);
+        let low = positions.length ? positions.reduce((a, b) => Math.min(a, b), Infinity) : -1;
+        let high = positions.length ? positions.reduce((a, b) => Math.max(a, b), -Infinity) : 1;
+        const pad = (high - low || 1) * 0.08;
+        low -= pad;
+        high += pad;
+        const biasY = (value) => low + (value + 1) / 2 * (high - low);
+        const colors = { X: '#0891b2', Y1: COLOR_L, Y2: COLOR_R, Z: '#d97706', Bias: '#9333ea' };
+        const legend = document.createElement('div');
+        legend.className = 'df-spout-bias-legend';
+        for (const series of Object.keys(colors)) {
+          if (!detailData.some((d) => d.series === series)) continue;
+          const label = document.createElement('span');
+          label.textContent = series;
+          label.style.color = colors[series];
+          legend.append(label);
+        }
+        row.append(legend, Plot.plot({
+          width: w, height: 150,
+          marginLeft: margin.left, marginRight: margin.right,
+          marginTop: 20, marginBottom: margin.bottom,
+          style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-primary, #111111)' },
+          clip: true,
+          x: { domain: [t0, t1], label: xMode === 'time' ? 'time (s) →' : 'trial →',
+            ...(xMode === 'trials' && trialTimes.length ? { tickFormat: (t) => String(_trialAtTime(t)) } : {}) },
+          y: { domain: [low, high], axis: null },
+          marks: [
+            Plot.axisY({ anchor: 'left', label: 'Spout position', ticks: 4 }),
+            Plot.ruleY([biasY(0)], { stroke: '#999', strokeDasharray: '3,3' }),
+            Plot.lineY(detailData, { x: 't', y: (d) => d.series === 'Bias' ? biasY(d.value) : d.value,
+              z: 'group', stroke: (d) => colors[d.series], curve: 'step-after' }),
+            Plot.axisY([-1, 0, 1].map(biasY), { anchor: 'right', label: 'Bias',
+              tickFormat: (v) => String(Math.round((v - low) / (high - low) * 2 - 1)) }),
+          ],
+        }));
+      }
+      holder.append(row);
+    }
   };
 
   const bz = createBrushOverview({
     sessionEndS,
     margin: { left: margin.left, right: margin.right },
     overviewHeight: OVERVIEW_HEIGHT,
-    minPlotW,
+    minPlotW: Math.max(minPlotW, margin.left + margin.right + 40),
     scrubInset: { top: margin.top - 6, bottom: margin.bottom - 4 },
     wrapperClass: 'df-prob-plot-wrap',
     renderOverview,
     renderMain,
   });
+
+  if (spoutBiasToggle) {
+    const label = document.createElement('label');
+    label.className = 'df-spout-bias-setting';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = showDetails;
+    toggle.addEventListener('change', () => {
+      showDetails = toggle.checked;
+      bz.redrawMain();
+    });
+    label.append(toggle, ' Spout position & bias');
+    bz.element.prepend(label);
+  }
 
   // Overview hint overlay (kept from the original DF look). It sits in the
   // label gutter, so it goes when the gutter does.
@@ -423,6 +483,31 @@ export function _ignoredTrialTicks(trials) {
   const out = [];
   for (const tr of trials) {
     if (tr.response === 2 && Number.isFinite(tr.goCue_t)) out.push({ t: tr.goCue_t });
+  }
+  return out;
+}
+
+
+/** Build separate step traces, retaining gaps and session boundaries. */
+export function _buildSpoutBiasData(trials, sessionEndS) {
+  const series = { X: 'lickspout_position_x', Y1: 'lickspout_position_y1',
+    Y2: 'lickspout_position_y2', Z: 'lickspout_position_z', Bias: 'side_bias' };
+  const out = [];
+  for (const [label, key] of Object.entries(series)) {
+    let segment = 0;
+    for (let i = 0; i < trials.length; i++) {
+      const tr = trials[i];
+      if (!Number.isFinite(tr.goCue_t) || !Number.isFinite(tr[key])) {
+        segment++;
+        continue;
+      }
+      const point = { t: tr.goCue_t, value: tr[key], series: label,
+        group: `${label}:${tr.session ?? 0}:${segment}` };
+      out.push(point);
+      const next = trials[i + 1];
+      const end = Math.min(tr.sessionEnd_t ?? sessionEndS, next?.goCue_t ?? sessionEndS);
+      if (Number.isFinite(end) && end > point.t) out.push({ ...point, t: end });
+    }
   }
   return out;
 }

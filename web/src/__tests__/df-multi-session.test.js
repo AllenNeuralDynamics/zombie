@@ -184,6 +184,20 @@ describe('multi-session behavior plots', () => {
     expect(loadDfSession).toHaveBeenCalledTimes(2);
   });
 
+  it('applies the spout and bias setting to both layouts without reloading', async () => {
+    const el = buildView();
+    await ready(el);
+    expect(createProbPlot.mock.calls[0][1].showSpoutBias).toBe(false);
+    const [layout, details] = el.querySelectorAll('input[type=checkbox]');
+    details.checked = true;
+    details.dispatchEvent(new Event('change'));
+    expect(createProbPlot.mock.calls.at(-1)[1]).toMatchObject({ showSpoutBias: true, spoutBiasToggle: false });
+    layout.checked = true;
+    layout.dispatchEvent(new Event('change'));
+    expect(createProbPlot.mock.calls.slice(-2).every(([, opts]) => opts.showSpoutBias)).toBe(true);
+    expect(loadDfSession).toHaveBeenCalledTimes(2);
+  });
+
   it('offers no layout toggle for single sessions or non-behavior acquisitions', () => {
     expect(buildView([EVENTS[0]]).querySelector('input')).toBeNull();
     const nonBehavior = (date) => ({ type: 'Acquisition', data: { _assetName: `ecephys_123456_${date}_120000` } });

@@ -2587,3 +2587,12 @@
 .exaspim-folder-table { width: 100%; border-collapse: collapse; }
 .exaspim-folder-table th, .exaspim-folder-table td { padding: 6px 8px; text-align: left; }
 .exaspim-folder-status { white-space: nowrap; }
+
+.df-spout-bias-setting, .df-spout-bias-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+.df-spout-bias-legend { padding-left: 88px; }

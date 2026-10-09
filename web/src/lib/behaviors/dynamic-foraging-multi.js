@@ -90,7 +90,12 @@ function buildBehaviorPlots(sessions, context = {}) {
   const plots = document.createElement('div');
   plots.className = 'df-multi-plots';
   plots.append(message('Loading sessions…'));
-  root.append(label, plots);
+  const detailLabel = document.createElement('label');
+  detailLabel.className = 'multi-session-layout';
+  const detailToggle = document.createElement('input');
+  detailToggle.type = 'checkbox';
+  detailLabel.append(detailToggle, ' Spout position & bias');
+  root.append(label, detailLabel, plots);
 
   const loaded = [];
   const failures = [];
@@ -117,7 +122,7 @@ function buildBehaviorPlots(sessions, context = {}) {
         caption.textContent = session.session_date;
         card.append(caption);
       }
-      const plot = createProbPlot(data, { minPlotW: 120 });
+      const plot = createProbPlot(data, { minPlotW: 120, showSpoutBias: detailToggle.checked, spoutBiasToggle: false });
       disposers.push(plot.dispose);
       card.append(plot.element);
       plots.append(card);
@@ -125,6 +130,7 @@ function buildBehaviorPlots(sessions, context = {}) {
     for (const session of failures) plots.append(message(`${session.session_date}: session data unavailable.`));
   };
   toggle.addEventListener('change', render);
+  detailToggle.addEventListener('change', render);
   root._dispose = () => { disposed = true; clearPlots(); };
 
   (async () => {
