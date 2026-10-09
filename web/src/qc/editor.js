@@ -12,6 +12,8 @@ import { isEphysCurationMetric } from './ephys-curation.js';
 import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
 import {
   allowedTagFailuresForSpimMetrics,
+  defaultGroupingForSpimMetrics,
+  fetchSpimNeuroglancerLink,
   missingSpimQcMetrics,
   normalizeSavedSpimQcMetrics,
 } from './spim-metrics.js';
@@ -49,6 +51,8 @@ export function buildQcSubmitPayload(record, {
   if (addedMetrics.length) payload.add_metrics = addedMetrics;
   const allowTagFailures = allowedTagFailuresForSpimMetrics(addedMetrics);
   if (allowTagFailures.length) payload.allow_tag_failures = allowTagFailures;
+  const defaultGrouping = defaultGroupingForSpimMetrics(record, addedMetrics);
+  if (defaultGrouping) payload.default_grouping = defaultGrouping;
   return payload;
 }
 
@@ -190,6 +194,15 @@ export function buildReviewRows(freshRecord, loadedRecord, {
       name: 'allowed tag failures',
       currentValue: existingAllowedFailures.length ? JSON.stringify(existingAllowedFailures) : '—',
       nextValue: JSON.stringify([...existingAllowedFailures, ...addedAllowedFailures]),
+    });
+  }
+
+  const defaultGrouping = defaultGroupingForSpimMetrics(freshRecord, addedMetrics);
+  if (defaultGrouping) {
+    rows.push({
+      name: 'default grouping',
+      currentValue: JSON.stringify(freshRecord.quality_control?.default_grouping ?? []),
+      nextValue: JSON.stringify(defaultGrouping),
     });
   }
 
@@ -351,6 +364,7 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [draftRevision, setDraftRevision] = useState(0);
   const [addingFiberCcf, setAddingFiberCcf] = useState(false);
+  const [addingSpimQc, setAddingSpimQc] = useState(false);
   const fiberCcfProbes = useMemo(() => {
     const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
     return missingFiberCcfProbes(record, queued);
@@ -461,11 +475,23 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
     }
   };
 
-  const handleAddSpimQc = () => {
-    if (!spimQcMetrics.length) return;
-    setAddedMetrics(previous => [...previous, ...spimQcMetrics]);
-    setSettingsOpen(false);
-    setMessage(`Queued ${spimQcMetrics.length} SPIM QC metric${spimQcMetrics.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+  const handleAddSpimQc = async () => {
+    if (!spimQcMetrics.length || addingSpimQc) return;
+    setAddingSpimQc(true);
+    setMessage('');
+    try {
+      const ngLink = await fetchSpimNeuroglancerLink(record.location);
+      setAddedMetrics(previous => {
+        const queued = new Set([...existingMetricNames, ...previous.map(metric => metric.name)]);
+        return [...previous, ...missingSpimQcMetrics(record, queued, ngLink)];
+      });
+      setSettingsOpen(false);
+      setMessage(`Queued ${spimQcMetrics.length} SPIM QC metric${spimQcMetrics.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+    } catch (error) {
+      setMessage(`Could not add SPIM QC metrics: ${error?.message ?? error}`);
+    } finally {
+      setAddingSpimQc(false);
+    }
   };
 
   const findEditable = name => editableMetrics.find(candidate => candidate.name === name) ??
@@ -638,9 +664,9 @@ export function QcEditor({ record, onReload, onEditStateChange }) {
                 <button
                   class="qc-editor-secondary"
                   onClick=${handleAddSpimQc}
-                  disabled=${!spimQcMetrics.length || submitting}
+                  disabled=${!spimQcMetrics.length || addingSpimQc || submitting}
                 >
-                  Add SPIM QC metrics (${spimQcMetrics.length})
+                  ${addingSpimQc ? 'Adding…' : `Add SPIM QC metrics (${spimQcMetrics.length})`}
                 </button>
               </div>
             </section>

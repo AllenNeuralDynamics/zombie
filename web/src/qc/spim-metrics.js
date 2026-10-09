@@ -1,5 +1,3 @@
-import { decodeReferenceUrl } from './data.js';
-
 const SPIM_MODALITY = {
   name: 'Selective plane illumination microscopy',
   abbreviation: 'SPIM',
@@ -135,29 +133,20 @@ function channelNames(record) {
   return [...new Set(channels.filter(Boolean))];
 }
 
-function isGenericNeuroglancerReference(reference) {
-  if (typeof reference !== 'string' || !reference) return false;
-  const normalized = decodeReferenceUrl(reference).toLowerCase();
-  if (normalized.includes('ccf') || normalized.includes('image_atlas_alignment')) return false;
-  return normalized.includes('neuroglancer') || normalized.includes('neuroglass') || normalized.includes('#!');
-}
-
-function genericNeuroglancerReference(record) {
-  const metrics = record?.quality_control?.metrics ?? [];
-  if (!Array.isArray(metrics)) return null;
-
-  const preferredNames = new Set(['Image and tissue quality', 'Tissue perfusion']);
-  const references = metrics
-    .filter(metric => isGenericNeuroglancerReference(metric?.reference))
-    .sort((left, right) => Number(preferredNames.has(right.name)) - Number(preferredNames.has(left.name)));
-  return references[0] ? decodeReferenceUrl(references[0].reference) : null;
+export async function fetchSpimNeuroglancerLink(location, { fetchImpl = fetch } = {}) {
+  const match = String(location ?? '').match(/^s3:\/\/([^/]+)\/(.+?)\/?$/);
+  if (!match) throw new Error('Asset has no S3 location.');
+  const response = await fetchImpl(`https://${match[1]}.s3.amazonaws.com/${match[2]}/neuroglancer_config.json`);
+  if (!response.ok) throw new Error(`SPIM neuroglancer config not found (${response.status}).`);
+  const link = (await response.json())?.ng_link;
+  if (typeof link !== 'string' || !link.trim()) throw new Error('SPIM neuroglancer config has no ng_link.');
+  return link;
 }
 
 /** Build the standard SPIM QC metrics used by qc_utils.spim.spim_utils.spim_qc. */
-export function buildSpimQcMetrics(record) {
+export function buildSpimQcMetrics(record, reference = null) {
   if (!qualifiesForSpimMetrics(record)) return [];
 
-  const reference = genericNeuroglancerReference(record);
   const metrics = BASE_METRICS.map(metric => ({
     ...metric,
     modality: SPIM_MODALITY,
@@ -185,9 +174,17 @@ export function allowedTagFailuresForSpimMetrics(metrics = []) {
     : [];
 }
 
+/** Initialize grouping when adding SPIM metrics to QC without a hierarchy. */
+export function defaultGroupingForSpimMetrics(record, metrics = []) {
+  return !record?.quality_control?.default_grouping?.length &&
+    metrics.some(metric => metric?.modality?.abbreviation === 'SPIM')
+    ? ['type']
+    : undefined;
+}
+
 /** Return standard SPIM metrics that are not present or already queued. */
-export function missingSpimQcMetrics(record, existingNames = new Set()) {
-  return buildSpimQcMetrics(record).filter(metric => !existingNames.has(metric.name));
+export function missingSpimQcMetrics(record, existingNames = new Set(), reference = null) {
+  return buildSpimQcMetrics(record, reference).filter(metric => !existingNames.has(metric.name));
 }
 
 /** Repair queued SPIM metrics saved before the current definitions were added. */

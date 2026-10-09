@@ -248,9 +248,10 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   return { url, type: 'text' };
 }
 
-export function buildTreeNodes(metrics, defaultGrouping) {
+export function buildTreeNodes(metrics, defaultGrouping = []) {
   const modalities = [...new Set(metrics.map(m => m.modality?.abbreviation).filter(Boolean))];
-  const grouping = modalities.length > 1 ? ['modality', ...defaultGrouping] : defaultGrouping;
+  const baseGrouping = defaultGrouping.length ? defaultGrouping : ['type'];
+  const grouping = modalities.length > 1 ? ['modality', ...baseGrouping] : baseGrouping;
 
   function buildLevel(metricSubset, levels) {
     if (!levels.length) {
