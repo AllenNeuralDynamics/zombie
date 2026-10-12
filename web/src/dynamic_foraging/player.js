@@ -267,6 +267,7 @@ export function createDfSessionPlayback(coord, session, opts = {}) {
 
       const anim = new DfAnimation(harness.canvas, data, mouseImg, cueIcon, dropletImg);
       const plot = createProbPlot(data);
+      _mountPlotSetting(root.querySelector('.pb-status'), plot.settingsEl);
 
       harness.activate({
         header: {
@@ -418,6 +419,19 @@ function _formatSessionLabel(r) {
 // Wire animation + transport + plot
 // ---------------------------------------------------------------------------
 
+function _mountPlotSetting(status, setting) {
+  if (!status || !setting) return;
+  let row = status.parentElement;
+  if (!row.classList.contains('df-session-heading')) {
+    row = document.createElement('div');
+    row.className = 'df-session-heading';
+    status.before(row);
+    row.append(status);
+  }
+  row.querySelector('.df-spout-bias-setting')?.remove();
+  row.append(setting);
+}
+
 function _wireAnimation(root, data, mouseImg, cueIcon, dropletImg) {
   const canvas      = root.querySelector('#df-canvas');
   const plotMount   = root.querySelector('#df-prob-plot');
@@ -435,6 +449,7 @@ function _wireAnimation(root, data, mouseImg, cueIcon, dropletImg) {
   // Build / replace the probability plot (it self-sizes to its container).
   plotMount.innerHTML = '';
   const plot = createProbPlot(data);
+  _mountPlotSetting(root.querySelector('#df-player-status'), plot.settingsEl);
   plotMount.appendChild(plot.element);
 
   const headerEl = root.querySelector('.df-player-header');

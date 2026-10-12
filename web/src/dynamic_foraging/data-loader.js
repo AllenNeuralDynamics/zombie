@@ -25,11 +25,13 @@ export const SESSION_TABLE_URL = `${DF_BASE}/session_table.parquet`;
 
 export function trialTableUrl(subjectId) {
   const sid = String(subjectId);
+  if (!/^\d+$/.test(sid)) throw new Error('Invalid DF subject ID');
   return `${DF_BASE}/trial_table/subject_id=${sid}/${sid}.parquet`;
 }
 
 export function eventTableUrl(subjectId) {
   const sid = String(subjectId);
+  if (!/^\d+$/.test(sid)) throw new Error('Invalid DF subject ID');
   return `${DF_BASE}/event_table/subject_id=${sid}/${sid}.parquet`;
 }
 
@@ -64,7 +66,19 @@ export async function loadDfSession(coord, { subjectId, sessionDate, nwbSuffix, 
   const tUrl = trialTableUrl(subjectId);
   const eUrl = eventTableUrl(subjectId);
   const suffix = Number(nwbSuffix);
+  if (!Number.isSafeInteger(suffix) || suffix < 0) throw new Error('Invalid DF NWB suffix');
   const dateStr = sqlStr(sessionDate);
+  const schema = await queryRows(coord, `DESCRIBE SELECT * FROM read_parquet(${sqlStr(tUrl)})`);
+  if (signal?.aborted) throw new Error('aborted');
+  const columns = new Set(schema.map((r) => r.column_name));
+  const optional = ['side_bias', 'lickspout_position_x', 'lickspout_position_y1',
+    'lickspout_position_y2', 'lickspout_position_z'];
+  const optionalSql = optional.map((name) => {
+    const source = columns.has(name) ? name
+      : name.startsWith('lickspout_position_y') && columns.has('lickspout_position_y')
+        ? 'lickspout_position_y' : 'NULL';
+    return `${source} AS ${name}`;
+  }).join(',\n      ');
 
   const trialSql = `
     SELECT
@@ -79,7 +93,8 @@ export async function loadDfSession(coord, { subjectId, sessionDate, nwbSuffix, 
       rewarded_historyL AS rewardedL,
       rewarded_historyR AS rewardedR,
       auto_waterL AS autoL,
-      auto_waterR AS autoR
+      auto_waterR AS autoR,
+      ${optionalSql}
     FROM read_parquet(${sqlStr(tUrl)})
     WHERE session_date = ${dateStr} AND nwb_suffix = ${suffix}
     ORDER BY trial
@@ -159,6 +174,11 @@ export function _normalizeTrial(r) {
     rewardedR: toNum(r.rewardedR),
     autoL:     toNum(r.autoL),
     autoR:     toNum(r.autoR),
+    side_bias: toNum(r.side_bias),
+    lickspout_position_x: toNum(r.lickspout_position_x),
+    lickspout_position_y1: toNum(r.lickspout_position_y1),
+    lickspout_position_y2: toNum(r.lickspout_position_y2),
+    lickspout_position_z: toNum(r.lickspout_position_z),
   };
 }
 

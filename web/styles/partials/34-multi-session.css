@@ -49,6 +49,10 @@
 }
 
 .multi-session-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   font-size: 0.85rem;
   color: var(--text-secondary);
   margin-bottom: 10px;
@@ -90,3 +94,12 @@
   color: var(--text-secondary);
   margin-bottom: 6px;
 }
+
+.df-session-heading-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.df-session-heading-tools { margin-left: auto; }
+.df-session-heading-tools > .multi-session-layout { margin-bottom: 0; }

@@ -73,7 +73,8 @@ export function createMultiSessionView(events, context = {}, providers = []) {
 
   const { provider, sessions } = picked;
   root.dataset.platform = provider.key;
-  root.appendChild(buildHeader(provider, sessions));
+  const header = buildHeader(provider, sessions);
+  root.appendChild(header);
 
   const body = document.createElement('div');
   body.className = 'multi-session-body';
@@ -82,6 +83,7 @@ export function createMultiSessionView(events, context = {}, providers = []) {
   const renderSections = (enriched) => {
     if (stopped()) return;
     body.replaceChildren();
+    header.querySelector('.df-session-heading-tools')?.remove();
     for (const section of provider.sections ?? []) {
       let el = null;
       try {
@@ -90,7 +92,12 @@ export function createMultiSessionView(events, context = {}, providers = []) {
         console.error(`[MultiSession] section "${section.key}" failed:`, err);
         el = placeholderEl(`Failed to build ${section.title.toLowerCase()}.`);
       }
-      if (el) body.appendChild(buildSection(section.title, el));
+      if (el?.headerTools) {
+        header.append(el.headerTools);
+        body.append(el);
+      } else if (el) {
+        body.appendChild(buildSection(section.title, el));
+      }
     }
   };
 

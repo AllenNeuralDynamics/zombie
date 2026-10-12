@@ -2587,3 +2587,27 @@
 .exaspim-folder-table { width: 100%; border-collapse: collapse; }
 .exaspim-folder-table th, .exaspim-folder-table td { padding: 6px 8px; text-align: left; }
 .exaspim-folder-status { white-space: nowrap; }
+
+.df-spout-bias-setting, .df-spout-bias-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+.df-spout-bias-legend { padding-left: 88px; }
+
+.df-session-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.df-session-heading > .pb-status,
+.df-session-heading > .df-player-status,
+.df-session-heading > .df-spout-bias-setting { margin-bottom: 0; }
+.df-session-heading > .df-spout-bias-setting {
+  margin-left: auto;
+  flex-shrink: 0;
+}

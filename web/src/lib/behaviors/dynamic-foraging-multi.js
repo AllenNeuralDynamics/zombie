@@ -1,6 +1,7 @@
 // Multi-session behavior reuses the single-session plot and cache identifiers.
 import { extractForagingSessionInfo, isForagingAcquisition } from './dynamic-foraging.js';
 import { queryForagingSessionsByDates } from './foraging-metadata.js';
+import { getShowSpoutBias, setShowSpoutBias } from '../../dynamic_foraging/preferences.js';
 
 export function matchForagingSession(event) {
   if (!isForagingAcquisition(event)) return null;
@@ -90,7 +91,17 @@ function buildBehaviorPlots(sessions, context = {}) {
   const plots = document.createElement('div');
   plots.className = 'df-multi-plots';
   plots.append(message('Loading sessions…'));
-  root.append(label, plots);
+  const detailLabel = document.createElement('label');
+  detailLabel.className = 'multi-session-layout';
+  const detailToggle = document.createElement('input');
+  detailToggle.type = 'checkbox';
+  detailToggle.checked = getShowSpoutBias();
+  detailLabel.append(detailToggle, ' X & bias');
+  const headerTools = document.createElement('div');
+  headerTools.className = 'df-session-heading-tools';
+  headerTools.append(label, detailLabel);
+  root.headerTools = headerTools;
+  root.append(plots);
 
   const loaded = [];
   const failures = [];
@@ -107,6 +118,7 @@ function buildBehaviorPlots(sessions, context = {}) {
     if (stopped() || !createProbPlot) return;
     clearPlots();
     plots.classList.toggle('df-multi-plots--fixed', toggle.checked);
+    const spoutXBaseline = loaded[0]?.data.trials[0]?.lickspout_position_x ?? null;
     const entries = toggle.checked ? loaded : loaded.length ? [{ data: concatenateSessions(loaded) }] : [];
     for (const { session, data } of entries) {
       const card = document.createElement('div');
@@ -117,7 +129,7 @@ function buildBehaviorPlots(sessions, context = {}) {
         caption.textContent = session.session_date;
         card.append(caption);
       }
-      const plot = createProbPlot(data, { minPlotW: 120 });
+      const plot = createProbPlot(data, { minPlotW: 120, showSpoutBias: detailToggle.checked, spoutBiasToggle: false, spoutXBaseline });
       disposers.push(plot.dispose);
       card.append(plot.element);
       plots.append(card);
@@ -125,6 +137,10 @@ function buildBehaviorPlots(sessions, context = {}) {
     for (const session of failures) plots.append(message(`${session.session_date}: session data unavailable.`));
   };
   toggle.addEventListener('change', render);
+  detailToggle.addEventListener('change', () => {
+    setShowSpoutBias(detailToggle.checked);
+    render();
+  });
   root._dispose = () => { disposed = true; clearPlots(); };
 
   (async () => {

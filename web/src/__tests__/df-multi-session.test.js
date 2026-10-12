@@ -19,6 +19,7 @@ vi.mock('../dynamic_foraging/data-loader.js', () => ({ loadDfSession: vi.fn() })
 vi.mock('../dynamic_foraging/prob-plot.js', () => ({ createProbPlot: vi.fn() }));
 import { loadDfSession } from '../dynamic_foraging/data-loader.js';
 import { createProbPlot } from '../dynamic_foraging/prob-plot.js';
+import { getShowSpoutBias, setShowSpoutBias } from '../dynamic_foraging/preferences.js';
 
 // The table is registered during bootstrap in the real app.
 vi.mock('../lib/registry.js', () => ({ ensureTable: vi.fn() }));
@@ -119,6 +120,7 @@ const sessionData = () => ({
 const coordinator = { query: vi.fn(async () => ({ numRows: 0, schema: { fields: [] } })) };
 
 beforeEach(() => {
+  localStorage.clear();
   vi.clearAllMocks();
   loadDfSession.mockImplementation(async () => sessionData());
   createProbPlot.mockImplementation(() => ({ element: document.createElement('div'), dispose: vi.fn() }));
@@ -154,11 +156,30 @@ it('extends each probability series to its own session end when the last trial h
 });
 
 describe('multi-session behavior plots', () => {
+  it('shares the saved setting across acquisition selections and single-session plots', async () => {
+    setShowSpoutBias(true);
+    const first = buildView();
+    await ready(first);
+    expect(first.querySelectorAll('input[type=checkbox]')[1].checked).toBe(true);
+    expect(createProbPlot.mock.calls.at(-1)[1].showSpoutBias).toBe(true);
+    const details = first.querySelectorAll('input[type=checkbox]')[1];
+    details.checked = false;
+    details.dispatchEvent(new Event('change'));
+    expect(getShowSpoutBias()).toBe(false);
+    const next = buildView([dfAcq('2026-05-03'), dfAcq('2026-05-04')]);
+    await ready(next);
+    expect(next.querySelectorAll('input[type=checkbox]')[1].checked).toBe(false);
+    expect(createProbPlot.mock.calls.at(-1)[1].showSpoutBias).toBe(false);
+  });
+
   it('shows only a single concatenated behavior plot by default', async () => {
     const el = buildView();
     await ready(el);
-    expect([...el.querySelectorAll('h4')].map((h) => h.textContent)).toEqual(['Behavior']);
+    expect(el.querySelector('h4')).toBeNull();
     expect(el.querySelector('table, img, .df-multi-fib')).toBeNull();
+    expect(el.querySelector('.multi-session-header').textContent).toContain('2 dynamic foraging sessions');
+    expect(el.querySelectorAll('.multi-session-header input')).toHaveLength(2);
+    expect(el.querySelector('.df-multi-plots input')).toBeNull();
     expect(el.querySelector('.df-multi-plots--fixed')).toBeNull();
     expect(createProbPlot.mock.calls[0][0].sessionEndS).toBe(20);
     expect(loadDfSession.mock.calls.map(([, options]) => options.sessionDate))
@@ -181,6 +202,25 @@ describe('multi-session behavior plots', () => {
     toggle.dispatchEvent(new Event('change'));
     expect(el.querySelectorAll('.df-multi-plot-card')).toHaveLength(1);
     expect(el.querySelector('.df-multi-plots--fixed')).toBeNull();
+    expect(loadDfSession).toHaveBeenCalledTimes(2);
+  });
+
+  it('applies the spout and bias setting to both layouts without reloading', async () => {
+    loadDfSession.mockImplementation(async (_, options) => {
+      const data = sessionData();
+      data.trials[0].lickspout_position_x = options.sessionDate === '2026-05-01' ? 10 : 15;
+      return data;
+    });
+    const el = buildView();
+    await ready(el);
+    expect(createProbPlot.mock.calls[0][1]).toMatchObject({ showSpoutBias: false, spoutXBaseline: 10 });
+    const [layout, details] = el.querySelectorAll('input[type=checkbox]');
+    details.checked = true;
+    details.dispatchEvent(new Event('change'));
+    expect(createProbPlot.mock.calls.at(-1)[1]).toMatchObject({ showSpoutBias: true, spoutBiasToggle: false });
+    layout.checked = true;
+    layout.dispatchEvent(new Event('change'));
+    expect(createProbPlot.mock.calls.slice(-2).every(([, opts]) => opts.showSpoutBias && opts.spoutXBaseline === 10)).toBe(true);
     expect(loadDfSession).toHaveBeenCalledTimes(2);
   });
 
