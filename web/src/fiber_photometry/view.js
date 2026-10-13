@@ -256,7 +256,7 @@ function linkHtml(href, label) {
 // Row renderer
 // ---------------------------------------------------------------------------
 
-export function renderFibRow(row, visibleColumns, channelCols, columnLabels) {
+export function renderFibRow(row, visibleColumns, channelCols, _columnLabels) {
   const storageLink = renderStorageLink(row.location ?? null);
   const qcHref = buildQcLink(row.asset_name ?? null);
   const metaHref = buildMetadataLink(row.asset_name ?? null);

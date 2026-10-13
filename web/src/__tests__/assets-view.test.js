@@ -207,7 +207,7 @@ describe('renderAssetRow', () => {
   });
 
   it('escapes metadata values and generated href attributes', () => {
-    const payload = '\"><img src=x onerror="globalThis.__xss = true">';
+    const payload = '"><img src=x onerror="globalThis.__xss = true">';
     const html = renderAssetRow({
       ...row,
       _id: payload,
@@ -219,7 +219,6 @@ describe('renderAssetRow', () => {
     expect(html).toContain('&lt;img');
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // sortRows

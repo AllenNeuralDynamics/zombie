@@ -26,6 +26,45 @@ function finalState(transforms, coordinateSystem = XYZ) {
 }
 
 describe('probe transform reference frames', () => {
+  it.each([
+    { reference: 'global', pivot: 'global', position: [2, 5, -3], wid: [0, 0, -1], dir: [0, 1, 0] },
+    { reference: 'global', pivot: 'local', position: [2, 3, 5], wid: [0, 0, -1], dir: [0, 1, 0] },
+    { reference: 'local', pivot: 'global', position: [-5, 3, 2], wid: [0, 1, 0], dir: [-1, 0, 0] },
+    { reference: 'local', pivot: 'local', position: [2, 3, 5], wid: [0, 1, 0], dir: [-1, 0, 0] },
+  ])('honors left-hand rotation with $reference axes and $pivot pivot', ({ reference, pivot, position, wid, dir }) => {
+    const transforms = [
+      PERMUTE_FRAME,
+      { object_type: 'Translation', translation: [2, 3, 5] },
+      { object_type: 'Rotation', angles: [90, 0, 0], reference_coordinate_system: reference, pivot, rotation_direction: 'left_hand' },
+    ];
+    const state = finalState(transforms);
+    expectVector(state.pos, position);
+    expectVector(state.wid, wid);
+    expectVector(state.dir, dir);
+    expectVector(computeProbeDirection(transforms, XYZ), dir);
+  });
+
+  it.each(['global', 'local'])('makes negative left-hand compound angles equal positive right-hand angles: %s', reference => {
+    const prefix = [PERMUTE_FRAME, { object_type: 'Translation', translation: [2, 3, 5] }];
+    const left = { object_type: 'Rotation', angles: [-15, -30, -60], reference_coordinate_system: reference, rotation_direction: 'left_hand' };
+    const original = structuredClone(left);
+    const actual = finalState([...prefix, left]);
+    const expected = finalState([...prefix, { ...left, angles: [15, 30, 60], rotation_direction: 'right_hand' }]);
+    expectVector(actual.pos, expected.pos);
+    expectVector(actual.wid, expected.wid);
+    expectVector(actual.dir, expected.dir);
+    expect(left).toEqual(original);
+  });
+
+  it.each([undefined, null, 'right_hand'])('defaults absent direction to right-hand: %s', rotationDirection => {
+    const state = finalState([
+      { object_type: 'Translation', translation: [2, 3, 5] },
+      { object_type: 'Rotation', angles: [90, 0, 0], rotation_direction: rotationDirection },
+    ]);
+    expectVector(state.pos, [2, -5, 3]);
+    expectVector(state.dir, [0, 0, 1]);
+  });
+
   it('rotates about the current local X, not the original global X', () => {
     const transforms = [
       { object_type: 'Rotation', angles: [0, 0, 90], reference_coordinate_system: 'global' },

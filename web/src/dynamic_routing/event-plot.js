@@ -57,7 +57,6 @@ const Y_LABEL_RESP    = (Y_RESP_BOT + Y_RESP_TOP) / 2;
 const Y_LABEL_REW     = (Y_REW_BOT + Y_REW_TOP) / 2;
 
 const MIN_PLOT_W      = 320;
-const BRUSH_HANDLE_PX = 8;
 
 // ---------------------------------------------------------------------------
 // Public API

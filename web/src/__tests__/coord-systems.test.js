@@ -528,7 +528,7 @@ describe('computeProbeDirection', () => {
   });
 
   it('handles missing angles array gracefully', () => {
-    const [x, y, z] = computeProbeDirection([
+    const [, , z] = computeProbeDirection([
       { object_type: 'Rotation' },
     ]);
     expect(z).toBeCloseTo(1);

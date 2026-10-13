@@ -15,7 +15,6 @@ vi.mock('../contributions/preview.js', () => ({
   createPreview: vi.fn(() => document.createElement('div')),
 }));
 
-import { fetchDocDbRecordsByName } from '../lib/docdb.js';
 import {
   CREDIT_CATEGORIES,
   CONTRIBUTION_LEVELS,

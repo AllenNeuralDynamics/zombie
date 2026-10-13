@@ -1,13 +1,15 @@
+"""Inspect the schema and sample values of cached QC parquet data."""
+
 import pyarrow.parquet as pq
 import boto3
 import io
-import json
 
 S3_BUCKET = "allen-data-views"
 S3_KEY = "data-asset-cache/zs_qc/833855.pqt"
 
 
 def main():
+    """Print cached QC schema, sample rows, and timestamp column values."""
     s3 = boto3.client("s3")
     buf = io.BytesIO()
     s3.download_fileobj(S3_BUCKET, S3_KEY, buf)

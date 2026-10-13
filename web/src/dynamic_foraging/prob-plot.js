@@ -45,8 +45,8 @@ const Y_PROB_SPAN      = 1.45;
 
 const Y_LREW_BOT  = 0.00, Y_LREW_TOP  = 0.55;   // L Reward ticks
 const Y_LCHO_BOT  = 0.65, Y_LCHO_TOP  = 1.45;   // L Choice blocks
-const Y_PL_BOT    = 1.50, Y_PL_TOP    = Y_CENTER;               // p(L) band
-const Y_PR_BOT    = Y_CENTER, Y_PR_TOP = Y_CENTER + Y_PROB_SPAN; // p(R) band
+const Y_PL_TOP    = Y_CENTER;               // p(L) band
+const Y_PR_BOT    = Y_CENTER; // p(R) band
 const Y_RCHO_BOT  = 4.45, Y_RCHO_TOP  = 5.25;   // R Choice blocks
 const Y_RREW_BOT  = 5.35, Y_RREW_TOP  = 5.90;   // R Reward ticks
 const Y_IGN_BOT   = 6.00, Y_IGN_TOP   = 6.55;   // Ignored ticks
@@ -63,8 +63,6 @@ const Y_LABEL_LCHO = (Y_LCHO_BOT + Y_LCHO_TOP) / 2;
 const Y_LABEL_LREW = (Y_LREW_BOT + Y_LREW_TOP) / 2;
 
 const MIN_PLOT_W       = 320;
-
-const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -491,7 +489,6 @@ export function _ignoredTrialTicks(trials) {
   }
   return out;
 }
-
 
 /** Build separate step traces, retaining gaps and session boundaries. */
 export function _buildSpoutBiasData(trials, sessionEndS, spoutXBaseline = trials[0]?.lickspout_position_x) {

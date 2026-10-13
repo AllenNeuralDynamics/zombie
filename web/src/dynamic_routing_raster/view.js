@@ -290,7 +290,7 @@ function makePlot(
   figure.appendChild(grid);
 
   for (let columnIndex = 0; columnIndex < RASTER_COLUMNS.length; columnIndex++) {
-    const { condition, label } = RASTER_COLUMNS[columnIndex];
+    const { label } = RASTER_COLUMNS[columnIndex];
     const trialsForColumn = columnTrials[columnIndex];
     const rowIndex = new Map(trialsForColumn.map((trial, row) => [trial, row]));
     const blockSpans = buildBlockRowSpans(trialsForColumn);

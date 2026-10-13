@@ -11,7 +11,7 @@
  *          Harp `ReferenceTime` of each frame (row 1 = clock at first frame).
  *
  *   2. Flat MVR (Multi-Video Recorder) files (ecephys / Dynamic Routing rigs):
- *        behavior-videos/<Label>_<timestamp>.<ext>  (e.g. Behavior_…​.mp4)
+ *        behavior-videos/<Label>_<timestamp>.<ext>  (e.g. Behavior_….mp4)
  *        behavior-videos/<Label>_<timestamp>.json   ← RecordingReport sidecar.
  *      Filenames are timestamped, so they can't be probed by fixed name; they
  *      are discovered by listing the prefix. These have no shared Harp clock,

@@ -177,13 +177,6 @@ function uniqueStructures(probes) {
     .map(p => ({ id: p.structureId, acronym: p.structureAcronym, name: p.structureName }));
 }
 
-/** Hex color for a probe based on its structure, or a default cyan. */
-function probeHexColor(probe) {
-  const rgb = STRUCTURE_COLORS[probe.structureId];
-  if (!rgb) return 0x00ccff;
-  return (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
-}
-
 // ── Public API ────────────────────────────────────────────────────────────
 
 /**

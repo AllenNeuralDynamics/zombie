@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   getQuarterLabel, collectQuarters, applyFilters,
-  countByExperimenter, countByProject, renderSessionRow,
+  countByExperimenter, renderSessionRow,
 } from '../sessions/view.js';
 
 // ---------------------------------------------------------------------------

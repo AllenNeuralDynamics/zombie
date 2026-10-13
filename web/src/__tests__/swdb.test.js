@@ -3,7 +3,7 @@
  * construction, asset-name validation, set summarising, the Dynamic Routing
  * session adapter, and the eye/performance normalisers.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import { summariseSets, setInfo, datasetInfo } from '../swdb/sets.js';
 import { buildLickResponses, buildEpochSpans } from '../swdb/dr-session.js';

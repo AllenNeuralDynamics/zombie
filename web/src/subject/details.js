@@ -242,7 +242,7 @@ function createTabWidget(tabs, { activeLabel, parentContainer, onTabSelect } = {
   const tabBar = document.createElement('div');
   tabBar.className = 'detail-tab-bar';
 
-  const panels = tabs.map(({ label, content }) => {
+  const panels = tabs.map(({ content }) => {
     const panel = document.createElement('div');
     panel.className = 'detail-tab-panel';
     panel.style.display = 'none';

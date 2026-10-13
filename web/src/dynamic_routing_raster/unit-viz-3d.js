@@ -355,7 +355,7 @@ async function _initUnitViz(container, legendEl, statusEl, state, { colorBy, sho
       disposeStructureRecord(record);
       structureMeshes.delete(id);
     }
-    for (const [id, structure] of structures) {
+    for (const [id] of structures) {
       if (structureMeshes.has(id) || pendingStructureIds.has(id)) continue;
       const rgb = STRUCTURE_COLORS[id];
       const material = new THREE.MeshPhongMaterial({

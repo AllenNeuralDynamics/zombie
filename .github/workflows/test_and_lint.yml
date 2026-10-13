@@ -7,8 +7,7 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Python CI — legacy Panel app and shared utilities
-  # Keep this until the Mosaic rewrite is fully validated.
+  # Python CI — server-side proxy and shared utilities
   # ---------------------------------------------------------------------------
   python-ci:
     runs-on: ubuntu-latest
@@ -49,6 +48,9 @@ jobs:
 
     - name: Install dependencies
       run: npm ci
+
+    - name: Run linter checks
+      run: npm run lint
 
     - name: Run unit tests
       run: npm test

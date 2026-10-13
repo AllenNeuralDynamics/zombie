@@ -8,7 +8,7 @@
 import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureForagingTable } from '../lib/behaviors/foraging-metadata.js';
 import { buildChoiceHistoryUrl } from '../lib/behaviors/dynamic-foraging.js';
-import { arrowTableToRows, queryRows } from '../lib/arrow.js';
+import { queryRows } from '../lib/arrow.js';
 import { ensureTable } from '../lib/registry.js';
 import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
 
@@ -473,7 +473,6 @@ async function _loadFiguresSection(coord, section, loadingEl) {
 function _unique(rows, key) {
   return [...new Set(rows.map((r) => r[key]).filter(Boolean))].sort();
 }
-
 
 /**
  * Compute a YYYY-MM-DD date string N days before today.

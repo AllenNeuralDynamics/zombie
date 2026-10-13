@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "zombie"
 version = "0.1.0"
 description = "ZOMBIE — AIND Data Explorer"
-requires-python = ">=3.11,<=3.13"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "aind-data-access-api[docdb]",
     "pymysql",
@@ -18,8 +18,20 @@ where = ["."]
 include = []
 
 [project.optional-dependencies]
+dev = [
+    "coverage>=7.6,<8",
+    "flake8>=7,<8",
+    "interrogate>=1.7,<2",
+]
 scripts = [
     "pyarrow",
     "boto3",
     "pymysql",
 ]
+
+[tool.interrogate]
+exclude = [".venv", "node_modules", "web/node_modules", "build", "dist", "testing"]
+fail-under = 80
+
+[tool.coverage.run]
+include = ["web/*.py"]

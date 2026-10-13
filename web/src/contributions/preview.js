@@ -17,13 +17,9 @@
 import { createExploreView } from './explore.js';
 import {
   CREDIT_ROLES,
-  ROLE_GROUP,
-  GROUP_HUE,
-  hashStr,
   authorColor,
   getInitials,
   getLastName,
-  getFirstName,
   normalizeRole,
   activeContributionLevels,
 } from './credit-helpers.js';
@@ -37,16 +33,6 @@ import {
 } from './author-workflow-levels.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-
-const ROLE_ICONS = {
-  'Conceptualization': '💡', 'Methodology': '🔬', 'Software': '💻',
-  'Validation': '✅', 'Formal analysis': '📊', 'Investigation': '🔍',
-  'Resources': '🧰', 'Data curation': '🗄️',
-  'Writing – original draft': '✍️',
-  'Writing – review & editing': '📝',
-  'Visualization': '📈',
-  'Supervision': '👥', 'Project Administration': '📋', 'Funding Acquisition': '💰',
-};
 
 // Module-level cache of all authors from the most recent createPreview() call.
 // Used by authorColor() to incorporate co-contributor network weighting.
@@ -604,7 +590,7 @@ export function createPreview(container, authors, options = {}) {
   // A project that has set a publication order means it — use it. Otherwise
   // fall back to alphabetical (last name), the order CRediT uses by default.
   let sortKey = hasPubOrder ? 'publication-order' : 'alpha';
-  let expanded = true;
+
   let activeTab = container.dataset.cvTab || 'matrix';
   let showCreditMenu = false;
   let searchQuery = '';
@@ -637,15 +623,6 @@ export function createPreview(container, authors, options = {}) {
       }
     }
     return false;
-  }
-
-  function getHighlightedSet(sortedAuthors) {
-    if (!searchQuery) return null;
-    const set = new Set();
-    for (let i = 0; i < sortedAuthors.length; i++) {
-      if (matchesSearch(sortedAuthors[i], searchQuery)) set.add(i);
-    }
-    return set;
   }
 
   function rerender() {
@@ -883,7 +860,6 @@ export function createPreview(container, authors, options = {}) {
     });
 
     // When author levels are on, split into groups and render each group
-    const AUTHOR_LEVEL_ORDER = ['first', null, 'senior'];
 
     function renderAuthorList(authorsToRender) {
       const namesList = el('div', { className: 'ae-names' });

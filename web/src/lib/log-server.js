@@ -9,7 +9,7 @@
 export const LOG_SERVER_BASE = '/log-server';
 export const LOG_SERVER_TABLES = ['last_2week', 'last_2month', 'last_year', 'log_server'];
 
-export function pickTableForRange(startIso, endIso) {
+export function pickTableForRange(startIso, _endIso) {
   const now = Date.now();
   const startMs = startIso ? new Date(startIso).getTime() : now;
   const days = Math.max(0, (now - startMs) / 86400000);

@@ -19,12 +19,6 @@ import { sanitizeErrorMessage } from '../lib/metadata.js';
 // Re-export for backward compatibility with tests
 export { sortRows, uniqueValues, filterRows };
 
-// Fields pulled from asset_basics via JOIN
-const BASICS_KEYS = [
-  'subject_id', 'project_name', 'acquisition_start_time',
-  'genotype', 'location', 'code_ocean', 'investigators', 'experimenters',
-];
-
 // Always-shown columns (cannot be hidden)
 const ALWAYS_SHOWN = ['subject_id'];
 

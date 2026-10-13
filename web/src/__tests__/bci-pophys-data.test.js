@@ -45,7 +45,7 @@ describe('BCI pophys NWB adapter', () => {
       if (path === PATHS.mask) return { path, shape: [4, 2, 3], attrs: {} };
       throw new Error(`missing ${path}`);
     });
-    zarr.get.mockImplementation(async (array, selection) => {
+    zarr.get.mockImplementation(async (array, _selection) => {
       if (array.path === PATHS.startingTime) return { data: Float64Array.from([0]) };
       if (array.path === PATHS.rois || array.path === PATHS.id) return { data: Int32Array.from([0, 1, 2, 3]) };
       if (array.path === PATHS.isSoma) return { data: Int32Array.from([1, 0, 1, 0]) };

@@ -284,9 +284,12 @@ export function computeProbeDirectionSteps(transforms, coordinateSystem = null) 
     const referenceColumns = t?.reference_coordinate_system === 'local' ? localColumns : columns;
 
     if (type === 'Rotation') {
-      localColumns = localColumns.map(column => norm(applyExtrinsicRotation(column, t.angles ?? [], referenceColumns)));
+      const angles = t.rotation_direction === 'left_hand'
+        ? (t.angles ?? []).map(angle => -angle)
+        : (t.angles ?? []);
+      localColumns = localColumns.map(column => norm(applyExtrinsicRotation(column, angles, referenceColumns)));
       if (t.pivot !== 'local') {
-        pos = applyExtrinsicRotation(pos, t.angles ?? [], referenceColumns);
+        pos = applyExtrinsicRotation(pos, angles, referenceColumns);
       }
     } else if (type === 'Translation') {
       pos = applyTranslation(pos, t.translation ?? [], referenceColumns);

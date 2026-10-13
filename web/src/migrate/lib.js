@@ -193,7 +193,7 @@ export function normalizeServiceSection(endpoint, db, payload) {
     const list = Array.isArray(payload) ? payload : [payload];
     return list.map((entry) => {
       if (entry && typeof entry === 'object' && 'investigators' in entry) {
-        const { investigators, ...rest } = entry;
+        const { investigators: _investigators, ...rest } = entry;
         return rest;
       }
       return entry;

@@ -24,7 +24,6 @@ import {
   TARGET_X, TARGET_Y, TARGET_Z,
   makeTemplateMatrix,
   cssHexToThree,
-  surfaceY,
   loadBrainMesh,
 } from './brain-viz-3d.js';
 import { ITEM_COLORS } from './brain-viz.js';
@@ -306,5 +305,4 @@ function _buildEphysProbes(THREE, scene, probes) {
     scene.add(group);
   }
 }
-
 

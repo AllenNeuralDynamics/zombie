@@ -78,7 +78,6 @@ export function createProjectView(opts = {}) {
   const params = new URLSearchParams(window.location.search);
   const initialProject = params.get('project') ?? '';
 
-  const today = utcDay(new Date());
   let currentProject = initialProject;
   let abortController = null;
   let viewMode = params.get('color_by') ?? 'modality';

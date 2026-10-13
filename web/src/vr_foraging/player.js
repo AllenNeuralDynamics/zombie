@@ -800,8 +800,6 @@ function updateLinks(linksEl, row) {
   linksEl.hidden = false;
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Wire VrfAnimation + transport controls into the DOM
 // ---------------------------------------------------------------------------
@@ -881,7 +879,7 @@ function wireAnimation(root, sites, sprites, traces, _unused) {
     const v = SPEED_STEPS[Number(speedSlider.value)] ?? 10;
     speedLabel.textContent = `${v}×`;
     anim.setSpeed(v);
-    const videosAvailable = v === 1 && anim.videos?.length > 0;
+
     if (speedWarning) speedWarning.hidden = v === 1 || !anim.videos?.length;
     if (anim.videos?.length) {
       if (v === 1) {

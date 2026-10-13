@@ -55,7 +55,7 @@ function formatDateTick(date) {
  *   innerTop: number,
  * }}
  */
-export function buildTimelineSvgParts(events, totalWidth, totalHeight) {
+export function buildTimelineSvgParts(events, totalWidth, _totalHeight) {
   if (!events.length) {
     return { sortedEvents: [], rects: [], ticks: [], innerTop: MARGIN_TOP };
   }
@@ -492,10 +492,6 @@ export function createSubjectTimeline(events, opts = {}) {
   };
 
   // ── Sync: scroll → window position/size ───────────────────────────────────
-
-  function getWindowW() {
-    return parseFloat(windowRect.getAttribute('width') || '120');
-  }
 
   /** Recalculate window position + size from the current bubble scroll state. */
   function updateWindowFromScroll() {

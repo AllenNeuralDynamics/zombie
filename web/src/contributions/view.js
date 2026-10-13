@@ -53,7 +53,6 @@ export const LEVEL_DISPLAY = Object.fromEntries(
   CONTRIBUTION_LEVELS.map((l) => [l, LEVEL_LABELS[l.toLowerCase()]]),
 );
 
-
 const LATEX_LEVEL_VALUES = { None: 0, Supporting: '\\lo', Equal: '\\mid', Lead: '\\hi' };
 
 // Escape characters that are special in LaTeX (currently just `&`).
@@ -1318,7 +1317,7 @@ function CopyContributorLink({ project }) {
   `;
 }
 
-function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, isNew, currentUser, localPreview }) {
+function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, docdbOptions, actionsRef, isAdmin, currentUser, localPreview }) {
   // ── State ────────────────────────────────────────────────────────────────
   const [rows, setRows]                       = useState(initialDraft?.rows || []);
   const [selectedAuthor, setSelectedAuthor]   = useState(initialDraft?.selectedAuthor || null);
@@ -1586,7 +1585,6 @@ function ContributionsApp({ initialProjectName, initialAssetName, initialDraft, 
       setEndpointStatus({ text: `Error: ${err.message}`, cls: 'status-error' });
     }
   }
-
 
   // ── Row mutations ──────────────────────────────────────────────────────────
   function removeRow(idx) {

@@ -325,7 +325,7 @@ export function buildAtlasTree(structures) {
  * buildAtlasTree so depth matches path-length.
  */
 export function flattenAtlas(structures) {
-  const { roots, byId } = buildAtlasTree(structures);
+  const { roots } = buildAtlasTree(structures);
   const out = [];
   function walk(node) {
     if (node.hasGeometry) {
@@ -978,22 +978,18 @@ function openNeuronSearchModal(ctx) {
   }
 
   let pool = [];
-  let mlLoading = false;
 
   async function ensurePool() {
     pool = [];
     if (scope === 'both' || scope === 'aind') pool.push(...ctx.aindNeurons);
     if (scope === 'both' || scope === 'ml') {
       if (!ctx.mlNeurons) {
-        mlLoading = true;
         renderResults(null);
         try {
           ctx.mlNeurons = await ctx.getMlNeurons();
         } catch (e) {
           if (e?.name === 'AbortError') return;
           ctx.mlNeurons = [];
-        } finally {
-          mlLoading = false;
         }
       }
       pool.push(...(ctx.mlNeurons || []));
