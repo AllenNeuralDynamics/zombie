@@ -67,6 +67,7 @@ export function buildPsthPlot(series, opts = {}) {
     colorKey,
     colorDomain,
     colorRange,
+    colorLegend = false,
     stroke = '#c0392b',
     fill = '#c0392b',
     showArea = true,
@@ -106,7 +107,9 @@ export function buildPsthPlot(series, opts = {}) {
     style: { background: 'transparent', fontFamily: 'inherit', fontSize: compact ? 9 : 10 },
     x: { domain: [pre, post], label: compact ? null : xLabel },
     y: { label: compact ? null : yLabel, grid: true, ...(yDomain ? { domain: yDomain } : {}) },
-    ...(colorKey ? { color: { domain: colorDomain, range: colorRange } } : {}),
+    // `colorLegend` is opt-in: a two-condition PSTH names its traces in the
+    // surrounding copy, but one trace per session needs a swatch list.
+    ...(colorKey ? { color: { domain: colorDomain, range: colorRange, legend: colorLegend } } : {}),
     marks,
   });
 }

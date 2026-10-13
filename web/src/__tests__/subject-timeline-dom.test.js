@@ -35,6 +35,16 @@ function selectedName(tl) {
 }
 
 describe('selectAcquisition', () => {
+  it('restores a specific surgery even when two surgeries have the same date', () => {
+    const first = { ...acq('', '2024-01-01T00:00:00Z'), type: 'Surgery', event: 'Surgery' };
+    const second = { ...first };
+    const tl = createSubjectTimeline([first, second, ...EVENTS]);
+    container.appendChild(tl);
+    expect(tl.selectSurgery(tl.surgeryKey(second))).toBe(true);
+    expect(tl.getSelection()).toEqual([second]);
+    expect(selectedName(tl)).toBe(1);
+    expect(tl.selectSurgery('missing')).toBe(false);
+  });
   it('selects by exact raw asset name', () => {
     const tl = createSubjectTimeline(EVENTS);
     container.appendChild(tl);

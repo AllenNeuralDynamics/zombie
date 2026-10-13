@@ -4,43 +4,26 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { QC_SPA_EDITOR_ENABLED } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
-import { getQcAccount, loginForQc } from '../lib/qc-spa-auth.js';
+import { accountDisplayName, getQcAccount } from '../lib/qc-spa-auth.js';
 import { submitQcEdit } from './api.js';
-import { canonicalQcJson, hashQc } from './canonical.js';
-import { getMetricStatus, isCustomMetric, parseQCRecord } from './data.js';
-
-const UNSUPPORTED_CURATION_TYPES = /spike\s*sorting|ephys/i;
-
-function isEditableMetric(metric) {
-  if (isCustomMetric(metric.value)) return false;
-  if (metric.object_type === 'Curation metric' && UNSUPPORTED_CURATION_TYPES.test(metric.type ?? '')) return false;
-  return true;
-}
-
-function valueText(value) {
-  if (value !== null && typeof value === 'object') return JSON.stringify(value, null, 2);
-  return value === null || value === undefined ? '' : String(value);
-}
-
-function parseDraft(text, original) {
-  if (typeof original === 'number') {
-    const value = Number(text);
-    if (text.trim() === '' || !Number.isFinite(value)) throw new Error('Enter a finite number.');
-    return value;
-  }
-  if (typeof original === 'boolean') {
-    if (text !== 'true' && text !== 'false') throw new Error('Enter true or false.');
-    return text === 'true';
-  }
-  if (original !== null && typeof original === 'object') {
-    try { return JSON.parse(text); } catch { throw new Error('Enter valid JSON.'); }
-  }
-  return text;
-}
-
-function sameValue(left, right) {
-  try { return canonicalQcJson(left) === canonicalQcJson(right); } catch { return left === right; }
-}
+import { hashQc } from './canonical.js';
+import { getMetricStatus, isCustomMetric, parseCurationValues, parseQCRecord } from './data.js';
+import { isEphysCurationMetric } from './ephys-curation.js';
+import { buildFiberCcfMetrics, fetchCcfNeuroglancerLink, missingFiberCcfProbes } from './fiber-ccf.js';
+import {
+  allowedTagFailuresForSpimMetrics,
+  defaultGroupingForSpimMetrics,
+  fetchSpimNeuroglancerLink,
+  missingSpimQcMetrics,
+  normalizeSavedSpimQcMetrics,
+} from './spim-metrics.js';
+import {
+  autoStatusForValue,
+  isEditableMetric,
+  parseDraft,
+  sameValue,
+  valueText,
+} from './edit-model.js';
 
 /** Build the narrow request body from already-reviewed local changes. */
 export function buildQcSubmitPayload(record, {
@@ -48,11 +31,15 @@ export function buildQcSubmitPayload(record, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
 } = {}) {
   const changes = Object.entries(pendingChanges).map(([metric_name, change]) => {
     const result = { metric_name };
     if (Object.prototype.hasOwnProperty.call(change, 'value')) result.value = change.value;
     if (Object.prototype.hasOwnProperty.call(change, 'status')) result.status = change.status;
+    if (Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices')) {
+      result.delete_curation_indices = change.delete_curation_indices;
+    }
     return result;
   });
   const payload = {
@@ -61,7 +48,82 @@ export function buildQcSubmitPayload(record, {
     changes,
   };
   if (notesChanged) payload.notes = notes;
+  if (addedMetrics.length) payload.add_metrics = addedMetrics;
+  const allowTagFailures = allowedTagFailuresForSpimMetrics(addedMetrics);
+  if (allowTagFailures.length) payload.allow_tag_failures = allowTagFailures;
+  const defaultGrouping = defaultGroupingForSpimMetrics(record, addedMetrics);
+  if (defaultGrouping) payload.default_grouping = defaultGrouping;
   return payload;
+}
+
+function isDictionary(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function changedDictionaryKeys(current, next) {
+  const keys = new Set([...Object.keys(current), ...Object.keys(next)]);
+  return [...keys].filter(key => !sameValue(current[key], next[key]));
+}
+
+function partialDictionaryText(value, keys, allKeys) {
+  const shown = Object.fromEntries(
+    keys.filter(key => Object.prototype.hasOwnProperty.call(value, key))
+      .map(key => [key, value[key]]),
+  );
+  const text = Object.keys(shown).length ? JSON.stringify(shown) : '—';
+  return allKeys.length > keys.length ? `${text} …` : text;
+}
+
+function curationReviewText(value, deletedCount = 0) {
+  const count = typeof value === 'number'
+    ? value
+    : Array.isArray(value)
+      ? value.length
+      : value == null
+        ? 0
+        : 1;
+  const deletionLabel = deletedCount ? `; ${deletedCount} deleted` : '';
+  return `Curation data (${count} entr${count === 1 ? 'y' : 'ies'}${deletionLabel})`;
+}
+
+function latestCurationValue(metric) {
+  const values = parseCurationValues(metric.value);
+  return values[values.length - 1] ?? {};
+}
+
+function curationEntryCount(metric) {
+  return parseCurationValues(metric.value).length;
+}
+
+/**
+ * Keep review values useful when the submitted value is a metadata dictionary.
+ * The edit still submits the complete dictionary; this only narrows its display
+ * to the fields that differ between the current and submitted values.
+ */
+export function reviewValueText(value, nextValue, previousValue) {
+  if (!isDictionary(value) || !isDictionary(nextValue)) {
+    return valueText(value);
+  }
+
+  // DropdownMetric and CheckboxMetric carry their options and status mapping
+  // alongside the actual selection. Only the selection is user-editable here.
+  let keys = isCustomMetric(value) && isCustomMetric(nextValue)
+    ? ['value']
+    : changedDictionaryKeys(value, nextValue);
+
+  // If the live record already contains the submitted value, retain the field
+  // that the user changed when the live value drifted to match it.
+  if (!keys.length && isDictionary(previousValue)) {
+    keys = changedDictionaryKeys(previousValue, nextValue);
+  }
+  if (!keys.length) return valueText(value);
+
+  const allKeys = [...new Set([
+    ...Object.keys(value),
+    ...Object.keys(nextValue),
+    ...(isDictionary(previousValue) ? Object.keys(previousValue) : []),
+  ])];
+  return partialDictionaryText(value, keys, allKeys);
 }
 
 /**
@@ -73,6 +135,8 @@ export function buildReviewRows(freshRecord, loadedRecord, {
   pendingChanges = {},
   notesChanged = false,
   notes = '',
+  addedMetrics = [],
+  addedStatuses = {},
 } = {}) {
   const fresh = parseQCRecord(freshRecord);
   const loaded = parseQCRecord(loadedRecord);
@@ -84,9 +148,19 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     if (!live) return { name, missing: true, drifted: true };
     const was = loadedByName.get(name);
     const row = { name, missing: false };
-    if (Object.prototype.hasOwnProperty.call(change, 'value')) {
-      row.currentValue = valueText(live.value);
-      row.nextValue = valueText(change.value);
+    const isCuration = live.object_type === 'Curation metric' || isEphysCurationMetric(live);
+    const hasCurationDeletion = Object.prototype.hasOwnProperty.call(change, 'delete_curation_indices');
+    if (isCuration && (Object.prototype.hasOwnProperty.call(change, 'value') || hasCurationDeletion)) {
+      const currentCount = curationEntryCount(live);
+      const deletionCount = new Set(change.delete_curation_indices ?? []).size;
+      const nextCount = Math.max(0, currentCount - deletionCount) +
+        (Object.prototype.hasOwnProperty.call(change, 'value') ? 1 : 0);
+      row.currentValue = curationReviewText(currentCount);
+      row.nextValue = curationReviewText(nextCount, deletionCount);
+      row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
+    } else if (Object.prototype.hasOwnProperty.call(change, 'value')) {
+      row.currentValue = reviewValueText(live.value, change.value, was?.value);
+      row.nextValue = reviewValueText(change.value, live.value, was?.value);
       row.valueDrifted = was !== undefined && !sameValue(live.value, was.value);
     }
     if (Object.prototype.hasOwnProperty.call(change, 'status')) {
@@ -97,6 +171,40 @@ export function buildReviewRows(freshRecord, loadedRecord, {
     row.drifted = Boolean(row.valueDrifted || row.statusDrifted);
     return row;
   });
+
+  for (const metric of addedMetrics) {
+    rows.unshift({
+      name: metric.name,
+      added: true,
+      // Another editor already created it; submitting would be rejected.
+      missing: liveByName.has(metric.name),
+      drifted: liveByName.has(metric.name),
+      nextValue: valueText(metric.value),
+      nextStatus: addedStatuses[metric.name] ?? 'Pending',
+    });
+  }
+
+  const existingAllowedFailures = Array.isArray(freshRecord.quality_control?.allow_tag_failures)
+    ? freshRecord.quality_control.allow_tag_failures
+    : [];
+  const addedAllowedFailures = allowedTagFailuresForSpimMetrics(addedMetrics)
+    .filter(value => !existingAllowedFailures.includes(value));
+  if (addedAllowedFailures.length) {
+    rows.push({
+      name: 'allowed tag failures',
+      currentValue: existingAllowedFailures.length ? JSON.stringify(existingAllowedFailures) : '—',
+      nextValue: JSON.stringify([...existingAllowedFailures, ...addedAllowedFailures]),
+    });
+  }
+
+  const defaultGrouping = defaultGroupingForSpimMetrics(freshRecord, addedMetrics);
+  if (defaultGrouping) {
+    rows.push({
+      name: 'default grouping',
+      currentValue: JSON.stringify(freshRecord.quality_control?.default_grouping ?? []),
+      nextValue: JSON.stringify(defaultGrouping),
+    });
+  }
 
   if (notesChanged) {
     rows.push({
@@ -115,62 +223,163 @@ function errorText(error) {
   if (error.status === 403) return 'Your account cannot edit QC from this page.';
   if (error.status === 409) return 'This record changed elsewhere. Review the current record before submitting again.';
   if (error.status === 422) return 'The QC server rejected this change because it does not match the QC schema.';
-  if (error.status >= 500) return 'The QC editor is temporarily unavailable. Use Open QC Portal to edit.';
+  if (error.status >= 500) return 'QC editing is temporarily unavailable. Use Open Legacy QC Portal to edit.';
   return error.message || 'QC submission failed.';
 }
 
-function MetricEdit({ metric, draft, status, error, onValue, onStatus }) {
-  const curation = metric.object_type === 'Curation metric';
-  return html`
-    <div class=${`qc-editor-metric ${curation ? 'qc-editor-curation' : ''}`}>
-      <label class="qc-editor-label">${metric.name}</label>
-      <textarea
-        class="qc-editor-value"
-        value=${draft}
-        rows=${typeof metric.value === 'object' ? 4 : 1}
-        onInput=${event => onValue(event.currentTarget.value)}
-        aria-label=${`${metric.name} value`}
-      />
-      ${error ? html`<div class="qc-editor-field-error">${error}</div>` : null}
-      <label class="qc-editor-status-label">
-        Status
-        <select value=${status} onChange=${event => onStatus(event.currentTarget.value)}>
-          <option value="Pending">Pending</option>
-          <option value="Pass">Pass</option>
-          <option value="Fail">Fail</option>
-        </select>
-      </label>
-      ${curation ? html`<small>Curation values append to the existing history.</small>` : null}
-    </div>
-  `;
+export { accountDisplayName } from '../lib/qc-spa-auth.js';
+
+export const QC_VIEW_MODE_STORAGE_KEY = 'zombie.qc.viewMode';
+const QC_VIEW_MODES = new Set(['tree', 'table']);
+export const QC_PENDING_CHANGES_STORAGE_PREFIX = 'zombie.qc.pendingChanges:';
+
+function browserStorage() {
+  if (typeof window === 'undefined') return null;
+  try { return window.localStorage; } catch { return null; }
 }
 
-export function QcEditor({ record, onReload }) {
+export function readQcViewMode(storage = browserStorage()) {
+  try {
+    const value = storage?.getItem(QC_VIEW_MODE_STORAGE_KEY);
+    return QC_VIEW_MODES.has(value) ? value : 'tree';
+  } catch {
+    return 'tree';
+  }
+}
+
+export function writeQcViewMode(viewMode, storage = browserStorage()) {
+  if (!QC_VIEW_MODES.has(viewMode)) return;
+  try { storage?.setItem(QC_VIEW_MODE_STORAGE_KEY, viewMode); } catch { /* storage may be unavailable */ }
+}
+
+export function qcPendingChangesStorageKey(assetName) {
+  return `${QC_PENDING_CHANGES_STORAGE_PREFIX}${encodeURIComponent(String(assetName ?? ''))}`;
+}
+
+export function readQcPendingChanges(assetName, storage = browserStorage()) {
+  try {
+    const raw = storage?.getItem(qcPendingChangesStorageKey(assetName));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeQcPendingChanges(assetName, drafts, storage = browserStorage()) {
+  try {
+    storage?.setItem(qcPendingChangesStorageKey(assetName), JSON.stringify(drafts));
+  } catch { /* storage may be unavailable or full */ }
+}
+
+export function clearQcPendingChanges(assetName, storage = browserStorage()) {
+  try { storage?.removeItem(qcPendingChangesStorageKey(assetName)); } catch { /* storage may be unavailable */ }
+}
+
+function restoreDrafts(defaults, saved, isValid) {
+  const restored = { ...defaults };
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of Object.keys(defaults)) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
+function restoreNamedDrafts(names, saved, isValid) {
+  const restored = {};
+  if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return restored;
+  for (const name of names) {
+    if (isValid(saved[name])) restored[name] = saved[name];
+  }
+  return restored;
+}
+
+/** Render a queued new metric like a live one until the server creates it. */
+function asPendingMetric(metric) {
+  return {
+    object_type: 'QC metric',
+    ...metric,
+    status_history: [{ object_type: 'QC status', evaluator: 'Pending submit', status: 'Pending', timestamp: '' }],
+  };
+}
+
+function draftValueChanged(metric, draft) {
+  try { return !sameValue(parseDraft(draft, metric.value), metric.value); } catch { return true; }
+}
+
+export function QcEditor({ record, onReload, onEditStateChange }) {
   if (!QC_SPA_EDITOR_ENABLED) return null;
   const parsed = useMemo(() => parseQCRecord(record), [record]);
-  const editableMetrics = parsed.metrics.filter(isEditableMetric);
-  const [account, setAccount] = useState(null);
-  const [authError, setAuthError] = useState('');
-  const [valueDrafts, setValueDrafts] = useState(() => Object.fromEntries(
+  const editableMetrics = useMemo(() => parsed.metrics.filter(isEditableMetric), [parsed]);
+  const curationMetrics = useMemo(() => parsed.metrics.filter(isEphysCurationMetric), [parsed]);
+  const defaultValueDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, valueText(metric.value)]),
-  ));
-  const [statusDrafts, setStatusDrafts] = useState(() => Object.fromEntries(
+  ), [editableMetrics]);
+  const defaultStatusDrafts = useMemo(() => Object.fromEntries(
     editableMetrics.map(metric => [metric.name, getMetricStatus(metric)]),
+  ), [editableMetrics]);
+  const savedDrafts = useMemo(() => readQcPendingChanges(record.name), [record.name]);
+  const existingMetricNames = useMemo(() => new Set(parsed.metrics.map(metric => metric.name)), [parsed]);
+  const [addedMetrics, setAddedMetrics] = useState(() => (
+    Array.isArray(savedDrafts?.addedMetrics)
+      ? normalizeSavedSpimQcMetrics(record, savedDrafts.addedMetrics
+        .filter(metric => metric?.name && !existingMetricNames.has(metric.name)))
+      : []
+  ));
+  const pendingAddedMetrics = useMemo(() => addedMetrics.map(asPendingMetric), [addedMetrics]);
+  const [account, setAccount] = useState(null);
+  const [valueDrafts, setValueDrafts] = useState(() => ({
+    ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.valueDrafts,
+      value => typeof value === 'string'),
+    ...restoreDrafts(defaultValueDrafts, savedDrafts?.valueDrafts, value => typeof value === 'string'),
+  }));
+  const [statusDrafts, setStatusDrafts] = useState(() => {
+    const isStatus = value => value === 'Pending' || value === 'Pass' || value === 'Fail';
+    return {
+      ...restoreNamedDrafts(addedMetrics.map(metric => metric.name), savedDrafts?.statusDrafts, isStatus),
+      ...restoreDrafts(defaultStatusDrafts, savedDrafts?.statusDrafts, isStatus),
+    };
+  });
+  const [curationDrafts, setCurationDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDrafts,
+    value => value && typeof value === 'object' && !Array.isArray(value),
+  ));
+  const [curationDeleteDrafts, setCurationDeleteDrafts] = useState(() => restoreNamedDrafts(
+    curationMetrics.map(metric => metric.name),
+    savedDrafts?.curationDeleteDrafts,
+    value => Array.isArray(value) && value.every(index => Number.isInteger(index) && index >= 0),
   ));
   const [fieldErrors, setFieldErrors] = useState({});
-  const [notes, setNotes] = useState(parsed.notes);
+  const [notes, setNotes] = useState(() => (
+    typeof savedDrafts?.notes === 'string' ? savedDrafts.notes : parsed.notes
+  ));
   const [preview, setPreview] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [review, setReview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const [allowEditingValues, setAllowEditingValues] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [draftRevision, setDraftRevision] = useState(0);
+  const [addingFiberCcf, setAddingFiberCcf] = useState(false);
+  const [addingSpimQc, setAddingSpimQc] = useState(false);
+  const fiberCcfProbes = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingFiberCcfProbes(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
+  const spimQcMetrics = useMemo(() => {
+    const queued = new Set([...existingMetricNames, ...addedMetrics.map(metric => metric.name)]);
+    return missingSpimQcMetrics(record, queued);
+  }, [record, existingMetricNames, addedMetrics]);
 
   useEffect(() => {
     let alive = true;
-    getQcAccount().then(value => {
+    getQcAccount({ forceRefresh: true }).then(value => {
       if (alive) setAccount(value);
     }).catch(() => {
-      if (alive) setAuthError('Entra login is not configured for this deployment.');
+      if (alive) setAccount(null);
     });
     return () => { alive = false; };
   }, []);
@@ -188,23 +397,159 @@ export function QcEditor({ record, onReload }) {
       if (statusChanged) pendingChanges[metric.name].status = statusDrafts[metric.name];
     }
   }
+  for (const metric of curationMetrics) {
+    const draft = curationDrafts[metric.name];
+    const deletedIndices = curationDeleteDrafts[metric.name] ?? [];
+    const hasCurationDraft = draft !== undefined && !sameValue(draft, latestCurationValue(metric));
+    if (hasCurationDraft || deletedIndices.length) {
+      pendingChanges[metric.name] = {};
+      if (hasCurationDraft) pendingChanges[metric.name].value = draft;
+      if (deletedIndices.length) pendingChanges[metric.name].delete_curation_indices = deletedIndices;
+    }
+  }
+  // Queued metrics are created with the drafted value; a drafted status is a
+  // same-request change, applied by the server after it stamps Pending.
+  const addPayload = pendingAddedMetrics.map((metric, index) => {
+    const draft = valueDrafts[metric.name];
+    let value = metric.value;
+    if (draft !== undefined && !fieldErrors[metric.name]) {
+      try { value = parseDraft(draft, metric.value); } catch { /* surfaced via fieldErrors */ }
+    }
+    return { ...addedMetrics[index], value };
+  });
+  const addedStatuses = Object.fromEntries(pendingAddedMetrics.map(metric => [
+    metric.name, statusDrafts[metric.name] ?? 'Pending',
+  ]));
+  const submitChanges = { ...pendingChanges };
+  for (const [name, status] of Object.entries(addedStatuses)) {
+    if (status !== 'Pending') submitChanges[name] = { status };
+  }
   const notesChanged = notes !== parsed.notes;
-  const changeCount = Object.keys(pendingChanges).length + (notesChanged ? 1 : 0);
+  const changeCount = Object.keys(pendingChanges).length + addedMetrics.length + (notesChanged ? 1 : 0);
+  const hasPendingDrafts = editableMetrics.some(metric =>
+    draftValueChanged(metric, valueDrafts[metric.name]) ||
+    statusDrafts[metric.name] !== getMetricStatus(metric)
+  ) || curationMetrics.some(metric => {
+    const draft = curationDrafts[metric.name];
+    return (draft !== undefined && !sameValue(draft, latestCurationValue(metric))) ||
+      (curationDeleteDrafts[metric.name]?.length ?? 0) > 0;
+  }) || notesChanged || addedMetrics.length > 0;
+
+  useEffect(() => {
+    if (!hasPendingDrafts) {
+      clearQcPendingChanges(record.name);
+      return;
+    }
+    writeQcPendingChanges(record.name, {
+      valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, addedMetrics,
+    });
+  }, [record.name, editableMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, notes, parsed.notes, addedMetrics]);
+
+  const clearPendingChanges = () => {
+    clearQcPendingChanges(record.name);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
+    setCurationDrafts({});
+    setCurationDeleteDrafts({});
+    setFieldErrors({});
+    setNotes(parsed.notes);
+    setAddedMetrics([]);
+    setValueDrafts(defaultValueDrafts);
+    setStatusDrafts(defaultStatusDrafts);
+    setMessage('');
+    setDraftRevision(revision => revision + 1);
+  };
+
+  const handleAddFiberCcf = async () => {
+    setAddingFiberCcf(true);
+    setMessage('');
+    try {
+      const ngLink = await fetchCcfNeuroglancerLink(record.location);
+      setAddedMetrics(previous => [...previous, ...buildFiberCcfMetrics(fiberCcfProbes, ngLink)]);
+      setSettingsOpen(false);
+      setMessage(`Queued ${fiberCcfProbes.length} fiber CCF metric${fiberCcfProbes.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+    } catch (error) {
+      setMessage(`Could not add fiber CCF metrics: ${error?.message ?? error}`);
+    } finally {
+      setAddingFiberCcf(false);
+    }
+  };
+
+  const handleAddSpimQc = async () => {
+    if (!spimQcMetrics.length || addingSpimQc) return;
+    setAddingSpimQc(true);
+    setMessage('');
+    try {
+      const ngLink = await fetchSpimNeuroglancerLink(record.location);
+      setAddedMetrics(previous => {
+        const queued = new Set([...existingMetricNames, ...previous.map(metric => metric.name)]);
+        return [...previous, ...missingSpimQcMetrics(record, queued, ngLink)];
+      });
+      setSettingsOpen(false);
+      setMessage(`Queued ${spimQcMetrics.length} SPIM QC metric${spimQcMetrics.length === 1 ? '' : 's'}. They are shown below; review and submit to create them.`);
+    } catch (error) {
+      setMessage(`Could not add SPIM QC metrics: ${error?.message ?? error}`);
+    } finally {
+      setAddingSpimQc(false);
+    }
+  };
+
+  const findEditable = name => editableMetrics.find(candidate => candidate.name === name) ??
+    pendingAddedMetrics.find(candidate => candidate.name === name);
 
   const handleValue = (metric, value) => {
     setValueDrafts(previous => ({ ...previous, [metric.name]: value }));
     try {
-      parseDraft(value, metric.value);
+      const parsedValue = parseDraft(value, metric.value);
       setFieldErrors(previous => ({ ...previous, [metric.name]: undefined }));
+      const autoStatus = autoStatusForValue(parsedValue);
+      if (autoStatus) setStatusDrafts(previous => ({ ...previous, [metric.name]: autoStatus }));
     } catch (error) {
       setFieldErrors(previous => ({ ...previous, [metric.name]: error.message }));
     }
   };
 
-  const handleLogin = async () => {
-    setMessage('');
-    try { await loginForQc(); } catch (error) { setMessage(errorText(error)); }
-  };
+  useEffect(() => {
+    onEditStateChange?.({
+      enabled: Boolean(account),
+      editableMetricNames: new Set([...editableMetrics, ...pendingAddedMetrics].map(metric => metric.name)),
+      addedMetrics: pendingAddedMetrics,
+      valueDrafts,
+      statusDrafts,
+      fieldErrors,
+      allowEditingValues,
+      draftRevision,
+      onValue: (name, value) => {
+        const metric = findEditable(name);
+        if (metric) handleValue(metric, value);
+      },
+      onStatus: (name, value) => setStatusDrafts(previous => ({ ...previous, [name]: value })),
+      curationDrafts,
+      curationDeleteDrafts,
+      onCuration: (name, value) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => ({ ...previous, [name]: value }));
+        }
+      },
+      onDeleteCuration: (name, index) => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDeleteDrafts(previous => ({
+            ...previous,
+            [name]: [...new Set([...(previous[name] ?? []), index])],
+          }));
+        }
+      },
+      onRemoveCurationDraft: name => {
+        if (curationMetrics.some(metric => metric.name === name)) {
+          setCurationDrafts(previous => {
+            const next = { ...previous };
+            delete next[name];
+            return next;
+          });
+        }
+      },
+    });
+  }, [account, editableMetrics, pendingAddedMetrics, curationMetrics, valueDrafts, statusDrafts, curationDrafts, curationDeleteDrafts, fieldErrors, allowEditingValues, draftRevision]);
 
   /** Pull the live record and diff against it, so review reflects real state. */
   const handleReview = async () => {
@@ -223,7 +568,9 @@ export function QcEditor({ record, onReload }) {
         freshRecord,
         freshHash,
         changedSinceLoad: freshHash !== loadedHash,
-        rows: buildReviewRows(freshRecord, record, { pendingChanges, notesChanged, notes }),
+        rows: buildReviewRows(freshRecord, record, {
+          pendingChanges, notesChanged, notes, addedMetrics: addPayload, addedStatuses,
+        }),
       });
       setPreview(true);
     } catch (error) {
@@ -240,16 +587,18 @@ export function QcEditor({ record, onReload }) {
     try {
       const payload = buildQcSubmitPayload(review.freshRecord, {
         expectedQcHash: review.freshHash,
-        pendingChanges,
+        pendingChanges: submitChanges,
         notesChanged,
         notes,
+        addedMetrics: addPayload,
       });
       await submitQcEdit(payload);
+      clearQcPendingChanges(record.name);
       try {
         await onReload();
         setMessage('QC changes applied and reloaded.');
       } catch {
-        setMessage('The server may have applied the change, but reload failed. Use Open QC Portal to verify.');
+        setMessage('The server may have applied the change, but reload failed. Use Open Legacy QC Portal to verify.');
       }
       setPreview(false);
       setReview(null);
@@ -260,32 +609,80 @@ export function QcEditor({ record, onReload }) {
     }
   };
 
-  if (!account) {
-    return html`
-      <section class="qc-editor qc-editor-readonly">
-        <h3>QC editor</h3>
-        <p>${message || authError || 'Log in with your AIND account to edit QC.'}</p>
-        <button class="qc-edit-btn" onClick=${handleLogin}>Log in to edit QC</button>
-        <p class="qc-editor-fallback">You can always use Open QC Portal above.</p>
-      </section>
-    `;
-  }
+  if (!account) return null;
 
   return html`
     <section class="qc-editor">
       <div class="qc-editor-heading">
-        <div>
-          <h3>Edit QC</h3>
-          <small>Signed in as ${account.username || account.name || account.homeAccountId}</small>
+        <div class="qc-editor-title">
+          <div class="qc-editor-title-row">
+            <h3>Edit QC</h3>
+            ${!preview ? html`
+              <button
+                class="qc-settings-btn icon-btn"
+                aria-label="QC editing settings"
+                onClick=${() => setSettingsOpen(true)}
+              >
+                <img src="/icons/gear.svg" alt="Settings" />
+              </button>
+            ` : null}
+          </div>
+          <small>Signed in as ${accountDisplayName(account)}</small>
         </div>
-        <button
-          class="qc-editor-secondary"
-          onClick=${() => (preview ? setPreview(false) : handleReview())}
-          disabled=${submitting || reviewing}
-        >
-          ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
-        </button>
+        <div class="qc-editor-actions">
+          <button
+            class="qc-editor-secondary"
+            onClick=${() => (preview ? setPreview(false) : handleReview())}
+            disabled=${submitting || reviewing}
+          >
+            ${preview ? 'Back to edit' : reviewing ? 'Loading…' : `Review changes (${changeCount})`}
+          </button>
+        </div>
       </div>
+      ${settingsOpen ? html`
+        <div class="qc-settings-overlay" role="dialog" aria-modal="true" aria-label="QC settings">
+          <div class="qc-settings-modal">
+            <h4>QC settings</h4>
+            <label class="qc-settings-option">
+              <input
+                type="checkbox"
+                checked=${allowEditingValues}
+                onChange=${event => setAllowEditingValues(event.currentTarget.checked)}
+              />
+              Allow editing metrics with values
+            </label>
+            <section class="qc-settings-metric-section">
+              <h4>Add QC metrics</h4>
+              <div class="qc-settings-metric-actions">
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddFiberCcf}
+                  disabled=${!fiberCcfProbes.length || addingFiberCcf || submitting}
+                >
+                  ${addingFiberCcf ? 'Adding…' : `Add fiber CCF location metrics (${fiberCcfProbes.length})`}
+                </button>
+                <button
+                  class="qc-editor-secondary"
+                  onClick=${handleAddSpimQc}
+                  disabled=${!spimQcMetrics.length || addingSpimQc || submitting}
+                >
+                  ${addingSpimQc ? 'Adding…' : `Add SPIM QC metrics (${spimQcMetrics.length})`}
+                </button>
+              </div>
+            </section>
+            <div class="qc-settings-actions">
+              <button
+                class="qc-editor-secondary"
+                onClick=${clearPendingChanges}
+                disabled=${!hasPendingDrafts || submitting}
+              >
+                Clear pending changes
+              </button>
+              <button class="qc-editor-secondary" onClick=${() => setSettingsOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      ` : null}
       ${message ? html`<div class="qc-editor-message">${message}</div>` : null}
       ${preview && review ? html`
         <div class="qc-editor-preview">
@@ -308,7 +705,9 @@ export function QcEditor({ record, onReload }) {
                       ${row.drifted ? html`<span class="qc-editor-diff-flag"> changed</span>` : null}
                     </td>
                     <td>
-                      ${row.missing
+                      ${row.added
+                        ? html`<em>${row.missing ? 'already exists' : 'new metric'}</em>`
+                        : row.missing
                         ? html`<em>no longer present</em>`
                         : html`
                           ${row.currentValue !== undefined ? html`<div>${row.currentValue}</div>` : null}
@@ -333,28 +732,7 @@ export function QcEditor({ record, onReload }) {
           </button>
         </div>
       ` : html`
-        <div class="qc-editor-metrics">
-          ${editableMetrics.map(metric => html`
-            <${MetricEdit}
-              key=${metric.name}
-              metric=${metric}
-              draft=${valueDrafts[metric.name]}
-              status=${statusDrafts[metric.name]}
-              error=${fieldErrors[metric.name]}
-              onValue=${value => handleValue(metric, value)}
-              onStatus=${value => setStatusDrafts(previous => ({ ...previous, [metric.name]: value }))}
-            />
-          `)}
-        </div>
-        ${parsed.metrics.length !== editableMetrics.length ? html`<p class="qc-editor-fallback">Specialized/custom metrics remain read-only; use Open QC Portal for those.</p>` : null}
         <label class="qc-editor-label">Notes<textarea rows="3" value=${notes} onInput=${event => setNotes(event.currentTarget.value)} /></label>
-        <button
-          class="qc-edit-btn"
-          onClick=${handleReview}
-          disabled=${reviewing || !changeCount || Object.values(fieldErrors).some(Boolean)}
-        >
-          ${reviewing ? 'Loading current record…' : `Review changes (${changeCount})`}
-        </button>
       `}
     </section>
   `;
@@ -362,6 +740,12 @@ export function QcEditor({ record, onReload }) {
 
 export function mountQcEditor(container, record, options = {}) {
   if (!QC_SPA_EDITOR_ENABLED) return () => {};
-  render(html`<${QcEditor} record=${record} onReload=${options.onReload || (() => Promise.resolve())} />`, container);
+  render(html`
+    <${QcEditor}
+      record=${record}
+      onReload=${options.onReload || (() => Promise.resolve())}
+      onEditStateChange=${options.onEditStateChange}
+    />
+  `, container);
   return () => render(null, container);
 }

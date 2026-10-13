@@ -325,7 +325,7 @@ export function buildAtlasTree(structures) {
  * buildAtlasTree so depth matches path-length.
  */
 export function flattenAtlas(structures) {
-  const { roots, byId } = buildAtlasTree(structures);
+  const { roots } = buildAtlasTree(structures);
   const out = [];
   function walk(node) {
     if (node.hasGeometry) {
@@ -978,22 +978,18 @@ function openNeuronSearchModal(ctx) {
   }
 
   let pool = [];
-  let mlLoading = false;
 
   async function ensurePool() {
     pool = [];
     if (scope === 'both' || scope === 'aind') pool.push(...ctx.aindNeurons);
     if (scope === 'both' || scope === 'ml') {
       if (!ctx.mlNeurons) {
-        mlLoading = true;
         renderResults(null);
         try {
           ctx.mlNeurons = await ctx.getMlNeurons();
         } catch (e) {
           if (e?.name === 'AbortError') return;
           ctx.mlNeurons = [];
-        } finally {
-          mlLoading = false;
         }
       }
       pool.push(...(ctx.mlNeurons || []));
@@ -1153,9 +1149,34 @@ function openNeuronSearchModal(ctx) {
  *   parquet via DuckDB (fast) instead of the Janelia GraphQL search.
  * @returns {HTMLElement}
  */
-export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
-  const section = document.createElement('section');
+export function createExaSpimMorphologySection(options = {}) {
+  const storageKey = 'zombie.exaspim.morphologyExpanded';
+  const section = document.createElement('details');
   section.className = 'exaspim-morphology';
+  try { section.open = localStorage.getItem(storageKey) === 'true'; }
+  catch { /* Default to closed when storage is unavailable. */ }
+  const summary = document.createElement('summary');
+  summary.className = 'exaspim-morphology-summary';
+  summary.textContent = 'Neuron morphology viewer';
+  section.appendChild(summary);
+  let content = null;
+  function initialize() {
+    if (!section.open || content || options.signal?.aborted) return;
+    content = createMorphologyContent(options);
+    section.appendChild(content);
+  }
+  section.addEventListener('toggle', () => {
+    try { localStorage.setItem(storageKey, String(section.open)); }
+    catch { /* The viewer still works without storage. */ }
+    initialize();
+  });
+  initialize();
+  return section;
+}
+
+function createMorphologyContent({ signal, coordinator } = {}) {
+  const section = document.createElement('div');
+  section.className = 'exaspim-morphology-content';
 
   // ── Initial view state from the URL ───────────────────────────────────────
   // Parsed up-front so the toggles render in the shared state and the 3D
@@ -1172,10 +1193,6 @@ export function createExaSpimMorphologySection({ signal, coordinator } = {}) {
   // Header
   const header = document.createElement('div');
   header.className = 'exaspim-morphology-header';
-  const title = document.createElement('h3');
-  title.className = 'platform-summary-heading';
-  title.textContent = 'Neuron morphology viewer';
-  header.appendChild(title);
   const portalLink = document.createElement('a');
   portalLink.className = 'exaspim-morphology-portal-link';
   portalLink.href = PORTAL_BASE + '/';

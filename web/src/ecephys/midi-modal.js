@@ -142,7 +142,7 @@ export function openMidiModal(opts) {
     return new Map(inc.map((r, i) => [r.unit_name, ladder[i]]));
   }
 
-  function updateSummary(ladderMap) {
+  function updateSummary(_ladderMap) {
     const n = included.size;
     summaryEl.textContent = n
       ? `${n} unit${n === 1 ? '' : 's'} → ${SCALE_LABELS[scale] ?? scale} from ${midiName(root)} · probe ${probe}`
@@ -161,7 +161,7 @@ export function openMidiModal(opts) {
     const body = rows.map((r) => {
       const u = r.unit_name;
       const on = included.has(u);
-      const note = assignedNote(u, ladderMap);
+
       return `<tr class="mm-row${on ? ' on' : ''}" data-unit="${escHtml(u)}">
         <td><input type="checkbox" class="mm-inc"${on ? ' checked' : ''}></td>
         <td class="mm-uname" title="${escHtml(u)}">${escHtml(u.slice(0, 8))}</td>

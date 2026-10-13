@@ -44,6 +44,7 @@ MIDLINE_IDX = 57     # axis-2 index of midline (5700µm / 100µm)
 
 
 def ccf_to_threejs(ap_um, dv_um, ml_um):
+    """Convert CCF micrometer coordinates to three.js millimeters relative to Bregma."""
     x = (ml_um - BREGMA_ML) / 1000.0
     y = (BREGMA_DV - dv_um) / 1000.0
     z = (BREGMA_AP - ap_um) / 1000.0
@@ -51,6 +52,7 @@ def ccf_to_threejs(ap_um, dv_um, ml_um):
 
 
 def main():
+    """Compute and save left-hemisphere centroids for all atlas structures."""
     # ── 1. Load annotation (left hemisphere only) ───────────────────────────
     print("Loading annotation TIFF…")
     ann = tifffile.imread(str(ATLAS_DIR / "annotation.tiff"))
@@ -105,7 +107,10 @@ def main():
         count = 0
         for leaf_id in leaves:
             s = leaf_stats[leaf_id]
-            sum_ap += s[0]; sum_dv += s[1]; sum_ml += s[2]; count += s[3]
+            sum_ap += s[0]
+            sum_dv += s[1]
+            sum_ml += s[2]
+            count += s[3]
         if count == 0:
             continue
         ap_um = sum_ap / count * RES + RES / 2

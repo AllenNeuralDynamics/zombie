@@ -1,7 +1,52 @@
 export function parseQCRecord(record) {
   const qc = record.quality_control ?? {};
-  const metrics = (qc.metrics ?? []).map(normalizeMetric);
+  const metrics = [];
+  const metricErrors = [];
+  const rawMetrics = qc.metrics ?? [];
+  if (!Array.isArray(rawMetrics)) {
+    metricErrors.push('QC metrics could not be processed: expected an array.');
+  } else {
+    const normalized = [];
+    rawMetrics.forEach((metric, index) => {
+      try {
+        if (!metric || typeof metric !== 'object' || Array.isArray(metric)) {
+          throw new Error('Metric entry is not an object.');
+        }
+        const parsedMetric = normalizeMetric(metric);
+        normalized.push(parsedMetric);
+        if (typeof parsedMetric.reference === 'string' && parsedMetric.reference) {
+          const parts = parsedMetric.reference.split(';').map(part => part.trim()).filter(Boolean);
+          if (parts.some(part => normalizeReference(part) !== part)) {
+            metricErrors.push(`Metric "${parsedMetric.name ?? index + 1}": the media path had to be normalized for display. Please report this to the owner of the processing pipeline so they can fix the QCMetric.reference.`);
+          }
+        }
+      } catch (error) {
+        let label = '';
+        try {
+          if (typeof metric?.name === 'string' && metric.name) label = ` "${metric.name}"`;
+        } catch {
+          // A malformed name accessor must not defeat per-metric error handling.
+        }
+        metricErrors.push(`Metric${label} at position ${index + 1} could not be processed: ${error?.message ?? error}`);
+      }
+    });
+
+    const counts = new Map();
+    for (const metric of normalized) {
+      if (typeof metric.name === 'string' && metric.name) {
+        counts.set(metric.name, (counts.get(metric.name) ?? 0) + 1);
+      }
+    }
+    const duplicateNames = new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name));
+    for (const name of duplicateNames) {
+      metricErrors.push(`Duplicate QC metric name "${name}"; all metrics with this name were omitted.`);
+    }
+    metrics.push(...normalized.filter(metric => !duplicateNames.has(metric.name)));
+  }
   const defaultGrouping = qc.default_grouping ?? [];
+  const allowTagFailures = Array.isArray(qc.allow_tag_failures)
+    ? qc.allow_tag_failures.filter(value => typeof value === 'string')
+    : [];
 
   const location = record.location ?? '';
   let s3Bucket = '';
@@ -25,7 +70,21 @@ export function parseQCRecord(record) {
 
   const notes = qc.notes ?? '';
 
-  return { name: record.name ?? '', s3Bucket, s3Prefix, projectName, codeOceanId, rawAssetName, modalities, stages, metrics, defaultGrouping, notes };
+  return {
+    name: record.name ?? '',
+    s3Bucket,
+    s3Prefix,
+    projectName,
+    codeOceanId,
+    rawAssetName,
+    modalities,
+    stages,
+    metrics,
+    metricErrors,
+    defaultGrouping,
+    allowTagFailures,
+    notes,
+  };
 }
 
 /**
@@ -44,6 +103,50 @@ function decodeJsonField(val) {
   return val;
 }
 
+/**
+ * Decode references that were URL-encoded before being stored in DocDB.
+ *
+ * Ephys curation references are commonly encoded as one complete URL
+ * (`https%3A//...%3Fanalyzer_path%3D...`).  Decode at most twice so an
+ * already-normal URL is unchanged while nested encoding remains usable.
+ */
+export function decodeReferenceUrl(reference) {
+  let decoded = String(reference ?? '');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
+
+/** Decode CurationMetric values and retain their original list indexes. */
+export function parseCurationEntries(value) {
+  let source = value;
+  if (typeof source === 'string') {
+    try { source = JSON.parse(source.startsWith('json:') ? source.slice(5) : source); } catch { return []; }
+  }
+  if (!Array.isArray(source)) source = source && typeof source === 'object' ? [source] : [];
+  return source.flatMap((entry, index) => {
+    let parsed = entry;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed.startsWith('json:') ? parsed.slice(5) : parsed); } catch { return []; }
+    }
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? [{ value: parsed, index }]
+      : [];
+  });
+}
+
+/** Decode the list-of-JSON-dictionaries used by CurationMetric values. */
+export function parseCurationValues(value) {
+  return parseCurationEntries(value).map(entry => entry.value);
+}
+
 function normalizeMetric(metric) {
   const tags = decodeJsonField(metric.tags ?? {});
   const value = decodeJsonField(metric.value);
@@ -56,15 +159,23 @@ export function getMetricStatus(metric) {
   return history[history.length - 1].status ?? 'Pending';
 }
 
-export function aggregateStatus(metrics) {
-  const statuses = metrics.map(getMetricStatus);
+export function aggregateStatus(metrics, allowTagFailures = [], statusOverrides = {}) {
+  const allowedValues = new Set(allowTagFailures);
+  const statuses = metrics
+    .filter(metric => !Object.values(metric.tags ?? {}).some(value => allowedValues.has(value)))
+    .map(metric => statusOverrides[metric.name] ?? getMetricStatus(metric));
   if (statuses.includes('Fail')) return 'Fail';
   if (statuses.includes('Pending')) return 'Pending';
   return 'Pass';
 }
 
-function cleanRef(ref) {
-  return ref.replace(/^\//, '').replace(/^results\//, '');
+/** Apply the QC Portal's media-path repairs without changing stored references. */
+export function normalizeReference(reference) {
+  let normalized = decodeReferenceUrl(reference).replace(/^\/+/, '');
+  if (/^(https?:|s3:\/\/)/i.test(normalized)) return normalized;
+  const resultsIndex = normalized.indexOf('results/');
+  if (resultsIndex !== -1) normalized = normalized.slice(resultsIndex + 'results/'.length);
+  return normalized.split('/').filter(part => part && part !== '.').join('/');
 }
 
 function encodeS3Key(key) {
@@ -78,23 +189,23 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url: reference, type: 'multi' };
   }
 
-  let url = reference;
+  const decodedReference = normalizeReference(reference);
+  let url = decodedReference;
 
-  if (reference.includes('s3://')) {
-    const match = reference.match(/^s3:\/\/([^/]+)\/(.+)$/);
+  if (decodedReference.includes('s3://')) {
+    const match = decodedReference.match(/^s3:\/\/([^/]+)\/(.+)$/);
     if (match) {
       url = `https://${match[1]}.s3.us-west-2.amazonaws.com/${encodeS3Key(match[2])}`;
     }
-  } else if (!reference.startsWith('http')) {
-    const cleaned = cleanRef(reference);
-    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(cleaned)}`;
+  } else if (!/^https?:/i.test(decodedReference)) {
+    url = `https://${s3Bucket}.s3.us-west-2.amazonaws.com/${encodeS3Key(s3Prefix)}/${encodeS3Key(decodedReference)}`;
   }
 
   const lower = url.toLowerCase();
 
   if (lower.includes('ephys.allenneuraldynamics.org')) {
     // Decode URL-encoded placeholders, then substitute asset locations.
-    let processed = decodeURIComponent(url);
+    let processed = decodeReferenceUrl(url);
     processed = processed.replace(/\{derived_asset_location\}/g, `s3://${s3Bucket}/${s3Prefix}`);
     if (rawS3Loc) {
       processed = processed.replace(/\{raw_asset_location\}/g, rawS3Loc);
@@ -109,7 +220,7 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
   }
 
   if (lower.includes('.rrd')) {
-    const verMatch = reference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
+    const verMatch = decodedReference.match(/_v(\d+\.\d+\.\d+)\.rrd/);
     const version = verMatch ? verMatch[1] : '0.19.1';
     const iframeUrl = `https://app.rerun.io/version/${version}/index.html?url=${encodeURIComponent(url)}`;
     return { url: iframeUrl, type: 'iframe' };
@@ -130,16 +241,17 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
     return { url, type: 'h5' };
   }
 
-  if (reference.startsWith('http')) {
+  if (/^https?:/i.test(decodedReference)) {
     return { url, type: 'link' };
   }
 
   return { url, type: 'text' };
 }
 
-export function buildTreeNodes(metrics, defaultGrouping) {
+export function buildTreeNodes(metrics, defaultGrouping = []) {
   const modalities = [...new Set(metrics.map(m => m.modality?.abbreviation).filter(Boolean))];
-  const grouping = modalities.length > 1 ? ['modality', ...defaultGrouping] : defaultGrouping;
+  const baseGrouping = defaultGrouping.length ? defaultGrouping : ['type'];
+  const grouping = modalities.length > 1 ? ['modality', ...baseGrouping] : baseGrouping;
 
   function buildLevel(metricSubset, levels) {
     if (!levels.length) {

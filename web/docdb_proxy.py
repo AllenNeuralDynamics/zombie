@@ -5,11 +5,12 @@ docdb_proxy.py — Local HTTP proxy for server-side data services.
 Listens on :3001 and exposes:
   POST /metadata/search          {"filter": {...}, "limit": N, "projection": {...}}
   POST /v1/metadata/search       (DocDB v1 variant)
-    GET  /s3-list                  public S3 image listing with bucket allow-list
-    POST /log-server/camstim-completed
+  GET  /metadata-service/<path>  allow-listed internal metadata-service proxy
+  GET  /s3-list                  public S3 image listing with bucket allow-list
+  POST /log-server/camstim-completed
 
-DocDB requests use aind_data_access_api. S3 and log-server requests run
-server-side where the required network resources are accessible.
+DocDB requests use aind_data_access_api. Metadata-service, S3, and log-server
+requests run server-side where the required network resources are accessible.
 
 Usage:
   python web/docdb_proxy.py    (or via `npm run docdb`)
@@ -19,6 +20,8 @@ import html
 import json
 import logging
 import re
+import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -39,6 +42,16 @@ LOG_SERVER_DATABASE = "mpe"
 LOG_SERVER_ALLOWED_TABLES = {"last_2week", "last_2month", "last_year", "log_server"}
 LOG_SERVER_CONNECT_TIMEOUT = 10
 LOG_SERVER_READ_TIMEOUT = 60
+
+METADATA_SERVICE_TIMEOUT = 120
+METADATA_SERVICE_BASE = "https://aind-metadata-service"
+_METADATA_SERVICE_V1_ENDPOINTS = {"subject", "procedures", "funding"}
+_METADATA_SERVICE_V2_ENDPOINTS = _METADATA_SERVICE_V1_ENDPOINTS | {"investigators"}
+# The internal service currently presents a certificate that is not trusted by
+# the container. The upstream host and path are fixed/allow-listed below.
+_METADATA_SERVICE_SSL = ssl.create_default_context()
+_METADATA_SERVICE_SSL.check_hostname = False
+_METADATA_SERVICE_SSL.verify_mode = ssl.CERT_NONE
 
 logging.basicConfig(level=logging.INFO, format="[docdb-proxy] %(message)s")
 log = logging.getLogger(__name__)
@@ -73,6 +86,7 @@ _CAMSTIM_KNOWN_KEYS = (
 
 
 def _parse_camstim_message(msg: str) -> dict:
+    """Parse comma-delimited camstim fields without assuming their order."""
     if not msg:
         return {}
     msg = html.unescape(msg)
@@ -95,23 +109,90 @@ def _parse_camstim_message(msg: str) -> dict:
 
 
 def _client_address_to_instrument(addr: str) -> str:
+    """Extract the instrument name preceding a client address separator."""
     if not addr:
         return ""
     return addr.split(" / ", 1)[0].strip()
+
+
+def _metadata_service_url(subpath: str) -> str | None:
+    """Return a canonical allow-listed upstream URL, or None for an unsafe path."""
+    parsed = urllib.parse.urlsplit(subpath)
+    if parsed.query or parsed.fragment:
+        return None
+
+    raw_segments = [segment for segment in parsed.path.split("/") if segment]
+    segments = [urllib.parse.unquote(segment) for segment in raw_segments]
+    is_v1 = len(segments) == 2 and segments[0] in _METADATA_SERVICE_V1_ENDPOINTS
+    is_v2 = (
+        len(segments) == 4
+        and segments[:2] == ["api", "v2"]
+        and segments[2] in _METADATA_SERVICE_V2_ENDPOINTS
+    )
+    identifier = segments[-1] if segments else ""
+    identifier_parts = identifier.split("/")
+    invalid_identifier = (
+        not identifier
+        or any(part in {"", ".", ".."} for part in identifier_parts)
+        or any(character in identifier for character in ("\\", "\0"))
+    )
+    if not (is_v1 or is_v2) or invalid_identifier:
+        return None
+
+    canonical_path = "/".join(urllib.parse.quote(segment, safe="") for segment in segments)
+    return f"{METADATA_SERVICE_BASE}/{canonical_path}"
 
 
 # Legacy alias used by existing code paths
 client = client_v2
 
 
+def _camstim_rows(raw_rows):
+    """Format completed log rows that contain both mouse and session identifiers."""
+    out = []
+    for r in raw_rows:
+        parsed = _parse_camstim_message(r.get("message") or "")
+        if parsed.get("Action") != "Completed":
+            continue
+        mid = (parsed.get("MID") or "").strip()
+        uid = (parsed.get("UID") or "").strip()
+        if not mid or mid.lower() == "none" or not uid or uid.lower() == "none":
+            continue
+        out.append({
+            "datetime": r["datetime"].isoformat() if r.get("datetime") else None,
+            "client_address": r.get("client_address") or "",
+            "instrument_id": _client_address_to_instrument(r.get("client_address") or ""),
+            "version": r.get("version") or "",
+            "fields": parsed,
+            "raw_message": r.get("message") or "",
+        })
+    return out
+
+
+def _camstim_validation_error(user, password, table, start_date, end_date):
+    """Return a validation error for unsupported log-server query parameters."""
+    if not user or not password:
+        return "Missing credentials"
+    if table not in LOG_SERVER_ALLOWED_TABLES:
+        return f"Invalid table: {table}"
+    if not _DATE_RE.match(start_date) or not _DATE_RE.match(end_date):
+        return "Invalid date range (expected YYYY-MM-DD)"
+    return None
+
+
 class DocDbProxyHandler(BaseHTTPRequestHandler):
+    """Serve DocDB searches, metadata lookups, S3 listings, and log queries."""
     def do_GET(self):
-        if self.path.startswith("/s3-list"):
+        """Dispatch supported metadata and S3 GET routes."""
+        if self.path.startswith("/metadata-service/"):
+            self._handle_metadata_service(self.path[len("/metadata-service/"):])
+        elif self.path.startswith("/s3-list"):
             self._handle_s3_list()
         else:
             self._respond(404, {"error": "Not found"})
 
     def do_POST(self):
+        """Dispatch supported DocDB and log-server POST routes."""
         if self.path == "/v1/metadata/search":
             self._handle_search(client_v1)
         elif self.path == "/metadata/search":
@@ -122,6 +203,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     def _handle_camstim_completed(self):
+        """Validate a log query and return completed camstim sessions."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) if length else b"{}")
@@ -135,16 +217,39 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
         start_date = (body.get("startDate") or "").strip()
         end_date = (body.get("endDate") or "").strip()
 
-        if not user or not password:
-            self._respond(400, {"error": "Missing credentials"})
-            return
-        if table not in LOG_SERVER_ALLOWED_TABLES:
-            self._respond(400, {"error": f"Invalid table: {table}"})
-            return
-        if not _DATE_RE.match(start_date) or not _DATE_RE.match(end_date):
-            self._respond(400, {"error": "Invalid date range (expected YYYY-MM-DD)"})
+        validation_error = _camstim_validation_error(user, password, table, start_date, end_date)
+        if validation_error:
+            self._respond(400, {"error": validation_error})
             return
 
+        conn = self._connect_log_server(user, password)
+        if conn is None:
+            return
+
+        try:
+            with conn:
+                with conn.cursor() as cur:
+                    sql = (
+                        f"SELECT datetime, client_address, version, message "
+                        f"FROM {table} "
+                        "WHERE logname='camstim' AND level='INFO' "
+                        "AND message LIKE %s "
+                        "AND datetime >= %s AND datetime < %s "
+                        "ORDER BY datetime DESC"
+                    )
+                    cur.execute(sql, ("%Action, Completed%", start_date, end_date))
+                    raw_rows = cur.fetchall()
+        except Exception as e:
+            log.error("Log server query failed: %s", e)
+            self._respond(502, {"error": f"Log server query failed: {e}"})
+            return
+
+        out = _camstim_rows(raw_rows)
+
+        self._respond(200, {"rows": out, "count": len(out), "table": table})
+
+    def _connect_log_server(self, user, password):
+        """Connect to the log server or respond with the applicable connection error."""
         try:
             import pymysql
             import pymysql.cursors
@@ -153,7 +258,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            conn = pymysql.connect(
+            return pymysql.connect(
                 host=LOG_SERVER_HOST,
                 port=LOG_SERVER_PORT,
                 user=user,
@@ -176,45 +281,8 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
             self._respond(502, {"error": f"Log server connect failed: {e}"})
             return
 
-        try:
-            with conn:
-                with conn.cursor() as cur:
-                    sql = (
-                        f"SELECT datetime, client_address, version, message "
-                        f"FROM {table} "
-                        "WHERE logname='camstim' AND level='INFO' "
-                        "AND message LIKE %s "
-                        "AND datetime >= %s AND datetime < %s "
-                        "ORDER BY datetime DESC"
-                    )
-                    cur.execute(sql, ("%Action, Completed%", start_date, end_date))
-                    raw_rows = cur.fetchall()
-        except Exception as e:
-            log.error("Log server query failed: %s", e)
-            self._respond(502, {"error": f"Log server query failed: {e}"})
-            return
-
-        out = []
-        for r in raw_rows:
-            parsed = _parse_camstim_message(r.get("message") or "")
-            if parsed.get("Action") != "Completed":
-                continue
-            mid = (parsed.get("MID") or "").strip()
-            uid = (parsed.get("UID") or "").strip()
-            if not mid or mid.lower() == "none" or not uid or uid.lower() == "none":
-                continue
-            out.append({
-                "datetime": r["datetime"].isoformat() if r.get("datetime") else None,
-                "client_address": r.get("client_address") or "",
-                "instrument_id": _client_address_to_instrument(r.get("client_address") or ""),
-                "version": r.get("version") or "",
-                "fields": parsed,
-                "raw_message": r.get("message") or "",
-            })
-
-        self._respond(200, {"rows": out, "count": len(out), "table": table})
-
     def _handle_search(self, db_client):
+        """Forward a search filter, limit, and projection to the selected DocDB client."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) if length else b"{}")
@@ -235,6 +303,45 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
         except Exception as e:
             log.error("DocDB query failed: %s", e)
             self._respond(500, {"error": str(e)})
+
+    def _handle_metadata_service(self, subpath):
+        """Proxy one allow-listed metadata-service lookup through the container."""
+        url = _metadata_service_url(subpath)
+        if url is None:
+            self._respond(400, {"error": "Metadata-service path is not allowed"})
+            return
+
+        request = urllib.request.Request(url, method="GET")
+        try:
+            with urllib.request.urlopen(
+                request,
+                context=_METADATA_SERVICE_SSL,
+                timeout=METADATA_SERVICE_TIMEOUT,
+            ) as response:
+                self._respond_upstream(
+                    response.status,
+                    response.read(),
+                    response.headers.get("Content-Type", "application/json"),
+                )
+        except urllib.error.HTTPError as error:
+            self._respond_upstream(
+                error.code,
+                error.read() or b"",
+                error.headers.get("Content-Type", "application/json")
+                if error.headers
+                else "application/json",
+            )
+        except Exception as error:
+            log.error("metadata-service request failed: %s", error)
+            self._respond(502, {"error": "Metadata-service request failed"})
+
+    def _respond_upstream(self, status, body, content_type):
+        """Forward an upstream response body with its status and content type."""
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _handle_s3_list(self):
         """List image objects under a public S3 prefix.
@@ -313,6 +420,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
         return images
 
     def _respond(self, status, data):
+        """Write a JSON response with its status and content length."""
         body = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -321,6 +429,7 @@ class DocDbProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
+        """Send HTTP request messages to the proxy logger."""
         log.info(fmt, *args)
 
 

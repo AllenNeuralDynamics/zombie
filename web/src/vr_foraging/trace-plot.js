@@ -36,7 +36,7 @@ const VEL_MARGIN_BOTTOM = 34;
 const MARKER_MARGIN_TOP    = 4;
 const MARKER_MARGIN_BOTTOM = 4;
 const MIN_PLOT_W     = 320;
-const BRUSH_HANDLE_PX = 8;
+
 const BAND_OPACITY   = 0.45;
 
 // Marker rows (data-space, y-domain [0,3]; top → bottom).

@@ -8,15 +8,16 @@
  */
 
 import { html } from 'htm/preact';
-import { QC_PORTAL_BASE } from '../constants.js';
+import { QC_API_BASE } from '../constants.js';
 import { queryDocDb } from '../lib/docdb.js';
+import { getQcIdentityToken } from '../lib/qc-spa-auth.js';
 
 export const DOCDB_BASES = {
   v1: 'https://api.allenneuraldynamics.org/v1/metadata_index/data_assets',
   v2: 'https://api.allenneuraldynamics.org/v2/metadata_index/data_assets',
 };
 
-const METADATA_SERVICE_BASE = 'https://aind-metadata-service';
+const METADATA_SERVICE_BASE = '/metadata-service';
 export const METADATA_SERVICE_PATHS = {
   v1: {
     subject: (id) => `${METADATA_SERVICE_BASE}/subject/${encodeURIComponent(id)}`,
@@ -192,7 +193,7 @@ export function normalizeServiceSection(endpoint, db, payload) {
     const list = Array.isArray(payload) ? payload : [payload];
     return list.map((entry) => {
       if (entry && typeof entry === 'object' && 'investigators' in entry) {
-        const { investigators, ...rest } = entry;
+        const { investigators: _investigators, ...rest } = entry;
         return rest;
       }
       return entry;
@@ -250,6 +251,43 @@ export function topLevelChangedSections(oldRecord, newRecord) {
   return out;
 }
 
+/** Read changed-section metadata from a queue summary, with full-record fallback. */
+export function proposalChangedSections(proposal) {
+  return Array.isArray(proposal?.changed_sections)
+    ? proposal.changed_sections
+    : topLevelChangedSections(proposal?.base, proposal?.body);
+}
+
+/**
+ * Return a stable key for the actual change in a proposal.
+ *
+ * The old value is intentionally omitted: two assets can have different
+ * existing values while receiving the same replacement. The path, change
+ * kind, and proposed value are retained, so genuinely different repairs stay
+ * in separate review groups.
+ */
+export function proposalChangeSignature(proposal) {
+  const changes = diffJson(proposal?.base ?? null, proposal?.body ?? null)
+    .map(({ path, kind, newValue }) => ({
+      path,
+      kind,
+      newValue: newValue === undefined ? { __migrate_undefined__: true } : newValue,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path) || a.kind.localeCompare(b.kind));
+  return canonicalJson({ version: proposal?.version ?? null, changes });
+}
+
+/** Group proposals that apply the same change, while retaining each proposal. */
+export function groupProposals(proposals = []) {
+  const groups = new Map();
+  for (const proposal of proposals) {
+    const key = proposal?.change_key || proposalChangeSignature(proposal);
+    if (!groups.has(key)) groups.set(key, { key, proposals: [] });
+    groups.get(key).proposals.push(proposal);
+  }
+  return [...groups.values()];
+}
+
 // ---------------------------------------------------------------------------
 // Network helpers
 // ---------------------------------------------------------------------------
@@ -266,6 +304,15 @@ export async function fetchFullRecord(db, assetIdOrName, signal) {
   );
   if (!byId.length) throw new Error(`Asset "${assetIdOrName}" not found in DocDB ${db}.`);
   return byId[0];
+}
+
+/** Fetch every DocDB asset belonging to one subject_id. */
+export async function fetchRecordsForSubject(db, subjectId, signal) {
+  if (!subjectId) return [];
+  return queryDocDb(
+    { 'subject.subject_id': subjectId },
+    { baseUrl: DOCDB_BASES[db], limit: 10000, signal },
+  );
 }
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -347,26 +394,45 @@ export class QcError extends Error {
   }
 }
 
-async function qcFetch(path, { method = 'GET', body, signal } = {}) {
-  const resp = await fetch(`${QC_PORTAL_BASE}${path}`, {
-    method,
-    credentials: 'include',
-    signal,
-    ...(body === undefined
-      ? {}
-      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
-  });
-  let parsed = null;
-  try { parsed = await resp.json(); } catch { /* empty or non-JSON body */ }
-  if (!resp.ok) throw new QcError(resp.status, parsed);
-  return parsed;
+async function qcFetch(path, {
+  method = 'GET', body, signal, identityToken,
+} = {}) {
+  const verb = method.toUpperCase();
+  const requiresAuth = verb !== 'GET';
+  let token = requiresAuth ? identityToken ?? await getQcIdentityToken() : null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const headers = {};
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    const resp = await fetch(`${QC_API_BASE}${path}`, {
+      method: verb,
+      signal,
+      headers,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    let parsed = null;
+    try { parsed = await resp.json(); } catch { /* empty or non-JSON body */ }
+    if (resp.ok) return parsed;
+
+    const error = new QcError(resp.status, parsed);
+    if (requiresAuth && error.status === 401 && attempt === 0) {
+      token = await getQcIdentityToken({ forceRefresh: true });
+      continue;
+    }
+    throw error;
+  }
+
+  throw new QcError(401, { error: 'not_authenticated' });
 }
 
-/** List proposals. `status` accepts 'open', 'all', or a comma-separated list. */
-export async function listProposals({ status = 'open', version, id, signal } = {}) {
+/** List compact proposal summaries. `status` accepts 'open', 'all', or a comma-separated list. */
+export async function listProposals({ status = 'open', version, id, signal, summary = true } = {}) {
   const params = new URLSearchParams({ status });
   if (version) params.set('version', version);
   if (id) params.set('id', id);
+  if (summary) params.set('summary', 'true');
   const body = await qcFetch(`/metadata/proposals?${params}`, { signal });
   return Array.isArray(body?.proposals) ? body.proposals : [];
 }
@@ -378,12 +444,59 @@ export async function getProposal(proposalId, signal) {
 }
 
 /** Create a proposal. Throws QcError('duplicate_proposal' | 'no_changes' | …). */
-export async function createProposal({ version, id, body, note, supersedes }) {
-  const resp = await qcFetch('/metadata/proposals', {
+export async function createProposal({ version, id, body, note, supersedes }, { token } = {}) {
+  const resp = await qcFetch('/metadata/proposals?summary=true', {
     method: 'POST',
     body: { version, id, body, note: note ?? '', ...(supersedes ? { supersedes } : {}) },
+    identityToken: token,
   });
   return resp?.proposal ?? null;
+}
+
+/** Run an async worker with bounded concurrency while preserving input order. */
+export async function mapSettledWithConcurrency(items, worker, concurrency = 4, onSettled) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  let settledCount = 0;
+  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency) || 1));
+
+  async function runWorker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+      settledCount += 1;
+      onSettled?.(results[index], index, settledCount);
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
+/**
+ * Create several independent proposals with a small amount of concurrency.
+ * Each proposal remains individually reviewable and conflict-checked by the
+ * QC portal; bounded fan-out prevents a large subject from overwhelming it.
+ */
+export async function createProposalsBatch(inputs, { concurrency = 4, onProgress } = {}) {
+  const tokenPromise = getQcIdentityToken();
+  const results = await mapSettledWithConcurrency(
+    inputs,
+    async (input) => createProposal(input, { token: await tokenPromise }),
+    concurrency,
+    (result, index, completed) => onProgress?.({ completed, total: inputs.length, result, index }),
+  );
+  return results.map((result, index) => ({
+    input: inputs[index],
+    ...(result.status === 'fulfilled'
+      ? { proposal: result.value, error: null }
+      : { proposal: null, error: result.reason }),
+  }));
 }
 
 /**
@@ -391,26 +504,29 @@ export async function createProposal({ version, id, body, note, supersedes }) {
  * displayed to the reviewer — that is what makes the approval mean "I approve
  * *this* payload".
  */
-export async function approveProposal(proposalId, bodyHash) {
-  return qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/approve`, {
+export async function approveProposal(proposalId, bodyHash, { token } = {}) {
+  return qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/approve?summary=true`, {
     method: 'POST',
     body: { body_hash: bodyHash },
+    identityToken: token,
   });
 }
 
 /** Reject a proposal with a reason. */
-export async function rejectProposal(proposalId, reason) {
-  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/reject`, {
+export async function rejectProposal(proposalId, reason, { token } = {}) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}/reject?summary=true`, {
     method: 'POST',
     body: { reason: reason ?? '' },
+    identityToken: token,
   });
   return resp?.proposal ?? null;
 }
 
 /** Withdraw one's own open proposal. */
-export async function withdrawProposal(proposalId) {
-  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}`, {
+export async function withdrawProposal(proposalId, { token } = {}) {
+  const resp = await qcFetch(`/metadata/proposals/${encodeURIComponent(proposalId)}?summary=true`, {
     method: 'DELETE',
+    identityToken: token,
   });
   return resp?.proposal ?? null;
 }
@@ -430,13 +546,13 @@ export function QcLoginBar({ user, status, onLogin, onLogout }) {
   if (!user) {
     return html`
       <div class="migrate-login-bar">
-        <span class="text-secondary">Not logged in to the QC portal — you can browse, but not submit or approve.</span>
+        <span class="text-secondary">Not signed in — you can browse, but not submit or approve.</span>
         <button class="migrate-login-btn" onClick=${onLogin}>Log in</button>
       </div>`;
   }
   return html`
     <div class="migrate-login-bar">
-      <span>Logged in to the QC portal as <strong>${user}</strong></span>
+      <span>Signed in as <strong>${user}</strong></span>
       <button class="btn-secondary" onClick=${onLogout}>Log out</button>
     </div>`;
 }

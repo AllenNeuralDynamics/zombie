@@ -138,11 +138,6 @@ function positionToGrid(relPos) {
   return { row, col };
 }
 
-/** Label for the grid cell based on directions. */
-function positionLabel(relPos) {
-  return relPos.join(', ');
-}
-
 // ---------------------------------------------------------------------------
 // Card HTML builder (shared between positioned and non-positioned)
 // ---------------------------------------------------------------------------
@@ -154,9 +149,6 @@ function buildDeviceCardHtml(dev, index, acqConfigsByDevice) {
   const fields = deviceFields(dev);
 
   const acqConfigs = acqConfigsByDevice.get(name) ?? [];
-  const acqBadge = acqConfigs.length
-    ? `<span class="inst-acq-badge" title="Linked to ${acqConfigs.length} acquisition config(s)">⚡ Active</span>`
-    : '';
 
   const fieldsHtml = fields
     .map(([k, v]) => `<dt>${esc(k)}</dt><dd>${fmtVal(v)}</dd>`)

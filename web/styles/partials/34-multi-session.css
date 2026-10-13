@@ -1,0 +1,105 @@
+/* Multi-session timeline selection and behavior plots. */
+.tl-bubble--multi {
+  background: color-mix(in srgb, var(--bubble-color) 14%, var(--surface-card));
+}
+
+.subject-timeline-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.multi-session-setting,
+.multi-session-layout {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+}
+
+.multi-session-setting-count {
+  width: 3.5rem;
+  font: inherit;
+}
+
+.subject-settings-dialog {
+  margin: auto;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text-primary);
+  width: min(440px, 90vw);
+}
+
+.subject-settings-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.subject-settings-dialog .settings-modal-content {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.multi-session-view,
+.multi-session-body {
+  min-width: 0;
+}
+
+.multi-session-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.multi-session-section > h4 {
+  margin: 0 0 8px;
+}
+
+.df-multi-plots {
+  width: 100%;
+  min-width: 0;
+}
+
+.df-multi-plots--fixed {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.df-multi-plot-card {
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+.df-multi-plots--fixed .df-multi-plot-card {
+  flex: 0 0 600px;
+}
+
+.df-multi-figure-caption {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.df-session-heading-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.df-session-heading-tools { margin-left: auto; }
+.df-session-heading-tools > .multi-session-layout { margin-bottom: 0; }

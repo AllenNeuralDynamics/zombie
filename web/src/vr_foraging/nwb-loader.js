@@ -15,6 +15,62 @@ import * as zarr from 'zarrita';
 
 const S3_BASE = 'https://aind-open-data.s3.amazonaws.com';
 
+const LEGACY_LAYOUT = {
+  trialColumns: {},
+  position: 'acquisition/Behavior.OperationControl.CurrentPosition/Position',
+  positionTime: 'acquisition/Behavior.OperationControl.CurrentPosition/Seconds',
+  lick: 'acquisition/Behavior.HarpLickometer.LickState/Channel0',
+  lickTime: 'acquisition/Behavior.HarpLickometer.LickState/Time',
+  forceReward: 'acquisition/Behavior.SoftwareEvents.ForceGiveReward/timestamp',
+  legacy: true,
+};
+
+// The replacement packaging project uses renamed site indices and processed
+// traces. Its v0.0.5 NWB export used SpatialSeries; v0.0.6 combined position
+// and velocity into a DynamicTable (already using a `timestamp` NWB column).
+const PROCESSED_LAYOUT = {
+  trialColumns: {
+    site_in_patch_index: 'site_index_in_patch',
+    site_by_type_in_patch_index: 'site_index_in_patch_by_type',
+  },
+  position: 'processing/behavior/position_velocity/position',
+  positionTime: 'processing/behavior/position_velocity/timestamp',
+  lick: 'processing/behavior/licks/data',
+  lickTime: 'processing/behavior/licks/timestamps',
+  forceReward: 'acquisition/VrForagingDataset.Behavior.SoftwareEvents.ForceGiveReward/timestamp',
+  legacy: false,
+};
+
+export function selectVrfLayout(processing) {
+  const process = processing?.data_processes?.find((entry) =>
+    entry.name === 'primary-nwb-packaging-vr-foraging'
+      || entry.name === 'VR Foraging NWB Packaging Process'
+      || /vr[-_]foraging.*packaging/i.test(entry.code?.url ?? ''),
+  );
+  if (!process) throw new Error('VR-foraging packaging metadata is missing');
+  const version = process.output_parameters?.packaging_version ?? process.code?.version;
+  // The former primary-data packager records a Git commit rather than the
+  // replacement project's release number. Do not compare these as versions.
+  if (process.name === 'VR Foraging NWB Packaging Process'
+      || /aind-vr-foraging-primary-data-nwb-packaging/i.test(process.code?.url ?? '')) {
+    return LEGACY_LAYOUT;
+  }
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version ?? '');
+  if (!parts) throw new Error('Unrecognized VR-foraging packaging version');
+  const [, major, minor, patch] = parts.map(Number);
+  if (major === 0 && minor === 0 && patch < 5) {
+    throw new Error('VR-foraging packaging versions before 0.0.5 are unsupported');
+  }
+  if (major === 0 && minor === 0 && patch === 5) {
+    return {
+      ...PROCESSED_LAYOUT,
+      position: 'processing/behavior/Position/position/data',
+      positionTime: 'processing/behavior/Position/position/timestamps',
+    };
+  }
+  return PROCESSED_LAYOUT;
+}
+
 // Trial-table columns we need from `intervals/trials/<col>`. The shape mirrors
 // the keys consumed by VrfAnimation and the depletion chart.
 const TRIAL_COLS = [
@@ -114,7 +170,7 @@ export function buildVrfEventTiming(columns) {
  */
 export async function loadVrfEventTiming(assetName, { signal } = {}) {
   const baseUrl = `${S3_BASE}/${assertAssetName(assetName)}/behavior.nwb.zarr`;
-  const root = zarr.root(new zarr.FetchStore(baseUrl));
+  const root = zarr.root(new zarr.FetchStore(baseUrl, { overrides: { signal } }));
   const entries = await Promise.all(
     VRF_EVENT_SPECS.map(async ({ column }) => {
       const arr = await zarr.open(root.resolve(`intervals/trials/${column}`), { kind: 'array' });
@@ -140,31 +196,40 @@ export async function loadVrfEventTiming(assetName, { signal } = {}) {
  * @returns {Promise<{sites:object[], traces:object}>}
  */
 export async function loadVrfSession(assetName, { signal } = {}) {
-  const baseUrl = `${S3_BASE}/${assertAssetName(assetName)}/behavior.nwb.zarr`;
-  const store = new zarr.FetchStore(baseUrl);
+  const assetUrl = `${S3_BASE}/${assertAssetName(assetName)}`;
+  const response = await fetch(`${assetUrl}/processing.json`, { signal });
+  if (signal?.aborted) throw new Error('aborted');
+  if (!response.ok) throw new Error(`Unable to read VR-foraging packaging metadata (${response.status})`);
+  const processing = await response.json();
+  if (signal?.aborted) throw new Error('aborted');
+  const layout = selectVrfLayout(processing);
+  const store = new zarr.FetchStore(`${assetUrl}/behavior.nwb.zarr`, { overrides: { signal } });
   const root = zarr.root(store);
 
   // Issue all fetches in parallel. zarrita handles the blosc decompression
   // and dtype interpretation so we receive typed arrays / boxed-string arrays.
   const trialPromises = TRIAL_COLS.map((col) =>
-    zarr.open(root.resolve(`intervals/trials/${col}`), { kind: 'array' })
+    zarr.open(root.resolve(`intervals/trials/${layout.trialColumns[col] ?? col}`), { kind: 'array' })
       .then((arr) => zarr.get(arr))
       .then((chunk) => [col, chunk.data]),
   );
 
-  const posPosP  = zarr.open(root.resolve('acquisition/Behavior.OperationControl.CurrentPosition/Position'), { kind: 'array' }).then((a) => zarr.get(a));
-  const posTP    = zarr.open(root.resolve('acquisition/Behavior.OperationControl.CurrentPosition/Seconds'),  { kind: 'array' }).then((a) => zarr.get(a));
-  const lickChP  = zarr.open(root.resolve('acquisition/Behavior.HarpLickometer.LickState/Channel0'),         { kind: 'array' }).then((a) => zarr.get(a));
-  const lickTP   = zarr.open(root.resolve('acquisition/Behavior.HarpLickometer.LickState/Time'),             { kind: 'array' }).then((a) => zarr.get(a));
+  const posPosP  = zarr.open(root.resolve(layout.position), { kind: 'array' }).then((a) => zarr.get(a));
+  const posTP    = zarr.open(root.resolve(layout.positionTime), { kind: 'array' }).then((a) => zarr.get(a));
+  const lickChP  = zarr.open(root.resolve(layout.lick), { kind: 'array' }).then((a) => zarr.get(a));
+  const lickTP   = zarr.open(root.resolve(layout.lickTime), { kind: 'array' }).then((a) => zarr.get(a));
 
   // Force-reward onsets come from a software-event stream that is not present
   // in every session; treat it as best-effort so its absence never fails the
   // load. The `timestamp` array shares the Harp epoch with the trial table.
   const forceRewardP = zarr
-    .open(root.resolve('acquisition/Behavior.SoftwareEvents.ForceGiveReward/timestamp'), { kind: 'array' })
+    .open(root.resolve(layout.forceReward), { kind: 'array' })
     .then((a) => zarr.get(a))
     .then((chunk) => chunk.data)
-    .catch(() => null);
+    .catch((err) => {
+      if (signal?.aborted) throw err;
+      return null;
+    });
 
   const [trialEntries, pos, posT, lickCh, lickT, forceRewardRaw] = await Promise.all([
     Promise.all(trialPromises),
@@ -208,11 +273,11 @@ export async function loadVrfSession(assetName, { signal } = {}) {
   }
 
   // ---- Position trace ---------------------------------------------------
-  // Both Position and Seconds have a leading 0-sentinel sample; skip it so
-  // the trace is monotonic and on the Harp clock.
+  // Only the legacy trace has a leading zero sentinel. Processed position
+  // is already on the Harp clock, in cm, and retains its first sample.
   const rawSec = Array.from(posT.data);
   const rawPos = Array.from(pos.data);
-  const start  = rawSec[0] === 0 ? 1 : 0;
+  const start  = layout.legacy && rawSec[0] === 0 ? 1 : 0;
   const posLen = Math.min(rawSec.length, rawPos.length) - start;
   const pos_t  = new Float64Array(posLen);
   const pos_cm = new Float64Array(posLen);
@@ -222,7 +287,8 @@ export async function loadVrfSession(assetName, { signal } = {}) {
   }
 
   // ---- Lick trace -------------------------------------------------------
-  // Rising edges of Channel0 (boolean) → onset times.
+  // Legacy Channel0 holds sampled states; processed licks explicitly mark
+  // each onset with true and each offset with false.
   const ch  = Array.from(lickCh.data);
   const lkt = Array.from(lickT.data);
   const lick_t = [];
@@ -230,7 +296,7 @@ export async function loadVrfSession(assetName, { signal } = {}) {
   const chLen = Math.min(ch.length, lkt.length);
   for (let i = 0; i < chLen; i++) {
     const v = ch[i] ? 1 : 0;
-    if (v && !prev) lick_t.push(+(lkt[i] - t0).toFixed(4));
+    if (v && (!layout.legacy || !prev)) lick_t.push(+(lkt[i] - t0).toFixed(4));
     prev = v;
   }
 

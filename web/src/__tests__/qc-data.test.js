@@ -14,6 +14,33 @@ const makeMetric = (overrides = {}) => ({
 });
 
 describe('parseQCRecord', () => {
+  it.each([
+    'results/figures/foo.png',
+    '///figures/foo.png',
+    '/code/results/figures/foo.png',
+    './figures//foo.png',
+    'https%3A%2F%2Fexample.com%2Ffoo.png',
+    'figures/foo.png;results/figures/bar.png',
+  ])('reports repaired references while preserving the source: %s', reference => {
+    const metric = makeMetric({ reference });
+    const parsed = parseQCRecord({ quality_control: { metrics: [metric] } });
+    expect(parsed.metrics[0].reference).toBe(reference);
+    expect(metric.reference).toBe(reference);
+    expect(parsed.metricErrors).toHaveLength(1);
+    expect(parsed.metricErrors[0]).toContain('Metric "test metric": the media path had to be normalized');
+    expect(parsed.metricErrors[0]).toContain('report this to the owner of the processing pipeline');
+  });
+
+  it('does not warn for valid relative, HTTP, S3, or comparison references', () => {
+    const metrics = [
+      'figures/foo.png',
+      'https://example.com/results/foo.png',
+      's3://bucket/results/foo.png',
+      'figures/foo.png; figures/bar.png',
+    ].map((reference, index) => makeMetric({ name: `metric ${index}`, reference }));
+    expect(parseQCRecord({ quality_control: { metrics } }).metricErrors).toEqual([]);
+  });
+
   it('extracts name, s3Bucket, s3Prefix', () => {
     const record = {
       name: 'my-asset',
@@ -85,14 +112,69 @@ describe('parseQCRecord', () => {
     expect(parsed.metrics[0].value).toEqual([1, 2, 3]);
   });
 
+  it('preserves distinct metrics and their values in source order', () => {
+    const metrics = [
+      makeMetric({ name: 'first', value: true }),
+      makeMetric({ name: 'second', value: null }),
+    ];
+    const parsed = parseQCRecord({ quality_control: { metrics } });
+
+    expect(parsed.metrics.map(metric => [metric.name, metric.value])).toEqual([
+      ['first', true],
+      ['second', null],
+    ]);
+  });
+
+  it('omits every duplicate metric name and reports the duplicate', () => {
+    const parsed = parseQCRecord({
+      quality_control: {
+        metrics: [
+          makeMetric({ name: 'duplicate', value: true }),
+          makeMetric({ name: 'keep', value: 1 }),
+          makeMetric({ name: 'duplicate', value: null }),
+        ],
+      },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['keep']);
+    expect(parsed.metricErrors).toEqual([
+      'Duplicate QC metric name "duplicate"; all metrics with this name were omitted.',
+    ]);
+  });
+
+  it('skips an invalid metric while retaining valid metrics', () => {
+    const parsed = parseQCRecord({
+      quality_control: {
+        metrics: [makeMetric({ name: 'first' }), null, makeMetric({ name: 'last' })],
+      },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['first', 'last']);
+    expect(parsed.metricErrors).toHaveLength(1);
+    expect(parsed.metricErrors[0]).toContain('Metric at position 2 could not be processed');
+  });
+
+  it('does not let a throwing metric name accessor escape error handling', () => {
+    const brokenMetric = {
+      get name() { throw new Error('bad name'); },
+      get tags() { throw new Error('bad tags'); },
+    };
+    const parsed = parseQCRecord({
+      quality_control: { metrics: [brokenMetric, makeMetric({ name: 'valid' })] },
+    });
+
+    expect(parsed.metrics.map(metric => metric.name)).toEqual(['valid']);
+    expect(parsed.metricErrors[0]).toContain('bad tags');
+  });
+
   it('collects unique modalities and stages', () => {
     const record = {
       name: 'x',
       location: 's3://bucket/prefix',
       quality_control: {
         metrics: [
-          makeMetric({ modality: { abbreviation: 'ecephys' }, stage: 'Raw data' }),
-          makeMetric({ modality: { abbreviation: 'fib' }, stage: 'Processed' }),
+          makeMetric({ name: 'first', modality: { abbreviation: 'ecephys' }, stage: 'Raw data' }),
+          makeMetric({ name: 'second', modality: { abbreviation: 'fib' }, stage: 'Processed' }),
         ],
       },
     };
@@ -167,6 +249,25 @@ describe('resolveReference', () => {
     expect(url).toContain('my-asset/figures/img.png');
   });
 
+  it.each([
+    '///figures/img.png',
+    '/code/results/figures/img.png',
+    './figures//img.png',
+  ])('repairs Portal-compatible relative paths: %s', reference => {
+    expect(resolveReference(reference, bucket, prefix)).toEqual({
+      url: 'https://aind-open-data.s3.us-west-2.amazonaws.com/my-asset/figures/img.png',
+      type: 'image',
+    });
+  });
+
+  it('decodes encoded HTTP media without stripping its results directory', () => {
+    expect(resolveReference('https%3A%2F%2Fexample.com%2Fresults%2Fimg.png', bucket, prefix)).toEqual({
+      url: 'https://example.com/results/img.png', type: 'image',
+    });
+    expect(resolveReference('s3://other-bucket/results/img.png', bucket, prefix).url)
+      .toBe('https://other-bucket.s3.us-west-2.amazonaws.com/results/img.png');
+  });
+
   it('classifies video extensions', () => {
     expect(resolveReference('vid.mp4', bucket, prefix).type).toBe('video');
     expect(resolveReference('vid.webm', bucket, prefix).type).toBe('video');
@@ -189,6 +290,13 @@ describe('resolveReference', () => {
   it('classifies ephys.allenneuraldynamics.org URL as iframe', () => {
     const ref = 'https://ephys.allenneuraldynamics.org/app?a=1';
     expect(resolveReference(ref, bucket, prefix).type).toBe('iframe');
+  });
+
+  it('decodes fully encoded ephys references before classifying them', () => {
+    const ref = 'https%3A//ephys.allenneuraldynamics.org/ephys_gui_app%3Fanalyzer_path%3D%7Bderived_asset_location%7D/foo.zarr';
+    const resolved = resolveReference(ref, bucket, prefix);
+    expect(resolved.type).toBe('iframe');
+    expect(resolved.url).toBe(`https://ephys.allenneuraldynamics.org/ephys_gui_app?analyzer_path=s3://${bucket}/${prefix}/foo.zarr`);
   });
 
   it('substitutes {derived_asset_location} placeholder in ephys URLs', () => {

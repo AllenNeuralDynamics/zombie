@@ -15,9 +15,6 @@
 
 import {
   CREDIT_ROLES,
-  ROLE_GROUP,
-  GROUP_HUE,
-  hashStr,
   authorColor,
   getInitials,
   getLastName,

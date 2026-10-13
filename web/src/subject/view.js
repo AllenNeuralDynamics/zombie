@@ -18,7 +18,8 @@ import { fetchAllSubjectIds } from '../lib/metadata.js';
 import { escHtml } from '../lib/utils.js';
 import { buildTimelineEvents } from './parsers.js';
 import { createSubjectTimeline } from './timeline.js';
-import { renderEventDetail } from './details.js';
+import { disposeDetail, renderEventDetail, renderMultiEventDetail } from './details.js';
+import { createMultiSessionSetting, readMultiSessionSetting } from './multi-session-setting.js';
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit testing)
@@ -164,10 +165,24 @@ export function organizeSubjectData(records, subjectId) {
  * @param {object} [opts]
  * @param {string} [opts.subjectId]    - Subject ID; falls back to ?subject_id= URL param.
  * @param {object} [opts.coordinator]  - Mosaic coordinator for querying asset_basics subject list.
+ * @param {string} [opts.selectedUnitId] - Selected DR unit ID for playback deep links.
+ * @param {(unitId:string|null)=>void} [opts.onUnitSelect] - URL-owner callback for DR unit changes.
  * @returns {HTMLElement}
  */
 export function createSubjectView(opts = {}) {
-  const { coordinator, embedded = false, onSubjectLoaded = null, onAcquisitionSelect = null, initialAcquisition = null } = opts;
+  const {
+    coordinator,
+    embedded = false,
+    onSubjectLoaded = null,
+    onAcquisitionSelect = null,
+    selectedUnitId = null,
+    onUnitSelect = null,
+    initialAcquisition = null,
+    initialSurgery = null,
+    initialSurgeryTab = null,
+    onTimelineSelect = null,
+    onSurgeryTabSelect = null,
+  } = opts;
   const initialId =
     opts.subjectId ??
     new URLSearchParams(window.location.search).get('subject_id') ??
@@ -220,6 +235,8 @@ export function createSubjectView(opts = {}) {
 
   function handleSubjectChange() {
     const newId = input.value.trim();
+    root._pendingSurgery = null;
+    root._pendingSurgeryTab = null;
     console.debug('[SubjectView] input changed → newId:', newId, 'prev aborted:', loadAbortController?.signal?.aborted);
     if (!embedded) {
       // The combined view owns the URL when embedded.
@@ -239,7 +256,9 @@ export function createSubjectView(opts = {}) {
     }
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
-    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect });
+    _loadSubject(contentEl, newId, coordinator, loadAbortController.signal, {
+      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
+    });
   }
 
   input.addEventListener('change', handleSubjectChange);
@@ -253,7 +272,13 @@ export function createSubjectView(opts = {}) {
   // ── Initial load ──────────────────────────────────────────────────────────
   loadAbortController = new AbortController();
   if (initialAcquisition) root._pendingAcquisition = initialAcquisition;
-  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect, root });
+  if (!initialAcquisition && initialSurgery) {
+    root._pendingSurgery = initialSurgery;
+    root._pendingSurgeryTab = initialSurgeryTab;
+  }
+  _loadSubject(contentEl, initialId, coordinator, loadAbortController.signal, {
+    onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
+  });
 
   // Imperative API for the combined view: load a subject programmatically,
   // optionally pre-selecting a specific acquisition on the timeline.
@@ -266,15 +291,32 @@ export function createSubjectView(opts = {}) {
     }
     input.value = id ?? '';
     root._pendingAcquisition = acquisitionName;
+    root._pendingSurgery = null;
+    root._pendingSurgeryTab = null;
     if (loadAbortController) loadAbortController.abort();
     loadAbortController = new AbortController();
-    _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, { onSubjectLoaded, onAcquisitionSelect, root });
+    _loadSubject(contentEl, id ?? '', coordinator, loadAbortController.signal, {
+      onSubjectLoaded, onAcquisitionSelect, selectedUnitId, onUnitSelect, onTimelineSelect, onSurgeryTabSelect, root,
+    });
   };
 
   return root;
 }
 
-async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubjectLoaded = null, onAcquisitionSelect = null, root = null } = {}) {
+async function _loadSubject(contentEl, subjectId, coordinator, signal, {
+  onSubjectLoaded = null,
+  onAcquisitionSelect = null,
+  onTimelineSelect = null,
+  onSurgeryTabSelect = null,
+  selectedUnitId = null,
+  onUnitSelect = null,
+  root = null,
+} = {}) {
+  const currentSelectedUnitId = () => {
+    if (!onUnitSelect) return selectedUnitId;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('unit_id') ?? params.get('unit') ?? null;
+  };
   console.debug('[SubjectView] _loadSubject start:', subjectId, 'aborted:', signal?.aborted);
   // Clear previous content and show loading indicator
   const _prevH = contentEl.offsetHeight;
@@ -349,11 +391,18 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
 
     const timelineSection = document.createElement('div');
     timelineSection.className = 'subject-timeline-section';
-    timelineSection.innerHTML = '<h3>Timeline</h3>';
+    const timelineHeader = document.createElement('div');
+    timelineHeader.className = 'subject-timeline-header';
+    const timelineHeading = document.createElement('h3');
+    timelineHeading.textContent = 'Timeline';
+    timelineHeader.appendChild(timelineHeading);
+    timelineSection.appendChild(timelineHeader);
 
     const detailSection = document.createElement('div');
     detailSection.className = 'subject-detail-section';
-    detailSection.innerHTML = '<h3>Event Details</h3>';
+    const detailHeading = document.createElement('h3');
+    detailHeading.textContent = 'Event Details';
+    detailSection.appendChild(detailHeading);
 
     const detailContainer = document.createElement('div');
     detailContainer.className = 'subject-detail-container';
@@ -372,8 +421,32 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
 
     const timelineSvg = createSubjectTimeline(events, {
       assetSources: bundle.assetSources,
-      onSelect: (ev, { programmatic = false } = {}) => {
-        renderEventDetail(ev, detailContainer, { subjectId, proceduresCoordSys: bundle.procedures.coordinate_system, coordinator, instruments: bundle.instruments });
+      onSelect: (ev, { programmatic = false, selection = null } = {}) => {
+        if (signal?.aborted) return;
+        const surgeryKey = timelineSvg.surgeryKey?.(ev) ?? null;
+        onTimelineSelect?.(ev, { surgeryKey });
+        const detailContext = {
+          subjectId,
+          proceduresCoordSys: bundle.procedures.coordinate_system,
+          coordinator,
+          instruments: bundle.instruments,
+          selectedUnitId: currentSelectedUnitId(),
+          onUnitSelect,
+          signal,
+          surgeryTab: root?._pendingSurgeryTab ?? null,
+          onSurgeryTabSelect: label => onSurgeryTabSelect?.(label),
+        };
+        if (root) root._pendingSurgeryTab = null;
+        // A shift/ctrl-click range replaces the per-session views with one
+        // multi-session comparison; a plain click restores them.
+        if (selection && selection.length > 1) {
+          detailHeading.textContent = `Session Comparison (${selection.length})`;
+          renderMultiEventDetail(selection, detailContainer, detailContext);
+        } else {
+          detailHeading.textContent = 'Event Details';
+          disposeDetail(detailContainer);
+          renderEventDetail(ev, detailContainer, detailContext);
+        }
         if (ev?.type === 'Acquisition') {
           const targetName = ev.data?._assetName ?? '';
           if (targetName) {
@@ -384,6 +457,10 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
       },
     });
 
+    timelineHeader.appendChild(createMultiSessionSetting({
+      onApply: (count) => timelineSvg.selectLastAcquisitions?.(count),
+      onClear: () => timelineSvg.collapseSelection?.(),
+    }));
     timelineSection.appendChild(timelineSvg);
 
     // Expose acquisition selection to the combined view and honour any
@@ -397,9 +474,27 @@ async function _loadSubject(contentEl, subjectId, coordinator, signal, { onSubje
         pendingHighlight = target;
         // Defer until the bubble strip has laid out.
         requestAnimationFrame(() => {
+          if (signal?.aborted) return;
           if (timelineSvg.selectAcquisition?.(target)) pendingHighlight = null;
         });
       }
+    }
+
+    // A surgery or acquisition deep link takes precedence over the multi-session default.
+    const pendingSurgery = root?._pendingSurgery;
+    if (pendingSurgery && !pendingHighlight) {
+      root._pendingSurgery = null;
+      requestAnimationFrame(() => {
+        if (signal?.aborted) return;
+        if (!timelineSvg.selectSurgery?.(pendingSurgery)) root._pendingSurgeryTab = null;
+      });
+    }
+    const multiDefault = readMultiSessionSetting();
+    if (multiDefault.enabled && !pendingHighlight && !pendingSurgery) {
+      requestAnimationFrame(() => {
+        if (signal?.aborted) return;
+        timelineSvg.selectLastAcquisitions?.(multiDefault.count);
+      });
     }
 
     // Replace loading message

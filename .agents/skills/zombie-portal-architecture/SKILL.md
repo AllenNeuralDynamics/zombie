@@ -1,14 +1,12 @@
 ---
 name: zombie-portal-architecture
-description: Maintain the Zombie multi-page Vite portal, its shared shell, bootstrap lifecycle, routing manifest, and query conventions.
+description: Maintain Zombie's multi-page routing, shared shell, bootstrap lifecycle, and cache-query conventions.
 ---
 
 # Zombie portal architecture
 
-Zombie is a multi-page Vite application: every page has its own HTML entry and ES-module entrypoint. It is not an SPA. The authoritative page manifest is `web/build/routes.js`. Add or change a page there; the manifest drives Vite inputs, the generated header/navigation, and ordinary nginx resolution. Keep `<!--THEME_INIT-->` in the HTML head, `<!--APP_HEADER-->` in the body, and let the Vite plugin inject both. Ordinary routes resolve `/foo` to `foo.html`; do not add SPA fallbacks or hand-copy the shared header. Each entry's `stability` field picks its release channel: `stable` ships everywhere, `experimental` is built and nav-linked only on the dev channel (`ZOMBIE_EXPERIMENTAL=1`). `vite.config.js` runs the manifest through `selectRoutes()` once and feeds the result to both `rollupOptions.input` and `renderHeader()`, so never filter the nav separately from the build inputs.
+Zombie is a multi-page Vite app. The route manifest in web/build/routes.js is the source of truth for page inputs, navigation, and release-channel selection. Follow AGENTS.md for the current page-entry and shell conventions; do not duplicate shared header markup or add a separate route list.
 
-Use `web/src/lib/bootstrap.js` for normal pages. It loads metadata and DuckDB-WASM in parallel, registers eager tables, mounts the view, and distinguishes required-table failures from optional-table warnings. Set `requiredTables: []` only for pages such as SWDB that explicitly read their own parquet partitions. Do not bypass the registry to invent table schemas: resolve the current distributed registry through `web/src/lib/metadata.js`.
+Use the shared bootstrap for pages that need cache metadata or DuckDB-WASM. It resolves the versioned registry, registers required tables, and distinguishes blocking data failures from optional ones. Choose eager versus lazy tables according to the page's needs. Read current table columns and locations from the registry rather than assuming a schema from another page.
 
-Use `ensureTable()` from `web/src/lib/registry.js` for lazy tables and `queryRows()`/`arrowTableToRows()` from `web/src/lib/arrow.js` for DuckDB results. Use the existing S3 URL helpers in `metadata.js`; do not construct cache URLs ad hoc. For live DuckDB cross-filtering use `@uwdata/vgplot`; for static arrays use `@observablehq/plot`, never hand-built SVG charts.
-
-The dev workflow is `cd web && npm start` when proxy features are needed, or `npm run dev` for Vite alone. Page tests live under `web/src/__tests__`; pure tests use Vitest's default node environment and DOM tests opt into `happy-dom` with `@vitest-environment happy-dom`. Mock coordinator queries instead of starting DuckDB.
+Use the shared registry, Arrow conversion, and plotting helpers for ordinary queries. For a page that reads partitions directly, centralize URL resolution in its data adapter and validate partition keys before building URLs or SQL. Keep build inputs and navigation filtered from the same route selection.

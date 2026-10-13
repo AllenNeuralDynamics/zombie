@@ -584,7 +584,6 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
 
   let assetsByName = new Map();
   let sourceMap = {};
-  let currentSession = null;
   let currentData = null;
   let currentHeatmap = null;
   let currentCellTypeOrder = [];
@@ -654,7 +653,6 @@ export function createVisualLearningActivityView(coord, { onSelect = null, onSub
   async function select(sessionOrName, { notify = true } = {}) {
     const session = typeof sessionOrName === 'string' ? assetsByName.get(sessionOrName) : sessionOrName;
     if (!session?.asset_name || !session.subject_id) return;
-    currentSession = session;
     sessionSelect.value = session.asset_name;
     timeDomain = null;
     if (notify) onSelect?.(session);

@@ -43,6 +43,8 @@ export function fmtTime(s) {
  * @param {number[]} [config.speedSteps]       - Playback speed multipliers.
  * @param {number}   [config.defaultSpeedIdx]  - Index into speedSteps.
  * @param {string}   [config.stepLabel]        - 'Trial' | 'Patch' → shows ◀/▶ step buttons.
+ * @param {boolean}  [config.trialInfoBelowMain] - Put the trial readout below
+ *   the stage/plot row instead of inside the stage.
  * @returns {{ root:HTMLElement, canvas:HTMLCanvasElement, setStatus:Function, activate:Function }}
  */
 export function createPlaybackHarness(config = {}) {
@@ -51,7 +53,10 @@ export function createPlaybackHarness(config = {}) {
     speedSteps = [1, 2, 5, 10, 25, 50],
     defaultSpeedIdx = 0,
     stepLabel = null,
+    trialInfoBelowMain = false,
   } = config;
+
+  const trialInfoMarkup = '<div class="pb-trial-info" hidden>–</div>';
 
   const root = document.createElement('section');
   root.className = `pb-player${taskClass ? ` pb-player--${taskClass}` : ''}`;
@@ -88,7 +93,7 @@ export function createPlaybackHarness(config = {}) {
           <div class="pb-stage-canvas-wrap">
             <canvas class="pb-canvas"></canvas>
           </div>
-          <div class="pb-trial-info" hidden>–</div>
+          ${trialInfoBelowMain ? '' : trialInfoMarkup}
         </div>
         <div class="pb-scrub-row" hidden>
           <div class="pb-scrub-wrap" role="slider" aria-label="Session position" tabindex="0">
@@ -98,6 +103,7 @@ export function createPlaybackHarness(config = {}) {
         </div>
         <div class="pb-plot" hidden></div>
       </div>
+      ${trialInfoBelowMain ? trialInfoMarkup : ''}
       <div class="pb-videos" hidden>
         <div class="pb-videos-label">Behavior cameras</div>
         <div class="pb-videos-speed-warning" hidden>Videos only available at 1× playback</div>

@@ -6,7 +6,6 @@
  */
 
 import { ensureTable } from './registry.js';
-import { queryRows } from './arrow.js';
 
 function ensureUpgradeTable(coord) {
   return ensureTable(coord, 'metadata_upgrade');

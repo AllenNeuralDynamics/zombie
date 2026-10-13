@@ -39,6 +39,33 @@ function flushPromises() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+describe('surgery restoration', () => {
+  it('restores the event and tab and reports subsequent tab changes', async () => {
+    vi.clearAllMocks();
+    vi.stubGlobal('requestAnimationFrame', callback => { callback(); return 0; });
+    const record = MINIMAL_RECORD('42', 'asset-42');
+    record.procedures.subject_procedures = [{ object_type: 'Surgery', start_date: '2024-01-01', procedures: [{ object_type: 'Headframe', headframe_type: 'Test' }] }];
+    queryDocDb.mockResolvedValue([record]);
+    fetchAllSubjectIds.mockResolvedValue([]);
+    const onTimelineSelect = vi.fn();
+    const onSurgeryTabSelect = vi.fn();
+    try {
+      const view = createSubjectView({ subjectId: '42', embedded: true, initialSurgery: '2024-01-01T00:00:00.000Z~0', initialSurgeryTab: 'Headframe', onTimelineSelect, onSurgeryTabSelect });
+      document.body.appendChild(view);
+      await flushPromises();
+      expect(onTimelineSelect).toHaveBeenCalledWith(expect.objectContaining({ type: 'Surgery' }), { surgeryKey: '2024-01-01T00:00:00.000Z~0' });
+      const active = view.querySelector('.detail-tab-btn.active');
+      expect(active?.textContent).toBe('Headframe');
+      const overview = [...view.querySelectorAll('.detail-tab-btn')].find(button => button.textContent === 'Overview');
+      overview.click();
+      expect(onSurgeryTabSelect).toHaveBeenLastCalledWith('Overview');
+    } finally {
+      vi.unstubAllGlobals();
+      document.body.innerHTML = '';
+    }
+  });
+});
+
 describe('createSubjectView — timeline click', () => {
   beforeEach(() => {
     vi.clearAllMocks();

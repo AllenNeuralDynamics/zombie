@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ephys Probe Test</title>
+    <style>
+      :root { color-scheme: light; --surface-bg: #fff; --text-primary: #333; }
+      body { margin: 0; font: 14px sans-serif; color: #333; background: #fff; }
+      header { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #ddd; }
+      h1 { margin: 0; font-size: 18px; }
+      button { padding: 6px 10px; cursor: pointer; }
+      button:disabled { cursor: default; }
+      #status { overflow-wrap: anywhere; }
+      main { display: grid; grid-template-columns: minmax(0, 1fr) 400px; }
+      #viewer { position: relative; width: 100%; height: calc(100dvh - 72px); min-height: 500px; }
+      #viewer canvas { display: block; touch-action: none; }
+      #mesh-status { position: absolute; bottom: 12px; left: 12px; pointer-events: none; }
+      .axis-label { position: absolute; font: 600 11px monospace; padding: 2px 3px; background: #ffffffdf; pointer-events: none; transform: translate(-50%, -50%); }
+      aside { padding: 16px; border-left: 1px solid #ddd; min-width: 0; max-height: calc(100dvh - 104px); overflow: auto; }
+      fieldset { border: 0; padding: 0; margin: 0 0 16px; }
+      legend, h2, summary { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+      #probe-options, .transport { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+      #steps { display: grid; gap: 4px; margin: 12px 0; }
+      .step { display: flex; gap: 8px; align-items: center; padding: 7px; border-left: 4px solid var(--step-color); cursor: pointer; }
+      .step:has(input:checked) { background: #edf3f5; font-weight: 600; }
+      pre { font: 11px/1.5 monospace; white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 16px; }
+      #state { font: 12px/1.6 monospace; white-space: pre-wrap; }
+      @media (max-width: 800px) {
+        main { grid-template-columns: minmax(0, 1fr); }
+        #viewer { height: 55dvh; min-height: 360px; }
+        aside { border-left: 0; border-top: 1px solid #ddd; max-height: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Ephys Probe Test</h1>
+      <button type="button" id="reload">Reload JSON</button>
+      <span id="status" role="status">Loading metadata...</span>
+    </header>
+    <main>
+      <section id="viewer" aria-label="Probe transform 3D viewer">
+        <span id="mesh-status" role="status">Loading brain meshes...</span>
+      </section>
+      <aside>
+        <fieldset>
+          <legend>Probe</legend>
+          <div id="probe-options"></div>
+        </fieldset>
+        <div class="transport">
+          <button id="previous" type="button" aria-label="Previous transform">&#8592;</button>
+          <button id="next" type="button" aria-label="Next transform">&#8594;</button>
+          <label><input id="history" type="checkbox"> Overlay earlier steps</label>
+        </div>
+        <div id="steps" role="group" aria-label="Transform step"></div>
+        <h2 id="step-title">Transform</h2>
+        <div id="state"></div>
+        <h2>Raw Transform</h2>
+        <pre id="transform-json"></pre>
+        <h2>Effective Transform</h2>
+        <pre id="effective-json"></pre>
+        <details open>
+          <summary>Full Probe Object</summary>
+          <pre id="probe-json"></pre>
+        </details>
+      </aside>
+    </main>
+    <script type="module">
+      import acquisitionUrl from '../acquisition_ecephys 2.json?url';
+      import instrumentUrl from '../instrument_ecephys 2.json?url';
+      import * as THREE from 'three';
+      import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+      import { extractEphysProbes } from './src/subject/ephys-data.js';
+      import { computeProbeDirectionSteps, buildCoordBasis } from './src/lib/coord-systems.js';
+      import { createOrbitControls } from './src/lib/orbit-controls.js';
+      import { loadBrainMesh, makeTemplateMatrix, STRUCTURE_COLORS, TARGET_X, TARGET_Y, TARGET_Z } from './src/subject/brain-viz-3d.js';
+
+      const colors = ['#667078', '#0072b2', '#d55e00', '#009e73', '#cc79a7', '#b58a00', '#00a4b8'];
+      const meshBase = 'https://allen-data-views.s3.amazonaws.com/data-asset-cache/meshes/';
+      const viewer = document.querySelector('#viewer');
+      const probeOptions = document.querySelector('#probe-options');
+      const stepOptions = document.querySelector('#steps');
+      const previous = document.querySelector('#previous');
+      const next = document.querySelector('#next');
+      const history = document.querySelector('#history');
+      let probeIndex = 0;
+      let stepIndex = 0;
+
+      document.querySelector('#reload').addEventListener('click', () => location.reload());
+
+      async function loadJson(url) {
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Metadata request failed (${response.status})`);
+        return response.json();
+      }
+
+      try {
+        const [acquisition, instrument] = await Promise.all([
+          loadJson(acquisitionUrl),
+          loadJson(instrumentUrl),
+        ]);
+        const probes = extractEphysProbes(acquisition);
+        if (!probes.length) throw new Error('No ephys probes found in acquisition');
+        const stream = acquisition.data_streams.find(stream =>
+          stream.configurations?.some(config => config.object_type === 'Ephys assembly config' && config.probes?.length));
+        const rawProbes = stream.configurations
+          .filter(config => config.object_type === 'Ephys assembly config')
+          .flatMap(config => config.probes ?? []);
+        const states = probes.map(probe => computeProbeDirectionSteps(probe.transforms));
+        document.querySelector('#status').textContent =
+          `Subject ${acquisition.subject_id} | Instrument ${instrument.instrument_id} | ${probes.length} probes`;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color('#ffffff');
+        const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 300);
+        const target = new THREE.Vector3(TARGET_X, TARGET_Y, TARGET_Z);
+        camera.position.set(TARGET_X + 12, TARGET_Y + 28, TARGET_Z + 12);
+        camera.up.set(0, 0, 1);
+        camera.lookAt(target);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        viewer.appendChild(renderer.domElement);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+        const key = new THREE.DirectionalLight(0xffffff, 0.75);
+        key.position.set(4, 12, 14);
+        scene.add(key);
+        const fill = new THREE.DirectionalLight(0xdde0ff, 0.3);
+        fill.position.set(-8, -4, -8);
+        scene.add(fill);
+        scene.add(new THREE.Mesh(
+          new THREE.SphereGeometry(0.18, 16, 16),
+          new THREE.MeshBasicMaterial({ color: 0xaaa39f }),
+        ));
+        createOrbitControls(camera, target, camera.up.clone(), renderer.domElement);
+        const resize = () => {
+          camera.aspect = viewer.clientWidth / viewer.clientHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(viewer.clientWidth, viewer.clientHeight);
+        };
+        new ResizeObserver(resize).observe(viewer);
+        resize();
+
+        const axisColors = ['#c62828', '#218739', '#1565c0'];
+        function createFrame(name, length) {
+          return ['X', 'Y', 'Z'].map((axis, index) => {
+            const arrow = new THREE.ArrowHelper(
+              new THREE.Vector3(1, 0, 0), new THREE.Vector3(), length,
+              axisColors[index], 0.24, 0.12,
+            );
+            arrow.line.material.depthTest = false;
+            arrow.cone.material.depthTest = false;
+            arrow.line.renderOrder = 5;
+            arrow.cone.renderOrder = 5;
+            scene.add(arrow);
+            const label = document.createElement('span');
+            label.className = 'axis-label';
+            label.textContent = `${name} ${axis}`;
+            label.style.color = axisColors[index];
+            viewer.appendChild(label);
+            return { arrow, label, endpoint: new THREE.Vector3(), length };
+          });
+        }
+        function updateFrame(frame, origin, directions) {
+          frame.forEach((item, index) => {
+            const direction = new THREE.Vector3(...directions[index]).normalize();
+            item.arrow.position.copy(origin);
+            item.arrow.setDirection(direction);
+            item.endpoint.copy(origin).addScaledVector(direction, item.length + 0.3);
+          });
+        }
+        const globalAxes = buildCoordBasis(null).columns;
+        const globalFrame = createFrame('Global', 1.8);
+        const localFrame = createFrame('Local', 1.05);
+        updateFrame(globalFrame, new THREE.Vector3(), globalAxes);
+        function render() {
+          renderer.render(scene, camera);
+          const placedLabels = [];
+          for (const item of [...globalFrame, ...localFrame]) {
+            const screen = item.endpoint.clone().project(camera);
+            const visible = screen.z >= -1 && screen.z <= 1 && Math.abs(screen.x) <= 1 && Math.abs(screen.y) <= 1;
+            item.label.hidden = !visible;
+            if (!visible) continue;
+            const halfWidth = item.label.offsetWidth / 2;
+            const halfHeight = item.label.offsetHeight / 2;
+            const left = Math.max(halfWidth, Math.min(viewer.clientWidth - halfWidth, (screen.x + 1) * viewer.clientWidth / 2));
+            let top = Math.max(halfHeight, Math.min(viewer.clientHeight - halfHeight, (1 - screen.y) * viewer.clientHeight / 2));
+            for (let attempt = 0; attempt < 12; attempt++) {
+              const overlaps = placedLabels.some(label =>
+                Math.abs(left - label.left) < halfWidth + label.halfWidth + 3 &&
+                Math.abs(top - label.top) < halfHeight + label.halfHeight + 3);
+              if (!overlaps) break;
+              top += halfHeight * 2 + 4;
+              if (top > viewer.clientHeight - halfHeight) top = halfHeight;
+            }
+            placedLabels.push({ left, top, halfWidth, halfHeight });
+            item.label.style.left = `${left}px`;
+            item.label.style.top = `${top}px`;
+          }
+        }
+
+        const stageGroups = states.map(probeStates => probeStates.map((state, index) => {
+          const group = new THREE.Group();
+          const material = new THREE.MeshPhongMaterial({
+            color: colors[index % colors.length], transparent: true, opacity: 0.9, shininess: 40,
+          });
+          const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 10, 12, 1), material);
+          shaft.position.y = 5;
+          group.add(shaft);
+          group.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), material));
+          const direction = new THREE.Vector3(...state.dir).normalize();
+          if (direction.lengthSq() < 0.01) direction.set(0, 0, 1);
+          group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+          group.position.set(...state.pos);
+          group.visible = false;
+          scene.add(group);
+          return group;
+        }));
+
+        const targetMeshes = new Map();
+        const loader = new OBJLoader();
+        const matrix = makeTemplateMatrix(THREE);
+        loadBrainMesh(loader, meshBase + '997_b5.obj', group => {
+          group.traverse(child => {
+            if (!child.isMesh) return;
+            child.geometry.applyMatrix4(matrix);
+            child.material = new THREE.MeshPhongMaterial({
+              color: 0x737373, transparent: true, opacity: 0.15,
+              side: THREE.DoubleSide, depthWrite: false, shininess: 20,
+            });
+            child.renderOrder = 1;
+          });
+          scene.add(group);
+          document.querySelector('#mesh-status').textContent = 'Bregma: grey marker';
+        });
+        for (const id of new Set(probes.flatMap(probe => probe.structureIds))) {
+          const rgb = STRUCTURE_COLORS[id];
+          if (!rgb) continue;
+          loadBrainMesh(loader, meshBase + id + '_b5.obj', group => {
+            group.traverse(child => {
+              if (!child.isMesh) return;
+              child.geometry.applyMatrix4(matrix);
+              child.material = new THREE.MeshPhongMaterial({
+                color: new THREE.Color(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255),
+                transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false,
+              });
+              child.renderOrder = 2;
+            });
+            targetMeshes.set(id, group);
+            scene.add(group);
+            updateView();
+          });
+        }
+
+        function updateView() {
+          const state = states[probeIndex][stepIndex];
+          const localX = new THREE.Vector3(...state.wid);
+          const localY = new THREE.Vector3(...state.dir);
+          const localZ = new THREE.Vector3().crossVectors(localX, localY).normalize();
+          const localAxes = [localX.toArray(), localY.toArray(), localZ.toArray()];
+          updateFrame(localFrame, new THREE.Vector3(...state.pos), localAxes);
+          stageGroups.forEach((groups, index) => groups.forEach((group, stage) => {
+            group.visible = index === probeIndex && (stage === stepIndex || (history.checked && stage < stepIndex));
+            group.children.forEach(mesh => {
+              mesh.material.opacity = stage === stepIndex ? 0.9 : 0.25;
+            });
+          }));
+          for (const [id, group] of targetMeshes) group.visible = probes[probeIndex].structureIds.includes(id);
+          stepOptions.querySelectorAll('input').forEach(input => { input.checked = Number(input.value) === stepIndex; });
+          previous.disabled = stepIndex === 0;
+          next.disabled = stepIndex === states[probeIndex].length - 1;
+          document.querySelector('#step-title').textContent = `Step ${stepIndex}: ${state.type}`;
+          const vector = values => values.map(value => value.toFixed(6)).join(', ');
+          document.querySelector('#state').textContent =
+            `Tip [ML, Superior, AP] mm\n[${vector(state.pos)}]\nDirection\n[${vector(state.dir)}]\nLocal X [${vector(localAxes[0])}]\nLocal Y [${vector(localAxes[1])}]\nLocal Z [${vector(localAxes[2])}]`;
+          document.querySelector('#transform-json').textContent = stepIndex
+            ? JSON.stringify(rawProbes[probeIndex].transform[stepIndex - 1], null, 2) : 'Initial state (no transforms)';
+          document.querySelector('#effective-json').textContent = stepIndex
+            ? JSON.stringify(probes[probeIndex].transforms[stepIndex - 1], null, 2) : 'Initial state (no transforms)';
+          document.querySelector('#probe-json').textContent = JSON.stringify(rawProbes[probeIndex], null, 2);
+          viewer.dataset.probe = probes[probeIndex].name;
+          viewer.dataset.step = String(stepIndex);
+          viewer.dataset.tip = JSON.stringify(state.pos);
+          viewer.dataset.direction = JSON.stringify(state.dir);
+          viewer.dataset.globalAxes = JSON.stringify(globalAxes);
+          viewer.dataset.localAxes = JSON.stringify(localAxes);
+          viewer.dataset.localOrigin = JSON.stringify(localFrame[0].arrow.position.toArray());
+          viewer.dataset.visibleStages = String(stageGroups[probeIndex].filter(group => group.visible).length);
+          render();
+        }
+
+        function selectProbe(index) {
+          probeIndex = index;
+          stepIndex = 0;
+          stepOptions.replaceChildren();
+          states[index].forEach((state, stage) => {
+            const label = document.createElement('label');
+            label.className = 'step';
+            label.style.setProperty('--step-color', colors[stage % colors.length]);
+            const input = document.createElement('input');
+            input.type = 'radio';
+            input.name = 'step';
+            input.value = stage;
+            input.addEventListener('change', () => { stepIndex = stage; updateView(); });
+            label.append(input, document.createTextNode(`${stage}: ${state.type}`));
+            stepOptions.appendChild(label);
+          });
+          updateView();
+        }
+
+        probes.forEach((probe, index) => {
+          const label = document.createElement('label');
+          const input = document.createElement('input');
+          input.type = 'radio';
+          input.name = 'probe';
+          input.value = index;
+          input.checked = index === 0;
+          input.addEventListener('change', () => selectProbe(index));
+          label.append(input, document.createTextNode(probe.name));
+          probeOptions.appendChild(label);
+        });
+        previous.addEventListener('click', () => { if (stepIndex > 0) { stepIndex--; updateView(); } });
+        next.addEventListener('click', () => { if (stepIndex < states[probeIndex].length - 1) { stepIndex++; updateView(); } });
+        history.addEventListener('change', updateView);
+        selectProbe(0);
+        renderer.setAnimationLoop(render);
+        window.addEventListener('pagehide', () => { renderer.setAnimationLoop(null); renderer.dispose(); }, { once: true });
+      } catch (error) {
+        document.querySelector('#status').textContent = error.message;
+        console.error(error);
+      }
+    </script>
+  </body>
+</html>

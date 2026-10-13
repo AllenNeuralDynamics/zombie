@@ -17,40 +17,6 @@ import { arrowTableToRows } from '../lib/assets-table.js';
 import { escHtml } from '../lib/utils.js';
 
 // ---------------------------------------------------------------------------
-// Anonymization — fixed letter-substitution cipher
-// ---------------------------------------------------------------------------
-
-/**
- * Fixed alphabet substitution table (QWERTY-based permutation).
- * Maps every ASCII letter to a different letter, preserving case.
- * All non-alphabetic characters (spaces, commas, dots, hyphens, etc.) pass through unchanged.
- *
- * Plain:  A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
- * Cipher: Q W E R T Y U I O P A S D F G H J K L Z X C V B N M
- */
-const ALPHA_MAP = (() => {
-  const plain  = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const cipher = 'QWERTYUIOPASDFGHJKLZXCVBNM';
-  const map = Object.create(null);
-  for (let i = 0; i < 26; i++) {
-    map[plain[i]] = cipher[i];
-    map[plain[i].toLowerCase()] = cipher[i].toLowerCase();
-  }
-  return map;
-})();
-
-/**
- * Anonymize a name string by substituting each alphabetic character using
- * ALPHA_MAP. Case, length, spacing, and punctuation are all preserved.
- *
- * @param {string} str
- * @returns {string}
- */
-function anonymizeName(str) {
-  return str.split('').map((ch) => ALPHA_MAP[ch] ?? ch).join('');
-}
-
-// ---------------------------------------------------------------------------
 // Data helpers
 // ---------------------------------------------------------------------------
 

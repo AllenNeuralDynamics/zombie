@@ -18,21 +18,28 @@
 
 import { html } from 'htm/preact';
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
-import { getQcUser, loginToQcPortal, logoutQcPortal } from '../lib/qc-auth.js';
+import {
+  accountDisplayName,
+  getQcAccount,
+  getQcIdentityToken,
+  loginForQc,
+  logoutQc,
+} from '../lib/qc-spa-auth.js';
 import {
   approveProposal,
   createProposal,
-  deepEqual,
   diffJson,
   DiffView,
-  fetchFullRecord,
   formatProposalTime,
+  getProposal,
+  groupProposals,
   listProposals,
+  mapSettledWithConcurrency,
+  proposalChangedSections,
   QcLoginBar,
   rebaseOntoCurrent,
   rejectProposal,
   StatusPill,
-  topLevelChangedSections,
   withdrawProposal,
 } from './lib.js';
 
@@ -57,11 +64,12 @@ export function MigrateReviewPage() {
   );
   const [openId, setOpenId] = useState(initialFocus);
 
-  const [user, setUser] = useState(null);
+  const [account, setAccount] = useState(null);
   const [authStatus, setAuthStatus] = useState('loading');
+  const user = account ? accountDisplayName(account) : null;
 
   // Per-proposal review state, keyed by proposal_id:
-  //   { live, liveStatus, liveError, action, error, drift, result }
+  //   { proposal, proposalStatus, proposalError, live, action, error, drift, result }
   const [details, setDetails] = useState({});
 
   useEffect(() => {
@@ -72,9 +80,20 @@ export function MigrateReviewPage() {
   }, [openId]);
 
   const refreshUser = useCallback(async () => {
-    const me = await getQcUser();
-    setUser(me?.user ?? null);
-    setAuthStatus('ready');
+    try {
+      setAccount(await getQcAccount());
+    } catch {
+      setAccount(null);
+    } finally {
+      setAuthStatus('ready');
+    }
+  }, []);
+
+  const startLogin = useCallback(() => {
+    loginForQc().catch((error) => {
+      setAuthStatus('ready');
+      setListError(error.message || String(error));
+    });
   }, []);
 
   useEffect(() => { refreshUser(); }, [refreshUser]);
@@ -99,9 +118,13 @@ export function MigrateReviewPage() {
 
   useEffect(() => {
     const ctrl = new AbortController();
-    refreshList(ctrl.signal);
-    const id = setInterval(() => refreshList(ctrl.signal), REFRESH_INTERVAL_MS);
-    return () => { ctrl.abort(); clearInterval(id); };
+    let timer = null;
+    const poll = async () => {
+      await refreshList(ctrl.signal);
+      if (!ctrl.signal.aborted) timer = setTimeout(poll, REFRESH_INTERVAL_MS);
+    };
+    poll();
+    return () => { ctrl.abort(); clearTimeout(timer); };
   }, [refreshList]);
 
   const visible = useMemo(
@@ -109,32 +132,49 @@ export function MigrateReviewPage() {
     [filter, proposals, user],
   );
 
-  const open = useMemo(
-    () => proposals.find((p) => p.proposal_id === openId) ?? null,
-    [proposals, openId],
+  const groups = useMemo(() => groupProposals(visible), [visible]);
+  const openGroup = useMemo(
+    () => groups.find((group) => group.proposals.some((p) => p.proposal_id === openId)) ?? null,
+    [groups, openId],
   );
+  const openGroupKey = openGroup?.key ?? null;
 
-  // Pull the live DocDB record for whichever proposal is open, so drift is
-  // visible before the reviewer clicks anything.
+  // Queue rows are compact summaries. Load one representative full proposal
+  // only when its group is opened; the server re-checks every asset for drift
+  // during approval, so there is no need to fetch every DocDB record up front.
   useEffect(() => {
-    if (!open) return undefined;
-    const pid = open.proposal_id;
-    if (details[pid]?.live || details[pid]?.liveStatus === 'loading') return undefined;
+    if (!openGroup) return undefined;
+    const first = openGroup.proposals[0];
+    const detail = details[first.proposal_id];
+    if (detail?.proposal || detail?.proposalStatus === 'loading') return undefined;
 
     const ctrl = new AbortController();
-    patchDetail(pid, { liveStatus: 'loading', liveError: '' });
+    patchDetail(first.proposal_id, { proposalStatus: 'loading', proposalError: '' });
     (async () => {
       try {
-        const live = await fetchFullRecord(open.version, open.record_id, ctrl.signal);
+        const proposal = await getProposal(first.proposal_id, ctrl.signal);
         if (ctrl.signal.aborted) return;
-        patchDetail(pid, { live, liveStatus: 'ready' });
+        patchDetail(first.proposal_id, { proposal, proposalStatus: 'ready' });
       } catch (err) {
         if (ctrl.signal.aborted) return;
-        patchDetail(pid, { liveStatus: 'error', liveError: err.message || String(err) });
+        patchDetail(first.proposal_id, {
+          proposalStatus: 'error',
+          proposalError: err.message || String(err),
+        });
       }
     })();
-    return () => ctrl.abort();
-  }, [open]);
+    return () => {
+      ctrl.abort();
+      setDetails((current) => {
+        const currentDetail = current[first.proposal_id];
+        if (currentDetail?.proposalStatus !== 'loading') return current;
+        return {
+          ...current,
+          [first.proposal_id]: { ...currentDetail, proposalStatus: 'idle' },
+        };
+      });
+    };
+  }, [openGroupKey]);
 
   function patchDetail(pid, patch) {
     setDetails((d) => ({ ...d, [pid]: { ...(d[pid] ?? {}), ...patch } }));
@@ -142,59 +182,119 @@ export function MigrateReviewPage() {
 
   function requireLogin() {
     if (user) return true;
-    loginToQcPortal();
+    startLogin();
     return false;
   }
 
-  async function handleApprove(proposal) {
-    if (!requireLogin()) return;
-    const pid = proposal.proposal_id;
-    patchDetail(pid, { action: 'approving', error: '', drift: null });
-    try {
-      const result = await approveProposal(pid, proposal.body_hash);
-      patchDetail(pid, { action: 'applied', result });
-      refreshList();
-    } catch (err) {
-      console.error('[migrate/review] approve failed:', err);
-      if (err.code === 'base_drift') {
-        patchDetail(pid, {
-          action: 'drift',
-          drift: err.payload.current ?? null,
-          live: err.payload.current ?? null,
-          error: err.payload.detail || 'The DocDB record changed after this proposal was made.',
-        });
-        return;
-      }
-      if (err.code === 'not_authenticated') { loginToQcPortal(); return; }
-      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
-      if (err.code === 'not_open' || err.code === 'hash_mismatch') refreshList();
-    }
+  function detailIsDrifted(proposal) {
+    return proposal.status === 'open' && details[proposal.proposal_id]?.action === 'drift';
   }
 
-  async function handleReject(proposal, reason) {
-    if (!requireLogin()) return;
-    const pid = proposal.proposal_id;
-    patchDetail(pid, { action: 'rejecting', error: '' });
-    try {
-      await rejectProposal(pid, reason);
-      patchDetail(pid, { action: 'rejected' });
-      refreshList();
-    } catch (err) {
-      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
-    }
+  function errorMessage(error) {
+    return error.payload?.detail || error.message || String(error);
   }
 
-  async function handleWithdraw(proposal) {
+  async function handleApprove(group) {
     if (!requireLogin()) return;
-    const pid = proposal.proposal_id;
-    patchDetail(pid, { action: 'withdrawing', error: '' });
-    try {
-      await withdrawProposal(pid);
-      patchDetail(pid, { action: 'withdrawn' });
-      refreshList();
-    } catch (err) {
-      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
-    }
+    const pending = group.proposals.filter((proposal) => (
+      proposal.status === 'open'
+      && proposal.author !== user
+      && !detailIsDrifted(proposal)
+      && !proposalIsLocallyClosed(details[proposal.proposal_id])
+    ));
+    if (!pending.length) return;
+    pending.forEach((proposal) => {
+      patchDetail(proposal.proposal_id, { action: 'approving', error: '', drift: null });
+    });
+    const tokenPromise = getQcIdentityToken();
+    let needsLogin = false;
+    await mapSettledWithConcurrency(
+      pending,
+      async (proposal) => approveProposal(
+        proposal.proposal_id,
+        proposal.body_hash,
+        { token: await tokenPromise },
+      ),
+      4,
+      (result, index) => {
+        const proposal = pending[index];
+        if (result.status === 'fulfilled') {
+          patchDetail(proposal.proposal_id, { action: 'applied', result: result.value });
+          return;
+        }
+        const err = result.reason;
+        console.error('[migrate/review] approve failed:', err);
+        if (err.code === 'base_drift') {
+          patchDetail(proposal.proposal_id, {
+            action: 'drift',
+            drift: err.payload.current ?? null,
+            live: err.payload.current ?? null,
+            liveStatus: 'ready',
+            error: err.payload.detail || 'The DocDB record changed after this proposal was made.',
+          });
+        } else {
+          if (err.code === 'not_authenticated' || err.status === 401) needsLogin = true;
+          patchDetail(proposal.proposal_id, { action: 'error', error: errorMessage(err) });
+        }
+      },
+    );
+    if (needsLogin) startLogin();
+    refreshList();
+  }
+
+  async function handleReject(group, reason) {
+    if (!requireLogin()) return;
+    const pending = group.proposals.filter((proposal) => (
+      proposal.status === 'open'
+      && !proposalIsLocallyClosed(details[proposal.proposal_id])
+    ));
+    pending.forEach((proposal) => patchDetail(proposal.proposal_id, { action: 'rejecting', error: '' }));
+    const tokenPromise = getQcIdentityToken();
+    let needsLogin = false;
+    await mapSettledWithConcurrency(
+      pending,
+      async (proposal) => rejectProposal(proposal.proposal_id, reason, { token: await tokenPromise }),
+      4,
+      (result, index) => {
+        const proposal = pending[index];
+        if (result.status === 'fulfilled') patchDetail(proposal.proposal_id, { action: 'rejected' });
+        else {
+          const err = result.reason;
+          if (err.code === 'not_authenticated' || err.status === 401) needsLogin = true;
+          patchDetail(proposal.proposal_id, { action: 'error', error: errorMessage(err) });
+        }
+      },
+    );
+    if (needsLogin) startLogin();
+    refreshList();
+  }
+
+  async function handleWithdraw(group) {
+    if (!requireLogin()) return;
+    const pending = group.proposals.filter((proposal) => (
+      proposal.status === 'open'
+      && proposal.author === user
+      && !proposalIsLocallyClosed(details[proposal.proposal_id])
+    ));
+    pending.forEach((proposal) => patchDetail(proposal.proposal_id, { action: 'withdrawing', error: '' }));
+    const tokenPromise = getQcIdentityToken();
+    let needsLogin = false;
+    await mapSettledWithConcurrency(
+      pending,
+      async (proposal) => withdrawProposal(proposal.proposal_id, { token: await tokenPromise }),
+      4,
+      (result, index) => {
+        const proposal = pending[index];
+        if (result.status === 'fulfilled') patchDetail(proposal.proposal_id, { action: 'withdrawn' });
+        else {
+          const err = result.reason;
+          if (err.code === 'not_authenticated' || err.status === 401) needsLogin = true;
+          patchDetail(proposal.proposal_id, { action: 'error', error: errorMessage(err) });
+        }
+      },
+    );
+    if (needsLogin) startLogin();
+    refreshList();
   }
 
   async function handleRebase(proposal, live) {
@@ -202,13 +302,16 @@ export function MigrateReviewPage() {
     const pid = proposal.proposal_id;
     patchDetail(pid, { action: 'rebasing', error: '' });
     try {
-      const body = rebaseOntoCurrent(proposal.base, proposal.body, live);
+      const fullProposal = details[pid]?.proposal ?? await getProposal(pid);
+      if (!fullProposal) throw new Error('Proposal details are unavailable.');
+      patchDetail(pid, { proposal: fullProposal, proposalStatus: 'ready' });
+      const body = rebaseOntoCurrent(fullProposal.base, fullProposal.body, live);
       const created = await createProposal({
         version: proposal.version,
         id: proposal.record_id,
         body,
-        note: proposal.note
-          ? `${proposal.note} (rebased from ${pid})`
+        note: fullProposal.note
+          ? `${fullProposal.note} (rebased from ${pid})`
           : `Rebased from ${pid}`,
         supersedes: pid,
       });
@@ -216,7 +319,8 @@ export function MigrateReviewPage() {
       setOpenId(created.proposal_id);
       refreshList();
     } catch (err) {
-      patchDetail(pid, { action: 'error', error: err.payload?.detail || err.message || String(err) });
+      if (err.code === 'not_authenticated' || err.status === 401) startLogin();
+      patchDetail(pid, { action: 'error', error: errorMessage(err) });
     }
   }
 
@@ -224,18 +328,16 @@ export function MigrateReviewPage() {
     <div class="migrate-page">
       <h1>Review metadata proposals</h1>
       <p class="migrate-intro">
-        Every change submitted from <a href="/migrate/submit">/migrate/submit</a>
-        waits here until a second QC-portal user approves it. Open one to see
-        exactly what it changes, then approve — the portal writes to DocDB for
-        you, after re-checking that the record has not moved in the meantime.
-        You cannot approve your own proposal.
+        Changes submitted from the${' '}<a href="/migrate/submit">submit page</a>${' '}
+        appear here for review. A second QC Portal user must approve them before
+        they are written to DocDB. You cannot approve your own proposal.
       </p>
 
       <${QcLoginBar}
         user=${user}
         status=${authStatus}
-        onLogin=${() => loginToQcPortal()}
-        onLogout=${() => logoutQcPortal(refreshUser)}
+        onLogin=${startLogin}
+        onLogout=${() => logoutQc()}
       />
 
       <section class="migrate-section">
@@ -260,8 +362,8 @@ export function MigrateReviewPage() {
       </section>
 
       <section class="migrate-section">
-        <h2>${activeFilter.label} (${visible.length})</h2>
-        ${visible.length === 0
+        <h2>${activeFilter.label} (${visible.length} proposals · ${groups.length} change groups)</h2>
+        ${groups.length === 0
           ? html`<p class="migrate-empty">${listStatus === 'loading' ? 'Loading…' : 'Nothing here.'}</p>`
           : html`
               <div class="migrate-table-responsive">
@@ -269,34 +371,39 @@ export function MigrateReviewPage() {
                   <thead>
                     <tr>
                       <th>Submitted</th>
+                      <th>Assets</th>
                       <th>Author</th>
                       <th>DocDB</th>
-                      <th>Asset</th>
                       <th>Changed sections</th>
                       <th>Status</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    ${visible.map((p) => {
-                      const isOpen = openId === p.proposal_id;
-                      const sections = topLevelChangedSections(p.base, p.body).join(', ') || '—';
+                    ${groups.map((group) => {
+                      const first = group.proposals[0];
+                      const isOpen = openGroup?.key === group.key;
+                      const sections = [...new Set(group.proposals.flatMap(proposalChangedSections))].join(', ') || '—';
+                      const statuses = [...new Set(group.proposals.map((p) => p.status))];
+                      const status = statuses.length === 1 ? statuses[0] : 'mixed';
+                      const authors = [...new Set(group.proposals.map((p) => p.author))];
+                      const firstAsset = first.record_name ?? first.record_id;
                       return html`
                         <tr
-                          key=${p.proposal_id}
+                          key=${group.key}
                           class=${isOpen ? 'migrate-row-selected' : ''}
-                          onClick=${() => setOpenId(isOpen ? null : p.proposal_id)}
+                          onClick=${() => setOpenId(isOpen ? null : first.proposal_id)}
                         >
-                          <td>${formatProposalTime(p.created_at)}</td>
-                          <td>${p.author}</td>
-                          <td>${p.version}</td>
-                          <td>${p.record_name ?? p.record_id}</td>
+                          <td>${formatProposalTime(first.created_at)}</td>
+                          <td>${group.proposals.length === 1 ? firstAsset : `${firstAsset} + ${group.proposals.length - 1} more`}</td>
+                          <td>${authors.length === 1 ? authors[0] : `${authors.length} authors`}</td>
+                          <td>${first.version}</td>
                           <td>${sections}</td>
-                          <td><${StatusPill} status=${p.status} /></td>
+                          <td><${StatusPill} status=${status} /></td>
                           <td>
                             <button
                               class="btn-secondary"
-                              onClick=${(e) => { e.stopPropagation(); setOpenId(isOpen ? null : p.proposal_id); }}
+                              onClick=${(e) => { e.stopPropagation(); setOpenId(isOpen ? null : first.proposal_id); }}
                             >${isOpen ? 'Close' : 'Review'}</button>
                           </td>
                         </tr>`;
@@ -306,146 +413,167 @@ export function MigrateReviewPage() {
               </div>`}
       </section>
 
-      ${open
+      ${openGroup
         ? html`
-            <${ReviewDetail}
-              key=${open.proposal_id}
-              proposal=${open}
-              detail=${details[open.proposal_id] ?? {}}
+            <${ReviewGroupDetail}
+              key=${openGroup.key}
+              group=${openGroup}
+              details=${details}
               user=${user}
-              onApprove=${() => handleApprove(open)}
-              onReject=${(reason) => handleReject(open, reason)}
-              onWithdraw=${() => handleWithdraw(open)}
-              onRebase=${(live) => handleRebase(open, live)}
+              onApprove=${() => handleApprove(openGroup)}
+              onReject=${(reason) => handleReject(openGroup, reason)}
+              onWithdraw=${() => handleWithdraw(openGroup)}
+              onRebase=${(proposal, live) => handleRebase(proposal, live)}
               onClose=${() => setOpenId(null)}
             />`
         : null}
     </div>`;
 }
 
-/** Detail panel for one proposal. */
-function ReviewDetail({ proposal, detail, user, onApprove, onReject, onWithdraw, onRebase, onClose }) {
-  const { live, liveStatus, liveError, action, error, result } = detail;
+/** Detail panel for one or more proposals with the same proposed change. */
+function ReviewGroupDetail({ group, details, user, onApprove, onReject, onWithdraw, onRebase, onClose }) {
   const [reason, setReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
-
+  const proposals = group.proposals;
+  const first = proposals[0];
+  const openProposals = proposals.filter((proposal) => (
+    proposal.status === 'open'
+    && !proposalIsLocallyClosed(details[proposal.proposal_id])
+  ));
+  const ownProposals = openProposals.filter((proposal) => proposal.author === user);
+  const approvable = openProposals.filter((proposal) => (
+    proposal.author !== user
+    && !proposalIsDrifted(proposal, details[proposal.proposal_id])
+  ));
+  const busy = openProposals.some((proposal) => (
+    ['approving', 'rejecting', 'withdrawing', 'rebasing'].includes(details[proposal.proposal_id]?.action)
+  ));
+  const firstDetail = details[first.proposal_id] ?? {};
+  const fullFirst = firstDetail.proposal;
+  const checking = firstDetail.proposalStatus === 'loading';
   const proposedDiff = useMemo(
-    () => diffJson(proposal.base ?? null, proposal.body),
-    [proposal],
+    () => (fullFirst ? diffJson(fullFirst.base ?? null, fullFirst.body) : null),
+    [fullFirst],
   );
-  // Drift is the same check the portal makes at approve time, surfaced early.
-  const drifted = Boolean(live) && proposal.status === 'open' && !deepEqual(live, proposal.base);
-  const driftDiff = useMemo(
-    () => (drifted ? diffJson(proposal.base ?? null, live) : null),
-    [drifted, proposal, live],
-  );
-
-  const busy = ['approving', 'rejecting', 'withdrawing', 'rebasing'].includes(action);
-  const done = ['applied', 'rejected', 'withdrawn', 'rebased'].includes(action);
-  const isAuthor = Boolean(user) && user === proposal.author;
-  const closed = proposal.status !== 'open';
-
-  const approveLabel = action === 'approving' ? 'Approving…'
-    : action === 'applied' ? 'Applied ✓'
-    : user ? 'Approve & apply'
-    : 'Log in to approve';
+  const sections = [...new Set(proposals.flatMap(proposalChangedSections))];
+  const notes = [...new Set(proposals.map((proposal) => proposal.note).filter(Boolean))];
+  const authors = [...new Set(proposals.map((proposal) => proposal.author))];
+  const statusList = [...new Set(proposals.map((proposal) => proposal.status))];
+  const status = statusList.length === 1 ? statusList[0] : 'mixed';
 
   return html`
     <section class="migrate-section">
       <h2>
-        Review:
-        <code style="font-weight:normal">${proposal.record_name ?? proposal.record_id}</code>
+        Review change across ${proposals.length} asset${proposals.length === 1 ? '' : 's'}
         <span class="text-secondary" style="font-weight:400; font-size:0.85em; margin-left:8px;">
-          (${proposal.version} · _id ${proposal.record_id} · by ${proposal.author} ·
-          ${formatProposalTime(proposal.created_at)})
+          (${first.version} · ${authors.length === 1 ? `by ${authors[0]}` : `${authors.length} authors`})
         </span>
       </h2>
 
       <div class="migrate-selected">
-        <div><strong>status:</strong> <${StatusPill} status=${proposal.status} /></div>
-        ${proposal.note ? html`<div><strong>note:</strong> ${proposal.note}</div>` : null}
-        <div><strong>changed sections:</strong>
-          ${topLevelChangedSections(proposal.base, proposal.body).join(', ') || '—'}</div>
-        <div><strong>body hash:</strong> <code>${proposal.body_hash}</code></div>
-        ${proposal.reviewer
-          ? html`<div><strong>reviewed by:</strong> ${proposal.reviewer} (${formatProposalTime(proposal.reviewed_at)})</div>`
-          : null}
-        ${proposal.reason ? html`<div><strong>reason:</strong> ${proposal.reason}</div>` : null}
-        ${proposal.superseded_by
-          ? html`<div><strong>superseded by:</strong>
-              <a href=${`/migrate/review?focus=${encodeURIComponent(proposal.superseded_by)}`}>${proposal.superseded_by}</a></div>`
-          : null}
+        <div><strong>status:</strong> <${StatusPill} status=${status} /></div>
+        <div><strong>changed sections:</strong> ${sections.join(', ') || '—'}</div>
+        <div><strong>assets:</strong> ${proposals.length}</div>
+        ${notes.length === 1 ? html`<div><strong>note:</strong> ${notes[0]}</div>` : null}
+        ${notes.length > 1 ? html`<div><strong>notes:</strong> ${notes.length} different notes across this group</div>` : null}
       </div>
 
-      <${DiffView} entries=${proposedDiff} title="What this proposal changes" />
-
-      ${liveStatus === 'loading'
-        ? html`<p class="loading-message">Checking the live DocDB record…</p>`
+      ${checking ? html`<p class="loading-message">Loading the proposed change…</p>` : null}
+      ${firstDetail.proposalStatus === 'error'
+        ? html`<p class="error-banner">${firstDetail.proposalError}</p>`
         : null}
-      ${liveStatus === 'error'
-        ? html`<p class="warning-banner">Could not read the live DocDB record: ${liveError}</p>`
-        : null}
-
-      ${drifted
-        ? html`
-            <div class="migrate-submit-banner migrate-failed">
-              <strong>⚠ The DocDB record changed after this proposal was made.</strong>
-              Approving is blocked so the newer record is not clobbered. Rebase to
-              re-apply the author's sections onto the current record as a new
-              proposal — which then needs its own review.
-              <${DiffView} entries=${driftDiff} title="What changed in DocDB since this proposal" />
-              <div class="migrate-submit-row">
-                <button class="btn-primary" disabled=${busy} onClick=${() => onRebase(live)}>
-                  ${action === 'rebasing' ? 'Rebasing…' : 'Rebase onto current record'}
-                </button>
-              </div>
-            </div>`
+      ${fullFirst
+        ? html`<${DiffView} entries=${proposedDiff} title="Common change (shown for the first asset)" />`
         : null}
 
-      ${!closed
+      <div class="migrate-table-responsive" style="max-height:420px; margin-top:16px">
+        <table class="data-table migrate-table">
+          <thead><tr><th>Asset</th><th>Author</th><th>Status</th><th>Result</th></tr></thead>
+          <tbody>
+            ${proposals.map((proposal) => {
+              const detail = details[proposal.proposal_id] ?? {};
+              const drifted = proposalIsDrifted(proposal, detail);
+              const action = detail.action;
+              return html`
+                <tr key=${proposal.proposal_id}>
+                  <td>
+                    <div>${proposal.record_name ?? proposal.record_id}</div>
+                    <div class="migrate-id-cell">${proposal.record_id}</div>
+                  </td>
+                  <td>${proposal.author}</td>
+                  <td><${StatusPill} status=${proposal.status} /></td>
+                  <td>
+                    ${drifted && proposal.status === 'open'
+                      ? html`
+                          <span style="color:var(--color-red)">Changed since submission</span>
+                          <button
+                            class="btn-secondary"
+                            disabled=${busy || action === 'rebasing'}
+                            onClick=${() => onRebase(proposal, detail.live)}
+                          >${action === 'rebasing' ? 'Rebasing…' : 'Rebase'}</button>`
+                      : null}
+                    ${action === 'approving' ? html`<span class="text-secondary">Applying…</span>` : null}
+                    ${action === 'rejecting' ? html`<span class="text-secondary">Rejecting…</span>` : null}
+                    ${action === 'withdrawing' ? html`<span class="text-secondary">Withdrawing…</span>` : null}
+                    ${action === 'rebasing' ? html`<span class="text-secondary">Rebasing…</span>` : null}
+                    ${action === 'applied' ? html`<span class="text-secondary">Applied ✓</span>` : null}
+                    ${action === 'rejected' ? html`<span class="text-secondary">Rejected</span>` : null}
+                    ${action === 'withdrawn' ? html`<span class="text-secondary">Withdrawn</span>` : null}
+                    ${action === 'rebased' ? html`<span class="text-secondary">Rebased</span>` : null}
+                    ${detail.error ? html`<div class="migrate-id-cell" style="color:var(--color-red)">${detail.error}</div>` : null}
+                  </td>
+                </tr>`;
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      ${openProposals.length
         ? html`
             <div class="migrate-submit-row">
               <button
                 class="btn-primary migrate-action-btn"
                 onClick=${onApprove}
-                disabled=${busy || done || drifted || (isAuthor && Boolean(user))}
-                title=${isAuthor ? 'You submitted this proposal — someone else has to approve it' : ''}
-              >${approveLabel}</button>
-              <button class="btn-secondary" disabled=${busy || done} onClick=${() => setRejecting((v) => !v)}>
-                Reject…
+                disabled=${busy || checking || !fullFirst || !approvable.length || !user}
+              >${checking ? 'Loading review…'
+                : !user ? 'Log in to approve'
+                : approvable.length === openProposals.length ? `Approve all ${approvable.length} & apply`
+                : `Approve ${approvable.length} unchanged & apply`}</button>
+              <button class="btn-secondary" disabled=${busy} onClick=${() => setRejecting((value) => !value)}>
+                Reject all…
               </button>
-              ${isAuthor
-                ? html`<button class="btn-secondary" disabled=${busy || done} onClick=${onWithdraw}>Withdraw</button>`
+              ${ownProposals.length
+                ? html`<button class="btn-secondary" disabled=${busy} onClick=${onWithdraw}>
+                    Withdraw my ${ownProposals.length}
+                  </button>`
                 : null}
               <button
                 class="btn-secondary"
                 onClick=${() => navigator.clipboard
-                  .writeText(`${window.location.origin}/migrate/review?focus=${proposal.proposal_id}`)
+                  .writeText(`${window.location.origin}/migrate/review?focus=${first.proposal_id}`)
                   .catch(() => {})}
               >Copy review URL</button>
               <button class="btn-secondary" onClick=${onClose}>Close</button>
             </div>
-
-            ${isAuthor && user
+            ${ownProposals.length && user
               ? html`<p class="text-secondary" style="margin-top:8px">
-                  You submitted this proposal — it needs a different QC-portal user to approve it.
+                  Your ${ownProposals.length === 1 ? 'proposal is' : 'proposals are'} excluded from approval; a different QC-portal user must approve them.
                 </p>`
               : null}
-
             ${rejecting
               ? html`
                   <div class="migrate-note-row">
-                    <label for="migrate-reject-reason">Why are you rejecting this?</label>
+                    <label for="migrate-reject-reason">Why are you rejecting these proposals?</label>
                     <input
                       id="migrate-reject-reason"
                       type="text"
                       class="migrate-asset-input"
-                      placeholder="e.g. the existing value is correct — the service pull is wrong"
+                      placeholder="e.g. the existing values are correct"
                       value=${reason}
                       onInput=${(e) => setReason(e.currentTarget.value)}
                     />
                     <button class="btn-secondary" disabled=${busy} onClick=${() => onReject(reason)}>
-                      ${action === 'rejecting' ? 'Rejecting…' : 'Confirm reject'}
+                      ${busy ? 'Rejecting…' : `Reject ${openProposals.length}`}
                     </button>
                   </div>`
               : null}`
@@ -453,33 +581,13 @@ function ReviewDetail({ proposal, detail, user, onApprove, onReject, onWithdraw,
             <div class="migrate-submit-row">
               <button class="btn-secondary" onClick=${onClose}>Close</button>
             </div>`}
-
-      ${action === 'applied'
-        ? html`
-            <div class="migrate-submit-banner migrate-success">
-              <strong>✓ Applied to DocDB.</strong>
-              ${result?.proposal?.docdb_status ? html` DocDB status: ${result.proposal.docdb_status}.` : null}
-            </div>`
-        : null}
-
-      ${action === 'rejected'
-        ? html`<div class="migrate-submit-banner migrate-pending"><strong>Rejected.</strong></div>`
-        : null}
-
-      ${action === 'withdrawn'
-        ? html`<div class="migrate-submit-banner migrate-pending"><strong>Withdrawn.</strong></div>`
-        : null}
-
-      ${action === 'rebased'
-        ? html`
-            <div class="migrate-submit-banner migrate-pending">
-              <strong>Rebased.</strong> A new proposal has been opened against the
-              current record and still needs review.
-            </div>`
-        : null}
-
-      ${action === 'error' || (action === 'drift' && error)
-        ? html`<div class="migrate-submit-banner migrate-error"><strong>Error.</strong> ${error}</div>`
-        : null}
     </section>`;
+}
+
+function proposalIsDrifted(proposal, detail) {
+  return proposal.status === 'open' && detail?.action === 'drift';
+}
+
+function proposalIsLocallyClosed(detail) {
+  return ['applied', 'rejected', 'withdrawn', 'rebased'].includes(detail?.action);
 }

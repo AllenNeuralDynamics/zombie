@@ -22,6 +22,7 @@
 
 import * as Plot from '@observablehq/plot';
 import { createBrushOverview } from '../lib/behaviors/brush-overview.js';
+import { getShowSpoutBias, setShowSpoutBias } from './preferences.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -44,8 +45,8 @@ const Y_PROB_SPAN      = 1.45;
 
 const Y_LREW_BOT  = 0.00, Y_LREW_TOP  = 0.55;   // L Reward ticks
 const Y_LCHO_BOT  = 0.65, Y_LCHO_TOP  = 1.45;   // L Choice blocks
-const Y_PL_BOT    = 1.50, Y_PL_TOP    = Y_CENTER;               // p(L) band
-const Y_PR_BOT    = Y_CENTER, Y_PR_TOP = Y_CENTER + Y_PROB_SPAN; // p(R) band
+const Y_PL_TOP    = Y_CENTER;               // p(L) band
+const Y_PR_BOT    = Y_CENTER; // p(R) band
 const Y_RCHO_BOT  = 4.45, Y_RCHO_TOP  = 5.25;   // R Choice blocks
 const Y_RREW_BOT  = 5.35, Y_RREW_TOP  = 5.90;   // R Reward ticks
 const Y_IGN_BOT   = 6.00, Y_IGN_TOP   = 6.55;   // Ignored ticks
@@ -63,8 +64,6 @@ const Y_LABEL_LREW = (Y_LREW_BOT + Y_LREW_TOP) / 2;
 
 const MIN_PLOT_W       = 320;
 
-const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
-
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -73,11 +72,21 @@ const BRUSH_HANDLE_PX  = 8;    // px within which to grab a brush edge
  * Build the probability + raster plot for one session.
  *
  * @param {{trials:object[], licks:{t,side}, rewards:{t,side}, goCues, sessionEndS:number}} data
+ * @param {object} [opts]
+ * @param {boolean} [opts.showRowLabels=true] - Draw the row-label gutter. Set
+ *   false for every column but the first when several sessions are placed
+ *   side by side: the rows line up, so one gutter labels them all.
  * @returns {{ element: HTMLElement, updatePlayhead:(t:number)=>void, setOnScrub:(cb:(t:number)=>void)=>void, dispose:()=>void }}
  */
-export function createProbPlot(data) {
+export function createProbPlot(data, opts = {}) {
+  const { showRowLabels = true, minPlotW = MIN_PLOT_W, showSpoutBias = getShowSpoutBias(), spoutBiasToggle = true } = opts;
+  let showDetails = showSpoutBias;
+  const detailData = _buildSpoutBiasData(data.trials, data.sessionEndS, opts.spoutXBaseline);
+  // Without the gutter the plot keeps only enough left margin for the y-edge.
+  const margin = { ...MARGIN, left: showRowLabels ? MARGIN.left : 14, right: 54 };
   const { trials, rewards, sessionEndS } = data;
   const stepData = _buildStepData(trials, sessionEndS);
+  const sessionGroup = data.sessionStarts ? { z: 'session' } : {};
   const { rewardL, rewardR } = _splitRewards(rewards);
   const ignoredTicks         = _ignoredTrialTicks(trials);
   const { choiceL, choiceR } = _choiceSpans(trials, sessionEndS);
@@ -100,7 +109,7 @@ export function createProbPlot(data) {
     .filter((tr) => Number.isFinite(tr.goCue_t))
     .map((tr, i, arr) => ({
       x1: tr.goCue_t,
-      x2: i + 1 < arr.length ? arr[i + 1].goCue_t : sessionEndS,
+      x2: Math.min(tr.sessionEnd_t ?? sessionEndS, i + 1 < arr.length ? arr[i + 1].goCue_t : sessionEndS),
       even: i % 2 === 0,
     }));
 
@@ -109,8 +118,8 @@ export function createProbPlot(data) {
   // zoom/pan brush, playheads and scrubbing).
   // ===========================================================================
 
-  const innerH = PLOT_HEIGHT - MARGIN.top - MARGIN.bottom;
-  const yToPx  = (yData) => MARGIN.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
+  const innerH = PLOT_HEIGHT - margin.top - margin.bottom;
+  const yToPx  = (yData) => margin.top + (1 - yData / Y_DOMAIN_MAX) * innerH;
 
   let xMode = 'time';
 
@@ -118,17 +127,17 @@ export function createProbPlot(data) {
     const plot = Plot.plot({
       width: w,
       height: OVERVIEW_HEIGHT,
-      marginLeft:   MARGIN.left,
-      marginRight:  MARGIN.right,
+      marginLeft:   margin.left,
+      marginRight:  margin.right,
       marginTop:    3,
       marginBottom: 3,
       style: { background: 'transparent', fontFamily: 'inherit', overflow: 'hidden' },
       x: { axis: null, domain: [0, sessionEndS] },
       y: { axis: null, domain: [0, 1] },
       marks: [
-        Plot.lineY(stepData, { x: 't', y: 'pL', stroke: COLOR_L,
+        Plot.lineY(stepData, { x: 't', y: 'pL', ...sessionGroup, stroke: COLOR_L,
           strokeWidth: 1.5, curve: 'step-after' }),
-        Plot.lineY(stepData, { x: 't', y: 'pR', stroke: COLOR_R,
+        Plot.lineY(stepData, { x: 't', y: 'pR', ...sessionGroup, stroke: COLOR_R,
           strokeWidth: 1.5, curve: 'step-after' }),
       ],
     });
@@ -139,10 +148,10 @@ export function createProbPlot(data) {
     const plot = Plot.plot({
       width: w,
       height: PLOT_HEIGHT,
-      marginLeft:   MARGIN.left,
-      marginRight:  MARGIN.right,
-      marginTop:    MARGIN.top,
-      marginBottom: MARGIN.bottom,
+      marginLeft:   margin.left,
+      marginRight:  margin.right,
+      marginTop:    margin.top,
+      marginBottom: margin.bottom,
       style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-primary, #111111)' },
       clip: true,
       x: {
@@ -168,18 +177,18 @@ export function createProbPlot(data) {
           stroke: COLOR_EVENT, strokeWidth: 1 }),
         Plot.rect(choiceL, { x1: 'x1', x2: 'x2', y1: Y_LCHO_BOT, y2: Y_LCHO_TOP,
           fill: COLOR_CHOICE, fillOpacity: 0.85, stroke: 'none' }),
-        Plot.areaY(stepData, { x: 't', y1: Y_PL_TOP,
+        Plot.areaY(stepData, { x: 't', ...sessionGroup, y1: Y_PL_TOP,
           y2: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
           curve: 'step-after', fill: COLOR_L, fillOpacity: 0.35 }),
-        Plot.lineY(stepData, { x: 't',
+        Plot.lineY(stepData, { x: 't', ...sessionGroup,
           y: (d) => Y_PL_TOP - d.pL * Y_PROB_SPAN,
           stroke: COLOR_L, strokeWidth: 1.4, curve: 'step-after' }),
 
         // --- Right side (top) ---
-        Plot.areaY(stepData, { x: 't', y1: Y_PR_BOT,
+        Plot.areaY(stepData, { x: 't', ...sessionGroup, y1: Y_PR_BOT,
           y2: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
           curve: 'step-after', fill: COLOR_R, fillOpacity: 0.35 }),
-        Plot.lineY(stepData, { x: 't',
+        Plot.lineY(stepData, { x: 't', ...sessionGroup,
           y: (d) => Y_PR_BOT + d.pR * Y_PROB_SPAN,
           stroke: COLOR_R, strokeWidth: 1.4, curve: 'step-after' }),
         Plot.rect(choiceR, { x1: 'x1', x2: 'x2', y1: Y_RCHO_BOT, y2: Y_RCHO_TOP,
@@ -187,30 +196,100 @@ export function createProbPlot(data) {
         Plot.ruleX(rewardR, { x: 't', y1: Y_RREW_BOT, y2: Y_RREW_TOP,
           stroke: COLOR_EVENT, strokeWidth: 1 }),
 
+        ...(data.sessionStarts ? [
+          Plot.ruleX(data.sessionStarts.slice(1), { x: 't', stroke: '#999', strokeDasharray: '3,3' }),
+          Plot.text(data.sessionStarts, { x: 't', y: Y_DOMAIN_MAX, text: 'label',
+            textAnchor: 'start', dx: 4, dy: 6, fontSize: 10 }),
+        ] : []),
+
         // Ignored trials (top)
         Plot.ruleX(ignoredTicks, { x: 't', y1: Y_IGN_BOT, y2: Y_IGN_TOP,
           stroke: COLOR_IGNORED, strokeWidth: 1.2 }),
       ],
     });
     holder.replaceChildren(plot);
+    if (showDetails) {
+      const row = document.createElement('div');
+      row.className = 'df-spout-bias-row';
+      if (!detailData.length) {
+        row.textContent = 'X and bias unavailable.';
+      } else {
+        const positions = detailData.filter((d) => d.series !== 'Bias').map((d) => d.value);
+        let low = positions.length ? positions.reduce((a, b) => Math.min(a, b), Infinity) : -1;
+        let high = positions.length ? positions.reduce((a, b) => Math.max(a, b), -Infinity) : 1;
+        const pad = (high - low || 1) * 0.08;
+        low -= pad;
+        high += pad;
+        const biasY = (value) => low + (value + 1) / 2 * (high - low);
+        const colors = { X: '#0891b2', Bias: '#9333ea' };
+        const legend = document.createElement('div');
+        legend.className = 'df-spout-bias-legend';
+        for (const series of Object.keys(colors)) {
+          if (!detailData.some((d) => d.series === series)) continue;
+          const label = document.createElement('span');
+          label.textContent = series;
+          label.style.color = colors[series];
+          legend.append(label);
+        }
+        row.append(legend, Plot.plot({
+          width: w, height: 150,
+          marginLeft: margin.left, marginRight: margin.right,
+          marginTop: 20, marginBottom: margin.bottom,
+          style: { background: 'transparent', fontFamily: 'inherit', fontSize: '11px', color: 'var(--text-primary, #111111)' },
+          clip: true,
+          x: { domain: [t0, t1], label: xMode === 'time' ? 'time (s) →' : 'trial →',
+            ...(xMode === 'trials' && trialTimes.length ? { tickFormat: (t) => String(_trialAtTime(t)) } : {}) },
+          y: { domain: [low, high], axis: null },
+          marks: [
+            Plot.axisY({ anchor: 'left', label: 'X − X(0)', ticks: 4 }),
+            Plot.ruleY([biasY(0)], { stroke: '#999', strokeDasharray: '3,3' }),
+            Plot.lineY(detailData, { x: 't', y: (d) => d.series === 'Bias' ? biasY(d.value) : d.value,
+              z: 'group', stroke: (d) => colors[d.series], curve: 'step-after' }),
+            Plot.axisY([-1, 0, 1].map(biasY), { anchor: 'right', label: 'Bias',
+              tickFormat: (v) => String(Math.round((v - low) / (high - low) * 2 - 1)) }),
+          ],
+        }));
+      }
+      holder.append(row);
+    }
   };
 
   const bz = createBrushOverview({
     sessionEndS,
-    margin: { left: MARGIN.left, right: MARGIN.right },
+    margin: { left: margin.left, right: margin.right },
     overviewHeight: OVERVIEW_HEIGHT,
-    minPlotW: MIN_PLOT_W,
-    scrubInset: { top: MARGIN.top - 6, bottom: MARGIN.bottom - 4 },
+    minPlotW: Math.max(minPlotW, margin.left + margin.right + 40),
+    scrubInset: { top: margin.top - 6, bottom: margin.bottom - 4 },
     wrapperClass: 'df-prob-plot-wrap',
     renderOverview,
     renderMain,
   });
 
-  // Overview hint overlay (kept from the original DF look).
-  const overviewHint = document.createElement('div');
-  overviewHint.className = 'df-brush-hint';
-  overviewHint.innerHTML = 'Click + drag<br>to zoom';
-  bz.overviewWrap.appendChild(overviewHint);
+  let settingsEl = null;
+  if (spoutBiasToggle) {
+    const label = document.createElement('label');
+    label.className = 'df-spout-bias-setting';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = showDetails;
+    toggle.addEventListener('change', () => {
+      showDetails = toggle.checked;
+      setShowSpoutBias(showDetails);
+      bz.redrawMain();
+    });
+    label.append(toggle, ' X & bias');
+    bz.element.prepend(label);
+    settingsEl = label;
+  }
+
+  // Overview hint overlay (kept from the original DF look). It sits in the
+  // label gutter, so it goes when the gutter does.
+  if (showRowLabels) {
+    const overviewHint = document.createElement('div');
+    overviewHint.className = 'df-brush-hint';
+    overviewHint.innerHTML = 'Click + drag<br>to zoom';
+    bz.overviewWrap.appendChild(overviewHint);
+  }
 
   // Row-label overlays positioned in the gutter.
   const ROW_LABELS = [
@@ -222,8 +301,10 @@ export function createProbPlot(data) {
     ['L Choice', COLOR_L,       Y_LABEL_LCHO],
     ['L Reward', COLOR_L,       Y_LABEL_LREW],
   ];
-  for (const [text, color, yData] of ROW_LABELS) {
-    bz.mainWrap.appendChild(_makeRowLabel(text, color, MARGIN.left - 6, yToPx(yData)));
+  if (showRowLabels) {
+    for (const [text, color, yData] of ROW_LABELS) {
+      bz.mainWrap.appendChild(_makeRowLabel(text, color, margin.left - 6, yToPx(yData)));
+    }
   }
 
   // X-axis mode toggle — returned so the caller can place it wherever it likes.
@@ -248,6 +329,7 @@ export function createProbPlot(data) {
   return {
     element: bz.element,
     toggleEl: xToggle,
+    settingsEl,
     updatePlayhead: bz.updatePlayhead,
     setOnScrub: bz.setOnScrub,
     dispose: bz.dispose,
@@ -295,13 +377,18 @@ function _makeRowLabel(text, color, rightPx, topPx) {
  */
 export function _buildStepData(trials, sessionEndS) {
   const out = [];
-  for (const tr of trials) {
-    if (!Number.isFinite(tr.goCue_t) || !Number.isFinite(tr.pL) || !Number.isFinite(tr.pR)) continue;
-    out.push({ t: tr.goCue_t, pL: tr.pL, pR: tr.pR });
+  const valid = trials.filter((tr) => Number.isFinite(tr.goCue_t) && Number.isFinite(tr.pL) && Number.isFinite(tr.pR));
+  for (let i = 0; i < valid.length; i++) {
+    const tr = valid[i];
+    const point = { t: tr.goCue_t, pL: tr.pL, pR: tr.pR };
+    if (tr.session != null) point.session = tr.session;
+    out.push(point);
+    if (tr.sessionEnd_t != null && valid[i + 1]?.session !== tr.session) {
+      out.push({ ...point, t: tr.sessionEnd_t });
+    }
   }
-  if (out.length > 0) {
-    const last = out[out.length - 1];
-    out.push({ t: sessionEndS, pL: last.pL, pR: last.pR });
+  if (out.length > 0 && trials.every((tr) => tr.sessionEnd_t == null)) {
+    out.push({ ...out[out.length - 1], t: sessionEndS });
   }
   return out;
 }
@@ -382,7 +469,7 @@ export function _choiceSpans(trials, sessionEndS) {
   for (let i = 0; i < cues.length; i++) {
     const tr = cues[i];
     const x1 = tr.goCue_t;
-    const x2 = i + 1 < cues.length ? cues[i + 1].goCue_t : sessionEndS;
+    const x2 = Math.min(tr.sessionEnd_t ?? sessionEndS, i + 1 < cues.length ? cues[i + 1].goCue_t : sessionEndS);
     if (tr.response === 0) choiceL.push({ x1, x2 });
     else if (tr.response === 1) choiceR.push({ x1, x2 });
   }
@@ -399,6 +486,30 @@ export function _ignoredTrialTicks(trials) {
   const out = [];
   for (const tr of trials) {
     if (tr.response === 2 && Number.isFinite(tr.goCue_t)) out.push({ t: tr.goCue_t });
+  }
+  return out;
+}
+
+/** Build separate step traces, retaining gaps and session boundaries. */
+export function _buildSpoutBiasData(trials, sessionEndS, spoutXBaseline = trials[0]?.lickspout_position_x) {
+  const series = { X: 'lickspout_position_x', Bias: 'side_bias' };
+  const out = [];
+  for (const [label, key] of Object.entries(series)) {
+    let segment = 0;
+    for (let i = 0; i < trials.length; i++) {
+      const tr = trials[i];
+      if (!Number.isFinite(tr.goCue_t) || !Number.isFinite(tr[key])
+        || (label === 'X' && !Number.isFinite(spoutXBaseline))) {
+        segment++;
+        continue;
+      }
+      const point = { t: tr.goCue_t, value: label === 'X' ? tr[key] - spoutXBaseline : tr[key], series: label,
+        group: `${label}:${tr.session ?? 0}:${segment}` };
+      out.push(point);
+      const next = trials[i + 1];
+      const end = Math.min(tr.sessionEnd_t ?? sessionEndS, next?.goCue_t ?? sessionEndS);
+      if (Number.isFinite(end) && end > point.t) out.push({ ...point, t: end });
+    }
   }
   return out;
 }

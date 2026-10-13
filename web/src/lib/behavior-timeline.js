@@ -8,7 +8,7 @@
  * representing acquisitions coloured by modality or curriculum stage.
  */
 
-import { MODALITY_COLOR, modalityColor } from './charts.js';
+import { modalityColor } from './charts.js';
 
 // ---------------------------------------------------------------------------
 // Constants (exported so callers can compute cell widths)

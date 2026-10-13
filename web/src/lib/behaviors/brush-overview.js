@@ -43,7 +43,6 @@ export function createBrushOverview(config) {
     margin,
     renderOverview,
     renderMain,
-    overviewHeight = 34,
     minPlotW = 320,
     scrubInset = { top: 0, bottom: 0 },
     playheadColor = '#222',

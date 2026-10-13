@@ -138,7 +138,7 @@
   border-radius: 6px;
 }
 .dr-trial-info b { color: var(--text); }
-.dr-mod-vis { color: var(--ai-violet); font-weight: 600; }
+.dr-mod-vis { color: var(--color-green); font-weight: 600; }
 .dr-mod-aud { color: var(--color-yellow); font-weight: 600; }
 .dr-out-hit  { color: var(--color-green); font-weight: 600; }
 .dr-out-miss { color: var(--text-mut); }
@@ -233,4 +233,3 @@
 .dr-playhead {
   box-shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.6);
 }
-

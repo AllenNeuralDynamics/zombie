@@ -207,7 +207,7 @@ describe('renderAssetRow', () => {
   });
 
   it('escapes metadata values and generated href attributes', () => {
-    const payload = '\"><img src=x onerror="globalThis.__xss = true">';
+    const payload = '"><img src=x onerror="globalThis.__xss = true">';
     const html = renderAssetRow({
       ...row,
       _id: payload,
@@ -219,7 +219,6 @@ describe('renderAssetRow', () => {
     expect(html).toContain('&lt;img');
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // sortRows
@@ -316,6 +315,15 @@ describe('filterRows', () => {
   it('filters case-insensitively (substring match)', () => {
     const result = filterRows(rows, { project_name: 'alpha' });
     expect(result).toHaveLength(2);
+  });
+
+  it('matches date filters against Date-valued cells in the displayed format', () => {
+    const dateRows = [
+      { name: 'new', acquisition_start_time: new Date('2026-01-15T12:34:00Z') },
+      { name: 'old', acquisition_start_time: new Date('2025-12-31T23:59:00Z') },
+    ];
+    const result = filterRows(dateRows, { acquisition_start_time: '2026-' });
+    expect(result.map((row) => row.name)).toEqual(['new']);
   });
 
   it('returns an empty array when no rows match', () => {

@@ -22,12 +22,14 @@ import { hasImagingConfig } from './imaging-data.js';
 // The three.js-backed 3D viewers (brain-viz-3d / ephys-viz-3d / imaging-viz-3d)
 // pull in three.js + the CCF atlas JSON (~500 KB). They are imported on demand
 // via mountLazy3D() so they never enter the subject page's initial bundle.
-import { buildQcLink, buildMetadataLink, buildCoLink, buildS3ConsoleUrl } from '../assets/links.js';
+import { buildQcLink, buildMetadataLink, buildCoLink, renderStorageLink } from '../assets/links.js';
 import {
   isForagingAcquisition,
   extractForagingSessionInfo,
   createForagingSessionDetail,
 } from '../lib/behaviors/dynamic-foraging.js';
+import { createMultiSessionView } from '../lib/behaviors/multi-session.js';
+import { MULTI_SESSION_PROVIDERS } from '../lib/behaviors/multi-session-providers.js';
 import { createSessionPlayback } from '../lib/behaviors/session-playback.js';
 import { isISIAcquisition, createISIViewer } from './isi-viewer.js';
 import { escHtml, normalizeProtocolId } from '../lib/utils.js';
@@ -127,9 +129,9 @@ export function buildAcquisitionDetail(event) {
   const qcHref = buildQcLink(assetName);
   const metaHref = buildMetadataLink(assetName);
   const coHref = buildCoLink(data._codeOcean ?? null);
-  const s3Href = buildS3ConsoleUrl(data._location ?? null);
+  const storageLink = renderStorageLink(data._location ?? null);
   const linkParts = [
-    s3Href ? `<a href="${s3Href}" target="_blank" rel="noopener noreferrer">S3</a>` : '',
+    storageLink,
     coHref ? `<a href="${coHref}" target="_blank" rel="noopener noreferrer">Code Ocean</a>` : '',
     metaHref ? `<a href="${metaHref}" target="_blank" rel="noopener noreferrer">Metadata</a>` : '',
     qcHref ? `<a href="${qcHref}" target="_blank" rel="noopener noreferrer">QC Portal</a>` : '',
@@ -233,14 +235,14 @@ export function buildSpecimenProcedureDetail(event) {
  *   on this element so a subsequent call can restore the same tab.
  * @returns {HTMLElement}
  */
-function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
+function createTabWidget(tabs, { activeLabel, parentContainer, onTabSelect } = {}) {
   const container = document.createElement('div');
   container.className = 'detail-tabs';
 
   const tabBar = document.createElement('div');
   tabBar.className = 'detail-tab-bar';
 
-  const panels = tabs.map(({ label, content }) => {
+  const panels = tabs.map(({ content }) => {
     const panel = document.createElement('div');
     panel.className = 'detail-tab-panel';
     panel.style.display = 'none';
@@ -269,6 +271,7 @@ function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
         b.classList.toggle('active', j === i);
       });
       if (parentContainer) parentContainer._activeTabLabel = label;
+      onTabSelect?.(label);
     });
     tabBar.appendChild(btn);
     container.appendChild(panels[i]);
@@ -279,6 +282,7 @@ function createTabWidget(tabs, { activeLabel, parentContainer } = {}) {
     panels[initialIdx].style.display = '';
     tabBar.querySelectorAll('.detail-tab-btn')[initialIdx]?.classList.add('active');
     if (parentContainer) parentContainer._activeTabLabel = tabs[initialIdx].label;
+    onTabSelect?.(tabs[initialIdx].label);
   }
 
   container.insertBefore(tabBar, container.firstChild);
@@ -457,7 +461,7 @@ function createInjectionVizPanel(surgeryData, subjectId) {
   return container;
 }
 
-function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) {
+function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null, coordinator = null) {
   const container = document.createElement('div');
   const fibers = extractFibersFromSurgery(surgeryData, proceduresCoordSys).sort(
     (a, b) => a.name.localeCompare(b.name),
@@ -505,7 +509,7 @@ function createFiberVizPanel(surgeryData, subjectId, proceduresCoordSys = null) 
 
   mountLazy3D(vizRow, async () => {
     const { createBrainViz3D } = await import('./brain-viz-3d.js');
-    const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys);
+    const viz3d = createBrainViz3D(surgeryData, proceduresCoordSys, { coordinator, subjectId });
     viz3d.style.cssText += ';flex:1 1 400px;min-width:300px';
     return viz3d;
   });
@@ -661,8 +665,9 @@ function renderAcquisitionDetail(event, container, context = {}) {
   if (hasImaging) {
     const imagingEl = document.createElement('div');
     mountLazy3D(imagingEl, async () => {
-      const { createImagingDetailsPanel } = await import('./imaging-viz-3d.js');
-      return createImagingDetailsPanel(data);
+      const { createImagingDetailsPanel, loadSmartSpimRows } = await import('./imaging-viz-3d.js');
+      const smartSpimRows = await loadSmartSpimRows(context.coordinator, data._assetName);
+      return createImagingDetailsPanel(data, smartSpimRows);
     });
     tabDefs.push({ label: 'Imaging Details', content: imagingEl });
   }
@@ -678,7 +683,7 @@ function renderAcquisitionDetail(event, container, context = {}) {
   renderTabs(tabDefs);
 }
 
-function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null } = {}) {
+function renderSurgeryDetail(event, container, { subjectId = 'Unknown', proceduresCoordSys = null, coordinator = null, surgeryTab = null, onSurgeryTabSelect = null } = {}) {
   const { data = {} } = event;
   const tabDefs = [];
 
@@ -705,12 +710,12 @@ function renderSurgeryDetail(event, container, { subjectId = 'Unknown', procedur
 
   // Fiber locations tab (2D top-down)
   if (hasFiberImplants(data)) {
-    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys) });
+    tabDefs.push({ label: 'Fiber Locations', content: createFiberVizPanel(data, subjectId, proceduresCoordSys, coordinator) });
   }
 
-  const prevSurgTab = container._activeTabLabel;
+  const prevSurgTab = surgeryTab ?? container._activeTabLabel;
   container.innerHTML = '';
-  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevSurgTab, parentContainer: container }));
+  container.appendChild(createTabWidget(tabDefs, { activeLabel: prevSurgTab, parentContainer: container, onTabSelect: onSurgeryTabSelect }));
 }
 
 // ---------------------------------------------------------------------------
@@ -764,5 +769,42 @@ export function renderEventDetail(event, container, context = {}) {
       } else {
         container.innerHTML = buildSubProcedureDetail(event);
       }
+  }
+}
+
+/**
+ * Render a multi-session view into `container`, replacing the single-event
+ * detail views.
+ *
+ * Reached from a shift-click range or a ctrl/cmd-click scatter on the subject
+ * timeline. Which platforms have a multi-session view, and what it contains,
+ * is the providers' business (lib/behaviors/multi-session-providers.js) — this
+ * only owns the swap.
+ *
+ * @param {object[]} events - Selected timeline events, chronological.
+ * @param {HTMLElement} container - Element to render into (will be cleared).
+ * @param {object} [context]
+ * @param {object} [context.coordinator] - DuckDB coordinator.
+ * @param {string} [context.subjectId]   - Subject ID.
+ * @param {AbortSignal} [context.signal] - Abort pending section loads.
+ */
+export function renderMultiEventDetail(events, container, context = {}) {
+  disposeDetail(container);
+  container.replaceChildren(
+    createMultiSessionView(events ?? [], context, MULTI_SESSION_PROVIDERS),
+  );
+}
+
+/**
+ * Release listeners held by a rendered multi-session view (session figures
+ * install brush and resize handlers) before its container is reused.
+ *
+ * @param {HTMLElement} container
+ */
+export function disposeDetail(container) {
+  for (const el of container?.querySelectorAll?.('*') ?? []) {
+    if (typeof el._dispose === 'function') {
+      try { el._dispose(); } catch { /* already gone */ }
+    }
   }
 }

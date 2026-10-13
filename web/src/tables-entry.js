@@ -1,7 +1,7 @@
 import { coordinator, wasmConnector } from '@uwdata/vgplot';
 import { s3PathToHttps } from './lib/metadata.js';
 import { VERSIONS_URL, S3_BUCKET, S3_REGION } from './constants.js';
-import { escHtml, filterRows } from './lib/utils.js';
+import { escHtml } from './lib/utils.js';
 
 const PAGE_SIZE = 100;
 
@@ -18,6 +18,11 @@ function buildPythonSnippet(acornName, version, partValue) {
   const versionRange = `"biodata-cache>=${major}.${minor},<${major}.${minor + 1}"`;
   const lines = [
     `# pip install ${versionRange}`,
+    'import os',
+    '',
+    // biodata_cache picks its backend at import time; without S3 it rebuilds tables in memory.
+    'os.environ["BIODATA_CACHE_BACKEND"] = "S3"',
+    '',
     `from biodata_cache import ${fnName}`,
   ];
   if (partValue !== null) {

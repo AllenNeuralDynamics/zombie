@@ -143,7 +143,6 @@ export function parseAcquisition(acquisition) {
   const acqType = acquisition.acquisition_type ?? acquisition.session_type ?? 'Acquisition';
   const protocol = acquisition.protocol_name ?? '';
   const label = protocol ? `${acqType} (${protocol})` : acqType;
-  const durationHrs = (end - start) / 3_600_000;
 
   const modalities = (acquisition._modalities ?? [])
     .map((m) => typeof m === 'string' ? m : (m?.abbreviation ?? m?.name))

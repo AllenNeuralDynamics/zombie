@@ -271,7 +271,10 @@ export function createSessionPlayback(event, context = {}) {
         const hr = document.createElement('hr');
         hr.className = 'session-playback-sep';
         rasterMount.appendChild(hr);
-        rasterMount.appendChild(createDynamicRoutingRasterSection(coord, rawAssetName));
+        rasterMount.appendChild(createDynamicRoutingRasterSection(coord, rawAssetName, {
+          selectedUnitId: context.selectedUnitId,
+          onUnitSelect: context.onUnitSelect,
+        }));
       })
       .catch((err) => { console.error('[playback] dynamic routing raster load failed', err); });
   }

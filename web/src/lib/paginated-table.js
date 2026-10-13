@@ -5,7 +5,7 @@
  * Each helper generates HTML for a specific table component.
  */
 
-import { escHtml, uniqueValues, PAGE_SIZE } from './utils.js';
+import { escHtml, uniqueValues } from './utils.js';
 
 /**
  * Build <thead> HTML with sortable headers and filter inputs.
