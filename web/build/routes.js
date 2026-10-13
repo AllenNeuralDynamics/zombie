@@ -108,6 +108,10 @@ export const ROUTES = [
     route: '/contributions', html: 'contributions.html', inputKey: 'contributions',
     header: { sub: 'contributions' }, nav: { group: 'dashboards', label: 'Contributions' },
   }),
+  page({
+    route: '/record-consistency', html: 'record-consistency.html', inputKey: 'record_consistency',
+    header: { sub: 'record consistency' }, nav: { group: 'dashboards', label: 'Record Consistency' },
+  }),
 
   // ---- Experimental dashboards: dev channel only ----
   page({
@@ -130,12 +134,6 @@ export const ROUTES = [
     header: { sub: 'asset timeline' }, nav: { group: 'dashboards', label: 'Time to portal' },
     stability: 'experimental',
   }),
-  page({
-    route: '/record-consistency', html: 'record-consistency.html', inputKey: 'record_consistency_checks',
-    header: { sub: 'record-consistency checks' }, nav: { group: 'dashboards', label: 'Record-consistency' },
-    stability: 'experimental',
-  }),
-
   // ---- SWDB sub-page (linked from the cards, not the nav; highlight the
   // Dashboards ▸ SWDB entry via active: '/swdb') ----
   page({

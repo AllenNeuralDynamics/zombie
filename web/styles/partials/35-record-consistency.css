@@ -1,0 +1,11 @@
+/* ---------------------------------------------------------------------------
+ * Record consistency
+ * ------------------------------------------------------------------------ */
+
+.record-consistency-view .sessions-stats-panel {
+  margin-bottom: 16px;
+}
+
+.record-consistency-view .sessions-stat-table td div {
+  color: var(--text-secondary);
+}

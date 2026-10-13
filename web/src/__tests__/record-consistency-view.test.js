@@ -2,21 +2,25 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  buildFlaggedRecordsQuery,
-  buildManifestUrl,
-  countChecks,
+  CHECKS_QUERY,
   createRecordConsistencyView,
-  findingCsvRows,
+  FINDINGS_QUERY,
+  formatSeconds,
+  readTableState,
+  recordHref,
+  renderCheckRow,
   renderFindingRow,
-} from '../record-consistency/view.js';
-
-vi.mock('../lib/registry.js', () => ({
-  ensureTable: vi.fn(),
-  getAcorn: vi.fn(),
-}));
+  RESULTS_RUN_QUERY,
+  runsDiffer,
+  tableStateSearch,
+} from '../record_consistency/view.js';
 
 vi.mock('../lib/arrow.js', () => ({
   queryRows: vi.fn(),
+}));
+
+vi.mock('../lib/registry.js', () => ({
+  ensureTable: vi.fn(async (_coord, name) => name),
 }));
 
 vi.mock('../lib/utils.js', async (importOriginal) => ({
@@ -25,260 +29,249 @@ vi.mock('../lib/utils.js', async (importOriginal) => ({
 }));
 
 import { queryRows } from '../lib/arrow.js';
-import { ensureTable, getAcorn } from '../lib/registry.js';
+import { ensureTable } from '../lib/registry.js';
 import { downloadCsv } from '../lib/utils.js';
 
-const CHECK_DESCRIPTION = 'Fails each record in DocDB v2 whose exact "name" key is identical to another v2 record.';
-const IMPLEMENTATION_URL = 'https://github.com/AllenNeuralDynamics/biodata-cache/blob/5b10df0/'
-  + 'src/biodata_cache/record_consistency.py#L39';
-const V1_CHECK_DESCRIPTION = 'Fails each DocDB v1 record whose exact "name" has no matches in DocDB v2.';
-const V1_IMPLEMENTATION_URL = 'https://github.com/AllenNeuralDynamics/biodata-cache/blob/bde9c5e/'
-  + 'src/biodata_cache/record_consistency.py#L170';
-const MANIFEST = {
-  check_count: 2,
-  checked_at: '2026-09-11T18:26:32Z',
-  row_count: 5,
-  checks: [
-    {
-      check_key: 'docdb_duplicate_name_v2',
-      description: CHECK_DESCRIPTION,
-      implementation_url: IMPLEMENTATION_URL,
-      processed_count: 3,
-      failed_count: 2,
-      unknown_count: 0,
-    },
-    {
-      check_key: 'docdb_v1_name_missing_in_v2',
-      description: V1_CHECK_DESCRIPTION,
-      implementation_url: V1_IMPLEMENTATION_URL,
-      processed_count: 2,
-      failed_count: 1,
-      unknown_count: 0,
-    },
-  ],
-};
+const SOURCE_URL = 'https://github.com/AllenNeuralDynamics/biodata-cache/blob/v0.43.0/'
+  + 'src/biodata_cache/cache_table_helpers/record_consistency/checks/docdb_duplicate_name_v2.py#L9';
+const CHECKED_AT = '2026-09-30T09:00:00+00:00';
 
-const ROWS = [
+const CHECKS = [
   {
     check_key: 'docdb_duplicate_name_v2',
-    status: 'fail',
-    docdb_id: 'id-001',
-    docdb_version: 'v2',
-    name: 'asset-one',
-    location: 's3://aind-data/asset-one/',
-    checked_at: '2026-09-11T18:26:32Z',
-    run_id: 'run-001',
-  },
-  {
-    check_key: 'docdb_duplicate_name_v2',
-    status: 'fail',
-    docdb_id: 'id-002',
-    docdb_version: 'v2',
-    name: 'asset-one',
-    location: 's3://aind-data/asset-two/',
-    checked_at: '2026-09-11T18:26:32Z',
-    run_id: 'run-001',
+    description: "Fails DocDB v2 records whose 'name' field exactly matches the 'name' field of another DocDB v2 record.",
+    source_url: SOURCE_URL,
+    evaluated: 105035,
+    failed: 2,
+    check_eval_seconds: 0.412,
+    source_load_seconds: 34.21,
+    checked_at: CHECKED_AT,
   },
   {
     check_key: 'docdb_v1_name_missing_in_v2',
-    status: 'fail',
-    docdb_id: 'id-v1-001',
-    docdb_version: 'v1',
-    name: 'legacy-asset',
-    location: 's3://aind-data/legacy-asset/',
-    checked_at: '2026-09-11T18:26:32Z',
-    run_id: 'run-001',
+    description: "Fails DocDB v1 records whose 'name' field does not exactly match any DocDB v2 record's 'name' field.",
+    source_url: 'javascript:alert(1)',
+    evaluated: 118418,
+    failed: 1,
+    check_eval_seconds: 0.05,
+    source_load_seconds: 2.5,
+    checked_at: CHECKED_AT,
   },
 ];
 
-describe('record-consistency view helpers', () => {
-  it('queries non-pass findings across all checks', () => {
-    const sql = buildFlaggedRecordsQuery('record_consistency_checks');
-    expect(sql).toContain('FROM "record_consistency_checks"');
-    expect(sql).toContain('SELECT name, check_key, status, docdb_version, docdb_id, location, run_id, checked_at');
-    expect(sql).toContain("status IN ('fail', 'unknown')");
-    expect(sql).toContain('ORDER BY check_key ASC, name ASC, docdb_id ASC');
+const FINDINGS = [
+  {
+    name: 'asset-one',
+    check_key: 'docdb_duplicate_name_v2',
+    record_kind: 'docdb_v2',
+    record_id: 'id-002',
+    location: 's3://aind-data/asset-one-b/',
+    record_last_modified: '2026-09-01T10:00:00Z',
+  },
+  {
+    name: 'asset-one',
+    check_key: 'docdb_duplicate_name_v2',
+    record_kind: 'docdb_v2',
+    record_id: 'id-001',
+    location: 's3://aind-data/asset-one-a/',
+    record_last_modified: '2026-09-02T10:00:00Z',
+  },
+  {
+    name: 'legacy-asset',
+    check_key: 'docdb_v1_name_missing_in_v2',
+    record_kind: 'docdb_v1',
+    record_id: 'v1-001',
+    location: null,
+    record_last_modified: null,
+  },
+];
+
+function mockQueries(checks = CHECKS, findings = FINDINGS, resultRuns = [{ checked_at: CHECKED_AT }]) {
+  const rows = { [CHECKS_QUERY]: checks, [FINDINGS_QUERY]: findings, [RESULTS_RUN_QUERY]: resultRuns };
+  queryRows.mockImplementation(async (_coord, sql) => rows[sql]);
+}
+
+function bodyRows(view) {
+  return [...view.querySelectorAll('.assets-table tbody tr')].map((tr) => [...tr.cells].map((td) => td.textContent.trim()));
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  history.replaceState(null, '', '/record-consistency');
+});
+
+describe('record-consistency helpers', () => {
+  it('reads findings from the results table and summaries from the checks table', () => {
+    expect(FINDINGS_QUERY).toContain('FROM record_consistency_results');
+    expect(FINDINGS_QUERY).toContain("WHERE status <> 'pass'");
+    expect(FINDINGS_QUERY).not.toMatch(/SELECT[^]*status[^]*FROM/);
+    expect(CHECKS_QUERY).toContain('FROM record_consistency_checks');
+    expect(RESULTS_RUN_QUERY).toContain('FROM record_consistency_results');
   });
 
-  it('counts represented checks', () => {
-    expect(countChecks(ROWS.slice(0, 2))).toBe(1);
-    expect(countChecks(ROWS)).toBe(2);
+  it('formats runtimes in milliseconds below a second', () => {
+    expect(formatSeconds(0.412)).toBe('412 ms');
+    expect(formatSeconds(34.21)).toBe('34.2 s');
+    expect(formatSeconds(null)).toBe('');
   });
 
-  it('builds the manifest URL beside the registered table', () => {
-    expect(buildManifestUrl('s3://allen-data-views/cache/record_consistency_checks.pqt')).toBe(
-      'https://allen-data-views.s3.us-west-2.amazonaws.com/cache/record_consistency_checks.manifest.json',
-    );
+  it('detects summaries and results from different runs', () => {
+    expect(runsDiffer(CHECKS, [{ checked_at: CHECKED_AT }])).toBe(false);
+    expect(runsDiffer(CHECKS, [{ checked_at: '2026-09-29T09:00:00+00:00' }])).toBe(true);
+    expect(runsDiffer(CHECKS, [{ checked_at: CHECKED_AT }, { checked_at: 'other' }])).toBe(true);
   });
 
-  it('escapes row content and links metadata and S3 location', () => {
+  it('links v2 findings to /record and v1 findings to /upgrade', () => {
+    expect(recordHref(FINDINGS[0])).toBe('/record?name=asset-one');
+    expect(recordHref(FINDINGS[2])).toBe('/upgrade?asset_id=v1-001');
+    expect(recordHref({ record_kind: 'docdb_v1', record_id: null })).toBeNull();
+  });
+
+  it('escapes finding values and links the S3 location', () => {
     const html = renderFindingRow({
-      ...ROWS[0],
-      name: '"><img src=x>',
-      docdb_id: 'id"><script>',
+      ...FINDINGS[0],
+      name: '<img src=x onerror=alert(1)>',
+      record_id: '<b>id</b>',
+      location: 's3://bucket/"quoted"/',
     });
     expect(html).not.toContain('<img');
-    expect(html).not.toContain('<script>');
-    expect(html).toContain('docdb_duplicate_name_v2');
-    expect(html).toContain('run-001');
-    expect(html).toContain('/record?name=');
-    expect(html).toContain('s3.console.aws.amazon.com');
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('https://s3.console.aws.amazon.com/s3/buckets/bucket?prefix=&quot;quoted&quot;/');
+    expect(html).not.toContain('badge');
   });
 
-  it('renders a plain check key in each finding row', () => {
-    const html = renderFindingRow(ROWS[0]);
-    expect(html).toContain('<code>docdb_duplicate_name_v2</code>');
-    expect(html).not.toContain(IMPLEMENTATION_URL);
+  it('links a check to its source only for GitHub URLs', () => {
+    expect(renderCheckRow(CHECKS[0])).toContain(`href="${SOURCE_URL}"`);
+    expect(renderCheckRow(CHECKS[1])).not.toContain('href=');
+    expect(renderCheckRow(CHECKS[1])).toContain('118,418');
+    expect(renderCheckRow(CHECKS[0])).toContain('load 34.2 s · check 412 ms');
   });
 
-  it('exports raw finding values in display-column order', () => {
-    expect(findingCsvRows([ROWS[0]])).toEqual([[
-      'asset-one',
-      'docdb_duplicate_name_v2',
-      'fail',
-      'v2',
-      'id-001',
-      's3://aind-data/asset-one/',
-      'run-001',
-      '2026-09-11T18:26:32Z',
-    ]]);
+  it('round-trips table state and omits defaults from the URL', () => {
+    const state = readTableState('?sort=name&dir=desc&page=2&f_record_kind=docdb_v1&f_status=fail');
+    expect(state).toMatchObject({ sort: 'name', dir: 'desc', page: 2 });
+    expect(state.filters.record_kind).toBe('docdb_v1');
+    expect(state.filters).not.toHaveProperty('status');
+    expect(tableStateSearch(state)).toBe('sort=name&dir=desc&page=2&f_record_kind=docdb_v1');
+    expect(tableStateSearch(readTableState(''))).toBe('');
   });
 });
 
 describe('createRecordConsistencyView', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    history.replaceState(null, '', '/record-consistency');
-    ensureTable.mockResolvedValue('record_consistency_checks');
-    getAcorn.mockReturnValue({
-      location: 's3://allen-data-views/cache/record_consistency_checks.pqt',
-    });
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue(MANIFEST),
-    }));
-    queryRows.mockResolvedValue(ROWS);
+  it('summarizes each check and lists its findings in query order', async () => {
+    mockQueries();
+
+    const view = await createRecordConsistencyView({});
+
+    expect(ensureTable.mock.calls.map(([, name]) => name)).toEqual(['record_consistency_results', 'record_consistency_checks']);
+    expect(view.querySelector('.sessions-stat-warning')).toBeNull();
+    expect([...view.querySelectorAll('.assets-table thead th')].map((th) => th.dataset.col)).not.toContain('status');
+    const checkRows = [...view.querySelectorAll('.sessions-stat-table tbody tr')];
+    expect(checkRows).toHaveLength(2);
+    expect(checkRows[0].textContent).toContain('docdb_duplicate_name_v2');
+    expect(checkRows[0].textContent).toContain('105,035');
+    expect(checkRows[0].textContent).toContain('2026-09-30 09:00');
+    expect(bodyRows(view).map((row) => row[3])).toEqual(['id-002', 'id-001', 'v1-001']);
+    expect(view.querySelector('.page-info').textContent).toBe('1–3 of 3');
+    expect(window.location.search).toBe('');
   });
 
-  it('loads the table and renders flagged records', async () => {
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
+  it('sorts by a clicked column and records the sort in the URL', async () => {
+    mockQueries();
+    const view = await createRecordConsistencyView({});
 
-    expect(ensureTable).toHaveBeenCalledWith(expect.anything(), 'record_consistency_checks');
-    expect(queryRows).toHaveBeenCalledWith(expect.anything(), expect.stringContaining("status IN ('fail', 'unknown')"));
-    expect(root.querySelector('.record-consistency-summary-panel')?.textContent).toContain('Flagged results');
-    expect(root.querySelector('.record-consistency-summary-panel')?.textContent).toContain('Evaluated rows');
-    const checkCards = root.querySelectorAll('.record-consistency-check-card');
-    expect(checkCards).toHaveLength(2);
-    expect(checkCards[0].textContent).toContain(CHECK_DESCRIPTION);
-    expect(checkCards[0].textContent).toContain('2 flagged');
-    expect(checkCards[0].textContent).toContain('3 evaluated');
-    expect(checkCards[1].textContent).toContain(V1_CHECK_DESCRIPTION);
-    expect(checkCards[1].textContent).toContain('1 flagged');
-    expect(checkCards[1].textContent).toContain('2 evaluated');
-    expect(checkCards[1].textContent).toContain('Implementation permalink');
-    expect(checkCards[0].querySelector('.record-consistency-implementation a')?.getAttribute('href'))
-      .toBe(IMPLEMENTATION_URL);
-    expect(checkCards[1].querySelector('.record-consistency-implementation a')?.getAttribute('href'))
-      .toBe(V1_IMPLEMENTATION_URL);
-    expect(root.querySelectorAll('tbody tr')).toHaveLength(3);
-    expect(root.querySelectorAll('.col-filter')).toHaveLength(8);
-    expect([...root.querySelectorAll('th')].map((cell) => cell.querySelector('.col-label').textContent)).toEqual([
-      'Name',
-      'Check',
-      'Status',
-      'DocDB version',
-      'DocDB ID',
-      's3_location',
-      'Run ID',
-      'Checked at',
-    ]);
+    view.querySelector('th[data-col="record_id"]').click();
+
+    expect(bodyRows(view).map((row) => row[3])).toEqual(['id-001', 'id-002', 'v1-001']);
+    expect(window.location.search).toBe('?sort=record_id');
+
+    view.querySelector('th[data-col="record_id"]').click();
+
+    expect(bodyRows(view).map((row) => row[3])).toEqual(['v1-001', 'id-002', 'id-001']);
+    expect(window.location.search).toBe('?sort=record_id&dir=desc');
   });
 
-  it('filters columns and exports every filtered raw row', async () => {
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
+  it('restores filters from the URL and exports only the filtered rows', async () => {
+    history.replaceState(null, '', '/record-consistency?f_record_kind=docdb_v1');
+    mockQueries();
+    const view = await createRecordConsistencyView({});
 
-    const versionFilter = root.querySelector('.col-filter[data-col="docdb_version"]');
-    versionFilter.value = 'v1';
-    versionFilter.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(bodyRows(view)).toHaveLength(1);
+    expect(view.querySelector('select.col-filter[data-col="record_kind"]').value).toBe('docdb_v1');
 
-    expect(root.querySelectorAll('tbody tr')).toHaveLength(1);
-    expect(root.querySelector('.record-consistency-filter-count')?.textContent).toBe('Filtered Matches: 1 / Total: 3');
-    expect(window.location.search).toContain('f_docdb_version=v1');
+    view.querySelector('.sessions-export-btn').click();
 
-    root.querySelector('.record-consistency-export-btn').click();
     expect(downloadCsv).toHaveBeenCalledWith(
-      'record-consistency-findings.csv',
-      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
-      findingCsvRows([ROWS[2]]),
+      'record-consistency.csv',
+      ['Name', 'Check', 'Record Kind', 'Record ID', 'Location', 'Last Modified'],
+      [['legacy-asset', 'docdb_v1_name_missing_in_v2', 'docdb_v1', 'v1-001', '', '']],
     );
   });
 
-  it('exports all loaded findings when filters are empty', async () => {
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
-
-    root.querySelector('.record-consistency-export-btn').click();
-    expect(downloadCsv).toHaveBeenCalledWith(
-      'record-consistency-findings.csv',
-      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
-      findingCsvRows(ROWS),
-    );
-  });
-
-  it('paginates filtered findings without limiting CSV export', async () => {
-    const manyRows = Array.from({ length: 102 }, (_, index) => ({
-      ...ROWS[0],
-      docdb_id: `id-${String(index).padStart(3, '0')}`,
+  it('filters as the user types and resets to the first page', async () => {
+    const many = Array.from({ length: 150 }, (_, index) => ({
+      ...FINDINGS[0],
       name: `asset-${String(index).padStart(3, '0')}`,
+      record_id: `id-${String(index).padStart(3, '0')}`,
     }));
-    queryRows.mockResolvedValue(manyRows);
+    mockQueries(CHECKS, many);
+    const view = await createRecordConsistencyView({});
 
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelectorAll('tbody tr')).toHaveLength(100));
+    view.querySelector('.page-btn[data-page="1"]').click();
+    expect(view.querySelector('.page-info').textContent).toBe('101–150 of 150');
+    expect(window.location.search).toBe('?page=1');
 
-    expect([...root.querySelectorAll('.paging-info')].map((element) => element.textContent)).toEqual([
-      '1–100 / 102 · Page 1 / 2',
-      '1–100 / 102 · Page 1 / 2',
-    ]);
-    root.querySelector('#record-consistency-top-next').click();
-    expect(root.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect([...root.querySelectorAll('.paging-info')].map((element) => element.textContent)).toEqual([
-      '101–102 / 102 · Page 2 / 2',
-      '101–102 / 102 · Page 2 / 2',
-    ]);
+    const input = view.querySelector('input.col-filter[data-col="name"]');
+    input.value = 'asset-14';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
 
-    root.querySelector('.record-consistency-export-btn').click();
-    expect(downloadCsv).toHaveBeenCalledWith(
-      'record-consistency-findings.csv',
-      ['Name', 'Check', 'Status', 'DocDB version', 'DocDB ID', 's3_location', 'Run ID', 'Checked at'],
-      findingCsvRows(manyRows),
-    );
+    expect(view.querySelector('.page-info').textContent).toBe('1–10 of 10');
+    expect(window.location.search).toBe('?f_name=asset-14');
   });
 
-  it('renders findings when the optional manifest is unavailable', async () => {
-    fetch.mockRejectedValue(new Error('manifest unavailable'));
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.querySelector('tbody tr')).not.toBeNull());
+  it('shows an empty state when every record passes', async () => {
+    mockQueries(CHECKS, []);
 
-    expect(root.querySelectorAll('tbody tr')).toHaveLength(3);
-    expect(root.querySelectorAll('.record-consistency-check-card')).toHaveLength(2);
-    expect(root.querySelector('.record-consistency-check-card')?.textContent).toContain('Description unavailable.');
+    const view = await createRecordConsistencyView({});
+
+    expect(view.querySelector('.assets-table')).toBeNull();
+    expect(view.textContent).toContain('No flagged records.');
   });
 
-  it('renders an explicit empty state', async () => {
-    queryRows.mockResolvedValue([]);
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.textContent).toContain('No flagged records.'));
-    expect(root.querySelector('table')).toBeNull();
+  it('warns when summaries and results come from different runs', async () => {
+    mockQueries(CHECKS, FINDINGS, [{ checked_at: '2026-09-29T09:00:00+00:00' }]);
+
+    const view = await createRecordConsistencyView({});
+
+    expect(view.querySelector('.sessions-stat-warning').textContent).toContain('different cache runs');
   });
 
-  it('renders a useful load error', async () => {
-    ensureTable.mockRejectedValue(new Error('missing registry entry'));
-    const root = createRecordConsistencyView({ query: vi.fn() });
-    await vi.waitFor(() => expect(root.textContent).toContain('Failed to load record-consistency checks'));
-    expect(root.querySelector('.loading-message.error')).not.toBeNull();
+  it('ignores a URL filter value that no row has', async () => {
+    history.replaceState(null, '', '/record-consistency?f_record_kind=docdb_v3');
+    mockQueries();
+    const view = await createRecordConsistencyView({});
+
+    expect(bodyRows(view)).toHaveLength(3);
+    expect(window.location.search).toBe('');
+  });
+
+  it('keeps the pager when a change event repeats the typed filter value', async () => {
+    mockQueries();
+    const view = await createRecordConsistencyView({});
+    const input = view.querySelector('.col-filter[data-col="name"]');
+    input.value = 'legacy-asset';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const pager = view.querySelector('.assets-paging .page-btn');
+
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+
+    expect(view.querySelector('.assets-paging .page-btn')).toBe(pager);
+  });
+
+  it('propagates query failures to bootstrap', async () => {
+    queryRows.mockRejectedValue(new Error('Catalog Error: table does not exist'));
+
+    await expect(createRecordConsistencyView({})).rejects.toThrow('Catalog Error');
   });
 });
