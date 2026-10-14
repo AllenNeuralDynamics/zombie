@@ -85,7 +85,7 @@ export function syncQcStatusShading(container, statusDrafts = {}) {
   }
 }
 
-export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
+export function createQCView(record, rawS3Loc = '', { onReload = null, temporary = false } = {}) {
   const parsed = parseQCRecord(record);
   const {
     name,
@@ -102,6 +102,13 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   } = parsed;
 
   const root = document.createElement('div');
+  if (temporary) {
+    const warning = document.createElement('div');
+    warning.className = 'qc-temporary-warning';
+    warning.setAttribute('role', 'alert');
+    warning.textContent = `This is a temporary metadata record (name=${name}) it will be wiped when the metadata portal resets or in 30 days.`;
+    root.appendChild(warning);
+  }
   const metricAlert = document.createElement('div');
   metricAlert.className = 'qc-metric-alert';
   metricAlert.setAttribute('role', 'alert');
@@ -158,6 +165,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
   let openAccordionReferences = initialNavigation.openReferences;
 
   const header = buildHeader(name, projectName, codeOceanId, modalities, stages, {
+    temporary,
     viewMode,
     onViewModeChange: (nextViewMode) => {
       if (nextViewMode === viewMode) return;
@@ -284,7 +292,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 
   renderBody();
   try {
-    mountQcEditor(editor, {
+    if (!temporary) mountQcEditor(editor, {
       ...record,
       quality_control: {
         ...(record.quality_control ?? {}),
@@ -318,6 +326,7 @@ export function createQCView(record, rawS3Loc = '', { onReload = null } = {}) {
 export function buildHeader(name, _projectName, codeOceanId, modalities, stages, {
   viewMode = 'tree',
   onViewModeChange = null,
+  temporary = false,
 } = {}) {
   const header = document.createElement('div');
   header.className = 'qc-header';
@@ -326,8 +335,8 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
   topRow.className = 'qc-header-top';
 
   const h2 = document.createElement('h2');
-  const assetLink = document.createElement('a');
-  assetLink.href = `/view?asset=${encodeURIComponent(name)}`;
+  const assetLink = document.createElement(temporary ? 'span' : 'a');
+  if (!temporary) assetLink.href = `/view?asset=${encodeURIComponent(name)}`;
   assetLink.textContent = name;
   h2.appendChild(assetLink);
   topRow.appendChild(h2);
@@ -359,7 +368,7 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
   editBtn.addEventListener('click', () => {
     window.open(`https://qc.allenneuraldynamics.org/view?name=${encodeURIComponent(name)}`, '_blank');
   });
-  actions.appendChild(editBtn);
+  if (!temporary) actions.appendChild(editBtn);
 
   const loginBtn = document.createElement('button');
   loginBtn.className = 'qc-login-btn';
@@ -373,7 +382,7 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
       loginBtn.disabled = false;
     }
   });
-  actions.appendChild(loginBtn);
+  if (!temporary) actions.appendChild(loginBtn);
   topRow.appendChild(actions);
   header.appendChild(topRow);
 
@@ -395,7 +404,7 @@ export function buildHeader(name, _projectName, codeOceanId, modalities, stages,
   metaLink.target = '_blank';
   metaLink.rel = 'noopener noreferrer';
   metaLink.textContent = 'Metadata';
-  links.appendChild(metaLink);
+  if (!temporary) links.appendChild(metaLink);
 
   if (codeOceanId) {
     const coLink = document.createElement('a');

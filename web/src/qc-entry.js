@@ -1,5 +1,6 @@
 import { queryDocDb } from './lib/docdb.js';
 import { createQCView } from './qc/view.js';
+import { fetchQcRecord } from './qc/record.js';
 
 async function init() {
   const app = document.getElementById('app');
@@ -20,14 +21,11 @@ async function loadRecord(app, assetName, { replaceOnStart = true, throwOnFailur
   if (replaceOnStart) app.innerHTML = '<p class="qc-loading">Loading QC data…</p>';
 
   try {
-    const records = await queryDocDb({ name: assetName }, { limit: 1 });
-    if (!records.length) {
-      throw new Error(`Asset "${assetName}" not found in DocDB.`);
-    }
+    const { record, temporary } = await fetchQcRecord(assetName);
 
     // Look up raw (source) asset S3 location so ephys GUI URLs can be fully resolved.
     let rawS3Loc = '';
-    const sourceDataName = records[0]?.data_description?.source_data?.[0];
+    const sourceDataName = record?.data_description?.source_data?.[0];
     if (sourceDataName) {
       try {
         const rawRecords = await queryDocDb(
@@ -40,14 +38,15 @@ async function loadRecord(app, assetName, { replaceOnStart = true, throwOnFailur
       }
     }
 
-    const projectName = records[0]?.data_description?.project_name ?? '';
+    const projectName = record?.data_description?.project_name ?? '';
     if (projectName) {
       const u = new URL(window.location.href);
       u.searchParams.set('project', projectName);
       history.replaceState({}, '', u);
     }
 
-    const nextView = createQCView(records[0], rawS3Loc, {
+    const nextView = createQCView(record, rawS3Loc, {
+      temporary,
       onReload: () => loadRecord(app, assetName, { replaceOnStart: false, throwOnFailure: true }),
     });
     app.replaceChildren(nextView);

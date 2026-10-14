@@ -17,6 +17,24 @@ import {
 import { mountQcEditor } from '../qc/editor.js';
 import { buildSpimQcMetrics } from '../qc/spim-metrics.js';
 
+it('shows a persistent temporary warning and omits production editing actions', () => {
+  mountQcEditor.mockClear();
+  const name = '<preview>';
+  const view = createQCView({ name, quality_control: { metrics: [] } }, '', { temporary: true });
+  const warning = view.querySelector('.qc-temporary-warning');
+  expect(warning.textContent).toBe(`This is a temporary metadata record (name=${name}) it will be wiped when the metadata portal resets or in 30 days.`);
+  expect(warning.hidden).toBe(false);
+  expect(warning.children).toHaveLength(0);
+  expect(mountQcEditor).not.toHaveBeenCalled();
+  expect(view.querySelector('.qc-login-btn')).toBeNull();
+  expect(view.querySelector('.qc-edit-btn')).toBeNull();
+  expect(view.querySelector('h2').textContent).toBe(name);
+  expect(view.querySelector('h2 a')).toBeNull();
+  expect(view.querySelector('.qc-header-links a')).toBeNull();
+  view.querySelector('.qc-view-toggle button:last-child').click();
+  expect(warning.hidden).toBe(false);
+});
+
 describe('QC hierarchy for new assets', () => {
   it.each([undefined, { default_grouping: [], metrics: [] }])(
     'builds a hierarchy as SPIM metrics are queued without configured grouping (%s)', qualityControl => {
