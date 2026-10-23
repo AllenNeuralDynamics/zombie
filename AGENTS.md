@@ -187,6 +187,30 @@ one-per-responding-trial proxy the DR parquet cache is limited to.
 Times in the cache are in the NWB session clock (t=0 = `session_start_time`);
 the adapter shifts to "first trial at zero" on read.
 
+## `js:` QC References
+
+A QC metric reference of the form `js:<type>?<params>` is rendered by a JS
+function instead of being treated as a file or URL. `resolveReference`
+(`qc/data.js`) detects the prefix before any S3/HTTP handling, and
+`renderMedia` (`qc/media.js`) hands it to `renderJsReference`
+(`qc/js-references.js`). These references are never presigned, so any data they
+point at must be publicly readable.
+
+- `<type>` must be a key in the explicit `RENDERERS` whitelist in
+  `qc/js-references.js`. Renderers live in `qc/js-renderers/` and take
+  `(params: URLSearchParams, ctx) => HTMLElement`. Unknown types or renderer
+  errors render an inline `.qc-media-error`.
+- `neuroglancer`: `image` (s3:// OME-Zarr), `skeleton` (s3:// precomputed),
+  optional `segments` (comma-separated IDs; default: all IDs in
+  `segment_properties`) and `range` (`lo,hi` contrast; default: 5–95th
+  percentile of non-zero voxels sampled at a coarse level). The initial view
+  fits the skeleton bounds. Embeds the vendored `/ng/index.html` with a pop-out
+  to neuroglancer-demo.
+
+The vendored Neuroglancer in `web/public/ng/` must include every lazy chunk and
+`.wasm` asset its bundle references; Vite's dev server masks missing ones with
+an HTML 200, and a missing blosc chunk silently blanks zarr image layers.
+
 ## Plotting
 
 **Never hand-roll SVG for charts.** Query DuckDB, convert to plain rows with

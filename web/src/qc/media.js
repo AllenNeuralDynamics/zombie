@@ -1,4 +1,5 @@
 import { normalizeReference, resolveReference } from './data.js';
+import { renderJsReference } from './js-references.js';
 import { QC_API_BASE } from '../constants.js';
 
 const PUBLIC_BUCKET = 'aind-open-data';
@@ -7,7 +8,7 @@ const PRESIGN_BASE = `${QC_API_BASE.replace(/\/$/, '')}/get-signed-reference`;
 function needsPresign(reference, s3Bucket, type) {
   reference = normalizeReference(reference);
   if (s3Bucket === PUBLIC_BUCKET) return false;
-  if (type === 'link' || type === 'text' || type === 'multi') return false;
+  if (type === 'link' || type === 'text' || type === 'multi' || type === 'js') return false;
   if (reference.startsWith('http') && !reference.includes('s3://')) return false;
   return true;
 }
@@ -110,7 +111,9 @@ export function renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc =
   const wrapper = document.createElement('div');
   wrapper.className = 'qc-media';
 
-  if (type === 'image') {
+  if (type === 'js') {
+    wrapper.appendChild(renderJsReference(url, { assetName, s3Bucket, s3Prefix }));
+  } else if (type === 'image') {
     const img = document.createElement('img');
     img.loading = 'lazy';
     img.alt = reference;

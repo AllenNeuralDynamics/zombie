@@ -1,3 +1,4 @@
+import { isJsReference } from './js-references.js';
 export function parseQCRecord(record) {
   const qc = record.quality_control ?? {};
   const metrics = [];
@@ -187,6 +188,10 @@ export function resolveReference(reference, s3Bucket, s3Prefix, rawS3Loc = '') {
 
   if (reference.includes(';')) {
     return { url: reference, type: 'multi' };
+  }
+
+  if (isJsReference(reference)) {
+    return { url: reference.trim(), type: 'js' };
   }
 
   const decodedReference = normalizeReference(reference);
