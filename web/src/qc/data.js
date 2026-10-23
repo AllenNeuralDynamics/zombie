@@ -17,7 +17,7 @@ export function parseQCRecord(record) {
         normalized.push(parsedMetric);
         if (typeof parsedMetric.reference === 'string' && parsedMetric.reference) {
           const parts = parsedMetric.reference.split(';').map(part => part.trim()).filter(Boolean);
-          if (parts.some(part => normalizeReference(part) !== part)) {
+          if (parts.some(part => !isJsReference(part) && normalizeReference(part) !== part)) {
             metricErrors.push(`Metric "${parsedMetric.name ?? index + 1}": the media path had to be normalized for display. Please report this to the owner of the processing pipeline so they can fix the QCMetric.reference.`);
           }
         }

@@ -31,6 +31,11 @@ describe('parseQCRecord', () => {
     expect(parsed.metricErrors[0]).toContain('report this to the owner of the processing pipeline');
   });
 
+  it('does not warn for js: references', () => {
+    const metric = makeMetric({ reference: 'js:neuroglancer?skeleton=s3://b/skel&action=segments:1' });
+    expect(parseQCRecord({ quality_control: { metrics: [metric] } }).metricErrors).toEqual([]);
+  });
+
   it('does not warn for valid relative, HTTP, S3, or comparison references', () => {
     const metrics = [
       'figures/foo.png',

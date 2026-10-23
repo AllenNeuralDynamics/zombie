@@ -398,6 +398,7 @@
 .qc-metric-card .metric-name { font-weight: 600; margin-bottom: 4px; }
 .qc-metric-card .metric-desc { white-space: pre-line; font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
 .qc-metric-card .metric-tags { font-size: 0.8em; color: var(--text-muted); margin-bottom: 4px; }
+.qc-metric-card .metric-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .qc-metric-card .metric-value { margin: 8px 0; font-size: 0.9em; }
 .qc-metric-card .metric-status { display: flex; align-items: center; gap: 6px; font-size: 0.85em; }
 .qc-metric-card .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }

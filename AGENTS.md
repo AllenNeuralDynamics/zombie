@@ -207,6 +207,14 @@ point at must be publicly readable.
   fits the skeleton bounds. Embeds the vendored `/ng/index.html` with a pop-out
   to neuroglancer-demo.
 
+- `action` is reserved on every `js:` reference: `action=<name>:<args>` (repeatable)
+  is stripped before rendering/grouping, so metrics differing only by action share
+  one accordion pane and one render. Each such metric card gets a button that calls
+  `el.qcActions[name](args)` on the rendered element (`runJsAction`); standalone
+  renders (dialog/hover) apply the actions immediately. Neuroglancer supports
+  `segments:<id,id>` (select + fit) and `goto:<x,y,z>` (µm). Any renderer can opt in
+  by attaching `qcActions`.
+
 The vendored Neuroglancer in `web/public/ng/` must include every lazy chunk and
 `.wasm` asset its bundle references; Vite's dev server masks missing ones with
 an HTML 200, and a missing blosc chunk silently blanks zarr image layers.

@@ -119,18 +119,81 @@ function warn(what) {
   return (e) => { console.warn(`neuroglancer ${what} failed`, e); return null; };
 }
 
+export const NEUROGLANCER_ACTION_LABELS = {
+  segments: 'Show segments',
+  goto: 'Go to',
+};
+
+function parseIds(args) {
+  return String(args ?? '').split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function parsePoint(args) {
+  const p = String(args ?? '').split(',').map(Number);
+  if (p.length !== 3 || !p.every(Number.isFinite)) throw new Error('goto needs x,y,z');
+  return p;
+}
+
+/**
+ * Action handlers that mutate `state` and call `show(state)`.
+ * `segments:<id,id>` selects skeleton segments and fits the view to them;
+ * `goto:<x,y,z>` centers on a point (µm, matching the state dimensions).
+ */
+export function createNeuroglancerActions(state, params, show, { fetchImpl = fetch } = {}) {
+  let latest = 0;
+  return {
+    segments(args) {
+      const ids = parseIds(args);
+      const layer = state.layers.find(l => l.name === 'skeleton');
+      if (!layer || !ids.length) return;
+      layer.segments = ids;
+      show(state);
+      const run = ++latest;
+      const base = s3Https(requireS3(params.get('skeleton'), 'skeleton'));
+      fetchSkeletonBounds(base, ids, fetchImpl)
+        .then((bounds) => {
+          if (bounds && run === latest) { fitViewToBounds(state, bounds); show(state); }
+        })
+        .catch(warn('segment bounds'));
+    },
+    goto(args) {
+      const point = parsePoint(args);
+      ++latest;
+      const extra = Object.keys(state.dimensions).slice(3).map((_, i) => state.position?.[3 + i] ?? 0);
+      state.position = [...point, ...extra];
+      show(state);
+    },
+  };
+}
+
 export function renderNeuroglancer(params) {
   const state = buildNeuroglancerState(params);
   const wrapper = document.createElement('div');
   wrapper.className = 'qc-media-js-neuroglancer';
   const iframe = document.createElement('iframe');
   const popout = document.createElement('a');
+  let ready = false;
+  const pending = [];
   const show = (st) => {
+    if (!ready) return;
     const fragment = neuroglancerFragment(st);
-    iframe.src = `${NG_EMBED_PATH}${fragment}`;
+    // Same-origin embed: later updates go through its postMessage API (see exaspim/morphology.js)
+    // so the viewer isn't reloaded; the embed buffers messages until it has mounted.
+    if (iframe.src) iframe.contentWindow?.postMessage({ type: 'setState', state: st }, '*');
+    else iframe.src = `${NG_EMBED_PATH}${fragment}`;
     popout.href = `${NG_PUBLIC_BASE}/${fragment}`;
   };
-  enrichNeuroglancerState(state, params).finally(() => show(state));
+  const handlers = createNeuroglancerActions(state, params, show);
+  // Actions requested before enrichment finishes are replayed after it, so they win over defaults.
+  wrapper.qcActions = Object.fromEntries(Object.entries(handlers).map(([name, fn]) => [
+    name,
+    (args) => (ready ? fn(args) : pending.push(() => fn(args))),
+  ]));
+  enrichNeuroglancerState(state, params).finally(() => {
+    ready = true;
+    show(state);
+    for (const run of pending.splice(0)) run();
+  });
   iframe.setAttribute('allowfullscreen', '');
   const actions = document.createElement('div');
   const fullscreen = document.createElement('button');

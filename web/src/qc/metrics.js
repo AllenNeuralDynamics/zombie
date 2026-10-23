@@ -7,6 +7,7 @@ import {
   valueText,
 } from './edit-model.js';
 import { renderMedia } from './media.js';
+import { describeJsAction, referenceActions, referenceGroupKey, runJsAction } from './js-references.js';
 import {
   buildEphysCurationUrl,
   isEphysCurationMetric,
@@ -501,7 +502,31 @@ function buildMetricCard(metric, edit = {}, media = {}, { suppressValue = false 
 
   card.appendChild(renderMetricStatus(metric, edit));
 
+  const actions = media.getActionTarget ? referenceActions(metric.reference) : [];
+  if (actions.length) {
+    const bar = document.createElement('div');
+    bar.className = 'metric-actions';
+    for (const action of actions) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'metric-action-btn';
+      button.textContent = describeJsAction(metric.reference, action);
+      button.addEventListener('click', () => {
+        const target = media.getActionTarget();
+        if (target) runJsAction(target, action);
+      });
+      bar.appendChild(button);
+    }
+    card.appendChild(bar);
+  }
+
   return card;
+}
+
+function findActionTarget(root) {
+  if (!root) return null;
+  if (root.qcActions) return root;
+  return [...root.querySelectorAll('*')].find(el => el.qcActions) ?? null;
 }
 
 function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
@@ -690,7 +715,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
 
   const groups = new Map();
   for (const m of metrics) {
-    const ref = m.reference ?? '';
+    const ref = referenceGroupKey(m.reference ?? '');
     if (!groups.has(ref)) groups.set(ref, []);
     groups.get(ref).push(m);
   }
@@ -717,6 +742,8 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
       if (bodyLoaded) return;
       bodyLoaded = true;
       const currentEdit = getEditState();
+      let groupMedia = null;
+      const getActionTarget = () => findActionTarget(groupMedia);
 
       const leftCol = document.createElement('div');
       // With a media reference the cards sit in a fixed-width column beside the media;
@@ -727,7 +754,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
           leftCol.appendChild(buildMetricCard(
             m,
             currentEdit,
-            { s3Bucket, s3Prefix, assetName, rawS3Loc },
+            { s3Bucket, s3Prefix, assetName, rawS3Loc, getActionTarget },
             { suppressValue: isEphysCurationMetric(m) },
           ));
         } catch (error) {
@@ -752,8 +779,8 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
             body.appendChild(panel);
           }
         } else {
-          const media = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
-          body.appendChild(media);
+          groupMedia = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
+          body.appendChild(groupMedia);
         }
       }
     };
