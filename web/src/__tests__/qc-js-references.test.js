@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
 import { parseJsReference, renderJsReference } from '../qc/js-references.js';
-import { buildNeuroglancerState, fitViewToBounds } from '../qc/js-renderers/neuroglancer.js';
+import { buildNeuroglancerState, fitViewToBounds, resolveNeuroglancerParams } from '../qc/js-renderers/neuroglancer.js';
 import {
   decodeSkeletonVertices,
   extraGlobalDimensions,
@@ -52,6 +52,29 @@ describe('js: references', () => {
     expect(renderJsReference('js:nope?x=1').textContent).toContain('Unknown');
     expect(renderJsReference('js:neuroglancer?image=https://x').textContent).toContain('s3://');
     expect(renderJsReference('js:neuroglancer').textContent).toContain('needs');
+  });
+
+  it('resolves relative image/skeleton paths against the asset location', () => {
+    const input = new URLSearchParams('image=/img.zarr&skeleton=skel/&segments=1&range=0,9');
+    const out = resolveNeuroglancerParams(input, { s3Bucket: 'b', s3Prefix: 'asset/' });
+    expect(out.get('image')).toBe('s3://b/asset/img.zarr');
+    expect(out.get('skeleton')).toBe('s3://b/asset/skel/');
+    expect(out.get('segments')).toBe('1');
+    expect(out.get('range')).toBe('0,9');
+    expect(input.get('image')).toBe('/img.zarr');
+  });
+
+  it('leaves absolute image/skeleton URLs alone', () => {
+    const out = resolveNeuroglancerParams(new URLSearchParams('image=s3://x/i.zarr&skeleton=https://x/s'), { s3Bucket: 'b', s3Prefix: 'p' });
+    expect(out.get('image')).toBe('s3://x/i.zarr');
+    expect(out.get('skeleton')).toBe('https://x/s');
+    expect(() => buildNeuroglancerState(out)).toThrow('s3://');
+  });
+
+  it('errors on relative paths without an S3 location', () => {
+    expect(() => resolveNeuroglancerParams(new URLSearchParams('image=i.zarr'), { s3Bucket: 'b' }))
+      .toThrow('image is a relative path but the asset has no S3 location');
+    expect(renderJsReference('js:neuroglancer?skeleton=skel').textContent).toContain('no S3 location');
   });
 
   it('applies an image contrast range', () => {

@@ -201,7 +201,8 @@ point at must be publicly readable.
   `(params: URLSearchParams, ctx) => HTMLElement`. Unknown types or renderer
   errors render an inline `.qc-media-error`.
 - `neuroglancer`: `image` (s3:// OME-Zarr), `skeleton` (s3:// precomputed),
-  optional `segments` (comma-separated IDs; default: all IDs in
+  either of which may instead be a path relative to the asset's S3 location
+  (an error if the asset has none), optional `segments` (comma-separated IDs; default: all IDs in
   `segment_properties`) and `range` (`lo,hi` contrast; default: 5–95th
   percentile of non-zero voxels sampled at a coarse level). The initial view
   fits the skeleton bounds. Embeds the vendored `/ng/index.html` with a pop-out

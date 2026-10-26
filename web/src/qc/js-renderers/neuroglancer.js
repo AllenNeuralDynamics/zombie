@@ -22,6 +22,18 @@ function requireS3(value, name) {
   return v.replace(/\/+$/, '');
 }
 
+/** Copy of `params` with relative `image`/`skeleton` paths joined onto the asset's S3 location. */
+export function resolveNeuroglancerParams(params, { s3Bucket, s3Prefix } = {}) {
+  const resolved = new URLSearchParams(params);
+  for (const name of ['image', 'skeleton']) {
+    const value = resolved.get(name)?.trim();
+    if (!value || /^[a-z][a-z0-9+.-]*:/i.test(value)) continue;
+    if (!s3Bucket || !s3Prefix) throw new Error(`${name} is a relative path but the asset has no S3 location`);
+    resolved.set(name, `s3://${s3Bucket}/${s3Prefix.replace(/^\/+|\/+$/g, '')}/${value.replace(/^\/+/, '')}`);
+  }
+  return resolved;
+}
+
 /**
  * Params: `image` (s3:// zarr), `skeleton` (s3:// precomputed skeletons),
  * optional `segments` (comma-separated skeleton IDs to show) and
@@ -166,7 +178,8 @@ export function createNeuroglancerActions(state, params, show, { fetchImpl = fet
   };
 }
 
-export function renderNeuroglancer(params) {
+export function renderNeuroglancer(rawParams, ctx = {}) {
+  const params = resolveNeuroglancerParams(rawParams, ctx);
   const state = buildNeuroglancerState(params);
   const wrapper = document.createElement('div');
   wrapper.className = 'qc-media-js-neuroglancer';
