@@ -5,7 +5,7 @@
  * @vitest-environment happy-dom
  */
 import { describe, it, expect, vi } from 'vitest';
-import { renderMetrics, renderMetricsTable } from '../qc/metrics.js';
+import { referenceLabel, renderMetrics, renderMetricsTable } from '../qc/metrics.js';
 import { renderMedia } from '../qc/media.js';
 import { buildTreeNodes, isCustomMetric } from '../qc/data.js';
 
@@ -251,6 +251,13 @@ describe('table view', () => {
     expect(table.querySelectorAll('.qc-inline-editor-value')).toHaveLength(3);
     expect(table.querySelectorAll('.qc-inline-status')).toHaveLength(3);
     expect(table.querySelector('.qc-reference-link').textContent).toBe('drift.png');
+  });
+
+  it('shortens reference link labels', () => {
+    expect(referenceLabel('js:neuroglancer?image=s3://b/a/i.zarr&skeleton=s3://b/a/skel&action=goto:1,2,3')).toBe('neuroglancer');
+    expect(referenceLabel('https%3A//ephys.allenneuraldynamics.org/%3Fanalyzer_path%3Ds3://b/x')).toBe('ephys.allenneuraldynamics.org');
+    expect(referenceLabel('s3://b/a/skel/')).toBe('skel');
+    expect(referenceLabel('figs/a.png; figs/b.png')).toBe('a.png, b.png');
   });
 
   it('shades failing and pending metric rows', () => {

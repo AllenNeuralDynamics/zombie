@@ -1,4 +1,4 @@
-import { getMetricStatus, isCustomMetric, parseCurationValues, resolveReference } from './data.js';
+import { decodeReferenceUrl, getMetricStatus, isCustomMetric, parseCurationValues, resolveReference } from './data.js';
 import {
   canEditMetricStatus,
   canEditMetricValue,
@@ -7,7 +7,7 @@ import {
   valueText,
 } from './edit-model.js';
 import { renderMedia } from './media.js';
-import { describeJsAction, referenceActions, referenceGroupKey, runJsAction } from './js-references.js';
+import { describeJsAction, parseJsReference, referenceActions, referenceGroupKey, runJsAction } from './js-references.js';
 import {
   buildEphysCurationUrl,
   isEphysCurationMetric,
@@ -529,6 +529,16 @@ function findActionTarget(root) {
   return [...root.querySelectorAll('*')].find(el => el.qcActions) ?? null;
 }
 
+/** Short display text for a reference: js: type, or the last path segment without query/hash. */
+export function referenceLabel(reference) {
+  return reference.split(';').map(part => part.trim()).filter(Boolean).map((part) => {
+    const js = parseJsReference(part);
+    if (js) return js.type || part;
+    const path = decodeReferenceUrl(part).split(/[?#]/)[0].replace(/\/+$/, '');
+    return path.split('/').pop() || part;
+  }).join(', ') || reference;
+}
+
 function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
   const reference = typeof metric === 'string' ? metric : metric?.reference ?? '';
   const ephysCuration = typeof metric !== 'string' && isEphysCurationMetric(metric);
@@ -548,7 +558,7 @@ function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, ed
       identifier: 'reference-link',
     })
     : resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc);
-  link.textContent = reference.split('/').pop() || reference;
+  link.textContent = referenceLabel(reference);
   link.addEventListener('click', (event) => {
     event.preventDefault();
     openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit);
