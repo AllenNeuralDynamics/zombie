@@ -205,8 +205,8 @@ point at must be publicly readable.
   (an error if the asset has none), optional `segments` (comma-separated IDs; default: all IDs in
   `segment_properties`) and `range` (`lo,hi` contrast; default: 5–95th
   percentile of non-zero voxels sampled at a coarse level). The initial view
-  fits the skeleton bounds. Embeds the vendored `/ng/index.html` with a pop-out
-  to neuroglancer-demo.
+  fits the skeleton bounds. Embeds neuroglancer-demo.appspot.com directly (not
+  the vendored `/ng/`); state updates change only the iframe's URL fragment.
 
 - `action` is reserved on every `js:` reference: `action=<name>:<args>` (repeatable)
   is stripped before rendering/grouping, so metrics differing only by action share

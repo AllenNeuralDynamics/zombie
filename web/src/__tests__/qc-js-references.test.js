@@ -44,7 +44,7 @@ describe('js: references', () => {
     const iframe = el.querySelector('iframe');
     await vi.waitFor(() => expect(iframe.getAttribute('src')).toBeTruthy());
     vi.unstubAllGlobals();
-    expect(iframe.getAttribute('src')).toMatch(/^\/ng\/index\.html#!/);
+    expect(iframe.getAttribute('src')).toMatch(/^https:\/\/neuroglancer-demo\.appspot\.com\/#!/);
     expect(el.querySelector('a').href).toContain('neuroglancer-demo.appspot.com');
   });
 

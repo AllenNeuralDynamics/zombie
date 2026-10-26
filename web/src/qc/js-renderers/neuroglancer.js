@@ -7,7 +7,6 @@ import {
   s3Https,
 } from './neuroglancer-data.js';
 
-const NG_EMBED_PATH = '/ng/index.html';
 const NG_PUBLIC_BASE = 'https://neuroglancer-demo.appspot.com';
 
 function isDarkMode() {
@@ -189,12 +188,11 @@ export function renderNeuroglancer(rawParams, ctx = {}) {
   const pending = [];
   const show = (st) => {
     if (!ready) return;
-    const fragment = neuroglancerFragment(st);
-    // Same-origin embed: later updates go through its postMessage API (see exaspim/morphology.js)
-    // so the viewer isn't reloaded; the embed buffers messages until it has mounted.
-    if (iframe.src) iframe.contentWindow?.postMessage({ type: 'setState', state: st }, '*');
-    else iframe.src = `${NG_EMBED_PATH}${fragment}`;
-    popout.href = `${NG_PUBLIC_BASE}/${fragment}`;
+    const url = `${NG_PUBLIC_BASE}/${neuroglancerFragment(st)}`;
+    // Only the fragment changes after the first load, so the iframe does a hash navigation
+    // (no reload) and Neuroglancer applies the new state from its hashchange listener.
+    iframe.src = url;
+    popout.href = url;
   };
   const handlers = createNeuroglancerActions(state, params, show);
   // Actions requested before enrichment finishes are replayed after it, so they win over defaults.
