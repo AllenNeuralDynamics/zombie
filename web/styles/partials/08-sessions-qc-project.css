@@ -398,7 +398,10 @@
 .qc-metric-card .metric-name { font-weight: 600; margin-bottom: 4px; }
 .qc-metric-card .metric-desc { white-space: pre-line; font-size: 0.85em; color: var(--text-secondary); margin-bottom: 6px; }
 .qc-metric-card .metric-tags { font-size: 0.8em; color: var(--text-muted); margin-bottom: 4px; }
-.qc-metric-card .metric-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.qc-metric-card .metric-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-height: 6em; overflow-y: auto; }
+.qc-metric-card .metric-action-pair { display: inline-flex; }
+.qc-metric-card .metric-action-pair .metric-action-btn { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.qc-metric-card .metric-action-copy { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding: 0 6px; cursor: pointer; }
 .qc-metric-card .metric-value { margin: 8px 0; font-size: 0.9em; }
 .qc-metric-card .metric-status { display: flex; align-items: center; gap: 6px; font-size: 0.85em; }
 .qc-metric-card .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }

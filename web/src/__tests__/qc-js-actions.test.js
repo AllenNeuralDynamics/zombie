@@ -66,6 +66,22 @@ describe('js reference actions', () => {
     vi.unstubAllGlobals();
   });
 
+  it('pairs goto buttons with a copy-coordinates button', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const writeText = vi.fn().mockResolvedValue();
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const root = renderMetrics([
+      { name: 'a', value: 1, reference: `${BASE}&action=goto:1,2,3&action=segments:4` },
+    ], 'b', 'p', 'asset');
+    const pairs = root.querySelectorAll('.metric-action-pair');
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].querySelector('.metric-action-btn').textContent).toBe('Go to 1,2,3');
+    pairs[0].querySelector('.metric-action-copy').click();
+    expect(writeText).toHaveBeenCalledWith('1,2,3');
+    vi.unstubAllGlobals();
+  });
+
   it('applies a reference action when rendered on its own', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
     const el = renderJsReference(`${BASE}&action=goto:1,2,3`);

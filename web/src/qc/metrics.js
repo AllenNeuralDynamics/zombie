@@ -515,12 +515,30 @@ function buildMetricCard(metric, edit = {}, media = {}, { suppressValue = false 
         const target = media.getActionTarget();
         if (target) runJsAction(target, action);
       });
-      bar.appendChild(button);
+      bar.appendChild(action.name === 'goto' ? pairWithCopyButton(button, action.args) : button);
     }
     card.appendChild(bar);
   }
 
   return card;
+}
+
+function pairWithCopyButton(button, text) {
+  const pair = document.createElement('span');
+  pair.className = 'metric-action-pair';
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'metric-action-copy';
+  copy.textContent = '⧉';
+  copy.setAttribute('aria-label', 'Copy coordinates');
+  copy.addEventListener('click', () => {
+    navigator.clipboard?.writeText(text).then(() => {
+      copy.textContent = '✓';
+      setTimeout(() => { copy.textContent = '⧉'; }, 1500);
+    }).catch(() => {});
+  });
+  pair.append(button, copy);
+  return pair;
 }
 
 function findActionTarget(root) {
