@@ -391,7 +391,7 @@ export function createSmartSpimView(coord) {
 
     const uniques = {};
     for (const col of ALL_COLS) {
-      uniques[col] = uniqueValues(allRows, col, { split: col === 'channels' ? '\n' : null });
+      uniques[col] = uniqueValues(allRows, col, { split: col === 'channels' ? '\n' : null, limit: SELECT_THRESHOLD + 1 });
     }
 
     const useSelect = {};

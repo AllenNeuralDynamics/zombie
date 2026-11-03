@@ -5,7 +5,7 @@
  * Each helper generates HTML for a specific table component.
  */
 
-import { escHtml, uniqueValues } from './utils.js';
+import { escHtml, uniqueValues, SELECT_THRESHOLD } from './utils.js';
 
 /**
  * Build <thead> HTML with sortable headers and filter inputs.
@@ -17,7 +17,7 @@ import { escHtml, uniqueValues } from './utils.js';
  * @param {Record<string, string>} filterValues - Current filter values
  * @param {object[]} rows - All data rows (for computing unique values)
  * @param {Record<string, 'text'|'select'>} [filterTypes={}] - Column filter UI type
- * @param {number} [selectThreshold=40] - Min uniques to show select vs input
+ * @param {number} [selectThreshold=40] - Maximum distinct values for an automatic select
  * @param {string[]} [skipFilterColumns=[]] - Columns that don't get filter inputs
  * @returns {string} <thead> HTML string
  */
@@ -29,7 +29,7 @@ export function buildTableHead(
   filterValues,
   rows,
   filterTypes = {},
-  selectThreshold = 40,
+  selectThreshold = SELECT_THRESHOLD,
   skipFilterColumns = [],
 ) {
   const headerCells = columns.map((col) => {
@@ -53,12 +53,14 @@ export function buildTableHead(
  * @param {string} filterValue - Current filter value
  * @param {object[]} rows - All data rows
  * @param {'text'|'select'} [forceType] - Force this UI type (ignores selectThreshold)
- * @param {number} [selectThreshold=40] - Min uniques to use select
+ * @param {number} [selectThreshold=40] - Maximum distinct values for an automatic select
  * @returns {string} HTML element (input or select)
  */
-export function buildFilterInput(col, filterValue = '', rows = [], forceType = undefined, selectThreshold = 40) {
-  const uniques = uniqueValues(rows, col);
-  const useSelect = forceType === 'select' || (forceType !== 'text' && uniques.length > 0 && uniques.length < selectThreshold);
+export function buildFilterInput(col, filterValue = '', rows = [], forceType = undefined, selectThreshold = SELECT_THRESHOLD) {
+  const uniques = forceType === 'text' ? [] : uniqueValues(rows, col, {
+    limit: forceType === 'select' ? Infinity : selectThreshold + 1,
+  });
+  const useSelect = forceType === 'select' || (forceType !== 'text' && uniques.length > 0 && uniques.length <= selectThreshold);
 
   if (useSelect) {
     const options = uniques.map((val) => `<option value="${escHtml(val)}" ${filterValue === val ? 'selected' : ''}>${escHtml(val)}</option>`).join('');

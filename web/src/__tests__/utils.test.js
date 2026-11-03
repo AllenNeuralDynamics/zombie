@@ -77,6 +77,37 @@ describe('uniqueValues', () => {
     const values = uniqueValues(rows, 'type');
     expect(values).toEqual(['A', 'M', 'Z']);
   });
+
+  it('retains every distinct value by default and with a sufficient limit', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ type: `type-${i}` }));
+    expect(uniqueValues(rows, 'type')).toHaveLength(50);
+    expect(uniqueValues(rows, 'type', { limit: 51 })).toEqual(uniqueValues(rows, 'type'));
+  });
+
+  it('stops reading rows once the distinct-value limit is reached', () => {
+    const rows = [{ type: 'Z' }, { type: null }, { type: 'Z' }, { type: '' }, { type: 'A' }, {
+      get type() { throw new Error('Unneeded row was read'); },
+    }];
+    expect(uniqueValues(rows, 'type', { limit: 2 })).toEqual(['A', 'Z']);
+  });
+
+  it.each([
+    [[null, '', [' B ', '', 'A', 'B'], [' C ']], null],
+    [[null, '', ' B , ,A,B', ' C '], ','],
+    [[null, '', ' B \n \nA\nB', ' C '], '\n'],
+  ])('preserves normalization and complete options below the limit', (values, split) => {
+    const rows = values.map(type => ({ type }));
+    expect(uniqueValues(rows, 'type', { split, limit: 4 })).toEqual(['A', 'B', 'C']);
+    expect(uniqueValues(rows, 'type', { split, limit: 2 })).toEqual(['A', 'B']);
+  });
+
+  it.each([39, 40, 41, 42])('preserves the page filter decision with %i distinct values', (count) => {
+    const rows = Array.from({ length: count }, (_, i) => ({ type: String(i) }));
+    const full = uniqueValues(rows, 'type');
+    const bounded = uniqueValues(rows, 'type', { limit: SELECT_THRESHOLD + 1 });
+    expect(bounded.length <= SELECT_THRESHOLD).toBe(full.length <= SELECT_THRESHOLD);
+    if (count <= SELECT_THRESHOLD) expect(bounded).toEqual(full);
+  });
 });
 
 describe('filterRows', () => {

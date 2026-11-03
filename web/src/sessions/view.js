@@ -488,7 +488,7 @@ export function createSessionsView(coord) {
 
     const uniques = {};
     for (const col of DISPLAY_COLUMNS) {
-      uniques[col] = uniqueValues(allRows, col);
+      uniques[col] = uniqueValues(allRows, col, { limit: SELECT_THRESHOLD + 1 });
     }
 
     const headerRowHtml = DISPLAY_COLUMNS.map((col) => {

@@ -771,7 +771,7 @@ export function createFiberPhotometryView(coord) {
     const uniques = {};
     for (const col of allAvailableCols) {
       const split = col.endsWith('/Channels') ? '\n' : col === 'modalities' ? ',' : null;
-      uniques[col] = uniqueValues(allRows, col, { split });
+      uniques[col] = uniqueValues(allRows, col, { split, limit: SELECT_THRESHOLD + 1 });
     }
 
     const useSelect = {};

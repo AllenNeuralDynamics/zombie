@@ -377,7 +377,7 @@ export function createAssetsView(coord) {
 
     const uniques = {};
     for (const col of ALL_AVAILABLE_COLUMNS) {
-      uniques[col] = uniqueValues(allRows, col, { split: col === 'modalities' ? ',' : null });
+      uniques[col] = uniqueValues(allRows, col, { split: col === 'modalities' ? ',' : null, limit: SELECT_THRESHOLD + 1 });
     }
 
     const useSelect = {};
