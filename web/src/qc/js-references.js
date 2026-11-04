@@ -69,6 +69,17 @@ export function runJsAction(element, action) {
   }
 }
 
+/** Records an action's data on a rendered element (e.g. a review point) without running it. */
+export function annotateJsAction(element, action, meta = {}) {
+  if (typeof element?.qcAnnotate !== 'function') return false;
+  try {
+    return Boolean(element.qcAnnotate(action.name, action.args, meta));
+  } catch (e) {
+    console.error('js reference annotation failed', e);
+    return false;
+  }
+}
+
 function renderError(message) {
   const p = document.createElement('p');
   p.className = 'qc-media-error';

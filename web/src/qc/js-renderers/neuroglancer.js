@@ -6,8 +6,10 @@ import {
   openOmeZarr,
   s3Https,
 } from './neuroglancer-data.js';
+import { addReviewPoint, selectReviewPoint } from './neuroglancer-review.js';
 
 const NG_PUBLIC_BASE = 'https://neuroglancer-demo.appspot.com';
+const GOTO_FOV_UM = 1000;
 
 function isDarkMode() {
   const t = document.documentElement?.dataset?.theme;
@@ -93,6 +95,15 @@ export function fitViewToBounds(state, boundsNm, panelPx = 500) {
   return state;
 }
 
+/** Centers the view on a point (µm) with a `fovUm`-wide field of view. */
+export function zoomToPoint(state, point, fovUm = GOTO_FOV_UM, panelPx = 500) {
+  const extra = Object.keys(state.dimensions).slice(3).map((_, i) => state.position?.[3 + i] ?? 0);
+  state.position = [...point, ...extra];
+  state.crossSectionScale = fovUm / panelPx;
+  state.projectionScale = fovUm;
+  return state;
+}
+
 /** Fills in skeleton segments, view bounds and image contrast from the data. */
 export async function enrichNeuroglancerState(state, params, { fetchImpl = fetch, signal } = {}) {
   const skeletonLayer = state.layers.find(l => l.name === 'skeleton');
@@ -148,7 +159,10 @@ function parsePoint(args) {
 /**
  * Action handlers that mutate `state` and call `show(state)`.
  * `segments:<id,id>` selects skeleton segments and fits the view to them;
- * `goto:<x,y,z>` centers on a point (µm, matching the state dimensions).
+ * `goto:<x,y,z>` centers on a point (µm, matching the state dimensions) with a 1000 µm
+ * field of view, and selects the review point there, if any.
+ * `annotate(name, args, { metric, status })` is not a click action: it records a
+ * metric's `goto` point in the `qc_errors` review layer without moving the view.
  */
 export function createNeuroglancerActions(state, params, show, { fetchImpl = fetch } = {}) {
   let latest = 0;
@@ -170,9 +184,15 @@ export function createNeuroglancerActions(state, params, show, { fetchImpl = fet
     goto(args) {
       const point = parsePoint(args);
       ++latest;
-      const extra = Object.keys(state.dimensions).slice(3).map((_, i) => state.position?.[3 + i] ?? 0);
-      state.position = [...point, ...extra];
+      zoomToPoint(state, point);
+      selectReviewPoint(state, point);
       show(state);
+    },
+    annotate(name, args, { metric, status } = {}) {
+      if (name !== 'goto') return false;
+      const added = addReviewPoint(state, { xyz: parsePoint(args), metric, status });
+      if (added) show(state);
+      return added;
     },
   };
 }
@@ -194,7 +214,9 @@ export function renderNeuroglancer(rawParams, ctx = {}) {
     iframe.src = url;
     popout.href = url;
   };
-  const handlers = createNeuroglancerActions(state, params, show);
+  const { annotate, ...handlers } = createNeuroglancerActions(state, params, show);
+  // Before enrichment `show` is a no-op; the post-enrichment show includes these points.
+  wrapper.qcAnnotate = annotate;
   // Actions requested before enrichment finishes are replayed after it, so they win over defaults.
   wrapper.qcActions = Object.fromEntries(Object.entries(handlers).map(([name, fn]) => [
     name,

@@ -213,8 +213,15 @@ point at must be publicly readable.
   one accordion pane and one render. Each such metric card gets a button that calls
   `el.qcActions[name](args)` on the rendered element (`runJsAction`); standalone
   renders (dialog/hover) apply the actions immediately. Neuroglancer supports
-  `segments:<id,id>` (select + fit) and `goto:<x,y,z>` (µm). Any renderer can opt in
+  `segments:<id,id>` (select + fit) and `goto:<x,y,z>` (µm; centers a 1000 µm view and
+  selects the worst-status `qc_errors` point there in the opened selection panel). Any renderer can opt in
   by attaching `qcActions`.
+- A renderer may also attach `qcAnnotate(name, args, { metric, status })`, which records
+  an action's data without running it. Every rendered group view (accordion pane, table
+  dialog) calls it for each grouped metric's actions. Neuroglancer turns each `goto` into a
+  point in an editable local `qc_errors` annotation layer, tagged with its metric and status
+  (a port of neuron-ng's `review_layer`, in `neuroglancer-review.js`). The table dialog
+  then runs the clicked metric's actions. No `js:` reference gets a table hover preview.
 
 The vendored Neuroglancer in `web/public/ng/` must include every lazy chunk and
 `.wasm` asset its bundle references; Vite's dev server masks missing ones with

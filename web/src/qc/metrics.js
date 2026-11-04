@@ -7,7 +7,7 @@ import {
   valueText,
 } from './edit-model.js';
 import { renderMedia } from './media.js';
-import { describeJsAction, parseJsReference, referenceActions, referenceGroupKey, runJsAction } from './js-references.js';
+import { annotateJsAction, describeJsAction, isJsReference, parseJsReference, referenceActions, referenceGroupKey, runJsAction } from './js-references.js';
 import {
   buildEphysCurationUrl,
   isEphysCurationMetric,
@@ -547,6 +547,19 @@ function findActionTarget(root) {
   return [...root.querySelectorAll('*')].find(el => el.qcActions) ?? null;
 }
 
+/** Records every action of the metrics sharing a rendered js: view (e.g. review points). */
+function annotateGroup(target, groupMetrics, edit) {
+  if (!target) return;
+  for (const metric of groupMetrics) {
+    const meta = { metric: metric.name ?? '', status: draftStatus(metric, edit) };
+    for (const action of referenceActions(metric.reference)) annotateJsAction(target, action, meta);
+  }
+}
+
+function hasJsReference(reference) {
+  return reference.split(';').some(part => isJsReference(part.trim()));
+}
+
 /** Short display text for a reference: js: type, or the last path segment without query/hash. */
 export function referenceLabel(reference) {
   return reference.split(';').map(part => part.trim()).filter(Boolean).map((part) => {
@@ -557,7 +570,7 @@ export function referenceLabel(reference) {
   }).join(', ') || reference;
 }
 
-function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
+function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}, allMetrics = []) {
   const reference = typeof metric === 'string' ? metric : metric?.reference ?? '';
   const ephysCuration = typeof metric !== 'string' && isEphysCurationMetric(metric);
   const cell = document.createElement('td');
@@ -579,12 +592,13 @@ function renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, ed
   link.textContent = referenceLabel(reference);
   link.addEventListener('click', (event) => {
     event.preventDefault();
-    openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit);
+    openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit, allMetrics);
   });
   const anchor = document.createElement('span');
   anchor.className = 'qc-reference-anchor';
   anchor.appendChild(link);
   cell.appendChild(anchor);
+  if (hasJsReference(reference)) return cell;
 
   const preview = document.createElement('div');
   preview.className = 'qc-reference-preview';
@@ -613,7 +627,7 @@ function resolveReferenceUrl(reference, s3Bucket, s3Prefix, rawS3Loc) {
   return resolveReference(parts[0] || reference, s3Bucket, s3Prefix, rawS3Loc).url || '#';
 }
 
-function openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}) {
+function openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit = {}, allMetrics = []) {
   const reference = typeof metric === 'string' ? metric : metric?.reference ?? '';
   const ephysCuration = typeof metric !== 'string' && isEphysCurationMetric(metric);
   const overlay = document.createElement('div');
@@ -634,7 +648,7 @@ function openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, ed
   dialog.appendChild(close);
   const content = ephysCuration
     ? renderEphysCuration(metric, { s3Bucket, s3Prefix, assetName, rawS3Loc, edit })
-    : renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
+    : renderReferenceMedia(metric, reference, s3Bucket, s3Prefix, assetName, rawS3Loc, edit, allMetrics);
   dialog.appendChild(content);
   overlay.appendChild(dialog);
   overlay.addEventListener('click', event => {
@@ -644,6 +658,23 @@ function openReferenceDialog(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, ed
     }
   });
   document.body.appendChild(overlay);
+}
+
+/**
+ * Dialog media for one metric. A single js: reference renders the same shared
+ * view as the accordion (every point of the metrics grouped with it), focused on this metric.
+ */
+function renderReferenceMedia(metric, reference, s3Bucket, s3Prefix, assetName, rawS3Loc, edit, allMetrics) {
+  if (typeof metric === 'string' || reference.includes(';') || !isJsReference(reference)) {
+    return renderMedia(reference, s3Bucket, s3Prefix, assetName, rawS3Loc);
+  }
+  const key = referenceGroupKey(reference);
+  const group = allMetrics.filter(m => referenceGroupKey(m.reference ?? '') === key);
+  const media = renderMedia(key, s3Bucket, s3Prefix, assetName, rawS3Loc);
+  const target = findActionTarget(media);
+  annotateGroup(target, group.includes(metric) ? group : [...group, metric], edit);
+  if (target) for (const action of referenceActions(reference)) runJsAction(target, action);
+  return media;
 }
 
 function renderTableMetricValue(metric, edit, media = {}) {
@@ -713,7 +744,7 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
         const statusShade = statusShadeClass(status);
         row.className = `qc-metrics-table-row${statusShade ? ` ${statusShade}` : ''}`;
         row.dataset.qcStatusMetric = metric.name ?? '';
-        row.appendChild(renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit));
+        row.appendChild(renderReferenceLink(metric, s3Bucket, s3Prefix, assetName, rawS3Loc, edit, metrics));
         row.insertCell().textContent = metric.name ?? '';
         const valueCell = row.insertCell();
         valueCell.appendChild(renderTableMetricValue(metric, edit, { s3Bucket, s3Prefix, assetName, rawS3Loc }));
@@ -808,6 +839,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
           }
         } else {
           groupMedia = renderMedia(ref, s3Bucket, s3Prefix, assetName, rawS3Loc);
+          annotateGroup(findActionTarget(groupMedia), groupMetrics, currentEdit);
           body.appendChild(groupMedia);
         }
       }
