@@ -16,9 +16,10 @@ const BASE = 'js:neuroglancer?skeleton=s3://b/skel';
 
 const reviewLayer = state => state.layers.find(l => l.name === REVIEW_LAYER);
 
+// The pop-out link carries the latest state; the embed only gets its first state via `src`.
 function iframeState(root) {
-  const src = root.querySelector('iframe').src;
-  return JSON.parse(decodeURIComponent(src.slice(src.indexOf('#!') + 2)));
+  const href = root.querySelector('.qc-media-js-neuroglancer a').href;
+  return JSON.parse(decodeURIComponent(href.slice(href.indexOf('#!') + 2)));
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));

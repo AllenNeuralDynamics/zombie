@@ -29,11 +29,12 @@
     /* Light page background — Neuroglancer renders its perspective canvas on
        top, and the morphology portal uses a very-light gray here. */
     html, body { margin: 0; padding: 0; height: 100%; background: #f3f4f5; }
-
+  </style>
+  <style id="ng-embed-minimal">
     /* Hide every bit of Neuroglancer chrome: top toolbar, position widget,
        layer-tab strip, side panels, panel borders, layout-controls. The
        morphology portal applies the same overrides so only the 3D
-       perspective canvas is visible. */
+       perspective canvas is visible. `?chrome` keeps the stock UI instead. */
     .neuroglancer-viewer-top-row,
     .neuroglancer-position-widget,
     .neuroglancer-layer-panel,
@@ -66,6 +67,9 @@
     .neuroglancer-data-panel-layout-controls,
     .neuroglancer-data-panel-layout-controls * { display: none !important; }
   </style>
+  <script>
+    if (new URLSearchParams(location.search).has('chrome')) document.getElementById('ng-embed-minimal').remove();
+  </script>
 </head>
 <body>
 <script>

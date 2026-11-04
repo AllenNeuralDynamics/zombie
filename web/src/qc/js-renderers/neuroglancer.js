@@ -8,7 +8,7 @@ import {
 } from './neuroglancer-data.js';
 import { addReviewPoint, selectReviewPoint } from './neuroglancer-review.js';
 
-const NG_EMBED_PATH = '/ng/index.html';
+const NG_EMBED_PATH = '/ng/index.html?chrome';
 const NG_PUBLIC_BASE = 'https://neuroglancer-demo.appspot.com';
 const GOTO_FOV_UM = 1000;
 

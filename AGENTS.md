@@ -205,8 +205,9 @@ point at must be publicly readable.
   (an error if the asset has none), optional `segments` (comma-separated IDs; default: all IDs in
   `segment_properties`) and `range` (`lo,hi` contrast; default: 5–95th
   percentile of non-zero voxels sampled at a coarse level). The initial view
-  fits the skeleton bounds. Embeds the vendored `/ng/index.html` with a pop-out
-  to neuroglancer-demo.
+  fits the skeleton bounds. Embeds the vendored `/ng/index.html?chrome` (stock
+  Neuroglancer UI; without `?chrome` the embed hides all chrome, as ExaSPIM uses it)
+  with a pop-out to neuroglancer-demo.
 
 - `action` is reserved on every `js:` reference: `action=<name>:<args>` (repeatable)
   is stripped before rendering/grouping, so metrics differing only by action share
