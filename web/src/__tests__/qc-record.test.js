@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 vi.mock('../lib/docdb.js', () => ({ queryDocDb: vi.fn() }));
 import { queryDocDb } from '../lib/docdb.js';
+import { CONTRIBUTIONS_API_BASE } from '../constants.js';
 import { fetchQcRecord } from '../qc/record.js';
 
 beforeEach(() => vi.resetAllMocks());
@@ -19,7 +20,7 @@ it('loads a temporary record only after an empty DocDB result', async () => {
   const record = { name: 'test & preview', quality_control: { metrics: [] } };
   const fetchImpl = vi.fn(async () => ({ ok: true, json: async () => ({ name: record.name, temporary: true, metadata: record }) }));
   expect(await fetchQcRecord(record.name, { fetchImpl })).toEqual({ record, temporary: true });
-  expect(fetchImpl).toHaveBeenCalledWith('/metadata-viz/temporary-metadata?name=test+%26+preview', { cache: 'no-store' });
+  expect(fetchImpl).toHaveBeenCalledWith(`${CONTRIBUTIONS_API_BASE}/temporary-metadata?name=test+%26+preview`, { cache: 'no-store' });
 });
 
 it('does not hide DocDB outages behind temporary metadata', async () => {
