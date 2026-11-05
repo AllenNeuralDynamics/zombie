@@ -249,12 +249,14 @@ describe('QC navigation state', () => {
     });
 
     expect(view.querySelector('[role="alert"]').hidden).toBe(true);
-    expect([...view.querySelectorAll('.qc-metric-card .metric-name')].map(el => el.textContent)).toEqual(['first', 'second']);
-    expect([...view.querySelectorAll('.qc-metric-card .metric-value')].map(el => el.textContent)).toEqual(['true', '—']);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-name')].map(el => el.textContent)).toEqual(['second', 'first']);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-value')].map(el => el.textContent)).toEqual(['—', 'true']);
+    expect([...view.querySelectorAll('.qc-metric-card .metric-status')].map(el => el.textContent)).toEqual(['Pending', 'Pass']);
 
     view.querySelectorAll('.qc-view-toggle button')[1].click();
-    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(2)')].map(el => el.textContent)).toEqual(['first', 'second']);
-    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(3)')].map(el => el.textContent)).toEqual(['true', '—']);
+    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(2)')].map(el => el.textContent)).toEqual(['second', 'first']);
+    expect([...view.querySelectorAll('.qc-metrics-table-row td:nth-child(3)')].map(el => el.textContent)).toEqual(['—', 'true']);
+    expect([...view.querySelectorAll('.qc-table-status')].map(el => el.textContent)).toEqual(['Pending', 'Pass']);
   });
 
   it('renders null fields in scalar object metrics in table view', () => {

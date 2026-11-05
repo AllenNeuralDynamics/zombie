@@ -22,6 +22,56 @@ function cardFor(metric) {
   return el.querySelector('.qc-metric-card');
 }
 
+describe.each([
+  ['accordion', renderMetrics, '.qc-metric-card'],
+  ['table', renderMetricsTable, '.qc-metrics-table-row'],
+])('%s reference group status ordering', (_view, render, selector) => {
+  const metricWithStatus = (name, status, reference = '') => baseMetric({
+    name,
+    reference,
+    status_history: status ? [{ status }] : [],
+  });
+  const names = element => [...element.querySelectorAll(selector)].map(item => item.dataset.qcStatusMetric);
+
+  it('orders Fail, Pending, Pass and preserves ties without mutating input', () => {
+    const metrics = [
+      metricWithStatus('pass', 'Pass'),
+      metricWithStatus('pending', 'Pending'),
+      metricWithStatus('fail-first', 'Fail'),
+      metricWithStatus('fail-second', 'Fail'),
+      metricWithStatus('missing-status', null),
+    ];
+    const original = [...metrics];
+    expect(names(render(metrics, 'aind-open-data', 'prefix', 'asset')))
+      .toEqual(['fail-first', 'fail-second', 'pending', 'missing-status', 'pass']);
+    expect(metrics).toEqual(original);
+  });
+
+  it('sorts within reference groups without changing reference order', () => {
+    const metrics = [
+      metricWithStatus('first-pass', 'Pass', 'figures/first.png'),
+      metricWithStatus('second-pass', 'Pass', 'figures/second.png'),
+      metricWithStatus('first-fail', 'Fail', 'figures/first.png'),
+      metricWithStatus('second-pending', 'Pending', 'figures/second.png'),
+    ];
+    const element = render(metrics, 'aind-open-data', 'prefix', 'asset');
+    for (const details of element.querySelectorAll('details')) {
+      details.open = true;
+      details.dispatchEvent(new Event('toggle'));
+    }
+    expect(names(element)).toEqual(['first-fail', 'first-pass', 'second-pending', 'second-pass']);
+  });
+
+  it.each([true, false])('uses draft statuses only with editing enabled: %s', enabled => {
+    const metrics = [metricWithStatus('pass', 'Pass'), metricWithStatus('fail', 'Fail')];
+    const element = render(metrics, 'aind-open-data', 'prefix', 'asset', '', {
+      enabled,
+      statusDrafts: { pass: 'Fail', fail: 'Pass' },
+    });
+    expect(names(element)).toEqual(enabled ? ['pass', 'fail'] : ['fail', 'pass']);
+  });
+});
+
 describe('isCustomMetric', () => {
   it('detects dropdown/checkbox/rule dicts', () => {
     expect(isCustomMetric({ type: 'dropdown', options: [], value: '' })).toBe(true);

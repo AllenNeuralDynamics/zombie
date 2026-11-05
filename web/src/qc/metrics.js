@@ -281,6 +281,23 @@ function draftStatus(metric, edit) {
   return edit?.statusDrafts?.[metric.name] ?? getMetricStatus(metric);
 }
 
+function groupMetricsByReference(metrics) {
+  const groups = new Map();
+  for (const metric of metrics) {
+    const reference = referenceGroupKey(metric.reference ?? '');
+    if (!groups.has(reference)) groups.set(reference, []);
+    groups.get(reference).push(metric);
+  }
+  return groups;
+}
+
+function sortMetricsByStatus(metrics, edit) {
+  const priority = { fail: 0, pending: 1, pass: 2 };
+  return [...metrics].sort((left, right) =>
+    priority[statusDotClass(draftStatus(left, edit))] - priority[statusDotClass(draftStatus(right, edit))],
+  );
+}
+
 function valueEditEnabled(metric, edit) {
   return Boolean(edit?.enabled && edit.editableMetricNames?.has(metric.name) && edit.onValue &&
     canEditMetricValue(metric, { allowEditingValues: edit.allowEditingValues }));
@@ -737,7 +754,9 @@ export function renderMetricsTable(metrics, s3Bucket, s3Prefix, assetName, rawS3
     const groupCell = groupRow.insertCell();
     groupCell.colSpan = 4;
     groupCell.textContent = group.label;
-    for (const metric of group.metrics) {
+    const orderedMetrics = [...groupMetricsByReference(group.metrics).values()]
+      .flatMap(referenceMetrics => sortMetricsByStatus(referenceMetrics, edit));
+    for (const metric of orderedMetrics) {
       try {
         const row = document.createElement('tr');
         const status = draftStatus(metric, edit);
@@ -772,12 +791,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
   container.className = 'qc-accordion';
   const ephysPanels = [];
 
-  const groups = new Map();
-  for (const m of metrics) {
-    const ref = referenceGroupKey(m.reference ?? '');
-    if (!groups.has(ref)) groups.set(ref, []);
-    groups.get(ref).push(m);
-  }
+  const groups = groupMetricsByReference(metrics);
 
   let first = true;
   for (const [ref, groupMetrics] of groups) {
@@ -808,7 +822,7 @@ export function renderMetrics(metrics, s3Bucket, s3Prefix, assetName, rawS3Loc =
       // With a media reference the cards sit in a fixed-width column beside the media;
       // without one they fill the width as a responsive grid instead of a single stack.
       leftCol.className = ref ? 'accordion-metrics' : 'accordion-metrics accordion-metrics-grid';
-      for (const m of groupMetrics) {
+      for (const m of sortMetricsByStatus(groupMetrics, currentEdit)) {
         try {
           leftCol.appendChild(buildMetricCard(
             m,
