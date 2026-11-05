@@ -207,7 +207,14 @@ point at must be publicly readable.
   percentile of non-zero voxels sampled at a coarse level). The initial view
   fits the skeleton bounds. Embeds the vendored `/ng/index.html?chrome` (stock
   Neuroglancer UI; without `?chrome` the embed hides all chrome, as ExaSPIM uses it)
-  with a pop-out to neuroglancer-demo.
+  with a pop-out to neuroglancer-demo. Optional `showAtlas` (bare,
+  `showAtlas=true`, or `showAtlas=false`) adds the CCFv3 Atlas overlay
+  when enabled: the root mesh in 3D and every structure in the 2D cross
+  sections (`notSelectedAlpha`); the input image or skeleton must already be
+  CCF-aligned. Its colors come from the same public morphology API as ExaSPIM,
+  fetched in parallel with the other data, and the layer is built once they
+  arrive. If they cannot be loaded, the viewer remains available with a
+  visible warning and Neuroglancer's default colors.
 
 - `action` is reserved on every `js:` reference: `action=<name>:<args>` (repeatable)
   is stripped before rendering/grouping, so metrics differing only by action share

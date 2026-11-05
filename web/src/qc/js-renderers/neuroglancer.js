@@ -7,6 +7,7 @@ import {
   s3Https,
 } from './neuroglancer-data.js';
 import { addReviewPoint, selectReviewPoint } from './neuroglancer-review.js';
+import { buildCcfLayer, ccfColorMap, CCF_ROOT_SEGMENT, fetchCcfStructures } from '../../lib/ccf-atlas.js';
 
 const NG_EMBED_PATH = '/ng/index.html?chrome';
 const NG_PUBLIC_BASE = 'https://neuroglancer-demo.appspot.com';
@@ -36,10 +37,49 @@ export function resolveNeuroglancerParams(params, { s3Bucket, s3Prefix } = {}) {
   return resolved;
 }
 
+/** `showAtlas` may be bare, `true`, or `false`; repeats must agree. */
+export function parseShowAtlas(params) {
+  const values = params.getAll('showAtlas').map(value => {
+    if (value === '' || value === 'true') return true;
+    if (value === 'false') return false;
+    throw new Error('showAtlas must be a bare parameter, true, or false');
+  });
+  if (new Set(values).size > 1) throw new Error('showAtlas values must agree');
+  return values[0] ?? false;
+}
+
+export async function fetchAtlasColors(options) {
+  return ccfColorMap(await fetchCcfStructures(options));
+}
+
+/**
+ * The CCFv3 Atlas overlay: only the root mesh in 3D, but every structure in the
+ * 2D cross sections via `notSelectedAlpha`.
+ */
+export function buildAtlasLayer(colors = null) {
+  return buildCcfLayer({
+    name: 'Atlas',
+    segments: [CCF_ROOT_SEGMENT],
+    objectAlpha: 0.2,
+    notSelectedAlpha: 0.3,
+    tab: 'source',
+    colors,
+    allColors: true,
+  });
+}
+
+/** Inserts the Atlas above the image and below the skeleton. */
+export function addAtlasLayer(state, colors = null) {
+  const image = state.layers.findIndex(l => l.name === 'image');
+  state.layers.splice(image + 1, 0, buildAtlasLayer(colors));
+  return state;
+}
+
 /**
  * Params: `image` (s3:// zarr), `skeleton` (s3:// precomputed skeletons),
- * optional `segments` (comma-separated skeleton IDs to show) and
- * `range` (image contrast as `lo,hi`).
+ * optional `segments` (comma-separated skeleton IDs to show), and
+ * `range` (image contrast as `lo,hi`). `showAtlas` is handled by
+ * `renderNeuroglancer`, which adds the Atlas once its colors are fetched.
  */
 export function buildNeuroglancerState(params) {
   const image = params.get('image');
@@ -200,9 +240,15 @@ export function createNeuroglancerActions(state, params, show, { fetchImpl = fet
 
 export function renderNeuroglancer(rawParams, ctx = {}) {
   const params = resolveNeuroglancerParams(rawParams, ctx);
+  const showAtlas = parseShowAtlas(params);
   const state = buildNeuroglancerState(params);
   const wrapper = document.createElement('div');
   wrapper.className = 'qc-media-js-neuroglancer';
+  const atlasWarning = document.createElement('p');
+  atlasWarning.className = 'warning-banner';
+  atlasWarning.setAttribute('role', 'status');
+  atlasWarning.textContent = 'Atlas colors could not be loaded; showing default colors.';
+  atlasWarning.hidden = true;
   const iframe = document.createElement('iframe');
   const popout = document.createElement('a');
   let ready = false;
@@ -224,7 +270,16 @@ export function renderNeuroglancer(rawParams, ctx = {}) {
     name,
     (args) => (ready ? fn(args) : pending.push(() => fn(args))),
   ]));
-  enrichNeuroglancerState(state, params).finally(() => {
+  const atlasColors = showAtlas
+    ? fetchAtlasColors().catch((error) => {
+      console.warn('neuroglancer atlas colors failed', error);
+      atlasWarning.hidden = false;
+      return null;
+    })
+    : null;
+  Promise.allSettled([enrichNeuroglancerState(state, params), atlasColors]).then(([enriched, colors]) => {
+    if (enriched.status === 'rejected') console.warn('neuroglancer enrichment failed', enriched.reason);
+    if (showAtlas) addAtlasLayer(state, colors.value);
     ready = true;
     show(state);
     for (const run of pending.splice(0)) run();
@@ -240,6 +295,6 @@ export function renderNeuroglancer(rawParams, ctx = {}) {
   popout.rel = 'noopener noreferrer';
   popout.textContent = 'Open in Neuroglancer';
   actions.append(fullscreen, popout);
-  wrapper.append(iframe, actions);
+  wrapper.append(atlasWarning, iframe, actions);
   return wrapper;
 }

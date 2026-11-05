@@ -1,7 +1,16 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi } from 'vitest';
 import { parseJsReference, renderJsReference } from '../qc/js-references.js';
-import { buildNeuroglancerState, fitViewToBounds, resolveNeuroglancerParams } from '../qc/js-renderers/neuroglancer.js';
+import {
+  addAtlasLayer,
+  buildAtlasLayer,
+  buildNeuroglancerState,
+  fetchAtlasColors,
+  fitViewToBounds,
+  parseShowAtlas,
+  resolveNeuroglancerParams,
+} from '../qc/js-renderers/neuroglancer.js';
+import { CCF_ROOT_SEGMENT, CCF_SOURCE } from '../lib/ccf-atlas.js';
 import {
   decodeSkeletonVertices,
   extraGlobalDimensions,
@@ -35,6 +44,67 @@ describe('js: references', () => {
       { type: 'segmentation', source: 'precomputed://s3://b/skel', name: 'skeleton',
         skeletonRendering: { mode2d: 'lines_and_points', lineWidth3d: 2 }, segments: ['1', '2'] },
     ]);
+  });
+
+  it.each([
+    ['', false],
+    ['&showAtlas', true],
+    ['&showAtlas=true', true],
+    ['&showAtlas=false', false],
+    ['&showAtlas=true&showAtlas=true', true],
+  ])('parses showAtlas from "%s"', (query, enabled) => {
+    expect(parseShowAtlas(new URLSearchParams(`skeleton=s3://b/skel${query}`))).toBe(enabled);
+  });
+
+  it.each([
+    'showAtlas=maybe',
+    'showAtlas=True',
+    'showAtlas=false&showAtlas=true',
+  ])('rejects invalid or conflicting Atlas options: %s', query => {
+    expect(() => parseShowAtlas(new URLSearchParams(`skeleton=s3://b/skel&${query}`))).toThrow('showAtlas');
+  });
+
+  it('builds the colored Atlas layer with every structure visible in 2D', () => {
+    const colors = new Map([['997', '#FFFFFF'], ['8', '#bfdae3']]);
+    expect(buildAtlasLayer(colors)).toEqual({
+      type: 'segmentation',
+      source: CCF_SOURCE,
+      name: 'Atlas',
+      segments: [CCF_ROOT_SEGMENT],
+      objectAlpha: 0.2,
+      notSelectedAlpha: 0.3,
+      tab: 'source',
+      segmentColors: { '997': '#FFFFFF', '8': '#bfdae3' },
+    });
+    expect(buildAtlasLayer().segmentColors).toBeUndefined();
+    const first = buildAtlasLayer();
+    first.segments.push('8');
+    expect(buildAtlasLayer().segments).toEqual(['997']);
+  });
+
+  it('inserts the Atlas between the image and skeleton', () => {
+    const names = query => addAtlasLayer(buildNeuroglancerState(new URLSearchParams(query)))
+      .layers.map(layer => layer.name);
+    expect(names('image=s3://b/i.zarr')).toEqual(['image', 'Atlas']);
+    expect(names('skeleton=s3://b/s')).toEqual(['Atlas', 'skeleton']);
+    expect(names('image=s3://b/i.zarr&skeleton=s3://b/s')).toEqual(['image', 'Atlas', 'skeleton']);
+  });
+
+  it('fetches the live Atlas palette as a color map', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: { atlasStructures: [
+        { structureId: 997, defaultColor: 'FFFFFF' },
+        { structureId: 8, defaultColor: 'bfdae3' },
+      ] } }),
+    }));
+    await expect(fetchAtlasColors({ fetchImpl }))
+      .resolves.toEqual(new Map([['997', '#FFFFFF'], ['8', '#bfdae3']]));
+  });
+
+  it('leaves the Atlas to the renderer', () => {
+    const state = buildNeuroglancerState(new URLSearchParams('skeleton=s3://b/s&showAtlas'));
+    expect(state.layers.map(layer => layer.name)).toEqual(['skeleton']);
   });
 
   it('renders an embedded viewer without presigning', async () => {

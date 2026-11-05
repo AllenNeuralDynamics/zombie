@@ -42,11 +42,16 @@ import {
   tracingsToSkeleton,
   boundsOfItems,
 } from './projection2d.js';
+import {
+  buildCcfLayer,
+  ccfColorMap,
+  CCF_ROOT_SEGMENT,
+  fetchCcfStructures,
+} from '../lib/ccf-atlas.js';
 
 // ─── External endpoints ─────────────────────────────────────────────────────
 
 const PORTAL_BASE = 'https://morphology.allenneuraldynamics.org';
-const GRAPHQL_URL = `${PORTAL_BASE}/graphql`;
 
 /**
  * Self-hosted Neuroglancer (vendored under `web/public/ng/`) — same-origin so
@@ -100,10 +105,6 @@ const DEFAULT_CAMERA = {
 };
 
 /** Precomputed segmentation: CCF reference atlas (meshes per structureId). */
-const CCF_SOURCE = 'precomputed://gs://allen_neuroglancer_ccf/ccf_test1';
-
-/** CCF structure id of the whole-brain root outline. */
-const CCF_ROOT_SEGMENT = '997';
 /** The root shell stays very translucent so you can see inside the brain. */
 const CCF_ROOT_ALPHA = 0.18;
 /** Non-root regions are rendered more opaque so they read clearly. */
@@ -116,28 +117,6 @@ function isDarkMode() {
   if (t === 'dark') return true;
   if (t === 'light') return false;
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches;
-}
-
-// ─── GraphQL ────────────────────────────────────────────────────────────────
-
-const ATLAS_QUERY = `query CcfStructures {
-  atlasStructures {
-    id name acronym structureId parentStructureId
-    structureIdPath defaultColor hasGeometry
-  }
-}`;
-
-async function gql(query, variables, signal) {
-  const res = await fetch(GRAPHQL_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables }),
-    signal,
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const body = await res.json();
-  if (body.errors?.length) throw new Error(body.errors[0].message ?? 'GraphQL error');
-  return body.data;
 }
 
 // ─── Pure helpers (exported for tests) ──────────────────────────────────────
@@ -173,31 +152,22 @@ export function buildNgState(
   // The root outline and the inner regions need different opacity, and
   // Neuroglancer's `objectAlpha` is per-layer — so split the CCF source into
   // a translucent "ccf" root layer and a more opaque "ccf-regions" layer.
-  const makeCcfLayer = (name, segIds, alpha, silhouette) => {
-    const layer = {
-      type: 'segmentation',
-      source: CCF_SOURCE,
-      name,
-      objectAlpha: alpha,
-      segments: segIds.map(String),
-    };
-    if (silhouette) layer.meshSilhouetteRendering = 3;
-    if (ccfColors) {
-      const segmentColors = {};
-      for (const id of segIds) {
-        const c = ccfColors.get(String(id));
-        if (c) segmentColors[String(id)] = c;
-      }
-      if (Object.keys(segmentColors).length > 0) layer.segmentColors = segmentColors;
-    }
-    return layer;
-  };
-
   const rootSegs = ccfSegments.filter((id) => String(id) === CCF_ROOT_SEGMENT);
   const regionSegs = ccfSegments.filter((id) => String(id) !== CCF_ROOT_SEGMENT);
-  const layers = [makeCcfLayer('ccf', rootSegs, CCF_ROOT_ALPHA, true)];
+  const layers = [buildCcfLayer({
+    name: 'ccf',
+    segments: rootSegs,
+    objectAlpha: CCF_ROOT_ALPHA,
+    meshSilhouetteRendering: 3,
+    colors: ccfColors,
+  })];
   if (regionSegs.length > 0) {
-    layers.push(makeCcfLayer('ccf-regions', regionSegs, CCF_REGION_ALPHA, false));
+    layers.push(buildCcfLayer({
+      name: 'ccf-regions',
+      segments: regionSegs,
+      objectAlpha: CCF_REGION_ALPHA,
+      colors: ccfColors,
+    }));
   }
   for (const comp of COMPARTMENTS) {
     const ids = neuronsByComp?.[comp] ?? [];
@@ -1662,7 +1632,7 @@ function createMorphologyContent({ signal, coordinator } = {}) {
   signal?.addEventListener('abort', () => themeObserver.disconnect());
 
   Promise.all([
-    gql(ATLAS_QUERY, {}, signal).then((d) => d?.atlasStructures ?? []),
+    fetchCcfStructures({ signal }),
     fetch(NEURON_SEG_PROPS_URL, { signal })
       .then((r) => { if (!r.ok) throw new Error(`segment_properties HTTP ${r.status}`); return r.json(); })
       .catch(() => null),
@@ -1672,9 +1642,7 @@ function createMorphologyContent({ signal, coordinator } = {}) {
     // Build the CCF id → Allen atlas colour lookup so checked regions render
     // in their true colours (defaultColor is a hex string without '#').
     ccfColorById.clear();
-    for (const node of byId.values()) {
-      if (node.color) ccfColorById.set(String(node.id), '#' + node.color);
-    }
+    for (const [id, color] of ccfColorMap(atlas)) ccfColorById.set(id, color);
 
     // Lowercase-keyed acronym / area-name lookups power the unified search
     // (exact CCF matches → chips) and hierarchical region filtering.

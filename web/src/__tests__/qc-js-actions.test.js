@@ -11,6 +11,7 @@ import {
 import { buildNeuroglancerState, createNeuroglancerActions } from '../qc/js-renderers/neuroglancer.js';
 import { addReviewPoint, REVIEW_LAYER, selectReviewPoint } from '../qc/js-renderers/neuroglancer-review.js';
 import { renderMetrics, renderMetricsTable } from '../qc/metrics.js';
+import { CCF_GRAPHQL_URL } from '../lib/ccf-atlas.js';
 
 const BASE = 'js:neuroglancer?skeleton=s3://b/skel';
 
@@ -111,6 +112,54 @@ describe('neuroglancer review layer', () => {
 });
 
 describe('js reference actions', () => {
+  it('keeps the Atlas colors in the iframe and pop-out state', async () => {
+    const atlasStructures = [
+      { structureId: 997, defaultColor: 'FFFFFF' },
+      { structureId: 8, defaultColor: 'bfdae3' },
+    ];
+    vi.stubGlobal('fetch', vi.fn(async url => {
+      if (url === CCF_GRAPHQL_URL) {
+        return { ok: true, json: async () => ({ data: { atlasStructures } }) };
+      }
+      throw new Error('offline');
+    }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = renderJsReference(`${BASE}&showAtlas&action=goto:1,2,3`);
+    await vi.waitFor(() => expect(el.querySelector('iframe').getAttribute('src')).toBeTruthy());
+    const state = iframeState(el);
+    const atlas = state.layers.find(layer => layer.name === 'Atlas');
+    expect(state.layers.map(layer => layer.name)).toEqual(['Atlas', 'skeleton']);
+    expect(atlas.notSelectedAlpha).toBe(0.3);
+    expect(atlas.segmentColors).toEqual({ '997': '#FFFFFF', '8': '#bfdae3' });
+    expect(state.position).toEqual([1, 2, 3]);
+    expect(el.querySelector('.warning-banner').hidden).toBe(true);
+    expect(el.querySelector('a').href).toContain(encodeURIComponent(JSON.stringify(state)));
+    vi.unstubAllGlobals();
+  });
+
+  it('shows a visible palette warning but still renders an Atlas viewer on failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const el = renderJsReference(`${BASE}&showAtlas`);
+    await vi.waitFor(() => expect(el.querySelector('iframe').getAttribute('src')).toBeTruthy());
+    expect(el.querySelector('.warning-banner').hidden).toBe(false);
+    const state = iframeState(el);
+    expect(state.layers.find(layer => layer.name === 'Atlas').segmentColors).toBeUndefined();
+    expect(el.querySelector('iframe').getAttribute('src')).toContain('/ng/index.html?chrome#!');
+    expect(el.querySelector('a').href).toContain('neuroglancer-demo.appspot.com');
+    vi.unstubAllGlobals();
+  });
+
+  it('renders an error for an invalid showAtlas before fetching anything', () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const el = renderJsReference(`${BASE}&showAtlas=maybe`);
+    expect(el.classList.contains('qc-media-error')).toBe(true);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it('strips action params from render params and group key', () => {
     const ref = `${BASE}&action=segments:1,2&action=goto:1,2,3`;
     const { params, actions } = parseJsReference(ref);
