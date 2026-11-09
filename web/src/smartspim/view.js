@@ -270,6 +270,7 @@ export function createSmartSpimView(coord) {
       assetNameCol: 'name',
       assetFilter: { type: 'instrument_id_contains', value: 'smart' },
       platformKey: 'spim',
+      operationsTableName: 'platform_smartspim_operations',
     }));
     container.appendChild(layout);
 
