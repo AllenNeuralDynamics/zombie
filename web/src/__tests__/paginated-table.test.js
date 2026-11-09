@@ -81,6 +81,33 @@ describe('buildFilterInput', () => {
     expect(html).toContain('<select');
   });
 
+  it.each([39, 40, 41])('uses the inclusive threshold at %i distinct values', (count) => {
+    const rows = Array.from({ length: count }, (_, i) => ({ status: `status-${i}` }));
+    const html = buildFilterInput('status', '', rows);
+    expect(html.includes('<select')).toBe(count <= 40);
+    if (count <= 40) expect(html.match(/<option/g)).toHaveLength(count + 1);
+  });
+
+  it('keeps all options and the selected value at a custom threshold', () => {
+    const rows = [{ status: 'a' }, { status: 'b' }, { status: 'c' }];
+    const html = buildFilterInput('status', 'c', rows, undefined, 3);
+    expect(html.match(/<option/g)).toHaveLength(4);
+    expect(html).toContain('value="c" selected');
+    expect(buildFilterInput('status', 'c', [...rows, { status: 'd' }], undefined, 3)).toContain('<input');
+  });
+
+  it('retains every option in forced selects even above the threshold', () => {
+    const rows = Array.from({ length: 50 }, (_, i) => ({ status: `status-${i}` }));
+    const html = buildFilterInput('status', 'status-49', rows, 'select');
+    expect(html.match(/<option/g)).toHaveLength(51);
+    expect(html).toContain('value="status-49" selected');
+  });
+
+  it('does not read unused options for forced text filters', () => {
+    const rows = [{ get status() { throw new Error('Unneeded option was read'); } }];
+    expect(buildFilterInput('status', 'find me', rows, 'text')).toContain('value="find me"');
+  });
+
   it('escapes HTML in column names', () => {
     const html = buildTableHead(
       ['<script>'],

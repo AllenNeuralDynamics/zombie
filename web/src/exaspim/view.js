@@ -336,7 +336,7 @@ export function createExaSpimView(coord) {
 
     const uniques = {};
     for (const col of ALL_COLS) {
-      uniques[col] = uniqueValues(allRows, col);
+      uniques[col] = uniqueValues(allRows, col, { limit: SELECT_THRESHOLD + 1 });
     }
     uniques.intermediates_deleted = ['Yes', 'No', 'Unknown', 'No processed assets'];
 

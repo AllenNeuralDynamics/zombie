@@ -91,10 +91,12 @@ export function sortRows(rows, col, dir) {
  * splitting string values by a delimiter.
  * @param {object[]} rows
  * @param {string} col
+ * @param {{ split?: string|null, limit?: number }} [options] - Stop after collecting limit distinct values; unbounded by default.
  * @returns {string[]}
  */
-export function uniqueValues(rows, col, { split = null } = {}) {
+export function uniqueValues(rows, col, { split = null, limit = Infinity } = {}) {
   const seen = new Set();
+  if (limit <= 0) return [];
   for (const row of rows) {
     const v = row[col];
     if (v == null || v === '') continue;
@@ -102,14 +104,17 @@ export function uniqueValues(rows, col, { split = null } = {}) {
       for (const item of v) {
         const s = String(item).trim();
         if (s) seen.add(s);
+        if (seen.size >= limit) break;
       }
     } else if (split) {
       for (const part of String(v).split(split).map((s) => s.trim()).filter(Boolean)) {
         seen.add(part);
+        if (seen.size >= limit) break;
       }
     } else {
       seen.add(String(v));
     }
+    if (seen.size >= limit) break;
   }
   return Array.from(seen).sort();
 }

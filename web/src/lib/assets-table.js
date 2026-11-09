@@ -41,7 +41,8 @@ export function buildAssetsTable(assets, sourceMap, { onRowClick } = {}) {
   }
 
   const assignedDerived = new Set(Object.values(derivedByRaw).flat().map((r) => r.name));
-  const orphanDerived = assets.filter((r) => !rawAssets.includes(r) && !assignedDerived.has(r.name));
+  const rawSet = new Set(rawAssets);
+  const orphanDerived = assets.filter((r) => !rawSet.has(r) && !assignedDerived.has(r.name));
 
   // Flat ordered list preserving raw→derived grouping, used for pagination
   const orderedRows = [];

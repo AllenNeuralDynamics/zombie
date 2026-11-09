@@ -270,6 +270,7 @@ export function createSmartSpimView(coord) {
       assetNameCol: 'name',
       assetFilter: { type: 'instrument_id_contains', value: 'smart' },
       platformKey: 'spim',
+      operationsTableName: 'platform_smartspim_operations',
     }));
     container.appendChild(layout);
 
@@ -391,7 +392,7 @@ export function createSmartSpimView(coord) {
 
     const uniques = {};
     for (const col of ALL_COLS) {
-      uniques[col] = uniqueValues(allRows, col, { split: col === 'channels' ? '\n' : null });
+      uniques[col] = uniqueValues(allRows, col, { split: col === 'channels' ? '\n' : null, limit: SELECT_THRESHOLD + 1 });
     }
 
     const useSelect = {};

@@ -64,3 +64,28 @@ describe('buildAssetsTable — asset links', () => {
     expect(link.getAttribute('href')).toBe('/view?asset=asset%20with%20spaces');
   });
 });
+
+describe('buildAssetsTable — grouping and pagination', () => {
+  it('preserves parent order, multiple parents, and assets with missing parents', () => {
+    const assets = ['raw-a', 'child', 'raw-b', 'orphan'].map(makeAsset);
+    const wrapper = buildAssetsTable(assets, {
+      child: ['raw-a', 'raw-b'],
+      orphan: ['missing-parent'],
+    });
+    const rows = [...wrapper.querySelectorAll('tbody tr')];
+    expect(rows.map(row => row.dataset.assetName)).toEqual(['raw-a', 'child', 'raw-b', 'child', 'orphan']);
+    expect(rows.map(row => row.classList.contains('asset-derived-row'))).toEqual([false, true, false, true, false]);
+  });
+
+  it('pages independent assets and jumps to a highlighted asset on another page', () => {
+    const assets = Array.from({ length: 102 }, (_, i) => makeAsset(`asset-${i}`));
+    const wrapper = buildAssetsTable(assets, null);
+    expect(wrapper.querySelectorAll('tbody tr')).toHaveLength(100);
+    wrapper.querySelector('#at-next').click();
+    expect([...wrapper.querySelectorAll('tbody tr')].map(row => row.dataset.assetName)).toEqual(['asset-100', 'asset-101']);
+    wrapper.querySelector('#at-prev').click();
+    wrapper.goToAsset('asset-101');
+    expect(wrapper.querySelector('.asset-highlighted').dataset.assetName).toBe('asset-101');
+    expect(wrapper.querySelector('.page-info').textContent).toBe('101–102 of 102');
+  });
+});
