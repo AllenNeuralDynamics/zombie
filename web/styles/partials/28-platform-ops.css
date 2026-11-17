@@ -5,6 +5,11 @@
 
 .platform-ops-section {
   padding: 0.5rem 0;
+  min-width: 0;
+}
+
+.ops-table-scroll {
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -34,6 +39,13 @@
   font-size: 0.8rem;
   border-collapse: collapse;
   width: auto;
+  /* .assets-table clips overflow and caps cells at 260px; undo both so the
+   * table grows to its steps and .ops-table-scroll scrolls it instead. */
+  overflow: visible;
+}
+
+.platform-ops-table td {
+  max-width: none;
 }
 
 .platform-ops-table th,

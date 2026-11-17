@@ -393,7 +393,11 @@ async function loadOperations(coord, { operationsTableName, start, end, filterSt
       tbody.append(tr, detailRow);
     }
 
-    containerEl.appendChild(table);
+    // Only the table scrolls sideways; the week controls above stay in view.
+    const tableScroll = document.createElement('div');
+    tableScroll.className = 'ops-table-scroll';
+    tableScroll.appendChild(table);
+    containerEl.appendChild(tableScroll);
 
     // Now that the default view is errors-only, an empty table is the *good*
     // outcome and needs saying so — otherwise a clean week is indistinguishable
@@ -423,7 +427,7 @@ async function loadOperations(coord, { operationsTableName, start, end, filterSt
         }
       }
       emptyNote.hidden = shownCount > 0;
-      table.hidden = shownCount === 0;
+      tableScroll.hidden = shownCount === 0;
     };
     containerEl.__applyFilter = applyFilter;
     applyFilter();
