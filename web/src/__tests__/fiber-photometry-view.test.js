@@ -6,9 +6,22 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyFiberSidebarFilters,
+  buildFibAssetNamesSql,
   buildMissingTable,
   pivotLongFormRows,
 } from '../fiber_photometry/view.js';
+
+describe('buildFibAssetNamesSql', () => {
+  it('excludes HSFP instruments by default', () => {
+    const sql = buildFibAssetNamesSql();
+    expect(sql).toContain('NOT IN');
+    expect(sql).toContain("instrument_id IN ('HSFP-1', 'HSFP')");
+  });
+
+  it('returns every platform_fib asset when nothing is excluded', () => {
+    expect(buildFibAssetNamesSql([])).toBe('SELECT DISTINCT asset_name FROM platform_fib');
+  });
+});
 
 describe('applyFiberSidebarFilters', () => {
   const rows = [
