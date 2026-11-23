@@ -13,6 +13,18 @@ import { createPlatformOverview } from '../lib/platform-overview.js';
 import { ensureTable } from '../lib/registry.js';
 import { queryRows } from '../lib/arrow.js';
 import { buildCheckboxGroup } from '../lib/checkbox-filter.js';
+import { buildInstrumentExclusion } from '../lib/platform-overview/helpers.js';
+
+// HSFP rigs record fib but are not on-platform photometry (issue #111).
+export const EXCLUDED_INSTRUMENT_IDS = ['HSFP-1', 'HSFP'];
+
+const FIB_ASSET_FILTER = { type: 'modality', value: 'fib', excludeInstrumentIds: EXCLUDED_INSTRUMENT_IDS };
+
+/** SQL listing platform_fib asset names, minus assets from excluded instruments. */
+export function buildFibAssetNamesSql(excluded = EXCLUDED_INSTRUMENT_IDS) {
+  const exclusion = buildInstrumentExclusion({ excludeInstrumentIds: excluded }, { nameCol: 'asset_name' });
+  return `SELECT DISTINCT asset_name FROM platform_fib${exclusion ? ` WHERE 1=1${exclusion}` : ''}`;
+}
 
 const ALWAYS_SHOWN_BASICS = ['subject_id', 'project_name'];
 const OPTIONAL_BASICS = ['acquisition_start_time', 'data_level', 'modalities', 'genotype'];
@@ -483,7 +495,7 @@ export function createFiberPhotometryView(coord) {
     await ensureTable(coord, 'platform_fib');
     console.log(`[FibPhot] platform_fib registered      +${(performance.now()-t0).toFixed(0)}ms`);
 
-    const nameRows = await queryRows(coord, 'SELECT DISTINCT asset_name FROM platform_fib');
+    const nameRows = await queryRows(coord, buildFibAssetNamesSql());
     const assetNames = nameRows.map((r) => r.asset_name).filter((n) => n != null);
     console.log(`[FibPhot] ${assetNames.length} distinct assets           +${(performance.now()-t0).toFixed(0)}ms`);
 
@@ -574,7 +586,7 @@ export function createFiberPhotometryView(coord) {
     container.appendChild(createPlatformOverview(coord, {
       platformTableName: 'platform_fib',
       assetNameCol: 'asset_name',
-      assetFilter: { type: 'modality', value: 'fib' },
+      assetFilter: FIB_ASSET_FILTER,
       platformKey: 'fib',
       operationsTableName: 'platform_fib_operations',
     }));

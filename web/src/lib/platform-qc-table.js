@@ -27,6 +27,7 @@ import { queryRows } from './arrow.js';
 import { ensureTable } from './registry.js';
 import { s3PathToHttps } from './metadata.js';
 import { getAcorn } from './registry.js';
+import { buildInstrumentExclusion } from './platform-overview/helpers.js';
 
 /** DuckDB table name for a given platform key and groupBy mode. */
 const tableNameFor = (key, groupBy) => `platform_qc_${key}_${groupBy === 'experimenter' ? 'exp' : 'rig'}`;
@@ -89,10 +90,11 @@ const isValidDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s
  * n_sessions counts distinct assets across ALL metrics (not per-metric),
  * so it always reflects the full group size.
  */
-async function fetchStats(coord, { platformKey, groupBy, since }) {
+async function fetchStats(coord, { platformKey, assetFilter, groupBy, since }) {
   await ensurePlatformTable(coord, platformKey, groupBy);
   const tbl = tableNameFor(platformKey, groupBy);
-  const whereCond = (since && isValidDate(since)) ? `AND timestamp >= '${since}'` : '';
+  const whereCond = ((since && isValidDate(since)) ? `AND timestamp >= '${since}'` : '')
+    + buildInstrumentExclusion(assetFilter, { nameCol: 'asset_name' });
   console.log(`[platform-qc] fetchStats START tbl=${tbl} groupBy=${groupBy} since=${since}`);
 
   let sql;
@@ -224,6 +226,7 @@ function organizeStats(rows) {
  * @param {object} coord
  * @param {object} opts
  * @param {string}               opts.platformKey     'spim' | 'fib' | 'vr' | 'dynamic_foraging'
+ * @param {object|null}          [opts.assetFilter]  Only excludeInstrumentIds is used here.
  * @param {'rig'|'experimenter'} [opts.groupBy]
  * @param {Set<string>|null}     [opts.visibleMetrics]  null = show all
  * @param {string|null}          [opts.since]  YYYY-MM-DD lower bound on timestamp, null = all time
@@ -237,6 +240,7 @@ function organizeStats(rows) {
  */
 export function createPlatformQcTable(coord, {
   platformKey,
+  assetFilter = null,
   groupBy = 'rig',
   visibleMetrics = null,
   since = null,
@@ -313,7 +317,7 @@ export function createPlatformQcTable(coord, {
     p.textContent = 'Loading QC stats…';
     container.appendChild(p);
 
-    fetchStats(coord, { platformKey, groupBy: _groupBy, since: _since })
+    fetchStats(coord, { platformKey, assetFilter, groupBy: _groupBy, since: _since })
       .then((rows) => {
         _organized = organizeStats(rows);
         if (_metricsCb) _metricsCb(_organized.metrics);
