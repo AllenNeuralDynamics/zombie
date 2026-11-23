@@ -18,8 +18,15 @@ export function writeCookie(name, value) {
   document.cookie = `${name}=${encodeURIComponent(value)}; expires=${exp}; path=/; SameSite=Lax`;
 }
 
-/** Build a SQL WHERE fragment for an asset filter spec ({ type, value }). */
+/**
+ * Build a SQL WHERE fragment for an asset filter spec
+ * ({ type, value, excludeInstrumentIds? }) over asset_basics columns.
+ */
 export function buildFilterCondition(assetFilter) {
+  return baseFilterCondition(assetFilter) + buildInstrumentExclusion(assetFilter);
+}
+
+function baseFilterCondition(assetFilter) {
   if (!assetFilter) return '1=1';
   const safeVal = String(assetFilter.value ?? '').replace(/'/g, "''");
   if (assetFilter.type === 'modality') return `list_contains(modalities, '${safeVal}')`;
@@ -28,6 +35,21 @@ export function buildFilterCondition(assetFilter) {
   if (assetFilter.type === 'instrument_id_contains') return `instrument_id IS NOT NULL AND instrument_id ILIKE '%${safeVal}%'`;
   if (assetFilter.type === 'project_name') return `project_name = '${safeVal}'`;
   return '1=1';
+}
+
+/**
+ * ` AND …` fragment dropping assets on assetFilter.excludeInstrumentIds, or ''
+ * when there are none. With `nameCol`, matches that asset-name column against
+ * asset_basics (for tables without instrument_id); otherwise filters
+ * asset_basics' own instrument_id.
+ */
+export function buildInstrumentExclusion(assetFilter, { nameCol = null } = {}) {
+  const ids = assetFilter?.excludeInstrumentIds ?? [];
+  if (!ids.length) return '';
+  const inList = ids.map((s) => `'${String(s).replace(/'/g, "''")}'`).join(', ');
+  if (!nameCol) return ` AND (instrument_id IS NULL OR instrument_id NOT IN (${inList}))`;
+  // name IS NOT NULL: a NULL in a NOT IN subquery would reject every row.
+  return ` AND ${nameCol} NOT IN (SELECT name FROM asset_basics WHERE name IS NOT NULL AND instrument_id IN (${inList}))`;
 }
 
 /** Validate that a value is a YYYY-MM-DD date string before interpolating into SQL. */

@@ -15,7 +15,7 @@
 
 import { arrowTableToRows } from './arrow.js';
 import { buildModalityHistogram } from './charts.js';
-import { readCookie, writeCookie, buildFilterCondition } from './platform-overview/helpers.js';
+import { readCookie, writeCookie, buildFilterCondition, buildInstrumentExclusion } from './platform-overview/helpers.js';
 import { createQcMetricsDropdown } from './platform-overview/qc-metrics.js';
 import { createSessionSummaryDropdown } from './platform-overview/session-summary.js';
 import { createTimeToQcDropdown } from './platform-overview/time-to-qc.js';
@@ -31,7 +31,8 @@ import { createSettingsModal } from './platform-overview/settings-modal.js';
  *   When provided, the summary-count query counts assets from this table.
  *   When null, counts come from asset_basics filtered by assetFilter.
  * @param {string|null}  [opts.assetNameCol]  Column holding asset names in platformTableName.
- * @param {object}       [opts.assetFilter]   Filter spec: { type, value } passed to QC table.
+ * @param {object}       [opts.assetFilter]   Filter spec: { type, value }, plus optional
+ *   excludeInstrumentIds (instrument_id values dropped from every overview query).
  * @param {string|null}  [opts.platformKey]   Cookie/URL namespace for persisted settings.
  * @param {string|null}  [opts.operationsTableName]  Partitioned operations table for the
  *   "Processing status" dropdown (fib only). Null → that dropdown is empty.
@@ -214,7 +215,8 @@ export function createPlatformOverview(coord, {
 function loadStats(coord, { platformTableName, assetNameCol, assetFilter }, statsEl) {
   let totalSql;
   if (platformTableName && assetNameCol) {
-    totalSql = `SELECT COUNT(DISTINCT ${assetNameCol}) AS cnt FROM ${platformTableName}`;
+    totalSql = `SELECT COUNT(DISTINCT ${assetNameCol}) AS cnt FROM ${platformTableName}
+                WHERE 1=1${buildInstrumentExclusion(assetFilter, { nameCol: assetNameCol })}`;
   } else {
     const filterCond = buildFilterCondition(assetFilter);
     totalSql = `SELECT COUNT(*) AS cnt FROM asset_basics WHERE ${filterCond}`;

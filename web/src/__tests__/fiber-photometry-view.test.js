@@ -14,8 +14,8 @@ import {
 describe('buildFibAssetNamesSql', () => {
   it('excludes HSFP instruments by default', () => {
     const sql = buildFibAssetNamesSql();
-    expect(sql).toContain('NOT IN');
-    expect(sql).toContain("instrument_id IN ('HSFP-1', 'HSFP')");
+    expect(sql).toContain('asset_name NOT IN');
+    expect(sql).toContain("name IS NOT NULL AND instrument_id IN ('HSFP-1', 'HSFP')");
   });
 
   it('returns every platform_fib asset when nothing is excluded', () => {

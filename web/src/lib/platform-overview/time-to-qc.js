@@ -8,7 +8,7 @@
 import * as Plot from '@observablehq/plot';
 import { queryRows } from '../arrow.js';
 import { ensureTable } from '../registry.js';
-import { buildFilterCondition } from './helpers.js';
+import { buildFilterCondition, buildInstrumentExclusion } from './helpers.js';
 
 /**
  * @param {object} ctx  Shared overview context
@@ -82,6 +82,7 @@ async function loadTimeToQcHistogram(coord, { assetFilter, platformTableName, as
         ),
         platform_names AS (
           SELECT DISTINCT ${assetNameCol} AS n FROM ${platformTableName}
+          WHERE 1=1${buildInstrumentExclusion(assetFilter, { nameCol: assetNameCol })}
         )
         SELECT
           CASE WHEN t.name IS NULL THEN NULL

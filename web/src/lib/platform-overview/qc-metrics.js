@@ -8,13 +8,13 @@
 import { createPlatformQcTable } from '../platform-qc-table.js';
 
 /**
- * @param {object} ctx  Shared overview context ({ coord, platformKey, settings, persist }).
+ * @param {object} ctx  Shared overview context ({ coord, platformKey, assetFilter, settings, persist }).
  * @param {object} [opts]
  * @param {string|null} [opts.pendingMetricsRaw]  Comma-separated visible-metric
  *   names restored from URL/cookie, applied once metrics are discovered.
  */
 export function createQcMetricsDropdown(ctx, { pendingMetricsRaw = null } = {}) {
-  const { coord, platformKey, settings, persist } = ctx;
+  const { coord, platformKey, assetFilter, settings, persist } = ctx;
 
   const col = document.createElement('div');
   col.className = 'platform-dropdown-col';
@@ -37,6 +37,7 @@ export function createQcMetricsDropdown(ctx, { pendingMetricsRaw = null } = {}) 
 
   const tableApi = createPlatformQcTable(coord, {
     platformKey,
+    assetFilter,
     groupBy: settings.groupBy,
     visibleMetrics: settings.visibleMetrics,
     since: settings.since,

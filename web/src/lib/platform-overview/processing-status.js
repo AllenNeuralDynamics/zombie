@@ -18,6 +18,7 @@
 import { queryRows } from '../arrow.js';
 import { getResolvedVersion } from '../metadata.js';
 import { escHtml, formatDate, formatDatetime } from '../utils.js';
+import { buildInstrumentExclusion } from './helpers.js';
 import { S3_BUCKET, S3_REGION } from '../../constants.js';
 
 /**
@@ -37,10 +38,10 @@ const LOG_URL_COLUMNS = [
 const UNKNOWN_PIPELINE_LABEL = 'Processing steps';
 
 /**
- * @param {object} ctx  Shared overview context ({ coord, operationsTableName }).
+ * @param {object} ctx  Shared overview context ({ coord, operationsTableName, assetFilter }).
  */
 export function createProcessingStatusDropdown(ctx) {
-  const { coord, operationsTableName } = ctx;
+  const { coord, operationsTableName, assetFilter } = ctx;
 
   const col = document.createElement('div');
   col.className = 'platform-dropdown-col';
@@ -71,14 +72,14 @@ export function createProcessingStatusDropdown(ctx) {
     content.hidden = !expanded;
     if (expanded && !built) {
       built = true;
-      buildOperationsSection(coord, { operationsTableName }, content);
+      buildOperationsSection(coord, { operationsTableName, assetFilter }, content);
     }
   });
 
   return { col };
 }
 
-function buildOperationsSection(coord, { operationsTableName }, containerEl) {
+function buildOperationsSection(coord, { operationsTableName, assetFilter }, containerEl) {
   containerEl.innerHTML = '';
 
   if (!operationsTableName) {
@@ -140,7 +141,7 @@ function buildOperationsSection(coord, { operationsTableName }, containerEl) {
     rangeLabel.textContent = `${formatDate(start.toISOString())} – ${formatDate(end.toISOString())}`;
     nextBtn.disabled = end.getTime() >= maxEnd.getTime();
     const myReq = ++reqId;
-    loadOperations(coord, { operationsTableName, start, end, filterState }, body, () => myReq === reqId);
+    loadOperations(coord, { operationsTableName, assetFilter, start, end, filterState }, body, () => myReq === reqId);
   }
 
   prevBtn.addEventListener('click', () => {
@@ -158,7 +159,7 @@ function buildOperationsSection(coord, { operationsTableName }, containerEl) {
   reload();
 }
 
-async function loadOperations(coord, { operationsTableName, start, end, filterState }, containerEl, isCurrent) {
+async function loadOperations(coord, { operationsTableName, assetFilter, start, end, filterState }, containerEl, isCurrent) {
   containerEl.innerHTML = '';
   containerEl.__applyFilter = null;
   const stillCurrent = () => (isCurrent ? isCurrent() : true);
@@ -178,7 +179,7 @@ async function loadOperations(coord, { operationsTableName, start, end, filterSt
       `SELECT name, acquisition_start_time AS acq
        FROM asset_basics
        WHERE acquisition_start_time >= '${startIso}'
-         AND acquisition_start_time < '${endIso}'`);
+         AND acquisition_start_time < '${endIso}'${buildInstrumentExclusion(assetFilter)}`);
     if (!stillCurrent()) return;
 
     const acqByName = new Map();
